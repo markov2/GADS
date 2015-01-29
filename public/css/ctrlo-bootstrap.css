@@ -22,9 +22,6 @@ a {
 b,strong {
 	font-weight:bold;
 }
-fieldset {
-	border:1px solid #c0c0c0;
-}
 optgroup {
 	font-weight:bold;
 }
@@ -439,7 +436,7 @@ select.input-lg {
 	background:url(carat.png);
 	background-repeat:no-repeat;
 	background-position:top left;
-	color:transparent;
+	border-top: 0px;
 	margin-left:10px;
 	margin-right:-10px;
 	margin-top:-5px;
@@ -467,7 +464,7 @@ select.input-lg {
 }
 .dropdown-header {
 	font-size:13px;
-	color:#ffffff;
+/*	color:#ffffff; */
 }
 .btn-group>.btn:focus,.btn-group-vertical>.btn:focus {
 	outline:none;
@@ -560,7 +557,7 @@ select.input-group-sm>.form-control,select.input-group-sm>.input-group-addon,sel
 	max-height:340px;
 }
 .navbar-brand {
-	padding:14.5px 0px;
+	padding:14.5px 14.5px 14.5px 0px;
 	font-size:19px;
 	line-height:21px;
 }
