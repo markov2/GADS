@@ -76,6 +76,12 @@
                                 shadow: false
                             }
                         },
+                    [% ELSE %]
+                        seriesDefaults:{
+                            pointLabels: {
+                                show: false
+                            }
+                        },
                     [% END %]
                         [% UNLESS graph.type == "donut" OR graph.type == "pie" %]
                             series: plotData.labels,
