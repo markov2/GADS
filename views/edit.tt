@@ -90,11 +90,13 @@
 
                 calculator_elem.append('
                     <button type="button" class="close" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-                    <div class="btn-group operator" role="group"></div>
-                    <form><input type="text"></input></form>
-                    <div class="btn-group">
-                        <button type="button" class="submit">Calculate</button>
-                    </div>
+                    <form>
+                        <div class="btn-group operator" data-toggle="buttons"></div>
+                        <div><input type="text"></input></div>
+                        <div class="btn-group">
+                            <button type="button" class="submit">Calculate</button>
+                        </div>
+                    </form>
                 ');
 
                 var calculator_operation;
@@ -123,9 +125,11 @@
                     ( function () {
                         var btn = calculator_button[i];
                         var button_elem = $(
-                            '<button type="button" class="btn btn-default">'
+                            '<label class="btn btn-primary">'
+                            + '<input type="radio" name="op">'
                             + btn.label
-                            + '</button>'
+                            + '</input>'
+                            + '</label>'
                         );
                         operator_btns_elem.append(button_elem);
                         button_elem.on('click', function() {
