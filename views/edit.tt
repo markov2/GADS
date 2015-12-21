@@ -145,6 +145,7 @@
                         + calculator_elem.find(':text').val()
                     );
                     integer_input_elem.val(new_value);
+                    calculator_elem.hide();
                     e.preventDefault();
                 });
                 calculator_elem.find('.close').on('click', function () {
