@@ -22,6 +22,7 @@ WriteMakefile(
         'Dancer2::Plugin::Auth::Extensible'         => 0,
         'Dancer2::Plugin::Auth::Extensible::Provider::DBIC' => 0,
         'Dancer2::Plugin::DBIC'                     => 0,
+        'Dancer2::Plugin::LogReport'                => 1.10,
         'Data::Compare'                             => 0,
         'DateTime'                                  => 0,
         'DateTime::Event::Random'                   => 0,
