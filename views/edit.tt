@@ -134,19 +134,23 @@
                         operator_btns_elem.append(button_elem);
                         button_elem.on('click', function() {
                             calculator_operation = btn.operation;
+                            calculator_elem.find('input.inttext').focus();
                         });
                     })();
                 }
 
-                var submit_elem = calculator_elem.find('.submit');
-                [%# TODO: Generate a greyed out "Calculate" button %]
-                submit_elem.on('click', function() {
+                var do_calculation = function (e) {
                     var new_value = calculator_operation(
                         + integer_input_elem.val(),
                         + calculator_elem.find('.inttext').val()
                     );
                     integer_input_elem.val(new_value);
-                });
+                    e.preventDefault();
+                };
+                var submit_elem = calculator_elem.find('.submit');
+                [%# TODO: Generate a greyed out "Calculate" button %]
+                submit_elem.on('click', do_calculation);
+                calculator_elem.find('form').on('submit', do_calculation);
 
                 calculator_elem.find('.close').on('click', function () {
                     calculator_elem.hide();
