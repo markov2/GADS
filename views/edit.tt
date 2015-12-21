@@ -92,7 +92,7 @@
                     <button type="button" class="close" aria-label="Close"><span aria-hidden="true">&times;</span></button>
                     <form>
                         <div class="btn-group operator" data-toggle="buttons"></div>
-                        <div><input type="text"></input></div>
+                        <div><input type="text" class="inttext"></input></div>
                         <div class="btn-group">
                             <button type="button" class="submit">Calculate</button>
                         </div>
@@ -143,7 +143,7 @@
                 submit_elem.on('click', function() {
                     var new_value = calculator_operation(
                         + integer_input_elem.val(),
-                        + calculator_elem.find('input').val()
+                        + calculator_elem.find('.inttext').val()
                     );
                     integer_input_elem.val(new_value);
                 });
@@ -159,7 +159,7 @@
                 $('.openintcalculator').on('click', function (e) {
                     var calc_elem = $(e.target);
                     var container_elem = calc_elem.closest('.form-group');
-                    var input_elem = container_elem.find('input.intcalulator');
+                    var input_elem = container_elem.find(selector);
 
                     var container_y_offset = container_elem.offset().top;
                     var container_height = container_elem.height();
@@ -175,6 +175,7 @@
                         left: container_elem.offset().left
                     });
                     calculator_elem.show();
+                    calculator_elem.find('input.inttext').focus();
                     integer_input_elem = input_elem;
                 });
             }
