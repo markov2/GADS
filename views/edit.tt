@@ -152,9 +152,14 @@
                     calculator_elem.hide();
                 });
 
-                $(selector).on('focus', function (e) {
-                    var input_elem = $(e.target);
-                    var container_elem = input_elem.closest('.form-group');
+                var calc_button =
+                    '<span class="btn-xs btn-link openintcalculator">Calculator</span>';
+                $(selector).closest('.form-group').find('label').after(calc_button);
+
+                $('.openintcalculator').on('click', function (e) {
+                    var calc_elem = $(e.target);
+                    var container_elem = calc_elem.closest('.form-group');
+                    var input_elem = container_elem.find('input.intcalulator');
 
                     var container_y_offset = container_elem.offset().top;
                     var container_height = container_elem.height();
