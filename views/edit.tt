@@ -85,6 +85,7 @@
                     width:  calculator_size[0],
                     height: calculator_size[1],
                     display: 'none',
+                    padding: '10px'
                 });
                 $('body').append(calculator_elem);
 
@@ -92,8 +93,8 @@
                     <button type="button" class="close" aria-label="Close"><span aria-hidden="true">&times;</span></button>
                     <form>
                         <div class="btn-group operator" data-toggle="buttons"></div>
-                        <div><input type="text"></input></div>
-                        <div class="btn-group">
+                        <div><input type="text" placeholder="Number"></input></div>
+                        <div>
                             <input type="submit" value="Calculate" class="btn-default"></input>
                         </div>
                     </form>
