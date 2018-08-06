@@ -1068,6 +1068,7 @@ has editor_shown_fields => (
 # to work out whether to display a "back" button on the record
 sub has_previous_values
 {   my $self = shift;
+    return 0;
     !!grep {
         $self->fields->{$_->id}->value_previous_page
     } $self->columns_to_show_write;
@@ -1077,6 +1078,7 @@ sub has_previous_values
 # to work out wherther to display "save" or "next"
 sub has_next_values
 {   my $self = shift;
+    return 0;
     !!grep {
         !$self->fields->{$_->id}->written_to && !$self->fields->{$_->id}->show_for_write
     } $self->columns_to_show_write;
@@ -1084,6 +1086,7 @@ sub has_next_values
 
 sub has_not_done
 {   my $self = shift;
+    return 0;
     !!grep {
         # Still needs to be done if:
            !$self->fields->{$_->id}->written_to # It's not been written to at all

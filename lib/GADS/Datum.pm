@@ -155,6 +155,7 @@ has show_for_write => (
     clearer => 1,
     builder => sub {
         my $self = shift;
+        return 1;
         # If any field before this field is not being shown on this page (as
         # it's not ready yet), then also don't show this field. This forces
         # fields after those not-shown to display on the correct page.
