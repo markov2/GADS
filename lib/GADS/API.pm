@@ -366,4 +366,45 @@ post '/api/token' => sub {
     return encode_json $json_response;
 };
 
+get '/api/courses' => sub { # XXX End-point to change for any field
+
+    my $user   = logged_in_user;
+    my $layout = var 'layout';
+
+    my $curval = $layout->column(9); # XXX From params
+
+    my @cols = @{$curval->filter->columns_in_subs($layout)};
+
+    my $record = GADS::Record->new(
+        user   => $user,
+        layout => $layout,
+        schema => schema,
+    );
+    $record->initialise;
+
+    my @missing;
+    foreach my $col (@cols)
+    {
+        my @vals = query_parameters->get_all($col->field);
+        push @missing, $col if !"@vals" && !$col->optional;
+        my $datum = $record->fields->{$col->id};
+        process( sub { $datum->set_value(\@vals) } );
+    }
+
+    if (@missing)
+    {
+        my $msg = "The following fields need to be completed first: "
+            .join ', ', map { $_->name } @missing;
+
+        return encode_json { status => 'error', message => $msg };
+    }
+
+    return encode_json {
+        "status" => "ok",
+        "records"=> [
+            map { +{ id => $_->{id}, label => $_->{value} } } @{$curval->filtered_values}
+        ]
+    };
+};
+
 1;
