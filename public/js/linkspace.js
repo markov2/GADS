@@ -110,14 +110,7 @@ var SelectWidget = function (multi) {
             }
         });
 
-        setTimeout(function(){
-            var data = {
-                "status": "ok",
-                "records": [
-                    {"id": 4, "label": "The Netherlands"},
-                    {"id": 5, "label": "Belgium"}
-                ]
-            };
+        $.getJSON(filterEndpoint, data, function(data) {
             if (data.status === "ok") {
                 console.warn("OK", data);
                 $current.empty();
@@ -175,17 +168,13 @@ var SelectWidget = function (multi) {
             } else if (data.status === "error") {
                 console.warn("ERROR", data.message);
             }
-
-            $.getJSON(filterEndpoint, data, function(data) {
-                console.warn("TODO: Move handle logic (just above this call) to here. And remove setTimeout.");
-            })
-            .fail(function() {
-                console.error("Error fetching options!");
-            })
-            .always(function() {
-                console.warn("TODO: Hide spinner");
-            });
-        }, 500);
+        })
+        .fail(function() {
+            console.error("Error fetching options!");
+        })
+        .always(function() {
+            console.warn("TODO: Hide spinner");
+        });
     }
 
     var onTriggerClick = function ($widget, $trigger, $target) {
