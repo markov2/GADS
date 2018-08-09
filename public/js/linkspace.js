@@ -33,6 +33,7 @@ $.fn.datepicker = function () {
  */
 var SelectWidget = function (multi) {
 
+    var $selectWidget = this;
     var $widget = this.find('.form-control');
 
     if ($widget.hasClass("hasSelectWidget")) {
@@ -68,6 +69,125 @@ var SelectWidget = function (multi) {
         };
     };
 
+    var fetchOptions = function() {
+        var field = $selectWidget.data("field");
+        var filterEndpoint = $selectWidget.data("filter-endpoint");
+        var filterFields = $selectWidget.data("filter-fields");
+        if (!Array.isArray(filterFields)) {
+            console.error("Invalid data-filter-fields found. It should be a proper JSON array of fields.");
+        }
+
+        // Collect values of linked fields
+        var data = {};
+        $.each(filterFields, function(_, field) {
+            var values = [];
+            var multipleValues = false;
+
+            $("input[name=" + field + "]").each(function(_, input) {
+                var $input = $(input);
+                switch($input.attr("type")) {
+                    case "text":
+                        values.push($input.val());
+                        break;
+                    case "radio":
+                        if (input.checked) {
+                            values.push($input.val());
+                        }
+                        break;
+                    case "checkbox":
+                        if (input.checked) {
+                            values.push($input.val());
+                        }
+                        multipleValues = true;
+                        break;
+               };
+            });
+
+            if (multipleValues) {
+                data[field] = values;
+            } else {
+                data[field] = values[0];
+            }
+        });
+
+        setTimeout(function(){
+            var data = {
+                "status": "ok",
+                "records": [
+                    {"id": 4, "label": "The Netherlands"},
+                    {"id": 5, "label": "Belgium"}
+                ]
+            };
+            if (data.status === "ok") {
+                console.warn("OK", data);
+                $current.empty();
+                $available.empty();
+
+                $.each(data.records, function(recordIndex, record) {
+                    var checked = recordIndex === 0; // TODO: Actually determine checked state
+                    var valueId = field + "_" + record.id;
+
+                    // TODO: Consider using hyperscript
+
+                    // Setup 'current' list
+                    var currentEl = document.createElement("li");
+                    if (!checked) {
+                        currentEl.setAttribute("hidden", "hidden");
+                    }
+                    currentEl.setAttribute("data-list-item", valueId);
+                    currentEl.innerText = record.label;
+                    $current.append(currentEl);
+
+                    // Setup hidden radio button list
+                    var answerInputEl = document.createElement("input");
+                    answerInputEl.setAttribute("id", valueId);
+                    answerInputEl.setAttribute("type", "radio");
+                    answerInputEl.setAttribute("name", field);
+                    if (checked) {
+                        answerInputEl.setAttribute("checked", "checked");
+                    }
+                    answerInputEl.setAttribute("value", record.id);
+                    answerInputEl.setAttribute("class", "visually-hidden");
+                    var answerSpanEl = document.createElement("span");
+                    answerSpanEl.innerHTML = record.label;
+
+                    var answerLabelEl = document.createElement("label");
+                    answerLabelEl.setAttribute("id", valueId + "_label");
+                    answerLabelEl.setAttribute("for", valueId);
+                    answerLabelEl.appendChild(answerInputEl);
+                    answerLabelEl.appendChild(answerSpanEl);
+
+                    var answerSpanControEl = document.createElement("span");
+                    answerSpanControEl.setAttribute("class", "control");
+                    answerSpanControEl.appendChild(answerLabelEl);
+
+                    var answerLiEl = document.createElement("li");
+                    answerLiEl.setAttribute("class", "answer");
+                    answerLiEl.appendChild(answerSpanControEl);
+
+                    $available.append(answerLiEl);
+
+                    // Setup search field
+                    // TODO
+
+                    // TODO: Initialize event handlers
+                });
+            } else if (data.status === "error") {
+                console.warn("ERROR", data.message);
+            }
+
+            $.getJSON(filterEndpoint, data, function(data) {
+                console.warn("TODO: Move handle logic (just above this call) to here. And remove setTimeout.");
+            })
+            .fail(function() {
+                console.error("Error fetching options!");
+            })
+            .always(function() {
+                console.warn("TODO: Hide spinner");
+            });
+        }, 500);
+    }
+
     var onTriggerClick = function ($widget, $trigger, $target) {
         return function (event) {
             var isCurrentlyExpanded = $trigger.attr('aria-expanded') === 'true';
@@ -76,6 +196,11 @@ var SelectWidget = function (multi) {
             $trigger.attr('aria-expanded', willExpandNext);
 
             if (willExpandNext) {
+                if ($selectWidget.data("filter-endpoint") && $selectWidget.data("filter-endpoint").length) {
+                    fetchOptions();
+                    console.warn("TODO: clear all options and show spinner");
+                }
+
                 var widgetTop = $widget.offset().top;
                 var widgetBottom = widgetTop + $widget.outerHeight();
                 var viewportTop = $(window).scrollTop();
@@ -100,6 +225,7 @@ var SelectWidget = function (multi) {
     var $container = $('main');
     var $trigger = $widget.find('[aria-expanded]');
     var $current = this.find('.current');
+    var $available = this.find('.available');
     var $availableItems = this.find('.available .answer input');
     var $target  = this.find('#' + $trigger.attr('aria-controls'));
     var $currentItems = $current.children();

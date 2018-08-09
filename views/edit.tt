@@ -771,7 +771,7 @@
 [% END %]
 
 [% BLOCK singlevalue_column %]
-    <div class="select-widget single" tabindex="0">
+    <div class="select-widget single" tabindex="0" data-field="[% field %]" data-filter-endpoint="[% field == "field9" ? "/api/courses" : "" %]" data-filter-fields='[% field == "field9" ? '["field2", "field4", "field3"]' : "" %]'>
         <div id="[% field %]_label" class="select-widget-label [% required && 'required' %]">[% label %]</div>
         <div class="select-widget-dropdown">
             <div class="form-group form-control" >
