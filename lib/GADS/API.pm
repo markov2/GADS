@@ -34,8 +34,8 @@ fatal_handler sub {
     return unless $dsl->app->request && $dsl->app->request->uri =~ m!^/api/!;
     status $reason eq 'PANIC' ? 'Internal Server Error' : 'Bad Request';
     $dsl->send_as(JSON => {
-        error             => 1,
-        error_description => $msg->toString },
+        error   => 1,
+        message => $msg->toString },
     { content_type => 'application/json; charset=UTF-8' });
 };
 
@@ -400,7 +400,7 @@ get '/api/courses' => sub { # XXX End-point to change for any field
     }
 
     return encode_json {
-        "status" => "ok",
+        "error"  => 0,
         "records"=> [
             map { +{ id => $_->{id}, label => $_->{value} } } @{$curval->filtered_values}
         ]
