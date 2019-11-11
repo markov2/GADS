@@ -10,12 +10,12 @@ GADS::Schema::Result::User
 use strict;
 use warnings;
 
-use DateTime;
-use GADS::Audit;
-use GADS::Config;
-use GADS::Email;
-use Log::Report;
+use Log::Report 'linkspace';
 use Moo;
+use DateTime;
+
+use GADS::Email;
+use Linkspace::Audit;
 
 extends 'DBIx::Class::Core';
 
@@ -623,42 +623,6 @@ __PACKAGE__->has_many(
   { cascade_copy => 0, cascade_delete => 0 },
 );
 
-# Groups that this user should be able to see for the purposes of things like
-# creating shared graphs
-sub groups_viewable
-{   my $self = shift;
-
-    my $schema = $self->result_source->schema;
-
-    # Superadmin, all groups
-    if ($self->permission->{superadmin})
-    {
-        return $schema->resultset('Group')->all;
-    }
-
-    my %groups;
-
-    # Layout admin, just groups in their layout(s)
-    my $instance_ids = $schema->resultset('InstanceGroup')->search({
-        'me.permission'       => 'layout',
-        'user_groups.user_id' => $self->id,
-    },{
-        join => {
-            group => 'user_groups',
-        },
-    })->get_column('me.instance_id');
-
-    $groups{$_->group_id} = $_->group foreach $schema->resultset('LayoutGroup')->search({
-        instance_id => { -in => $instance_ids->as_query },
-    },{
-        join => 'layout',
-    })->all;
-
-    # Normal users, just their groups
-    $groups{$_->group_id} = $_->group foreach $self->user_groups;
-
-    return values %groups;
-}
 
 =head2 user_lastrecords
 
@@ -712,53 +676,6 @@ sub sqlt_deploy_hook {
     $sqlt_table->add_index(name => 'user_idx_username', fields => [ { name => 'username', size => 64 } ]);
 }
 
-# Used to ensure an empty selector is available in the user edit page
-sub view_limits_with_blank
-{   my $self = shift;
-    return $self->view_limits if $self->view_limits->count;
-    return [undef];
-}
-
-sub set_view_limits
-{   my ($self, $view_ids) = @_;
-
-    # remove blank string from form
-    my @view_ids = grep { $_ } @$view_ids;
-
-    foreach my $view_id (@view_ids)
-    {
-        $self->find_or_create_related('view_limits', { view_id => $view_id });
-    }
-
-    # Delete any groups that no longer exist
-    my $search = {};
-    $search->{view_id} = {
-        '!=' => [ -and => @view_ids ]
-    } if @view_ids;
-    $self->search_related('view_limits', $search)->delete;
-}
-
-sub graphs
-{   my ($self, $instance_id, $graphs) = @_;
-
-    ref $graphs eq 'ARRAY' or panic "Invalid call to graphs";
-
-    foreach my $g (@$graphs)
-    {
-        unless($self->search_related('user_graphs', { graph_id => $g })->count)
-        {
-            $self->create_related('user_graphs', { graph_id => $g });
-        }
-    }
-
-    # Delete any graphs that no longer exist
-    my $search = { 'graph.instance_id' => $instance_id };
-    $search->{graph_id} = {
-        '!=' => [ -and => @$graphs ]
-    } if @$graphs;
-    $self->search_related('user_graphs', $search, { join => 'graph' })->delete;
-}
-
 # Used to check if a user has a group
 has has_group => (
     is => 'lazy',
@@ -769,32 +686,6 @@ sub _build_has_group
     +{
         map { $_->group_id => 1 } $self->user_groups
     };
-}
-
-sub groups
-{   my ($self, $logged_in_user, $groups) = @_;
-
-    if (!$logged_in_user && !$groups)
-    {
-        # Just return current value
-        return map { $_->group } $self->user_groups;
-    }
-
-    foreach my $g (@$groups)
-    {
-        next unless !$logged_in_user || $logged_in_user->permission->{superadmin} || $logged_in_user->has_group->{$g};
-        $self->find_or_create_related('user_groups', { group_id => $g });
-    }
-
-    # Delete any groups that no longer exist
-    my @allowed = map { $_->id }  grep { !$logged_in_user || $logged_in_user->permission->{superadmin} || $logged_in_user->has_group->{$_->id} }
-        $self->result_source->schema->resultset('Group')->all;
-
-    my $search = {};
-    $search->{group_id} = {
-        '!=' => [ -and => @$groups ]
-    } if @$groups;
-    $self->search_related('user_groups', $search)->search({ group_id => [@allowed] })->delete;
 }
 
 # Used to check if a user has a permission
@@ -847,7 +738,7 @@ sub update_user
         account_request_notes => $params{account_request_notes},
     };
 
-    my $audit = GADS::Audit->new(schema => $self->result_source->schema, user => $current_user);
+    my $audit = Linkspace::Audit->new;
 
     if (lc $values->{username} ne lc $self->username)
     {
@@ -861,16 +752,21 @@ sub update_user
     $values->{value} = _user_value($values);
     $self->update($values);
 
-    $self->groups($current_user, $params{groups})
+    $self->set_groups($params{groups})
         if $params{groups};
+
     if ($params{permissions})
     {
         error __"You do not have permission to set global user permissions"
             if !$current_user->permission->{superadmin};
         $self->permissions(@{$params{permissions}});
     }
-    $self->set_view_limits($params{view_limits})
-        if $params{view_limits};
+
+    if(my $view_limits = $params{view_limits})
+    {   my @view_limits = grep /\S/,
+           ref $view_limits eq 'ARRAY' ? @$view_limits : $view_limits;
+        $self->set_view_limits(\@view_limits);
+    }
 
     my $msg = __x"User updated: ID {id}, username: {username}",
         id => $self->id, username => $params{username};
@@ -907,14 +803,13 @@ sub permissions
 sub retire
 {   my ($self, %options) = @_;
 
-    my $schema = $self->result_source->schema;
-    my $site   = $schema->resultset('Site')->next;
+    my $site   = $::session->site;
 
     # Properly delete if account request - no record needed
     if ($self->account_request)
-    {
-        $self->delete;
+    {   $self->delete;
         return unless $options{send_reject_email};
+
         my $email = GADS::Email->instance;
         $email->send({
             subject => $site->email_reject_subject || "Account request rejected",
@@ -924,45 +819,40 @@ sub retire
 
         return;
     }
-    else {
-        $self->search_related('user_graphs', {})->delete;
-        my $alerts = $self->search_related('alerts', {});
-        my @alert_sends = map { $_->id } $alerts->all;
-        $self->result_source->schema->resultset('AlertSend')->search({ alert_id => \@alert_sends })->delete;
-        $alerts->delete;
 
-        $self->update({ lastview => undef });
-        my $views = $self->search_related('views', {});
-        my @views;
-        foreach my $v ($views->all)
-        {
-            push @views, $v->id;
-        }
-        $self->result_source->schema->resultset('Filter')->search({ view_id => \@views })->delete;
-        $self->result_source->schema->resultset('ViewLayout')->search({ view_id => \@views })->delete;
-        $self->result_source->schema->resultset('Sort')->search({ view_id => \@views })->delete;
-        $self->result_source->schema->resultset('AlertCache')->search({ view_id => \@views })->delete;
-        $self->result_source->schema->resultset('Alert')->search({ view_id => \@views })->delete;
-        $views->delete;
+    $self->search_related(user_graphs => {})->delete;
 
-        $self->update({ deleted => DateTime->now });
+    my $alerts = $self->search_related(alerts => {});
+    my @alert_ids = map $_->id, $alerts->all;
+    $site->delete(AlertSend => { alert_id => \@alert_ids });
+    $alerts->delete;
 
-        if (my $msg = $site->email_delete_text)
-        {
-            my $email = GADS::Email->instance;
-            $email->send({
-                subject => $site->email_delete_subject || "Account deleted",
-                emails  => [$self->email],
-                text    => $msg,
-            });
-        }
+    $self->update({ lastview => undef });
+    my $views    = $self->search_related(views => {});
+    my @view_ids = map $_->id, $views->all;
+
+    $site->delete($_ => { view_id => \@view_ids })
+        for qw/Filter ViewLayout Sort AlertCache Alert/;
+
+    $views->delete;
+
+    $self->update({ deleted => DateTime->now });
+
+    if (my $msg = $site->email_delete_text)
+    {
+        my $email = GADS::Email->instance;
+        $email->send({
+            subject => $site->email_delete_subject || "Account deleted",
+            emails  => [ $self->email ],
+            text    => $msg,
+        });
     }
 }
 
 sub has_draft
 {   my ($self, $instance_id) = @_;
     $instance_id or panic "Need instance ID for draft test";
-    $self->result_source->schema->resultset('Current')->search({
+    $::session->site->search(Current => {
         instance_id  => $instance_id,
         draftuser_id => $self->id,
         'curvals.id' => undef,
@@ -972,12 +862,10 @@ sub has_draft
 }
 
 sub _user_value
-{   my $user = shift;
-    return unless $user;
+{   my $user      = shift or return;
     my $firstname = $user->{firstname} || '';
     my $surname   = $user->{surname}   || '';
-    my $value     = "$surname, $firstname";
-    $value;
+    "$surname, $firstname";
 }
 
 sub export_hash

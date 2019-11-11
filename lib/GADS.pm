@@ -25,7 +25,6 @@ use DateTime;
 use File::Temp qw/ tempfile /;
 use GADS::Alert;
 use GADS::Approval;
-use GADS::Audit;
 use GADS::Column;
 use GADS::Column::Autocur;
 use GADS::Column::Calc;
@@ -40,7 +39,6 @@ use GADS::Column::Rag;
 use GADS::Column::String;
 use GADS::Column::Tree;
 use GADS::Config;
-use GADS::DB;
 use GADS::DBICProfiler;
 use GADS::Email;
 use GADS::Globe;
@@ -58,11 +56,13 @@ use GADS::Record;
 use GADS::Records;
 use GADS::RecordsGraph;
 use GADS::Type::Permissions;
-use GADS::Users;
-use GADS::Util;
 use GADS::View;
 use GADS::Views;
 use GADS::Helper::BreadCrumbs qw(Crumb);
+
+use Linkspace::Audit  ();
+use Linkspace::Util   qw(email_valid);
+
 use HTML::Entities;
 use HTML::FromText qw(text2html);
 use JSON qw(decode_json encode_json);
@@ -99,10 +99,6 @@ schema->exception_action(sub {
 });
 
 tie %{schema->storage->dbh->{CachedKids}}, 'Tie::Cache', 100;
-# Dynamically generate all relationships for columns. These may be added to as
-# the program's layout changes, but they can never be removed (program restart
-# required for that)
-GADS::DB->setup(schema);
 
 our $VERSION = '0.1';
 
@@ -112,10 +108,6 @@ set behind_proxy => config->{behind_proxy}; # XXX Why doesn't this work in confi
 GADS::Config->instance(
     config       => config,
     app_location => app->location,
-);
-
-GADS::SchemaInstance->instance(
-    schema => schema,
 );
 
 GADS::Email->instance(
@@ -136,51 +128,29 @@ sub _update_csrf_token
 {   session csrf_token => Session::Token->new(length => 32)->get;
 }
 
+my $site;
+
 hook before => sub {
 
-    schema->site_id(undef);
-
-    # See if there are multiple sites. If so, find site and configure in schema
-    if (schema->resultset('Site')->count > 1 && request->dispatch_path !~ m{/invalidsite})
-    {
-        my $site = schema->resultset('Site')->search({
-            host => request->base->host,
-        })->next
-            or redirect '/invalidsite';
-        var 'site' => $site;
-        my $site_id = $site->id;
-        trace __x"Site ID is {id}", id => $site_id;
-        schema->site_id($site_id);
-    }
-    else {
-        my $site = schema->resultset('Site')->next;
-        # Stop random host names being used to access the site. The reason for
-        # this is that the host name is inserted directly into emails (amongst
-        # other things), so a check here prevents emails being generated with
-        # hostnames that are attack websites. A nicer fix (to allow different
-        # host names) would be to use the host from the database.
-        if (request->base->host ne $site->host)
-        {
-            trace __x"Unknown host: {host}. Redirecting to configured host: {site}",
-                host => request->base->host, site => $site->host;
-            my $uri = request->base;
-            $uri->host($site->host);
-            redirect $uri;
-        }
-        trace __x"Single site, site ID is {id}", id => $site->id;
-        schema->site_id($site->id);
-        var 'site' => $site;
-    }
-
-    # Add any new relationships for new fields. These are normally
-    # added when the field is created, but with multiple processes
-    # these will not have been created for the other processes.
-    # This subroutine checks for missing ones and adds them.
-    GADS::DB->update(schema);
-
-    my $user = request->uri =~ m!^/api/! && var('api_user') # Some API calls will be AJAX from standard logged-in user
+    # Some API calls will be AJAX from standard logged-in user
+    #XXX can we specify any api_user without validation here?  Expect a token
+    my $user = request->uri =~ m!^/api/! && var('api_user')
         ? var('api_user')
         : logged_in_user;
+
+    return
+        if request->dispatch_path =~ m{/invalidsite};
+
+    $site = $::linkspace->siteFor(request->base->host)
+        or redirect '/invalidsite';
+
+    $site->refresh;
+    trace __x"Site ID is {id}", id => $site->id;
+
+    $::session = Linkspace::Session::Dancer2->new(
+        site => $site,
+        user => $user,
+    );
 
     if (request->is_post)
     {
@@ -197,18 +167,16 @@ hook before => sub {
             if request->path eq '/login';
     }
 
-    # Log to audit
-    my $method      = request->method;
-    my $path        = request->path;
-    my $query       = request->query_string;
-    my $audit       = GADS::Audit->new(schema => schema, user => $user);
-    my $username    = $user && $user->username;
-    my $description = $user
-        ? qq(User "$username" made "$method" request to "$path")
-        : qq(Unauthenticated user made "$method" request to "$path");
-    $description .= qq( with query "$query") if $query;
-    $audit->user_action(description => $description, url => $path, method => $method)
-        if $user;
+    if($user) {
+        my $username = $user->username;
+        my $method   = request->method;
+        my $path     = request->path;
+        my $descr    = qq(User "$username" made "$method" request to "$path");
+
+        my $query    = request->query_string;
+        $descr      .= qq( with query "$query") if $query;
+        $::session->audit($descr, url => $path, method => $method);
+    }
 
     my $instances = $user && GADS::Instances->new(schema => schema, user => $user);
     var 'instances' => $instances;
@@ -270,6 +238,10 @@ hook before => sub {
     }
 };
 
+hook after => sub {
+    $::session = $::linkspace->default_session;
+}
+
 hook before_template => sub {
     my $tokens = shift;
 
@@ -279,7 +251,7 @@ hook before_template => sub {
     $tokens->{url}->{css}  = "${base}css";
     $tokens->{url}->{js}   = "${base}js";
     $tokens->{url}->{page} = $base;
-    $tokens->{url}->{page} =~ s!.*/!!; # Remove trailing slash
+    $tokens->{url}->{page} =~ s!.*/!!; # Remove trailing slash   XXX no
     $tokens->{scheme}    ||= request->scheme; # May already be set for phantomjs requests
     $tokens->{hostlocal}   = config->{gads}->{hostlocal};
 
@@ -315,7 +287,7 @@ hook before_template => sub {
         $tokens->{v}               = current_view(logged_in_user, $layout);  # View is reserved TT word
     }
     $tokens->{messages}      = session('messages');
-    $tokens->{site}          = var 'site';
+    $tokens->{site}          = $site;
     $tokens->{config}        = GADS::Config->instance;
 
     # This line used to be pre-request. However, occasionally errors have been
@@ -351,7 +323,7 @@ sub _update_persistent
 
 sub _forward_last_table
 {
-    forwardHome() if !var('site')->remember_user_location;
+    forwardHome() if ! $site->remember_user_location;
     my $forward;
     if (my $l = session('persistent')->{instance_id})
     {
@@ -363,7 +335,6 @@ sub _forward_last_table
 
 get '/' => require_login sub {
 
-    my $site = var 'site';
     my $user    = logged_in_user;
 
     if (my $dashboard_id = query_parameters->get('did'))
@@ -376,7 +347,7 @@ get '/' => require_login sub {
     my %params = (
         id     => $dashboard_id,
         user   => $user,
-        site   => var('site'),
+        site   => $site,
     );
 
     my $dashboard = schema->resultset('Dashboard')->dashboard(%params);
@@ -448,7 +419,7 @@ get '/login/denied' => sub {
 
 any ['get', 'post'] => '/login' => sub {
 
-    my $audit = GADS::Audit->new(schema => schema);
+    my $login_change = sub { $::session->audit(@_, type => 'login_change') };
     my $user  = logged_in_user;
 
     # Don't allow login page to be displayed when logged-in, to prevent
@@ -462,9 +433,9 @@ any ['get', 'post'] => '/login' => sub {
     {
         if (my $username = param('emailreset'))
         {
-            if (GADS::Util->email_valid($username))
+            if(email_valid $username)
             {
-                $audit->login_change("Password reset request for $username");
+                $login_change->("Password reset request for $username");
                 my $result = password_reset_send(username => $username);
                 defined $result
                     ? success(__('An email has been sent to your email address with a link to reset your password'))
@@ -483,18 +454,18 @@ any ['get', 'post'] => '/login' => sub {
         }
     }
 
-    my $users = GADS::Users->new(schema => schema, config => config);
+    my $users = $site->users;
 
     if (param 'register')
     {
         error __"Self-service account requests are not enabled on this site"
-            if var('site')->hide_account_request;
+            if $site->hide_account_request;
         my $params = params;
         # Check whether this user already has an account
         if ($users->user_exists($params->{email}))
         {
             my $reset_code = Session::Token->new( length => 32 )->get;
-            my $user       = schema->resultset('User')->active->search({ username => $params->{email} })->next;
+            my $user = $site->users->get_user(username => $params->{email});
             $user->update({ resetpw => $reset_code });
             my %welcome_text = welcome_text(undef, code => $reset_code);
             my $email        = GADS::Email->instance;
@@ -511,7 +482,7 @@ any ['get', 'post'] => '/login' => sub {
                 return forwardHome(
                     { success => "Your account request has been received successfully" } );
             }
-            $audit->login_change("Account request for $params->{email}. Account already existed, resending welcome email.");
+            $login_change->("Account request for $params->{email}. Account already existed, resending welcome email.");
             return forwardHome({ success => "Your account request has been received successfully" });
         }
         else {
@@ -528,7 +499,7 @@ any ['get', 'post'] => '/login' => sub {
                 }
             }
             else {
-                $audit->login_change("New user account request for $params->{email}");
+                $login_change->("New user account request for $params->{email}");
                 return forwardHome({ success => "Your account request has been received successfully" });
             }
         }
@@ -563,22 +534,18 @@ any ['get', 'post'] => '/login' => sub {
             else {
                 cookie remember_me => '', expires => '-1d' if cookie 'remember_me';
             }
-            $user = logged_in_user;
-            $audit->user($user);
-            $audit->login_success;
-            $user->update({
-                failcount => 0,
-                lastfail  => undef,
-            });
+            $::session->user_login(logged_in_user); #XXX
 
             # Load previous settings and forward to previous table if applicable
-            my $session_settings;
-            try { $session_settings = decode_json $user->session_settings };
-            session 'persistent' => ($session_settings || {});
+            my $session_settings = try { decode_json $user->session_settings };
+            session persistent => ($session_settings || {});
             _forward_last_table();
         }
         else {
-            $audit->login_failure($username);
+            $::session->audit("Login failure using username $username",
+                type => 'login_failure'
+            );
+
             my ($user) = $users->user_rs->search({
                 username        => $username,
                 account_request => 0,
@@ -607,7 +574,7 @@ any ['get', 'post'] => '/login' => sub {
         organisations => $users->organisations,
         departments   => $users->departments,
         teams         => $users->teams,
-        register_text => var('site')->register_text,
+        register_text => $site->register_text,
         page          => 'login',
     };
     $output;
@@ -622,14 +589,15 @@ any ['get', 'post'] => '/edit/:id' => require_login sub {
 any ['get', 'post'] => '/myaccount/?' => require_login sub {
 
     my $user   = logged_in_user;
-    my $audit  = GADS::Audit->new(schema => schema, user => $user);
 
     if (param 'newpassword')
     {
         my $new_password = _random_pw();
         if (user_password password => param('oldpassword'), new_password => $new_password)
         {
-            $audit->login_change("New password set for user");
+            $::session->audit('New password set for user',
+                type => 'login change',
+            );
             forwardHome({ success => qq(Your password has been changed to: $new_password)}, 'myaccount', user_only => 1 ); # Don't log elsewhere
         }
         else {
@@ -661,7 +629,7 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
         }
     }
 
-    my $users = GADS::Users->new(schema => schema);
+    my $users = $site->users;
     template 'user' => {
         edit          => $user->id,
         users         => [$user],
@@ -688,7 +656,6 @@ __BODY
 any ['get', 'post'] => '/system/?' => require_login sub {
 
     my $user = logged_in_user;
-    my $site = var 'site';
 
     forwardHome({ danger => "You do not have permission to manage system settings"}, '')
         unless logged_in_user->permission->{superadmin};
@@ -845,8 +812,6 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
 
 any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadmin/] => sub {
 
-    my $userso = GADS::Users->new(schema => schema);
-
     if (param 'submit')
     {
         my $count;
@@ -866,10 +831,12 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
         }
     }
 
+    my $users = $site->users;
+
     template 'user/upload' => {
         groups      => GADS::Groups->new(schema => schema)->all,
-        permissions => $userso->permissions,
-        user_fields => $userso->user_fields,
+        permissions => $users->permissions,
+        user_fields => $users->user_fields,
         breadcrumbs => [Crumb( '/user' => 'users' ), Crumb( '/user/upload' => "user upload" ) ],
         # XXX Horrible hack - see single user edit route
         edituser    => +{ view_limits_with_blank => [ undef ] },
@@ -879,18 +846,21 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
 any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmin/] => sub {
 
     my $id = body_parameters->get('id');
-
     my $user            = logged_in_user;
-    my $userso          = GADS::Users->new(schema => schema);
-    my %all_permissions = map { $_->id => $_->name } @{$userso->permissions};
-    my $audit           = GADS::Audit->new(schema => schema, user => $user);
+    my $users           = $site->users;
+    my %all_permissions = map { $_->id => $_->name } @{$users->permissions};
+    my $login_change    = sub { $::session->audit(@_, type => 'login_change') };
+
     my $users;
 
     if (param 'sendemail')
     {
-        my @emails = param('email_organisation')
-                   ? (map { $_->email } @{$userso->all_in_org(param 'email_organisation')})
-                   : (map { $_->email } @{$userso->all});
+        my @emails = map $_->email,
+           ( param('email_organisation')
+           ? @{$users->all_in_org(param 'email_organisation')}
+           : @{$users->all}
+           );
+
         my $email  = GADS::Email->instance;
         my $args   = {
             subject => param('email_subject'),
@@ -925,8 +895,8 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             view_limits           => [body_parameters->get_all('view_limits')],
             groups                => [body_parameters->get_all('groups')],
         );
-        $values{permissions} = [body_parameters->get_all('permission')]
-            if logged_in_user->permission->{superadmin};
+        $values{permissions} = [ body_parameters->get_all('permission') ]
+            if $::session->user->is_admin;
 
         if (!param('account_request') && $id) # Original username to update (hidden field)
         {
@@ -950,13 +920,11 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         }
 
         # In case of failure, pass back to form
-        my $view_limits_with_blank = [ map {
-            +{
-                view_id => $_
-            }
-        } body_parameters->get_all('view_limits') ];
-        $values{view_limits_with_blank} = $view_limits_with_blank;
-        $users = [\%values];
+        my @view_limits_with_blank = map +{ view_id => $_ },
+            body_parameters->get_all('view_limits');
+
+        $values{view_limits_with_blank} = \@view_limits_with_blank;
+        $users = [ \%values ];
     }
 
     my $register_requests;
@@ -964,38 +932,38 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     {
         if (my $org = param 'neworganisation')
         {
-            if (process( sub { $userso->organisation_new({ name => $org })}))
+            if (process( sub { $site->create(Organisation => {name => $org}) }))
             {
-                $audit->login_change("Organisation $org created");
+                $login_change->("Organisation $org created");
                 success __"The organisation has been created successfully";
             }
         }
 
         if (my $dep = param 'newdepartment')
         {
-            if (process( sub { $userso->department_new({ name => $dep })}))
+            if (process( sub { $site->create(Department => { name => $dep }) }))
             {
-                $audit->login_change("Department $dep created");
-                my $depname = lc var('site')->register_department_name || 'department';
+                $login_change->("Department $dep created");
+                my $depname = lc $site->register_department_name || 'department';
                 success __x"The {dep} has been created successfully", dep => $depname;
             }
         }
 
         if (my $team = param 'newteam')
         {
-            if (process( sub { $userso->team_new({ name => $team })}))
+            if (process( sub { $site->create(Team => { name => $team }) }))
             {
-                $audit->login_change("Team $team created");
-                my $teamname = lc var('site')->register_team_name || 'team';
+                $login_change->("Team $team created");
+                my $teamname = lc $site->register_team_name || 'team';
                 success __x"The {team} has been created successfully", team => $teamname;
             }
         }
 
         if (my $title = param 'newtitle')
         {
-            if (process( sub { $userso->title_new({ name => $title }) }))
+            if (process( sub { $site->create(Title => { name => $title }) }))
             {
-                $audit->login_change("Title $title created");
+                $login_change->("Title $title created");
                 success __"The title has been created successfully";
             }
         }
@@ -1003,7 +971,8 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         # Remember values of user creation in progress.
         # XXX This is a mess (repeated code from above). Need to get
         # DPAE to use a user object
-        my @groups      = ref param('groups') ? @{param('groups')} : (param('groups') || ());
+        my $groups      = param('groups');
+        my @groups      = ref $groups ? @$groups : ($groups || ());
         my %groups      = map { $_ => 1 } @groups;
         my $view_limits_with_blank = [ map {
             +{
@@ -1030,10 +999,10 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         return forwardHome(
             { danger => "Cannot delete current logged-in User" } )
             if logged_in_user->id eq $delete_id;
-        my $usero = rset('User')->find($delete_id);
-        if (process( sub { $usero->retire(send_reject_email => 1) }))
+        my $user = $site->users->resultset('User')->find($delete_id);
+        if (process( sub { $user->retire(send_reject_email => 1) }))
         {
-            $audit->login_change("User ID $delete_id deleted");
+            $login_change->("User ID $delete_id deleted");
             return forwardHome(
                 { success => "User has been deleted successfully" }, 'user' );
         }
@@ -1041,7 +1010,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
 
     if (defined param 'download')
     {
-        my $csv = $userso->csv;
+        my $csv = $users->csv;
         my $now = DateTime->now();
         my $header;
         if ($header = config->{gads}->{header})
@@ -1064,8 +1033,8 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         $users = [ rset('User')->find($route_id) ] if !$users;
     }
     elsif (!defined $route_id) {
-        $users             = $userso->all;
-        $register_requests = $userso->register_requests;
+        $users             = $users->all;
+        $register_requests = $users->register_requests;
     }
     else {
         # Horrible hack to get a limit view drop-down to display
@@ -1084,11 +1053,11 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         users             => $users,
         groups            => GADS::Groups->new(schema => schema)->all,
         register_requests => $register_requests,
-        titles            => $userso->titles,
-        organisations     => $userso->organisations,
-        departments       => $userso->departments,
-        teams             => $userso->teams,
-        permissions       => $userso->permissions,
+        titles            => $users->titles,
+        organisations     => $users->organisations,
+        departments       => $users->departments,
+        teams             => $users->teams,
+        permissions       => $users->permissions,
         page              => defined $route_id && !$route_id ? 'user/0' : 'user',
         breadcrumbs       => $breadcrumbs,
     };
@@ -1275,12 +1244,8 @@ get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
 
 any ['get', 'post'] => '/audit/?' => require_role audit => sub {
 
-    my $audit = GADS::Audit->new(schema => schema);
-    my $users = GADS::Users->new(schema => schema, config => config);
-
-    if (param 'audit_filtering')
-    {
-        session 'audit_filtering' => {
+    if(param 'audit_filtering')
+    {   session audit_filtering => {
             method => param('method'),
             type   => param('type'),
             user   => param('user'),
@@ -1289,8 +1254,9 @@ any ['get', 'post'] => '/audit/?' => require_role audit => sub {
         }
     }
 
-    $audit->filtering(session 'audit_filtering')
-        if session 'audit_filtering';
+    my $filter = session 'audit_filtering';
+    my $audit = Linkspace::Audit->new;
+    $audit->filtering($filter) if $filter;
 
     if (defined param 'download')
     {
@@ -1310,11 +1276,11 @@ any ['get', 'post'] => '/audit/?' => require_role audit => sub {
         return send_file( \$csv, content_type => 'text/csv; charset="utf-8"', filename => "$now$header.csv" );
     }
 
-    template 'audit' => {
-        logs        => $audit->logs(session 'audit_filtering'),
-        users       => $users,
-        filtering   => $audit->filtering,
-        audit_types => GADS::Audit::audit_types,
+    template audit => {
+        logs        => $audit->logs($filter),
+        users       => $site->users,
+        filtering   => $filter,
+        audit_types => $audit->audit_types,
         page        => 'audit',
         breadcrumbs => [Crumb( "/audit" => 'audit logs' )],
     };
@@ -1323,6 +1289,8 @@ any ['get', 'post'] => '/audit/?' => require_role audit => sub {
 
 get '/logout' => sub {
     app->destroy_session;
+    $::session->user_logout;
+    $::session = $::linkspace->default_session;
     forwardHome();
 };
 
@@ -1344,18 +1312,20 @@ any ['get', 'post'] => '/resetpw/:code' => sub {
         if (param 'execute_reset')
         {
             app->destroy_session;
-            my $user   = rset('User')->active(username => $username)->next;
+            my $user   = $site->users->search_active(username => $username)->next;
             # Now we know this user is genuine, reset any failure that would
             # otherwise prevent them logging in
             $user->update({ failcount => 0 });
-            my $audit  = GADS::Audit->new(schema => schema, user => $user);
-            $audit->login_change("Password reset performed for user ID ".$user->id);
+            $::session->audit("Password reset performed for user ID ".$user->id,
+                type => 'login_change',
+            );
+
             $new_password = _random_pw();
             user_password code => param('code'), new_password => $new_password;
             _update_csrf_token();
         }
         my $output  = template 'login' => {
-            site_name  => var('site')->name || 'Linkspace',
+            site_name  => $site->name || 'Linkspace',
             reset_code => 1,
             password   => $new_password,
             page       => 'login',
@@ -1394,7 +1364,7 @@ prefix '/:layout_name' => sub {
             id     => $dashboard_id,
             user   => $user,
             layout => $layout,
-            site   => var('site'),
+            site   => $site,
         );
 
         my $dashboard = schema->resultset('Dashboard')->dashboard(%params);
@@ -1405,7 +1375,7 @@ prefix '/:layout_name' => sub {
         {
             my %params = (
                 user   => $user,
-                site   => var('site'),
+                site   => $site,
             );
             $dashboard = schema->resultset('Dashboard')->dashboard(%params);
         }
@@ -2587,10 +2557,7 @@ prefix '/:layout_name' => sub {
                 # Provide plenty of logging in case of repercussions of deletion
                 my $colname = $column->name;
                 trace __x"Starting deletion of column {name}", name => $colname;
-                my $audit  = GADS::Audit->new(schema => schema, user => $user);
-                my $username = $user->username;
-                my $description = qq(User "$username" deleted field "$colname");
-                $audit->user_action(description => $description);
+                $::session->audit(qq(User "$username" deleted field "$colname"));
                 if (process( sub { $column->delete }))
                 {
                     return forwardHome(
@@ -3182,11 +3149,10 @@ prefix '/:layout_name' => sub {
 
         my $layout = var('layout') or pass;
         my $user   = logged_in_user;
-        my $audit  = GADS::Audit->new(schema => schema, user => $user);
 
         if (param 'graphsubmit')
         {
-            if (process( sub { $user->graphs($layout->instance_id, [body_parameters->get_all('graphs')]) }))
+            if (process( sub { $user->set_graphs($layout, [body_parameters->get_all('graphs')]) }))
             {
                 return forwardHome(
                     { success => "The selected graphs have been updated" }, $layout->identifier.'/data' );
@@ -3198,10 +3164,9 @@ prefix '/:layout_name' => sub {
             schema       => schema,
             layout       => $layout,
         );
-        my $all_graphs = $graphs->all;
 
         template 'graphs' => {
-            graphs      => $all_graphs,
+            graphs      => [ $graphs->all ],
             page        => 'graphs',
             breadcrumbs => [Crumb($layout) => Crumb( $layout, '/data' => 'records' ) => Crumb( $layout, '/graph' => 'graphs' )],
         };
@@ -3234,7 +3199,6 @@ prefix '/:layout_name' => sub {
 
 sub reset_text {
     my ($dsl, %options) = @_;
-    my $site = var 'site';
     my $name = $site->name || config->{gads}->{name} || 'Linkspace';
     my $url  = request->base . "resetpw/$options{code}";
     my $body = <<__BODY;
@@ -3261,7 +3225,6 @@ __HTML
 
 sub welcome_text
 {   my ($dsl, %options) = @_;
-    my $site = var 'site';
     my $name = $site->name || config->{gads}->{name} || 'Linkspace';
     my $url  = request->base . "resetpw/$options{code}";
     my $new_account = config->{gads}->{new_account};

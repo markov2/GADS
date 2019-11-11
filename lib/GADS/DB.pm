@@ -37,11 +37,11 @@ sub setup
     $rec_class->might_have(
         record_previous => 'Record',
         sub {
-            my $args = shift;
+			my ($me, $other) = ($_[0]->{self_alias}, $_[0]->{foreign_alias});
 
             return {
-                "$args->{foreign_alias}.current_id"  => { -ident => "$args->{self_alias}.current_id" },
-                "$args->{foreign_alias}.id" => { '<' => \"$args->{self_alias}.id" },
+                "$other.current_id"  => { -ident => "$me.current_id" },
+                "$other.id"          => { '<' => \"$me.id" },
             };
         }
     );
@@ -62,13 +62,6 @@ sub add_column
 
 sub _add_column
 {   my ($class, $schema, $col, $alt) = @_;
-    my $coltype = $col->type eq "tree"
-                ? 'enum'
-                : $col->type eq "calc"
-                ? 'calcval'
-                : $col->type eq "rag"
-                ? 'ragval'
-                : $col->type;
 
     my $colname = "field".$col->id;
     # We add each column twice, with a standard join and with an alternative
@@ -88,31 +81,39 @@ sub _add_column
             'record_later.id' => undef,
         },{
             join => {
-                'record_single' => 'record_later'
+                record_single => 'record_later'
             },
         })->get_column('record_single.id')->as_query;
+
         $rec_class->has_many(
             $colname => 'Curval',
             sub {
                 my $args = shift;
+                my $other = $args->{foreign_alias};
 
                 return {
-                    "$args->{foreign_alias}.value"     => { -ident => "$args->{self_alias}.current_id" },
-                    "$args->{foreign_alias}.layout_id" => $related_field_id,
-                    "$args->{foreign_alias}.record_id" => { -in => $subquery },
+                    "$other.value"     => { -ident => "$args->{self_alias}.current_id" },
+                    "$other.layout_id" => $related_field_id,
+                    "$other.record_id" => { -in => $subquery },
                 };
             }
         );
     }
     else {
+        my $coltype = $col->type eq "tree" ? 'enum'
+                    : $col->type eq "calc" ? 'calcval'
+                    : $col->type eq "rag"  ? 'ragval'
+                    : $col->type;
+
         $rec_class->has_many(
             $colname => camelize($coltype),
             sub {
                 my $args = shift;
+                my $other = $args->{foreign_alias};
 
                 return {
-                    "$args->{foreign_alias}.record_id" => { -ident => "$args->{self_alias}.id" },
-                    "$args->{foreign_alias}.layout_id" => $col->id,
+                    "$other.record_id" => { -ident => "$args->{self_alias}.id" },
+                    "$other.layout_id" => $col->id,
                 };
             }
         );

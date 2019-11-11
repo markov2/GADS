@@ -18,7 +18,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Datum::Date;
 
-use GADS::SchemaInstance;
 use DateTime;
 use DateTime::Format::DateManip;
 use Log::Report 'linkspace';
@@ -27,14 +26,6 @@ use MooX::Types::MooseLike::Base qw/:all/;
 use namespace::clean;
 
 extends 'GADS::Datum';
-
-has schema => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => sub {
-        GADS::SchemaInstance->instance;
-    },
-);
 
 after set_value => sub {
     my ($self, $all, %options) = @_;
@@ -125,9 +116,9 @@ sub _to_dt
     {
         if ($value =~ / /) # Assume datetime
         {
-            return $self->schema->storage->datetime_parser->parse_datetime($value);
+            return session->site->schema->storage->datetime_parser->parse_datetime($value);
         } else {
-            return $self->schema->storage->datetime_parser->parse_date($value);
+            return session->site->schema->storage->datetime_parser->parse_date($value);
         }
     }
     else { # Assume 'user'

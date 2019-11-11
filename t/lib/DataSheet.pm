@@ -299,7 +299,8 @@ sub create_user
             });
         }
     }
-    return $user;
+
+    bless $user, 'Linkspace::User::Extern';
 }
 
 has _permissions => (

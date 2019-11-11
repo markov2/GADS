@@ -415,39 +415,56 @@ sub sqlt_deploy_hook {
 # Enable finding of latest record for current ID
 our $REWIND;
 my $join_sub = sub {
-    my $args = shift;
+    my ($me, $other) = ($_[0]->{self_alias}, $_[0]->{foreign_alias});
+
     my $return = {
-        "$args->{foreign_alias}.current_id"  => { -ident => "$args->{self_alias}.current_id" },
+        "$other.current_id"  => { -ident => "$me.current_id" },
+
         # Changed from using "id" as the key to see which record is later,
         # as after an import the IDs may be in a different order to that in
         # which the records were created. If the created date is the same,
         # use the IDs (primarily for tests, which sometimes have fixed times).
         -or => [
             {
-                "$args->{foreign_alias}.created" => { '>' => \"$args->{self_alias}.created" },
+                "$other.created" => { '>' => \"$me.created" },
             },
             {
-                "$args->{foreign_alias}.created" => { '=' => \"$args->{self_alias}.created" },
-                "$args->{foreign_alias}.id"      => { '>' => \"$args->{self_alias}.id" },
+                "$other.created" => { '=' => \"$me.created" },
+                "$other.id"      => { '>' => \"$me.id" },
             },
         ],
-        "$args->{foreign_alias}.approval"    => 0,
+        "$other.approval"    => 0,
     };
-    $return->{"$args->{foreign_alias}.created"} = { '<' => $REWIND }
+
+    $return->{"$other.created"} = { '<' => $REWIND }
         if $REWIND;
+
     return $return;
 };
 
 __PACKAGE__->might_have(
-    "record_later",
-    "GADS::Schema::Result::Record",
+    'record_later',
+    __PACKAGE__,
     $join_sub
 );
 
 __PACKAGE__->might_have(
-    "record_later_alternative",
-    "GADS::Schema::Result::Record",
+    'record_later_alternative',
+    __PACKAGE__,
     $join_sub
+);
+
+__PACKAGE__->might_have(
+    'record_previous',
+    __PACKAGE__,
+    sub {
+        my ($me, $other) = ($_[0]->{self_alias}, $_[0]->{foreign_alias});
+
+        return {
+            "$other.current_id"  => { -ident => "$me.current_id" },
+            "$other.id"          => { '<' => \"$me.id" },
+        };
+    }
 );
 
 1;

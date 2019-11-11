@@ -1149,7 +1149,7 @@ sub write
         $self->id($new_id) if $new_id;
         unless ($options{no_db_add})
         {
-            GADS::DB->add_column($self->schema, $self);
+            $self->schema->add_column($self);
             # Ensure new column is properly added to layout
             $self->layout->clear;
         }
@@ -1557,6 +1557,21 @@ sub import_after_all
         old => $self->link_parent, new => $new_id, name => $self->name
             if $report && ($self->link_parent || 0) != ($new_id || 0);
     $self->link_parent($new_id);
+}
+
+sub how_to_link_to_record {
+    my ($self, $schema) = @_;
+
+    my $linker = sub {
+        my ($other, $me) = ($_[0]->{foreign_alias}, $_[0]->{self_alias});
+
+        return {
+            "$other.record_id" => { -ident => "$me.id" },
+            "$other.layout_id" => $self->id,
+        };
+    };
+
+    ($self->table, $linker);
 }
 
 1;

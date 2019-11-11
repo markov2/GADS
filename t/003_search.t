@@ -1153,7 +1153,7 @@ foreach my $multivalue (0..1)
     );
     $view_limit->write;
 
-    $user->set_view_limits([$view_limit->id]);
+    $user->set_view_limits([$view_limit]);
 
     $rules = GADS::Filter->new(
         as_hash => {
@@ -1249,7 +1249,7 @@ foreach my $multivalue (0..1)
     );
     $view_limit2->write;
 
-    $user->set_view_limits([$view_limit->id, $view_limit2->id]);
+    $user->set_view_limits([$view_limit, $view_limit2]);
 
     $records = GADS::Records->new(
         user    => $user,
@@ -1285,7 +1285,7 @@ foreach my $multivalue (0..1)
         );
         $view_limit3->write;
 
-        $user->set_view_limits([$view_limit3->id]);
+        $user->set_view_limits([ $view_limit3 ]);
 
         # Then add a normal view
         $rules = GADS::Filter->new(
@@ -1335,7 +1335,7 @@ foreach my $multivalue (0..1)
     is (@{$records->results}, 0, 'Correct number of quick search results for number when limiting to a view (no match)');
     # Reset and do again with non-negative view
     $records->clear;
-    $user->set_view_limits([$view_limit->id]);
+    $user->set_view_limits([$view_limit]);
     $records->search('Foobar');
     is (@{$records->results}, 0, 'Correct number of quick search results when limiting to a view');
     # Current ID in limited view
@@ -1579,7 +1579,7 @@ foreach my $multivalue (0..1)
     is($records->single->fields->{$string1}->as_string, "Bar", "Correct limited record when changed");
 
     my $user = $sheet->user;
-    $user->set_view_limits([ $limit_extra1->id ]);
+    $user->set_view_limits([ $limit_extra1 ]);
     $records = GADS::Records->new(
         user                => $user,
         layout              => $layout,

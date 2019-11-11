@@ -17,33 +17,27 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
 package GADS::Column::Person;
+extends 'GADS::Column';
 
 use Log::Report 'linkspace';
-use GADS::Users;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column';
-
-our @person_properties = qw/id email username firstname surname freetext1 freetext2 organisation department_id team_id title value/;
+our @person_properties = qw/
+   id email username firstname surname freetext1 freetext2
+   organisation department_id team_id title value/;
 
 # Convert based on whether ID or full name provided
 sub value_field_as_index
 {   my ($self, $value) = @_;
-    my @values = ref $value eq 'ARRAY' ? @$value : $value;
+
     my $type;
-    foreach (@values)
-    {
-        last if $type && $type ne 'id';
-        if (!$_ || /^[0-9]+$/)
-        {
-            $type = 'id';
-        }
-        else {
-            $type = $self->value_field;
-        }
+    foreach (ref $value eq 'ARRAY' ? @$value : $value)
+    {   $type = /^[0-9]*$/ ? 'id' : $self->value_field;
+        last if $type ne 'id';
     }
-    return $type;
+
+    $type;
 }
 
 has '+has_filter_typeahead' => (
@@ -55,7 +49,7 @@ has '+fixedvals' => (
 );
 
 has '+option_names' => (
-    default => sub { [qw/default_to_login/] },
+    default => sub { [ 'default_to_login' ] },
 );
 
 sub _build_retrieve_fields
@@ -70,55 +64,26 @@ has default_to_login => (
     coerce  => sub { $_[0] ? 1 : 0 },
     builder => sub {
         my $self = shift;
-        return 0 unless $self->has_options;
-        $self->options->{default_to_login};
+        $self->has_options ? $self->options->{default_to_login} : 0;
     },
     trigger => sub { $_[0]->reset_options },
 );
 
 sub _build_sprefix { 'value' };
 
-has people => (
-    is      => 'rw',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        GADS::Users->new(schema => $self->schema)->all;
-    },
-);
-
-has people_hash => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        my @all = @{$self->people};
-        my %all = map { $_->id => $_ } @all;
-        \%all;
-    },
-);
-
-sub id_to_hash
-{   my ($self, $id) = @_;
-    $id or return undef;
-    my $prs = $self->schema->resultset('User')->search({ id => $id });
-    $prs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    return $prs->next;
-}
+sub people { $_[0]->site->users->all }
 
 sub id_as_string
 {   my ($self, $id) = @_;
-    my $person = $self->id_to_hash($id)
+    my $person = $::session->site->users->get_user(id => $id)
         or return '';
-    $person->{value};
+    $person->value;
 }
 
 after build_values => sub {
     my ($self, $original) = @_;
 
-    my ($file_option) = $original->{file_options}->[0];
-    if ($file_option)
+    if(my $file_option = $original->{file_options}->[0])
     {
         $self->file_options({ filesize => $file_option->{filesize} });
     }
@@ -126,29 +91,28 @@ after build_values => sub {
 
 sub tjoin
 {   my $self = shift;
-    +{$self->field => 'value'};
+    +{ $self->field => 'value' };
 }
 
-sub random
+sub random   #XXX still in use?
 {   my $self = shift;
-    my %hash = %{$self->people_hash};
-    $hash{(keys %hash)[rand keys %hash]}->value;
+    my @people = $self->people;
+    $people[rand @people]->value;
 }
 
 sub resultset_for_values
-{   my $self = shift;
-    return $self->schema->resultset('User')->active;
+{   $::session->site->users->search_active;
 }
 
 sub cleanup
 {   my ($class, $schema, $id) = @_;
-    $schema->resultset('Person')->search({ layout_id => $id })->delete;
+    $::session->site->delete(Person => { layout_id => $id });
 }
 
 sub import_value
 {   my ($self, $value) = @_;
 
-    $self->schema->resultset('Person')->create({
+    $::session->site->create(Person => {
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},

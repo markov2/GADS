@@ -1182,5 +1182,25 @@ sub purge
     $self->_rset->delete;
 }
 
+sub has_homepage
+{   my $self = shift;
+       ($self->homepage_text  // '') =~ /\S/
+    || ($self->homepage_text2 // '') =~ /\S/;
+}
+
+#XXX move to Document
+sub all_user_columns {
+    my ($class, $site) = @_;
+    $site->search(Layout => { internal => 0 })->all;
+}
+
+#XXX move to Document
+# Returns which field is the newest.
+# Warning: Field ids are strictly sequentially assigned.
+sub newest_field_id {
+    my ($class, $site) = @_;
+    $site->search(Layout => { internal => 0 })->get_column('id')->max;
+}
+
 1;
 

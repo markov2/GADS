@@ -21,20 +21,11 @@ package GADS::Datum::Daterange;
 use DateTime;
 use DateTime::Format::DateManip;
 use DateTime::Span;
-use GADS::SchemaInstance;
 use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
 extends 'GADS::Datum';
-
-has schema => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => sub {
-        GADS::SchemaInstance->instance;
-    },
-);
 
 # Set datum value with value from user
 after set_value => sub {
@@ -107,7 +98,6 @@ around 'clone' => sub {
     $orig->(
         $self,
         values => $self->values,
-        schema => $self->schema,
         @_,
     );
 };
@@ -146,7 +136,7 @@ sub _parse_dt
     my ($from, $to);
     if ($source eq 'db')
     {
-        my $db_parser = $self->schema->storage->datetime_parser;
+        my $db_parser = session->site->schema->storage->datetime_parser;
         $from = $db_parser->parse_date($original->{from});
         $to   = $db_parser->parse_date($original->{to});
     }

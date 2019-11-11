@@ -165,7 +165,6 @@ lib/GADS/Alert.pm
 lib/GADS/AlertSend.pm
 lib/GADS/API.pm
 lib/GADS/Approval.pm
-lib/GADS/Audit.pm
 lib/GADS/Column.pm
 lib/GADS/Column/Autocur.pm
 lib/GADS/Column/Calc.pm
@@ -297,14 +296,23 @@ lib/GADS/Schema/Result/ViewLimit.pm
 lib/GADS/Schema/ResultSet/Current.pm
 lib/GADS/Schema/ResultSet/Oauthtoken.pm
 lib/GADS/Schema/ResultSet/User.pm
-lib/GADS/SchemaInstance.pm
 lib/GADS/Timeline.pm
 lib/GADS/Type/Permission.pm
 lib/GADS/Type/Permissions.pm
 lib/GADS/Users.pm
-lib/GADS/Util.pm
 lib/GADS/View.pm
 lib/GADS/Views.pm
+lib/Linkspace/Audit.pm
+lib/Linkspace/DB.pm
+lib/Linkspace/Session.pm
+lib/Linkspace/Session/Dancer2.pm
+lib/Linkspace/Session/System.pm
+lib/Linkspace/Site.pm
+lib/Linkspace/Users.pm
+lib/Linkspace/User.pm
+lib/Linkspace/User/Person.pm
+lib/Linkspace/User/System.pm
+lib/Linkspace/Util.pm
 LICENSE
 Makefile.PL
 MANIFEST			This list of files
@@ -2460,6 +2468,7 @@ t/021_topic.t
 t/022_download.t
 t/023_clone.t
 t/lib/DataSheet.pm
+t/100_linkspace.t
 uploads/versions/view-format-icons---x----187-40x---.png
 uploads/view-format-icons.png
 Vagrantfile

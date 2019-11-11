@@ -254,4 +254,29 @@ around import_after_all => sub {
     $orig->(@_);
 };
 
+sub how_to_link_to_record {
+	my ($self, $schema) = @_;
+    my $related_field_id = $self->related_field->id; # "compile"-time
+
+    my $subquery = $schema->resultset('Current')->search({
+        'record_later.id' => undef,
+    },{
+        join => {
+            record_single => 'record_later'
+        },
+    })->get_column('record_single.id')->as_query;
+
+    my $linker = sub { 
+        my ($other, $me) = ($_[0]->{foreign_alias}, $_[0]->{self_alias});
+        
+        return {
+            "$other.value"     => { -ident => "$me.current_id" },
+            "$other.layout_id" => $related_field_id, 
+            "$other.record_id" => { -in => $subquery },
+        };
+    };
+
+    (Curval => $linker);
+}
+
 1;

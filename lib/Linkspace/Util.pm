@@ -19,14 +19,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use warnings;
 use strict;
 
-package GADS::Util;
+package Linkspace::Util;
+use parent 'Exporter';
+
+our @EXPORT_OK = qw/email_valid/;
 
 # Noddy email address validator. Not much point trying to be too clever here.
 # We don't use Email::Valid, as that will check for RFC822 address as opposed
 # to pure email address on its own.
-sub email_valid
-{   my ($class, $email) = @_;
-    $email =~ m/^[=+\'a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,10}$/i;
+sub email_valid($)
+{   $_[0] =~ m/^[=+\'a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,10}$/i;
 }
 
 1;

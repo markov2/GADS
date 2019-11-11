@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Audit;
+package Linkspace::Audit;
 
 use DateTime;
 use GADS::DateTime;
@@ -50,82 +50,27 @@ has filtering => (
     is      => 'rw',
     isa     => HashRef,
     coerce  => sub {
-        my $value = shift;
+        my $value  = shift;
         my $format = DateTime::Format::Strptime->new(
              pattern   => '%Y-%m-%d',
              time_zone => 'local',
         );
-        if ($value->{from} && ref $value->{from} ne 'DateTime')
-        {
-            $value->{from} = GADS::DateTime::parse_datetime($value->{from});
-        }
-        if ($value->{to} && ref $value->{to} ne 'DateTime')
-        {
-            $value->{to} = GADS::DateTime::parse_datetime($value->{to});
-        }
+
+        $value->{from} = GADS::DateTime::parse_datetime($value->{from})
+            if $value->{from} && ref $value->{from} ne 'DateTime';
+
+        $value->{to} = GADS::DateTime::parse_datetime($value->{to})
+            if $value->{to} && ref $value->{to} ne 'DateTime';
+
         $value->{from} ||= DateTime->now->subtract(days => 7);
         $value->{to}   ||= DateTime->now;
-        return $value;
+        $value;
     },
     builder => sub { +{} },
 );
 
-sub audit_types{ [qw/user_action login_change login_success logout login_failure/] };
-
-sub user_action
-{   my ($self, %options) = @_;
-
-    $self->schema->resultset('Audit')->create({
-        user_id     => $self->user_id,
-        description => $options{description},
-        type        => 'user_action',
-        method      => $options{method},
-        url         => $options{url},
-        datetime    => DateTime->now,
-    });
-}
-
-sub login_change
-{   my ($self, $description) = @_;
-
-    $self->schema->resultset('Audit')->create({
-        user_id     => $self->user_id,
-        description => $description,
-        type        => 'login_change',
-        datetime    => DateTime->now,
-    });
-}
-
-sub login_success
-{   my $self = shift;
-
-    $self->schema->resultset('Audit')->create({
-        user_id     => $self->user_id,
-        description => "Successful login by username ".$self->username,
-        type        => 'login_success',
-        datetime    => DateTime->now,
-    });
-}
-
-sub logout
-{   my ($self, $username) = @_;
-
-    $self->schema->resultset('Audit')->create({
-        user_id     => $self->user_id,
-        description => "Logout by username $username",
-        type        => 'logout',
-        datetime    => DateTime->now,
-    });
-}
-
-sub login_failure
-{   my ($self, $username) = @_;
-
-    $self->schema->resultset('Audit')->create({
-        description => "Login failure using username $username",
-        type        => 'login_failure',
-        datetime    => DateTime->now,
-    });
+sub audit_types
+{   [ qw/user_action login_change login_success logout login_failure/ ]
 }
 
 sub logs
@@ -134,36 +79,37 @@ sub logs
     my $filtering = $self->filtering;
     my $dtf  = $self->schema->storage->datetime_parser;
 
-    my $search = {
+    my %search = (
         datetime => {
             -between => [
                 $dtf->format_datetime($filtering->{from}),
                 $dtf->format_datetime($filtering->{to}),
             ],
         },
-    };
+    );
 
-    $search->{method}  = uc $filtering->{method} if $filtering->{method};
-    $search->{type}    = $filtering->{type} if $filtering->{type};
+    $search{method}  = uc $filtering->{method} if $filtering->{method};
+    $search{type}    = $filtering->{type} if $filtering->{type};
     if (my $user_id = $filtering->{user})
     {
         $user_id =~ /^[0-9]+$/
             or error __x"Invalid user ID {id}", id => $user_id;
-        $search->{user_id} = $filtering->{user};
+        $search{user_id} = $filtering->{user};
     }
 
-    my $rs   = $self->schema->resultset('Audit')->search($search,{
+    my @logs = $::session->site->search(Audit => \%search, {
         prefetch => 'user',
         order_by => {
             -desc => 'datetime',
         },
-    });
-    $rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    my @logs = $rs->all;
+        result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+    })->all;
+
     $_->{user} = GADS::Datum::Person->new(
         schema     => $self->schema,
-        init_value => {value => $_->{user}}
-    ) foreach @logs;
+        init_value => { value => $_->{user} },
+    ) for @logs;
+
     \@logs;
 }
 
@@ -185,6 +131,11 @@ sub csv
         $csvout .= $csv->string."\n";
     }
     $csvout;
+}
+
+sub log
+{   my ($class, $site, $log) = @_;
+    $site->resultset('Audit')->create($log);
 }
 
 1;

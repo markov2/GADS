@@ -315,7 +315,7 @@ sub import_hash
         });
     }
 
-    $u->groups(undef, $user->{groups});
+    $u->set_groups($user->{groups});
     $u->permissions(@{$user->{permissions}});
 
     return $u;

@@ -304,7 +304,7 @@ my $autocur1 = $curval_sheet->add_autocur(refers_to_instance_id => 1, related_fi
     );
     $view_limit->write;
 
-    $user->set_view_limits([$view_limit->id]);
+    $user->set_view_limits([ $view_limit ]);
 
     $layout->clear;
     $curval_filter = $layout->column($curval_filter->id);
@@ -341,7 +341,7 @@ my $autocur1 = $curval_sheet->add_autocur(refers_to_instance_id => 1, related_fi
         user        => $user,
     );
     $view_limit->write;
-    $user->set_view_limits([$view_limit->id]);
+    $user->set_view_limits([ $view_limit ]);
     my $record = GADS::Record->new(
         user   => $user,
         schema => $schema,
