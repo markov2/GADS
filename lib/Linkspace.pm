@@ -11,9 +11,10 @@ use MooX::Types::MooseLike::Base qw/:all/;
 
 use Dancer2;   # config
 
-use Linkspace::DB   ();
-use Linkspace::Site ();
+use Linkspace::DB    ();
+use Linkspace::Site  ();
 use Linkspace::Session::System ();
+use Linkspace::Util  qw(config_util);
 
 =head1 NAME
 Linkspace - the Linkspace application
@@ -56,6 +57,7 @@ sub BUILD {
         site => $args{host},
     );
 
+	config_util $self->settings;
     {};
 }
 

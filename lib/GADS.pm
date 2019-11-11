@@ -61,7 +61,7 @@ use GADS::Views;
 use GADS::Helper::BreadCrumbs qw(Crumb);
 
 use Linkspace::Audit  ();
-use Linkspace::Util   qw(email_valid);
+use Linkspace::Util   qw(email_valid to_cldr_datetime);
 
 use HTML::Entities;
 use HTML::FromText qw(text2html);
@@ -1585,7 +1585,7 @@ prefix '/:layout_name' => sub {
             else {
                 my $input = param('rewind_date');
                 $input   .= ' ' . (param('rewind_time') ? param('rewind_time') : '23:59:59');
-                my $dt    = GADS::DateTime::parse_datetime($input)
+                my $dt    = to_cldr_datetime $input
                     or error __x"Invalid date or time: {datetime}", datetime => $input;
                 session rewind => $dt;
             }

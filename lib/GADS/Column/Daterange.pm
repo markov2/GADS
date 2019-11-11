@@ -18,8 +18,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Column::Daterange;
 
-use DateTime;
 use Log::Report 'linkspace';
+
+use Linkspace::Util qw(to_iso_datetime);
+
+use DateTime;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
@@ -74,33 +77,33 @@ has show_datepicker => (
 
 sub validate
 {   my ($self, $value, %options) = @_;
-
     return 1 if !$value;
-    return 1 if !$value->{from} && !$value->{to};
 
-    if ($value->{from} xor $value->{to})
-    {
-        return 0 unless $options{fatal};
+    my $from = $value->{from};
+    my $to   = $value->{to};
+    return 1 if $from || $to;
+
+    if($from xor $to)
+    {   $options{fatal} or return 0;
         error __x"Please enter 2 date values for '{col}'", col => $self->name;
     }
-    my $from;
-    if ($value->{from} && !($from = $self->parse_date($value->{from})))
-    {
-        return 0 unless $options{fatal};
+
+    my ($from_dt, $to_dt);
+
+    if($from && !($from_dt = $self->parse_date($from)))
+    {   $options{fatal} or return 0;
         error __x"Invalid start date {value} for {col}. Please enter as {format}.",
-            value => $value->{from}, col => $self->name, format => $self->dateformat;
-    }
-    my $to;
-    if ($value->{to} && !($to = $self->parse_date($value->{to})))
-    {
-        return 0 unless $options{fatal};
-        error __x"Invalid end date {value} for {col}. Please enter as {format}.",
-            value => $value->{to}, col => $self->name, format => $self->dateformat;
+            value => $from, col => $self->name, format => $self->dateformat;
     }
 
-    if (DateTime->compare($from, $to) == 1)
-    {
-        return 0 unless $options{fatal};
+    if($to && !($to_dt = $self->parse_date($to)))
+    {   $options{fatal} or return 0;
+        error __x"Invalid end date {value} for {col}. Please enter as {format}.",
+            value => $to, col => $self->name, format => $self->dateformat;
+    }
+
+    if(DateTime->compare($from_dt, $to_dt) == 1)
+    {   $options{fatal} or return 0;
         error __x"Start date must be before the end date for '{col}'", col => $self->name;
     }
 
@@ -119,9 +122,8 @@ sub validate_search
     }
     if ($options{full_only})
     {
-        if (my $hash = $self->split($value))
-        {
-            return $self->validate($hash, %options);
+        if(my $hash = $self->split($value))
+        {   return $self->validate($hash, %options);
         }
         # Unable to split
         return 0 unless $options{fatal};
@@ -129,7 +131,11 @@ sub validate_search
             value => $value, name => $self->name, format => $self->layout->config->dateformat;
     }
     # Accept both formats. Normal date format used to validate searches
-    return 1 if $self->parse_date($value) || ($self->split($value) && $self->validate($self->split($value)));
+    return 1 if $self->parse_date($value);
+
+    my $split = $self->split($value);
+    return 1 if $split && $self->validate($split);
+
     return 0 unless $options{fatal};
     error "Invalid format {value} for {name}",
         value => $value, name => $self->name;
@@ -137,16 +143,16 @@ sub validate_search
 
 sub split
 {   my ($self, $value) = @_;
-    if ($value =~ /(.+) to (.+)/)
-    {
-        my $from = $1; my $to = $2;
-        $self->parse_date($from) && $self->parse_date($to)
-            or return;
-        return {
-            from => $from,
-            to   => $to,
-        };
-    }
+    my ($from, $to) = $value =~ /(.+) to (.+)/
+        or return;
+
+    $self->parse_date($from) && $self->parse_date($to)
+        or return;
+
+    return {
+        from => $from,
+        to   => $to,
+    };
 }
 
 sub cleanup
@@ -161,8 +167,8 @@ sub import_value
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},
-        from         => $value->{from} && DateTime::Format::ISO8601->parse_datetime($value->{from}),
-        to           => $value->{to} && DateTime::Format::ISO8601->parse_datetime($value->{to}),
+        from         => to_iso_datetime($value->{from}),
+        to           => to_iso_datetime($value->{to}),
         value        => $value->{value},
     });
 }

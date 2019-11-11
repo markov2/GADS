@@ -18,12 +18,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Audit;
 
-use DateTime;
-use GADS::DateTime;
-use GADS::Datum::Person;
 use Log::Report 'linkspace';
+
+use DateTime;
+use GADS::Datum::Person;
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
+
+use Linkspace::Util qw(to_cldr_datetime);
 
 has schema => (
     is       => 'rw',
@@ -35,15 +37,13 @@ has user => (
 );
 
 sub user_id
-{   my $self = shift;
-    $self->user or return undef;
-    $self->user->id;
+{   my $user = shift->user;
+    $user ? $user->id : undef;
 }
 
 sub username
-{   my $self = shift;
-    $self->user or return undef;
-    $self->user->username;
+{   my $user = shift->user;
+    $user ? $user->username : undef;
 }
 
 has filtering => (
@@ -56,14 +56,8 @@ has filtering => (
              time_zone => 'local',
         );
 
-        $value->{from} = GADS::DateTime::parse_datetime($value->{from})
-            if $value->{from} && ref $value->{from} ne 'DateTime';
-
-        $value->{to} = GADS::DateTime::parse_datetime($value->{to})
-            if $value->{to} && ref $value->{to} ne 'DateTime';
-
-        $value->{from} ||= DateTime->now->subtract(days => 7);
-        $value->{to}   ||= DateTime->now;
+        $value->{from} = to_cldr_datetime($value->{from}) || DateTime->now->subtract(days => 7);
+        $value->{to}   = to_cldr_datetime($value->{to})   || DateTime->now;
         $value;
     },
     builder => sub { +{} },
@@ -139,5 +133,3 @@ sub log
 }
 
 1;
-
-

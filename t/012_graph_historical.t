@@ -2,14 +2,15 @@ use Test::More; # tests => 1;
 use strict;
 use warnings;
 
+use Log::Report;
 use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
 
 use JSON qw(encode_json);
-use Log::Report;
 use GADS::Graph;
 use GADS::Graph::Data;
 use GADS::Records;
 use GADS::RecordsGraph;
+use Linkspace::Util    qw(to_iso_datetime);
 
 use t::lib::DataSheet;
 
@@ -124,7 +125,7 @@ foreach my $rec (@records)
     $record->initialise;
     foreach my $version (@$rec)
     {
-        my $created = DateTime::Format::ISO8601->parse_datetime($version->{created});
+        my $created = to_iso_datetime $version->{created};
         my $data = $version->{data};
         $record->fields->{$columns->{enum1}->id}->set_value($data->{enum1});
         $record->fields->{$columns->{integer1}->id}->set_value($data->{integer1});

@@ -3,15 +3,17 @@ package GADS::Schema::ResultSet::User;
 use strict;
 use warnings;
 
+use Log::Report 'linkspace';
 use DateTime;
-use DateTime::Format::ISO8601;
 use File::BOM qw( open_bom );
+
 use GADS::Audit;
 use GADS::Config;
 use GADS::Email;
 use GADS::Users;
-use GADS::Util;
-use Log::Report;
+
+use Linkspace::Util qw(email_valid to_iso_datetime);
+
 use Session::Token;
 use Text::CSV;
 
@@ -32,16 +34,16 @@ sub create_user
 
     my $guard = $self->result_source->schema->txn_scope_guard;
 
-    my $site = $self->result_source->schema->resultset('Site')->next;
+    my $site  = $self->result_source->schema->resultset('Site')->next;
 
-    error __"An email address must be specified for the user"
-        if !$params{email};
+    my $email = $params{email}
+        or error __"An email address must be specified for the user";
 
-    error __"Please enter a valid email address for the new user"
-        if !GADS::Util->email_valid($params{email});
+    email_valid $email
+        or error __"Please enter a valid email address for the new user";
 
-    error __x"User {email} already exists", email => $params{email}
-        if $self->active(email => $params{email})->count;
+    error __x"User {email} already exists", email => $email
+        if $self->active(email => $email)->count;
 
     error __x"Please select a {name} for the user", name => $site->organisation_name
         if !$params{organisation} && $site->register_organisation_mandatory;
@@ -306,12 +308,12 @@ sub import_hash
             freetext1             => $user->{freetext1},
             freetext2             => $user->{freetext2},
             password              => $user->{password},
-            pwchanged             => $user->{pwchanged} && DateTime::Format::ISO8601->parse_datetime($user->{pwchanged}),
-            deleted               => $user->{deleted} && DateTime::Format::ISO8601->parse_datetime($user->{deleted}),
-            lastlogin             => $user->{lastlogin} && DateTime::Format::ISO8601->parse_datetime($user->{lastlogin}),
+            pwchanged             => to_iso_datetime($user->{pwchanged}),
+            deleted               => to_iso_datetime($user->{deleted}),
+            lastlogin             => to_iso_datetime($user->{lastlogin}),
             account_request       => $user->{account_request},
             account_request_notes => $user->{account_request_notes},
-            created               => $user->{created} && DateTime::Format::ISO8601->parse_datetime($user->{created}),
+            created               => to_iso_datetime($user->{created}),
         });
     }
 

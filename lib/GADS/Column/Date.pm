@@ -18,10 +18,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Column::Date;
 
-use DateTime::Format::CLDR;
-use DateTime::Format::ISO8601;
-use GADS::View;
 use Log::Report 'linkspace';
+
+use Linkspace::Util  qw(to_iso_datetime);
+use GADS::View;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
@@ -115,7 +116,7 @@ sub import_value
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},
-        value        => $value->{value} && DateTime::Format::ISO8601->parse_datetime($value->{value}),
+        value        => to_iso_datetime($value->{value}),
     });
 }
 

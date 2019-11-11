@@ -186,7 +186,6 @@ lib/GADS/Column/Serial.pm
 lib/GADS/Column/String.pm
 lib/GADS/Column/Tree.pm
 lib/GADS/Config.pm
-lib/GADS/DateTime.pm
 lib/GADS/Datum.pm
 lib/GADS/Datum/Autocur.pm
 lib/GADS/Datum/Calc.pm

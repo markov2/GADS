@@ -18,17 +18,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Column;
 
-use JSON qw(decode_json encode_json);
 use Log::Report 'linkspace';
-use String::CamelCase qw(camelize);
-use GADS::DateTime;
+
 use GADS::DB;
 use GADS::Filter;
 use GADS::Groups;
 use GADS::Type::Permission;
 use GADS::View;
-use MIME::Base64 /encode_base64/;
+use Linkspace::Util qw(to_cldr_datetime);
 
+use MIME::Base64 /encode_base64/;
+use JSON qw(decode_json encode_json);
+use String::CamelCase qw(camelize);
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
@@ -715,11 +716,13 @@ sub _build__rset
 
 sub parse_date
 {   my ($self, $value) = @_;
-    return if ref $value; # Will cause CLDR parser to bork
+    return if ref $value;
+
     # Check whether it's a CURDATE first
     my $dt = GADS::Filter->parse_date_filter($value);
     return $dt if $dt;
-    $value && GADS::DateTime::parse_datetime($value);
+
+    to_cldr_datetime $value;
 }
 
 sub _build_permissions
