@@ -2279,11 +2279,14 @@ sub as_query
 sub pdf
 {   my $self = shift;
 
-    my $dateformat = GADS::Config->instance->dateformat;
     my $now = DateTime->now;
     $now->set_time_zone('Europe/London');
-    my $now_formatted = $now->format_cldr($dateformat)." at ".$now->hms;
-    my $updated = $self->created->format_cldr($dateformat)." at ".$self->created->hms;
+
+    my $user = $::session->user;
+    my $now_formatted = $user->dt2local($now)." at ".$now->hms;
+
+    my $created = $self->created;
+    my $updated = $user->dt2local($created)." at ".$created->hms;
 
     my $pdf = CtrlO::PDF->new(
         footer => "Downloaded by ".$self->user->value." on $now_formatted",

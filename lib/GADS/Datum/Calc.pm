@@ -36,7 +36,7 @@ sub as_string
             ! defined $value
           ? ''
           : ref $value eq 'DateTime'
-          ? $value->format_cldr($df //= $self->column->dateformat)
+          ? $::session->user->dt2local($value,$df //= $self->column->dateformat)
           : $self->column->return_type eq 'numeric'
           ? ( ($dc //= $self->column->decimal_places // 0)
             ? sprintf("%.${dc}f", $value)

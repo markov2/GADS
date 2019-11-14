@@ -163,10 +163,9 @@ sub as_integer { panic "Not implemented" }
 
 sub _as_string
 {   my ($self, $value) = @_;
-    return "" unless $value;
-    my $format = $self->column->dateformat;
-    $format .= " HH:mm" if $self->column->include_time;
-    $value->format_cldr($format);
+
+    $::session->user->dt2local($value, $self->column->dateformat,
+       include_time => $self->column->include_time) || '';
 }
 
 sub as_string

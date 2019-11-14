@@ -1402,29 +1402,27 @@ sub _search_date
         }
     }
     elsif ($c->return_type =~ /date/)
-    {
-        my $dateformat = GADS::Config->instance->dateformat;
-        # Apply any date filters if required
+    {   # Apply any date filters if required
         my @f;
         my $sid = $options{parent_id} ? "$options{parent_id}_".$c->id : $c->id;
+        my $user = $::session->user;
+
         if (my $to = $self->to)
-        {
-            my $f = {
+        {   push @f, +{
                 id       => $sid,
                 operator => $self->exclusive_of_to ? 'less' : 'less_or_equal',
-                value    => $to->format_cldr($dateformat),
+                value    => $user->dt2local($to),
             };
-            push @f, $f;
         }
+
         if (my $from = $self->from)
-        {
-            my $f = {
+        {   push @f, +{
                 id       => $sid,
                 operator => $self->exclusive_of_from ? 'greater' : 'greater_or_equal',
-                value    => $from->format_cldr($dateformat),
+                value    => $user->dt2local($from),
             };
-            push @f, $f;
         }
+
         push @$search_date, {
             condition => "AND",
             rules     => \@f,

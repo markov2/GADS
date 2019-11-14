@@ -194,10 +194,12 @@ sub as_string
 
 sub _as_string
 {   my ($self, $range) = @_;
-    return "" unless $range;
-    return "" unless $range->start && $range->end;
+    $range && (my $start = $range->start) && (my $end = $range->end)
+        or return '';
+
     my $format = $self->column->dateformat;
-    $range->start->format_cldr($format) . " to " . $range->end->format_cldr($format);
+    my $user   = $::session->user;
+    $user->dt2local($start, $format) . ' to ' . $user->dt2local($end);
 }
 
 has html_form => (
@@ -207,15 +209,15 @@ has html_form => (
 
 sub _build_html_form
 {   my $self = shift;
-    [ map {
-        $_->start->format_cldr($self->column->dateformat),
-        $_->end->format_cldr($self->column->dateformat),
-    } @{$self->values} ];
+    my $format = $self->column->dateformat;
+    my $user   = $::session->user;
+
+    [ map +( $user->dt2local($_->start, $format)
+           , $user->dt2local($_->end, $format) ) @{$self->values} ];
 }
 
 sub filter_value
-{   my $self = shift;
-    $self->text_all->[0];
+{   shift->text_all->[0];
 }
 
 sub search_values_unique

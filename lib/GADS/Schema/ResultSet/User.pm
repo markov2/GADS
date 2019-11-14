@@ -12,7 +12,7 @@ use GADS::Config;
 use GADS::Email;
 use GADS::Users;
 
-use Linkspace::Util qw(email_valid to_iso_datetime);
+use Linkspace::Util qw(email_valid iso2datetime);
 
 use Session::Token;
 use Text::CSV;
@@ -308,12 +308,12 @@ sub import_hash
             freetext1             => $user->{freetext1},
             freetext2             => $user->{freetext2},
             password              => $user->{password},
-            pwchanged             => to_iso_datetime($user->{pwchanged}),
-            deleted               => to_iso_datetime($user->{deleted}),
-            lastlogin             => to_iso_datetime($user->{lastlogin}),
+            pwchanged             => iso2datetime($user->{pwchanged}),
+            deleted               => iso2datetime($user->{deleted}),
+            lastlogin             => iso2datetime($user->{lastlogin}),
             account_request       => $user->{account_request},
             account_request_notes => $user->{account_request_notes},
-            created               => to_iso_datetime($user->{created}),
+            created               => iso2datetime($user->{created}),
         });
     }
 

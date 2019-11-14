@@ -10,7 +10,7 @@ use GADS::Graph;
 use GADS::Graph::Data;
 use GADS::Records;
 use GADS::RecordsGraph;
-use Linkspace::Util    qw(to_iso_datetime);
+use Linkspace::Util    qw(iso2datetime);
 
 use t::lib::DataSheet;
 
@@ -125,11 +125,13 @@ foreach my $rec (@records)
     $record->initialise;
     foreach my $version (@$rec)
     {
-        my $created = to_iso_datetime $version->{created};
         my $data = $version->{data};
         $record->fields->{$columns->{enum1}->id}->set_value($data->{enum1});
         $record->fields->{$columns->{integer1}->id}->set_value($data->{integer1});
-        $record->write(version_datetime => $created, no_alerts => 1);
+        $record->write(
+            version_datetime => iso2datetime($version->{created}),
+            no_alerts => 1,
+        );
     }
 }
 

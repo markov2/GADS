@@ -20,7 +20,7 @@ package GADS::Column::Date;
 
 use Log::Report 'linkspace';
 
-use Linkspace::Util  qw(to_iso_datetime);
+use Linkspace::Util  qw(iso2datetime);
 use GADS::View;
 
 use Moo;
@@ -116,7 +116,7 @@ sub import_value
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},
-        value        => to_iso_datetime($value->{value}),
+        value        => iso2datetime($value->{value}),
     });
 }
 

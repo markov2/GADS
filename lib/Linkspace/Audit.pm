@@ -25,8 +25,6 @@ use GADS::Datum::Person;
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 
-use Linkspace::Util qw(to_cldr_datetime);
-
 has schema => (
     is       => 'rw',
     required => 1,
@@ -51,13 +49,10 @@ has filtering => (
     isa     => HashRef,
     coerce  => sub {
         my $value  = shift;
-        my $format = DateTime::Format::Strptime->new(
-             pattern   => '%Y-%m-%d',
-             time_zone => 'local',
-        );
 
-        $value->{from} = to_cldr_datetime($value->{from}) || DateTime->now->subtract(days => 7);
-        $value->{to}   = to_cldr_datetime($value->{to})   || DateTime->now;
+        my $user       = $::session->user;
+        $value->{from} = $user->local2dr($value->{from}) || DateTime->now->subtract(days => 7);
+        $value->{to}   = $user->local2dr($value->{to})   || DateTime->now;
         $value;
     },
     builder => sub { +{} },

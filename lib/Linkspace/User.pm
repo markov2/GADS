@@ -8,6 +8,9 @@ use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
+use Scalar::Util           qw(blessed);
+use DateTime::Format::CLDR ();
+
 =head1 NAME
 Linkspace::User - person or process accessing information
 
@@ -51,5 +54,56 @@ sub is_admin { 0 }
 
 #XXX Not sure whether this needs to be generic, but might simplify code.
 sub groups { () }
+
+
+=head1 METHODS: Other
+
+=head2 my $dt = $user->local2dt($stamp, [$pattern]);
+Convert the C<stamp>, which is in the user's locally prefered time format,
+into a L<DateTime> object.
+=cut
+
+my %cldrs;   # cache them, probably expensive to generate
+
+sub local2dt($)
+{   my ($self, $stamp, $pattern) = @_;
+    defined $stamp or return;
+    return $stamp if blessed $stamp && $stamp->isa('DateTime');
+
+    $pattern  ||= $self->date_pattern;
+    $pattern   .= ' HH:mm:ss' if $stamp =~ / /;
+
+    ($cldrs{$pattern} ||= DateTime::Format::CLDR->new(pattern => $pattern))
+        ->parse_datetime($stamp);
+}
+
+=head2 my $string = $user->dt2local($dt, [$format, [%options]]);
+
+Format some L<DateTime> object to the locale format (default the user's
+prefered C<date_pattern>).  The boolean option C<include_time> will add
+hours and minutes (not seconds) to the display.
+
+=cut
+
+sub dt2local($;$%)
+{   my ($self, $dt, $pattern, %args) = @_;
+    blessed $dt or return ();
+
+    $pattern ||= $self->date_pattern;
+    $pattern  .= 'HH:mm' if $args{include_time};
+
+    ($cldrs{$pattern} ||= DateTime::Format::CLDR->new(pattern => $pattern))
+        ->format_datetime($dt);
+}
+
+#XXX date_pattern should not be global for the instance, but at least
+#XXX bound to a site, better per user a locale
+has date_pattern => (
+    is      => 'lazy',
+    build   => sub {
+       $::linkspace->settings_for('users')->{cldr_pattern} || 'yyyy-MM-dd';
+    },
+);
+
 
 1;

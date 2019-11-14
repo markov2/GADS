@@ -179,9 +179,7 @@ has from => (
 
 sub from_formatted
 {   my $self = shift;
-    return $self->from if !ref $self->from;
-    my $dateformat = GADS::Config->instance->dateformat;
-    $self->from && $self->from->format_cldr($dateformat);
+    $::session->user->dt2local($self->from);
 }
 
 has to => (
@@ -192,9 +190,7 @@ has to => (
 
 sub to_formatted
 {   my $self = shift;
-    return $self->to if !ref $self->to;
-    my $dateformat = GADS::Config->instance->dateformat;
-    $self->to && $self->to->format_cldr($dateformat);
+    $::session->user->dt2local($self->to);
 }
 
 has x_axis_range => (

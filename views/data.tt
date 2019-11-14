@@ -254,9 +254,10 @@
     modal_with_cancel_button = 1 modal_with_form = 1 modal_form_method = "post" modal_extra_action = reset_button
     modal_extra_action_text = "Reset to normal"
 %]
+[% user = session.user %]
     <div class="form-group">
-        <label for="rewind_date">Date ([% config.dateformat %]):</label>
-        <input id="rewind_date" class="form-control datepicker" type="text" value="[% session.rewind.format_cldr(config.dateformat) %]" name="rewind_date">
+        <label for="rewind_date">Date ([% user.date_pattern | html %]):</label>
+        <input id="rewind_date" class="form-control datepicker" type="text" value="[% user.dt2local(session.rewind) %]" name="rewind_date">
     </div>
     <div class="form-group">
         <label for="rewind_time">Time (HH:MM:SS):</label>

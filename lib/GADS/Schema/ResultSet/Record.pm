@@ -3,7 +3,7 @@ package GADS::Schema::ResultSet::Record;
 use strict;
 use warnings;
 
-use Linkspace::Util  qw(to_iso_datetime);
+use Linkspace::Util  qw(iso2datetime);
 
 use parent 'DBIx::Class::ResultSet';
 
@@ -16,7 +16,7 @@ sub import_hash
 
     my $record = $self->create({
         current_id => $params{current}->id,
-        created    => to_iso_datetime($rec->{created}),
+        created    => iso2datetime($rec->{created}),
         createdby  => $user_mapping->{$rec->{createdby}},
         approvedby => $rec->{approved_by} && $user_mapping->{$rec->{approvedby}},
         approval   => $rec->{approval},

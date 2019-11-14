@@ -25,7 +25,6 @@ use GADS::Filter;
 use GADS::Groups;
 use GADS::Type::Permission;
 use GADS::View;
-use Linkspace::Util qw(to_cldr_datetime);
 
 use MIME::Base64 /encode_base64/;
 use JSON qw(decode_json encode_json);
@@ -722,7 +721,7 @@ sub parse_date
     my $dt = GADS::Filter->parse_date_filter($value);
     return $dt if $dt;
 
-    to_cldr_datetime $value;
+    $::session->user->local2dt($value);
 }
 
 sub _build_permissions

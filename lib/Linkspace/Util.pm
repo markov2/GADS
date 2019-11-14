@@ -23,43 +23,58 @@ package Linkspace::Util;
 use parent 'Exporter';
 
 our @EXPORT_OK = qw/
-    config_util
+    configure_util
     email_valid
-    to_cldr_datetime
+    iso2datetime
+    scan_for_plugins
 /;
 
-use DateTime::Format::CLDR    ();
 use DateTime::Format::ISO8601 ();
-use Scalar::Util  qw(blessed);
+use List::Util    qw(first);
+use File::Glob    qw(bsd_glob);
 
-my ($cldr_date, $cldr_datetime);
+=head1 NAME
+Linkspace::Util - collection of useful functions
 
-sub config_util($)
+=head1 SYNOPSIS
+  # You have to import all functions explicitly
+  use Linkspace::Util qw(iso2datetime);
+
+=head2 DESCRIPTION
+Collections of functions used all over the place.  Sometimes it is hard
+to decide whether some code should be in a function or as method to an
+object.  Keep it simple!
+
+=cut
+
+sub configure_util($)
 {   my $config = shift;
-    my $format = $config->dateformat;
-
-    $cldr_date = DateTime::Format::CLDR->new(pattern => $format);
-    $cldr_datetime = DateTime::Format::CLDR->new(pattern => "$format HH:mm:ss");
 }
+
+
+=head2 email_valid $email or die;
+
+Returns a true value when a C<user@domain.tld> string is passed: not a full
+RFC2822 email address.
+
+=cut
 
 # Noddy email address validator. Not much point trying to be too clever here.
 # We don't use Email::Valid, as that will check for RFC822 address as opposed
 # to pure email address on its own.
+
 sub email_valid($)
 {   $_[0] =~ m/^[=+\'a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,10}$/i;
 }
 
-# Convert a date value into a DateTime object
-sub to_cldr_datetime($)
-{   my $value = shift or return;
-    return $value if blessed $value && $value->isa('DateTime');
 
-    # If there's a space in the input value, assume it includes a time as well
-    my $cldr = $value =~ / / ? $cldr_datetime : $cldr_date;
-    $cldr->parse_datetime($value);
-}
+=head2 my $dt = iso2datetime $string;
 
-sub to_iso_datetime($)
+Convert a date represented as ISO8601 string to a L<DateTime> object.
+
+=cut
+
+sub iso2datetime($)
 {   my $stamp = shift or return;
     DateTime::Format::ISO8601->parse_datetime($stamp);
 }
