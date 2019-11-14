@@ -24,7 +24,3 @@ engines:
   logger:
     LogReport:
       app_name: GADS
-      dispatchers:
-        default:
-          type: PERL
-          mode: DEBUG

@@ -30,10 +30,3 @@ engines:
   logger:
     LogReport:
       app_name: GADS
-      dispatchers:
-        syslog:
-          type: SYSLOG
-          identity: GADS
-          facility: local0
-          flags: "pid ndelay nowait"
-          mode: VERBOSE

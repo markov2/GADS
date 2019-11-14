@@ -152,17 +152,50 @@ has db => (
     },
 );
 
-=head2 $::linkspace->siteFor($host)
+
+=head2 $::linkspace->site_for($host)
 Returns the L<Linkspace::Site> object which defines one running site.  When
 the site is not found, C<undef> is returned.
 
 The usual access to the active site is via C<<session->site>>.
 =cut
 
-sub siteFor {
-    my ($self, $host) = @_;
+sub site_for {
+{   my ($self, $host) = @_;
     $host =~ s/\.$//;
     $self->{sites}{lc $host} ||= Linkspace::Site->find($host);
+}
+
+
+=head2 $::linkspace->start_logging;
+Switch to dispatch (error) messages to the configure logging back-end.
+=cut
+
+sub start_logging()
+{   my $self = shift;
+
+    my $logconf = $self->_settingsFor('logging')
+        or return;
+
+    my $dispatchers = $logconf->{dispatchers} || [];
+    @$dispatchers or return;   # leave default
+
+    dispatcher 'do-not-reopen';
+
+    # Do not close standard 'default' too early, otherwise may loose errors
+    # during configuration.
+    my $has_new_default = 0;
+
+    foreach my $d (@$dispatchers)
+    {   my $type = delete $d->{type} || 'SYSLOG';
+        my $name = delete $d->{name} || 'default';
+        dispatcher $type => $name, charset => 'utf8', %$d;
+
+        $has_new_default = 1 if $name eq 'default';
+    }
+
+    dispatcher close => 'default'
+        unless $has_new_default;
 }
 
 1;
