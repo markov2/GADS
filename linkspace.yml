@@ -1,0 +1,30 @@
+### Configuration for Linkspace except Dancer2
+
+### Fields that are commented-out show the defaults.
+
+dancer2:
+  environment: 'development'
+
+db:
+# class: Linkspace::DB
+# schema_class: Linkspace::Schema
+  dsn: dbi:Pg:dbname=gads
+  user: gads
+  password: WDUEHDIWUQU12
+  options:
+#   RaiseError: 1
+#   PrintError: 1
+#   mysql_enable_utf8: 1
+# You may add other options which are passed as-is.
+
+logging:
+# class: Log::Report
+  dispatchers:
+    ---
+#   name: default
+#   type: SYSLOG                # See Log::Report::Dispatcher::Syslog for options
+#   charset: utf8
+    identity: l-test
+    facility: local0
+    flags: "pid ndelay nowait"
+    mode: VERBOSE               # defaults to NORMAL

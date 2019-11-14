@@ -3,18 +3,18 @@ package Linkspace;
 
 use warnings;
 use strict;
+use open ':encoding(utf8)';
 
 use Log::Report 'linkspace';
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-
-use Dancer2;   # config
+use YAML             qw(LoadFile);
 
 use Linkspace::DB    ();
 use Linkspace::Site  ();
+use Linkspace::Util  qw(configure_util);
 use Linkspace::Session::System ();
-use Linkspace::Util  qw(config_util);
 
 =head1 NAME
 Linkspace - the Linkspace application
@@ -41,23 +41,37 @@ Options:
 
 =item site HOSTNAME
 
-The L<Linkspace::Session::CLI> object prefers the specific C<site>, otherwise
+The L<Linkspace::Session::System> object prefers the specific C<site>, otherwise
 only limited database lookups are possible.
+
+=item config FILENAME
+
+Which configuration file to use for everything except the Dancer2 specifics.
+It defaults to 'linkspace.yml' in the current directory (which is not really
+safe).
 
 =back
 
 =cut
 
 sub BUILD {
-	my ($self, %args) = @_;
+    my ($self, %args) = @_;
 
-    #XXX needs support for settings
+    my $settings = $self->settings;
+    configure_util $settings;
 
-    $::session = $self->{default_session} = Linkspace::Session::CLI->new(
-        site => $args{host},
+    $self->_configure_logging;
+
+    my $host = $args{host} || $settings->{default_website}
+        or error __x"No default site found";
+
+    my $site = Linkspace::Site->find($host)
+        or error __x"Cannot find default site '{host}'", host => $host;
+
+    $::session = $self->{default_session} = Linkspace::Session::System->new(
+        site => $site,
     );
 
-	config_util $self->settings;
     {};
 }
 
@@ -72,29 +86,43 @@ used when there is no user request being handled.
 
 sub default_session { $_[0]->{default_session} }
 
+# private
+has config_fn => (
+    is      => 'ro',
+    default => 'linkspace.yml',
+);
 
 =head2 $::linkspace->settings
 This is I<only> the Linkspace logic specific configuration: the
-Dancer2 plugin configuration is not handled here... because it is
-already active before this application object gets initiated.
+Dancer2 plugin configuration is not handled here...
 =cut
 
 has settings => (
     is      => 'ro',
     isa     => HashRef,
-	builder => sub {
+    builder => sub {
         my ($self, $spec) = @_;
 
-          ! defined $spec     ? config->{linkspace}
-        : ref $spec eq 'HASH' ? $spec
-        #XXX we may want to be able to specify a file
-        : error __x"db config '{spec}' not (yet) supported", spec => $spec;
-            
+        if(defined $spec)
+        {   ref $spec eq HASH or panic "settings() expects HASH";
+            return $spec;
+        }
+
+        my $fn = $self->config_fn;
+        -f $fn or error __x"Configuration file '{fn}' does not exist", fn => $fn;
+
+        $fn =~ m/\.yml$/
+             or error __x"Configuration file format of '{fn}' not (yet) supported",
+                 fn => $fn;
+
+        my $config = LoadFile $fn;
+
+        $config;
     },
 );
 
-sub _settingsFor {
-    my ($self, $component) = @_;
+sub _settingsFor
+{   my ($self, $component) = @_;
     $self->settings->{$component} || {};
 }
 
@@ -107,9 +135,20 @@ has db => (
     is      => 'lazy',
     builder => sub {
         my $self = shift;
-        Linkspace::DB->new(
-            %{$self->_settingsFor('db')},
-        );
+        my $dbconf = $self->_settingsFor('db');
+        my $class    = delete $dbconf->{class} || 'Linkspace::DB';
+        $dbconf->{schema_class} ||= 'Linkspace::Schema';
+
+        my $db_type  = $dbconf->{dsn} =~ m/^DBI\:(pg|mysql)\:/i ? lc($1)
+          : error __x"Unsupported database type in dsn '{dsn}'",
+               dsn => $dbconf->{dsn};
+
+        my $options  = $dbconf->{options} ||= {};
+        $options->{RaiseError} //= 1;
+        $options->{PrintError} //= 1;
+        $options->{quote_names}  = 1;
+        $options->{mysql_enable_utf8} //= 1 if $db_type eq 'mysql';
+        $class->new(%$dbconf);
     },
 );
 

@@ -1,4 +1,3 @@
-# This module manages database access
 
 package Linkspace::DB;
 
@@ -17,23 +16,26 @@ Linkspace::DB - database abstraction
 
   my $db = $::linkspace->db;
 
+=head1 DESCRIPTION
+
+This module manages (DBIC-)schema controled database access.  It may
+share the database connection with other instances.
+
+One of these objects is the I<generic> database connection, which does
+not know about the sheets.  Other objects will represent sheet sets (Sites)
+which have extended rules in the Records.
+
 =head1 METHODS: Constructors
 
-=cut
+=head1 METHODS: attributes
 
-sub BUILD {
-    my $self = shift;
-    my $schema = $self->{schema} = 
-    $self;
-}
-
-=head2 my $schema = $db->generic_schema;
+=head2 my $schema = $db->schema;
 
 =cut
 
-has generic_schema => (
-    is      => 'ro',
-    builder => sub { GADS::Schema->new },
+has schema => (
+    is       => 'ro',
+    required => 1,
 );
 
 
@@ -43,7 +45,7 @@ has generic_schema => (
 
   my @sites = $db->resultset('Site')->all;
 
-Most tables are site dependent.   In those cases, you very probably need:
+Most tables are site dependent. In those cases, you very probably need:
 
   my @users = $site->resultset('Users')->all;
 
@@ -51,7 +53,7 @@ Most tables are site dependent.   In those cases, you very probably need:
 
 sub resultset {
     my ($self, $table) = @_;
-    $self->generic_schema->resultset($table);
+    $self->schema->resultset($table);
 }
 
 =head2 my $search = $db->search($table, @more);
@@ -64,7 +66,7 @@ Site independent search.  Short form of:
 
 sub search {
     my ($self, $table) = (shift, shift);
-    $self->resultset($table)->search(@_);
+    $self->schema->resultset($table)->search(@_);
 }
 
 1;
