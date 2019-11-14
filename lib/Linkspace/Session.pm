@@ -1,15 +1,15 @@
 package Linkspace::Session;
-our @ISA;
 
 use warnings;
 use strict;
 
 use Log::Report 'linkspace';
 
+use Linkspace::Audit ();
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-
-use Linkspace::Audit ();
+use Scalar::Util  qw(blessed);
 
 =head1 NAME
 Linkspace::Session - dancer2 and CLI sessions
@@ -47,7 +47,7 @@ sub site(;$) {
     panic "A specific site must be selected." if @_==1;
 
     my ($self, $site) = @_;
-    $site->isa('Linkspace::Site') or panic;
+    blessed $site && $site->isa('Linkspace::Site') or panic;
     $self->{site} = $site;
 }
 

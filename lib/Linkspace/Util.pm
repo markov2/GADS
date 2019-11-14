@@ -79,5 +79,54 @@ sub iso2datetime($)
     DateTime::Format::ISO8601->parse_datetime($stamp);
 }
 
+
+=head2 my $plugins = scan_for_plugins $subpkg, %options
+
+Search the C<@INC> path (set by 'use lib' and the PERL5LIB environment
+variable) for files which seem to contain plugins of a certain group.
+
+It is a pity that there is no assurance that implementers are not
+enforced to have matching package names and file names in Perl.  Gladly,
+nearly everyone does it right automatically.
+
+The scan will get all modules which match C<lib/Linkspace/$subpkg/*.pm>.
+
+Example:
+
+  my $pkgs_hash = scan_for_plugins 'Command', load => 1;
+  # Will load  Linkspace::Commmand::Install  when it exists.
+
+=cut
+
+sub scan_for_plugins($%) {
+    my ($subspace, %args) = @_;
+    my $namespace = "Linkspace::$subspace";
+    my $subpath   = $namespace =~ s!\:\:!/!gr;
+
+   my $autoload   = $args{load};
+
+    my %pkgs;
+    foreach my $inc (@INC) {
+        ref $inc && next;    # ignore code refs
+
+        foreach my $filename (bsd_glob "$inc/$subpath/[!_]*.pm") {
+
+            my $pkg = $filename =~ s!.*\Q$inc/!!r =~ s!\.pm$!!r =~ s!/!::!gr;
+            next if $pkgs{$pkg};
+
+            $pkgs{$pkg} = $filename;
+
+            (my $plugin_base = $filename) =~ s!^\Q$inc/\E!!;
+            my $has = first { /\Q$plugin_base\E$/ } keys %INC;
+            next if $has;
+
+            eval "use $pkg (); 1"
+                or die "ERROR: failed to load plugin $pkg from $filename:\n$@";
+        }
+    }
+
+    \%pkgs;
+}
+
 1;
 

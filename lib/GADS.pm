@@ -141,7 +141,7 @@ hook before => sub {
     return
         if request->dispatch_path =~ m{/invalidsite};
 
-    $site = $::linkspace->siteFor(request->base->host)
+    $site = $::linkspace->site_for(request->base->host)
         or redirect '/invalidsite';
 
     $site->refresh;

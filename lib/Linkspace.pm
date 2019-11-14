@@ -104,7 +104,7 @@ has settings => (
         my ($self, $spec) = @_;
 
         if(defined $spec)
-        {   ref $spec eq HASH or panic "settings() expects HASH";
+        {   ref $spec eq 'HASH' or panic "settings() expects HASH";
             return $spec;
         }
 
@@ -121,12 +121,22 @@ has settings => (
     },
 );
 
-sub _settingsFor
+=head2 $::linkspace->settings_for($component)
+Returns a HASH which contains configuration parameters for the C<$component>
+in the configuration file.  The components are top-level elements.  The
+default configuration file name is F<linkspace.yml>.
+
+Do refrain from using this method outside this class: settings should always
+be applied during initiation of object, so within this class.  However, in
+rare cases, abstraction is broken (at the moment)...
+=cut
+
+sub settings_for
 {   my ($self, $component) = @_;
     $self->settings->{$component} || {};
 }
 
-=head2 $::linkspace->db
+=head2 my $db = $::linkspace->db
 Returns the L<Linkspace::DB> object which connects to the central database
 with linkspace data.
 =cut
@@ -135,7 +145,7 @@ has db => (
     is      => 'lazy',
     builder => sub {
         my $self = shift;
-        my $dbconf = $self->_settingsFor('db');
+        my $dbconf = $self->settings_for('db');
         my $class    = delete $dbconf->{class} || 'Linkspace::DB';
         $dbconf->{schema_class} ||= 'Linkspace::Schema';
 
@@ -160,7 +170,7 @@ the site is not found, C<undef> is returned.
 The usual access to the active site is via C<<session->site>>.
 =cut
 
-sub site_for {
+sub site_for($)
 {   my ($self, $host) = @_;
     $host =~ s/\.$//;
     $self->{sites}{lc $host} ||= Linkspace::Site->find($host);
@@ -174,7 +184,7 @@ Switch to dispatch (error) messages to the configure logging back-end.
 sub start_logging()
 {   my $self = shift;
 
-    my $logconf = $self->_settingsFor('logging')
+    my $logconf = $self->settings_for('logging')
         or return;
 
     my $dispatchers = $logconf->{dispatchers} || [];

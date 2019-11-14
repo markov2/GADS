@@ -24,9 +24,12 @@ logging:
   dispatchers:
     ---
 #   name: default
-#   type: SYSLOG                # See Log::Report::Dispatcher::Syslog for options
+#   type: SYSLOG        # See Log::Report::Dispatcher::Syslog for options
 #   charset: utf8
     identity: l-test
     facility: local0
     flags: "pid ndelay nowait"
-    mode: VERBOSE               # defaults to NORMAL
+    mode: VERBOSE       # defaults to NORMAL
+
+users:
+# cldr_pattern: 'yyyy-MM-dd'

@@ -152,12 +152,14 @@ sub register
     email_valid $email
         or error __"Please enter a valid email address";
 
-    my %new;
-    $new{firstname} = ucfirst $params->{firstname};
-    $new{surname}   = ucfirst $params->{surname};
-    $new{username}  = $new{email} = $email;
-    $new{account_request} = 1;
-    $new{account_request_notes} = $params->{account_request_notes};
+    my %new   = (
+        firstname => ucfirst $params->{firstname},
+        surname   => ucfirst $params->{surname},
+        username  => $email,
+        email     => $email,
+        account_request       => 1,
+        account_request_notes => $params->{account_request_notes},
+    );
 
     my @fields;
     push @fields, 'organisation' if $site->register_show_organisation;
@@ -171,30 +173,39 @@ sub register
         for @fields;
 
     my $user = $site->create(User => \%new);
-    $user->discard_changes; # Ensure that relations such as department() are resolved
+
+    # Ensure that relations such as department() are resolved   XXX??
+    $user->discard_changes;
 
     # Email admins with account request
+    my @f = (
+        "First name: $new{firstname}",
+        "surname: $new{surname}",
+        "email: $new{email}",
+    );
 
-    my $text;
-    $text = "A new account request has been received from the following person:\n\n";
-    $text .= "First name: $new{firstname}, ";
-    $text .= "surname: $new{surname}, ";
-    $text .= "email: $new{email}, ";
-    $text .= "title: ".$user->title->name.", " if $user->title;
-    $text .= $site->register_freetext1_name.": $new{freetext1}, " if $new{freetext1};
-    $text .= $site->register_freetext2_name.": $new{freetext2}, " if $new{freetext2};
-    $text .= $site->register_organisation_name.": ".$user->organisation->name.", " if $user->organisation;
-    $text .= $site->register_department_name.": ".$user->department->name.", " if $user->department;
-    $text .= $site->register_team_name.": ".$user->team->name.", " if $user->team;
-    $text .= "\n\n";
-    $text .= "User notes: $new{account_request_notes}\n";
+    push @f, "title: ".$user->title->name if $user->title;
+    push @f, $site->register_freetext1_name.": $new{freetext1}" if $new{freetext1};
+    push @f, $site->register_freetext2_name.": $new{freetext2}" if $new{freetext2};
+    push @f, $site->register_organisation_name.": ".$user->organisation->name if $user->organisation;
+    push @f, $site->register_department_name.": ".$user->department->name if $user->department;
+    push @f, $site->register_team_name.": ".$user->team->name   if $user->team;
+
+    my $f    = join ',', @f;
+    my $text = <<__EMAIL;
+A new account request has been received from the following person:
+
+$f
+
+User notes: $new{account_request_notes}
+__EMAIL
 
     my $config = $self->config
         or panic "Config needs to be defined";
 
     GADS::Email->instance->send({
         emails  => [ map $_->email, $self->all_admins ],
-        subject => "New account request",
+        subject => 'New account request',
         text    => $text,
     });
 }
@@ -206,14 +217,13 @@ sub csv
     my $site = $self->site;
     # Column names
     my @columns = qw/ID Surname Forename Email Lastlogin Created/;
-    push @columns, 'Title' if $site->register_show_title;
-    push @columns, 'Organisation' if $site->register_show_organisation;
+    push @columns, 'Title'                if $site->register_show_title;
+    push @columns, 'Organisation'         if $site->register_show_organisation;
     push @columns, $site->department_name if $site->register_show_department;
-    push @columns, $site->team_name if $site->register_show_team;
+    push @columns, $site->team_name       if $site->register_show_team;
     push @columns, $site->register_freetext1_name if $site->register_freetext1_name;
     push @columns, $site->register_freetext2_name if $site->register_freetext2_name;
-    push @columns, 'Permissions', 'Groups';
-    push @columns, 'Page hits last month';
+    push @columns, 'Permissions', 'Groups', 'Page hits last month';
 
     $csv->combine(@columns)
         or error __x"An error occurred producing the CSV headings: {err}", err => $csv->error_input;
@@ -299,15 +309,16 @@ sub csv
             $user->get_column('lastlogin_max'),
             $user->get_column('created_max'),
         );
-        push @csv, $user->get_column('title_max') if $site->register_show_title;
+        push @csv, $user->get_column('title_max')      if $site->register_show_title;
         push @csv, $user->get_column('organisation_max') if $site->register_show_organisation;
         push @csv, $user->get_column('department_max') if $site->register_show_department;
-        push @csv, $user->get_column('team_max') if $site->register_show_team;
-        push @csv, $user->get_column('freetext1_max') if $site->register_freetext1_name;
-        push @csv, $user->get_column('freetext2_max') if $site->register_freetext2_name;
+        push @csv, $user->get_column('team_max')       if $site->register_show_team;
+        push @csv, $user->get_column('freetext1_max')  if $site->register_freetext1_name;
+        push @csv, $user->get_column('freetext2_max')  if $site->register_freetext2_name;
         push @csv, join '; ', map $_->permission->description, @{$user_permissions{$id}};
         push @csv, join '; ', map $_->group->name, @{$user_groups{$id}};
         push @csv, $user->get_column('audit_count');
+
         $csv->combine(@csv)
             or error __x"An error occurred producing a line of CSV: {err}",
                 err => "".$csv->error_diag;
