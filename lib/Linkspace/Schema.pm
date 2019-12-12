@@ -1,14 +1,64 @@
-package GADS::Schema;
+package Linkspace::Schema;
 use parent 'DBIx::Class::Schema';
 
 use strict;
 use warnings;
+use Log::Report 'linkspace';
+
+use Tie::Cache ();
 
 use GADS::Layout ();
+use GADS::DBICProfiler ();
+
+# Load all classes which relate to the schema.
 
 __PACKAGE__->load_namespaces;
 
 our $VERSION = 76;
+
+=head1 NAME
+Linkspace::Schema - manage the database structure
+
+=head1 SYNOPSIS
+
+  my $schema = $::linkspace->db->schema;
+
+=head1 DESCRIPTION
+Manage the C<DBIx::Class::Schema>, which interfaces the database
+structure.
+
+=head1 METHODS: Constructors
+
+=head2 my $schema = Linkspace::Schema->new(%options);
+=cut
+
+sub BUILD
+{   my ($self, $args) = @_;
+
+    my $storage = $self->storage;
+    $storage->debugobj(GADS::DBICProfiler->new);
+    $storage->debug(1);
+
+    # Limit the cached connections to 100
+    tie %{$storage->dbh->{CachedKids}}, 'Tie::Cache', 100;
+
+    # There should never be exceptions from DBIC, so we want to panic them to
+    # ensure they get notified at the correct level. Unfortunately, DBIC's internal
+    # code uses exceptions, and if these are panic'ed then they are not caught
+    # properly. Use this dirty hack for the moment, but I am told these part of
+    # DBIC may change in the future.
+    $self->exception_action(sub {
+        die $_[0] if $_[0] =~ /^Unable to satisfy requested constraint/; # Expected
+        panic @_; # Not expected
+    });
+
+    $self;
+}
+
+=head1 METHODS: 
+The Record class of the schema is dynamic: fields get added based on the
+columns of the sheets.
+=cut
 
 sub _add_column
 {   my ($self, $rec_class, $col) = @_;
@@ -24,7 +74,12 @@ sub _add_column
 }
 
 
-sub setup
+=head2 $schema->setup_site($site);
+Add all dynamic methods to the Record class, typically when the related
+C<$site> gets accessed first.
+=cut
+
+sub setup_site
 {   my ($self, $site) = @_;
     my $rec_class = $self->class('Record');
 
@@ -33,6 +88,10 @@ sub setup
 
     $self;
 }
+
+=head2 $schema->add_column($col);
+Add a single column accessor to the Record.
+=cut
 
 sub add_column
 {   my ($self, $col) = @_;
@@ -50,10 +109,12 @@ sub add_column
     $self->register_class(Record => $rec_class);
 }
 
-# Add any new relationships for new fields. These are normally
-# added when the field is created, but with multiple processes
-# these will not have been created for the other processes.
-# This subroutine checks for missing ones and adds them.
+=head2 $schema->update_fields($site);
+Add any new relationships for new fields of a C<$site>. These are normally
+added when the field is created, but with multiple processes these will
+not have been created for the other processes.  This subroutine checks
+for missing ones and adds them.
+=cut
 
 sub update_fields
 {   my ($self, $site) = @_;

@@ -2252,18 +2252,12 @@ sub data_timeline
     delete $_->{dt_to}
         foreach @items;
 
-    if ($options{overlay} && $options{overlay} != $self->layout->instance_id)
-    {
-        my $layout = GADS::Layout->new(
-            user        => $self->user,
-            schema      => $self->schema,
-            config      => GADS::Config->instance,
-            instance_id => $options{overlay},
-        );
+    if($options{overlay} && $options{overlay} != $self->layout->instance_id)
+    {   my $overlay = $::linkspace->sheets->sheet($options{overlay});
 
         # Only show the first field, plus all the date fields
         my ($picked, @to_show);
-        foreach ($layout->all_user_read)
+        foreach ($overlay->search_columns(user_can_read => 1))
         {
             if ($_->return_type =~ /date/)
             {   push @to_show, $_;
@@ -2278,9 +2272,7 @@ sub data_timeline
             columns => [ map { $_->id } @to_show ],
             from    => $min,
             to      => $max,
-            user    => $self->user,
-            layout  => $layout,
-            schema  => $self->schema,
+            layout  => $overlay,
         );
 
         my $timeline_overlay = GADS::Timeline->new(

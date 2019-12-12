@@ -576,11 +576,14 @@ sub remove_id
 sub find_record_id
 {   my ($self, $record_id, %options) = @_;
     my $search_instance_id = $options{instance_id};
+
     my $record = $self->schema->resultset('Record')->find($record_id)
         or error __x"Record version ID {id} not found", id => $record_id;
-    my $instance_id = $record->current->instance_id;
+
+    my $instance_id = $record->current->instance_id;  #XXX id as table name?
     error __x"Record ID {id} invalid for table {table}", id => $record_id, table => $search_instance_id
         if $search_instance_id && $search_instance_id != $instance_id;
+
     $self->_set_instance_id($instance_id);
     $self->_find(record_id => $record_id, %options);
 }
@@ -593,7 +596,8 @@ sub find_current_id
         or error __x"Invalid record ID {id}", id => $current_id;
     my $current = $self->schema->resultset('Current')->find($current_id)
         or error __x"Record ID {id} not found", id => $current_id;
-    my $instance_id = $current->instance_id;
+
+    my $instance_id = $current->instance_id;  #XXX id as table name?
     error __x"Record ID {id} invalid for table {table}", id => $current_id, table => $search_instance_id
         if $search_instance_id && $search_instance_id != $current->instance_id;
     $self->_set_instance_id($current->instance_id);
@@ -2256,7 +2260,7 @@ sub restore
 sub as_json
 {   my $self = shift;
     my $return;
-    foreach my $col ($self->layout->all_user_read)
+    foreach my $col ($self->layout->search_columns(user_can_read => 1))
     {
         my $short = $col->name_short or next;
         $return->{$short} = $self->fields->{$col->id}->as_string;
@@ -2300,7 +2304,7 @@ sub pdf
         ['Field', 'Value'],
     ];
     my $max_fields;
-    foreach my $col ($self->layout->all_user_read)
+    foreach my $col ($self->layout->search_columns(user_can_read => 1))
     {
         my $datum = $self->fields->{$col->id};
         next if $datum->dependent_not_shown;

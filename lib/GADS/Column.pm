@@ -342,23 +342,18 @@ has display_fields => (
     clearer => 1,
     coerce  => sub {
         my $val = shift;
-        return $val if ref $val eq 'GADS::Filter';
-        return GADS::Filter->new(
-            as_json => $val,
-        );
+        ref $val eq 'GADS::Filter' ? $val : GADS::Filter->new(as_json => $val);
     },
     builder => sub {
         my $self = shift;
         my @rules;
         if ($self->has_set_display_fields)
         {
-            @rules = map {
-                +{
-                    id       => $_->{display_field_id},
-                    operator => $_->{operator},
-                    value    => $_->{regex},
-                },
-            } @{$self->set_display_fields};
+            @rules = map +{
+                id       => $_->{display_field_id},
+                operator => $_->{operator},
+                value    => $_->{regex},
+            }, @{$self->set_display_fields};
         }
         else {
             foreach my $cond ($self->schema->resultset('DisplayField')->search({
@@ -659,6 +654,11 @@ has depends_on => (
     },
 );
 
+sub dependencies
+{   my $self = shift;
+    $self->has_display_field ? $self->display_field_col_ids : $self->depends_on;
+}
+
 # Which columns depend on this field
 has depended_by => (
     is      => 'lazy',
@@ -784,12 +784,7 @@ sub build_values
     if (ref $link_parent)
     {
         my $class = "GADS::Column::".camelize $link_parent->{type};
-        my $column = $class->new(
-            set_values               => $link_parent,
-            user_permission_override => $self->user_permission_override,
-            schema                   => $self->schema,
-            layout                   => $self->layout,
-        );
+        my $column = $class->new(set_values => $link_parent);
         $self->link_parent($column);
     }
     else {
@@ -907,8 +902,7 @@ sub delete
         })->all
     )
     {
-        my @depsn = map { $_->layout->name } @deps;
-        my $dep   = join ', ', @depsn;
+        my $dep   = join ', ', map $_->layout->name, @deps;
         error __x"The following fields are conditional on this field: {dep}.
             Please remove these conditions before deletion.", dep => $dep;
     }
@@ -955,7 +949,7 @@ sub delete
         )->all
     )
     {
-        my $g = join(q{, }, map{$_->title} @graphs);
+        my $g = join ', ', map $_->title, @graphs;
         error __x"The following graphs references this field: {graph}. Please update them before deletion."
             , graph => $g;
     }

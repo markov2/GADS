@@ -1,5 +1,4 @@
 .jshintrc
-bin/app.pl
 bin/app.psgi
 bin/export-tree.pl
 bin/export.pl
@@ -203,9 +202,7 @@ lib/GADS/Datum/Rag.pm
 lib/GADS/Datum/Serial.pm
 lib/GADS/Datum/String.pm
 lib/GADS/Datum/Tree.pm
-lib/GADS/DB.pm
 lib/GADS/DBIC.pm
-lib/GADS/DBICProfiler.pm
 lib/GADS/Email.pm
 lib/GADS/Filter.pm
 lib/GADS/Globe.pm
@@ -217,7 +214,6 @@ lib/GADS/Groups.pm
 lib/GADS/Helper/BreadCrumbs.pm
 lib/GADS/Helper/Concat.pm
 lib/GADS/Import.pm
-lib/GADS/Instances.pm
 lib/GADS/Layout.pm
 lib/GADS/Metric.pm
 lib/GADS/MetricGroup.pm
@@ -303,9 +299,12 @@ lib/GADS/View.pm
 lib/GADS/Views.pm
 lib/Linkspace/Audit.pm
 lib/Linkspace/DB.pm
+lib/Linkspace/DBICProfiler.pm
 lib/Linkspace/Session.pm
 lib/Linkspace/Session/Dancer2.pm
 lib/Linkspace/Session/System.pm
+lib/Linkspace/Sheet.pm
+lib/Linkspace/Sheets.pm
 lib/Linkspace/Site.pm
 lib/Linkspace/Users.pm
 lib/Linkspace/User.pm

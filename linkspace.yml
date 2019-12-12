@@ -2,7 +2,7 @@
 
 ### Fields that are commented-out show the defaults.
 
-# cldr_format: yyyy-MM-dd
+default_site: gads.overmeer.net
 
 dancer2:
   environment: 'development'
@@ -22,14 +22,13 @@ db:
 logging:
 # class: Log::Report
   dispatchers:
-    ---
-#   name: default
-#   type: SYSLOG        # See Log::Report::Dispatcher::Syslog for options
-#   charset: utf8
-    identity: l-test
-    facility: local0
-    flags: "pid ndelay nowait"
-    mode: VERBOSE       # defaults to NORMAL
+    - name: default
+#     type: SYSLOG        # See Log::Report::Dispatcher::Syslog for options
+#     charset: utf8
+      identity: l-test
+      facility: local0
+      flags: "pid ndelay nowait"
+      mode: VERBOSE       # defaults to NORMAL
 
 users:
 # cldr_pattern: 'yyyy-MM-dd'

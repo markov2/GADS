@@ -39,7 +39,6 @@ use GADS::Column::Rag;
 use GADS::Column::String;
 use GADS::Column::Tree;
 use GADS::Config;
-use GADS::DBICProfiler;
 use GADS::Email;
 use GADS::Globe;
 use GADS::Graph;
@@ -73,7 +72,6 @@ use String::CamelCase qw(camelize);
 use Text::CSV;
 use Text::Wrap qw(wrap $huge);
 $huge = 'overflow';
-use Tie::Cache;
 use URI::Escape qw/uri_escape_utf8/;
 use WWW::Mechanize::PhantomJS;
 
@@ -84,23 +82,6 @@ use Dancer2::Plugin::Auth::Extensible::Provider::DBIC 0.623;
 use Dancer2::Plugin::LogReport 'linkspace';
 
 use GADS::API; # API routes
-
-schema->storage->debugobj(new GADS::DBICProfiler);
-schema->storage->debug(1);
-
-# There should never be exceptions from DBIC, so we want to panic them to
-# ensure they get notified at the correct level. Unfortunately, DBIC's internal
-# code uses exceptions, and if these are panic'ed then they are not caught
-# properly. Use this dirty hack for the moment, but I am told these part of
-# DBIC may change in the future.
-schema->exception_action(sub {
-    die $_[0] if $_[0] =~ /^Unable to satisfy requested constraint/; # Expected
-    panic @_; # Not expected
-});
-
-tie %{schema->storage->dbh->{CachedKids}}, 'Tie::Cache', 100;
-
-our $VERSION = '0.1';
 
 # set serializer => 'JSON';
 set behind_proxy => config->{behind_proxy}; # XXX Why doesn't this work in config file
@@ -117,9 +98,8 @@ GADS::Email->instance(
 config->{plugins}->{'Auth::Extensible'}->{realms}->{dbic}->{user_as_object}
     or panic "Auth::Extensible DBIC provider needs to be configured with user_as_object";
 
-# Make sure that internal columns have been populated in tables (new feature at
-# time of writing)
-my $instances = GADS::Instances->new(schema => schema, user => undef, user_permission_override => 1);
+# Make sure that internal columns have been populated in tables
+my $instances = GADS::Instances->new(user => undef, user_permission_override => 1);
 $_->create_internal_columns foreach @{$instances->all};
 
 my $password_generator = CtrlO::Crypt::XkcdPassword->new;

@@ -163,4 +163,74 @@ sub set_graphs
     $self->search_related(user_graphs => \%search, { join => 'graph' })->delete;
 }
 
+
+=head1 METHODS: Permissions
+The user's permissions are heavily cached, to make it perform.
+
+=head2 \%h = $user->sheet_permissions($sheet);
+Returns a HASH which shows the user permissions which were set explicitly
+for this sheet (layout instance).
+=cut
+
+sub sheet_permissions($)
+{   my ($self, $sheet) = @_;
+
+    my $perms = $self->{LUP_sheet_perms};
+    unless($perms)
+    {   my $rs = $::session->site->search(InstanceGroup =>
+            user_id => $self->id,
+        },{
+            select => [
+                { max => 'instance_id' },
+                { max => 'permission'  },
+            ],
+            as       => [ qw/instance_id permission/ ],
+            group_by => [ qw/permission instance_id/ ],
+            join     => { group => 'user_groups' },
+            result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+        });
+
+        $perms = $self->{LUP_sheet_perms} = {};
+        $perms->{$_->{instance_id}}{$_->{permission}} = 1
+            for $rs->all;
+    }
+
+    $perms->{$sheet->id};
+}
+
+=head2 \%h = $user->column_permissions($column);
+Columns are grouped into Layouts, which model Sheets.
+=cut
+
+sub column_permissions($)
+{   my ($self, $col) = @_;
+
+    my $perms = $self->{LUP_col_perms};
+    unless($perms)
+    {   #XXX Why is instance_id in here?
+        my $rs = my$::session->site->search(LayoutGroup => {
+            user_id => $self->id,
+        }, {
+            select => [
+                { max => 'layout.instance_id' },
+                { max => 'me.layout_id' },
+                { max => 'me.permission' },
+            ],
+            as       => [qw/instance_id layout_id permission/],
+            group_by => [qw/me.permission me.layout_id/],
+            join     => [
+                'layout',
+                { group => 'user_groups' },
+            ],
+            result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+        });
+
+        $perms = $self->{LUP_col_perms} = {};
+        $perms->{$_->{layout_id}}{$_->{permission}} = 1
+            for $rs->all;
+    }
+
+    $perms->{$col->layout_id};
+}
+
 1;

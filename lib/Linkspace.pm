@@ -47,22 +47,22 @@ only limited database lookups are possible.
 =item config FILENAME
 
 Which configuration file to use for everything except the Dancer2 specifics.
-It defaults to 'linkspace.yml' in the current directory (which is not really
-safe).
 
 =back
 
 =cut
 
 sub BUILD {
-    my ($self, %args) = @_;
+    my ($self, $args) = @_;
+
+    # This dirty global connects all singletons.  It simplifies the code
+    # enormously.
+    $::linkspace = $self;
 
     my $settings = $self->settings;
     configure_util $settings;
 
-    $self->_configure_logging;
-
-    my $host = $args{host} || $settings->{default_website}
+    my $host = $args->{host} || $settings->{default_site}
         or error __x"No default site found";
 
     my $site = Linkspace::Site->find($host)
@@ -88,8 +88,8 @@ sub default_session { $_[0]->{default_session} }
 
 # private
 has config_fn => (
-    is      => 'ro',
-    default => 'linkspace.yml',
+    is       => 'ro',
+    required => 1,
 );
 
 =head2 $::linkspace->settings
@@ -116,6 +116,8 @@ has settings => (
                  fn => $fn;
 
         my $config = LoadFile $fn;
+#use Data::Dumper;
+#warn Dumper $config;
 
         $config;
     },
@@ -144,21 +146,28 @@ with linkspace data.
 has db => (
     is      => 'lazy',
     builder => sub {
-        my $self = shift;
+        my ($self, $db) = @_;
+        return $db if defined $db;
+
         my $dbconf = $self->settings_for('db');
-        my $class    = delete $dbconf->{class} || 'Linkspace::DB';
-        $dbconf->{schema_class} ||= 'Linkspace::Schema';
+        my $class  = delete $dbconf->{class} || 'Linkspace::DB';
 
         my $db_type  = $dbconf->{dsn} =~ m/^DBI\:(pg|mysql)\:/i ? lc($1)
           : error __x"Unsupported database type in dsn '{dsn}'",
                dsn => $dbconf->{dsn};
 
         my $options  = $dbconf->{options} ||= {};
-        $options->{RaiseError} //= 1;
-        $options->{PrintError} //= 1;
-        $options->{quote_names}  = 1;
-        $options->{mysql_enable_utf8} //= 1 if $db_type eq 'mysql';
-        $class->new(%$dbconf);
+        $options->{RaiseError}  = 1 unless exists $options->{RaiseError};
+        $options->{PrintError}  = 1 unless exists $options->{PrintError};
+        $options->{quote_names} = 1 unless exists $options->{quote_names};
+
+        $options->{mysql_enable_utf8} = 1
+            if ! exists $options->{mysql_enable_utf8} && $db_type eq 'mysql';
+
+        my $sclass = delete $dbconf->{schema_class} || 'Linkspace::Schema';
+        my $schema = $sclass->new();
+
+        $class->new(%$dbconf, schema => $schema);
     },
 );
 

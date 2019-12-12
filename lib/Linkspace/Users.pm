@@ -30,6 +30,7 @@ use MooX::Types::MooseLike::Base qw(:all);
 has site => (
     is       => 'ro',
     required => 1,
+    weak_ref => 1,
 );
 
 has config => (

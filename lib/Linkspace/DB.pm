@@ -15,6 +15,7 @@ Linkspace::DB - database abstraction
 =head1 SYNOPSIS
 
   my $db = $::linkspace->db;
+  my $schema = $db->schema;
 
 =head1 DESCRIPTION
 
@@ -30,14 +31,14 @@ which have extended rules in the Records.
 =head1 METHODS: attributes
 
 =head2 my $schema = $db->schema;
-
+Returns the L<Linkspace::Schema> object (extends L<DBIx::Class::Schema>)
+which manages the database access.
 =cut
 
 has schema => (
     is       => 'ro',
     required => 1,
 );
-
 
 =head1 METHODS: searching
 
@@ -47,6 +48,7 @@ has schema => (
 
 Most tables are site dependent. In those cases, you very probably need:
 
+  my $site  = $::session->site;
   my @users = $site->resultset('Users')->all;
 
 =cut
@@ -68,5 +70,12 @@ sub search {
     my ($self, $table) = (shift, shift);
     $self->schema->resultset($table)->search(@_);
 }
+
+=head2 my $guard = $db->begin_work;
+Start a transaction.  You need to commit or rollback the guard when you
+finish working.
+=cut
+
+sub begin_work() { shift->schema->txn_scope_guard }
 
 1;
