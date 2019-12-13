@@ -494,13 +494,10 @@ has created => (
 
 sub _build_created
 {   my $self = shift;
-    if (!$self->record)
-    {
-        return $self->schema->resultset('Record')->find($self->record_id)->created;
-    }
-    $self->schema->storage->datetime_parser->parse_datetime(
-        $self->record->{created}
-    );
+    $self->record
+        or return $::db->resultset('Record')->find($self->record_id)->created;
+
+    $::db->datetime_parser->parse_datetime($self->record->{created});
 }
 
 has set_deleted => (
@@ -520,14 +517,12 @@ sub _build_deleted
     # the current ID may have been removed from the database due to a rollback
     return if $self->new_entry;
     if (!$self->record)
-    {
-        $self->current_id or return;
-        return $self->schema->resultset('Record')->find($self->record_id)->deleted;
+    {   $self->current_id or return;
+        return $::db->get_record(Record => $self->record_id)->deleted;
     }
+
     $self->set_deleted or return undef;
-    $self->schema->storage->datetime_parser->parse_datetime(
-        $self->set_deleted
-    );
+    $::db->datetime_parser->parse_datetime($self->set_deleted);
 }
 
 # Whether to take results from some previous point in time
@@ -987,19 +982,20 @@ sub load_remembered_values
         }
     }
 }
+
 sub versions
 {   my $self = shift;
     my $search = {
         'current_id' => $self->current_id,
         approval     => 0,
     };
-    $search->{'me.created'} = { '<' => $self->schema->storage->datetime_parser->format_datetime($self->rewind) }
+    $search->{'me.created'} = { '<' => $::db->datetime_parser->format_datetime($self->rewind) }
         if $self->rewind;
-    my @records = $self->schema->resultset('Record')->search($search,{
+
+    ::db->search(Record => {
         prefetch => 'createdby',
         order_by => { -desc => 'me.created' }
     })->all;
-    @records;
 }
 
 sub _set_record_id
@@ -1184,32 +1180,32 @@ sub initialise_field
     my $layout = $self->layout;
     my $column = $layout->column($id);
     if ($self->linked_id && $column->link_parent)
-    {
-        $self->linked_record->fields->{$column->link_parent->id};
+    {   $self->linked_record->fields->{$column->link_parent->id};
     }
-    else {
-        $column->class->new(
+    else
+    {   $column->class->new(
             record           => $self,
             record_id        => $self->record_id,
             column           => $column,
             schema           => $self->schema,
             layout           => $self->layout,
-            datetime_parser  => $self->schema->storage->datetime_parser,
+            datetime_parser  => $::db->datetime_parser,
         );
     }
 }
 
 sub approver_can_action_column
 {   my ($self, $column) = @_;
-    $self->approval_of_new && $column->user_can('approve_new')
-      || !$self->approval_of_new && $column->user_can('approve_existing')
+      $self->approval_of_new
+    ? $column->user_can('approve_new')
+    : $column->user_can('approve_existing')
 }
 
 sub write_linked_id
 {   my ($self, $linked_id) = @_;
 
-    error __"You do not have permission to link records"
-        unless $self->layout->user_can("link");
+    $self->layout->user_can('link')
+        or error __"You do not have permission to link records";
 
     my $guard = $self->schema->txn_scope_guard;
     # Blank existing values first, otherwise they will be read instead of

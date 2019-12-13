@@ -325,8 +325,8 @@ has rewind => (
 
 sub rewind_formatted
 {   my $self = shift;
-    $self->rewind or return;
-    $self->schema->storage->datetime_parser->format_datetime($self->rewind);
+    my $r = $self->rewind or return;
+    $::db->datetime_parser->format_datetime($r);
 }
 
 has include_approval => (
@@ -1641,7 +1641,7 @@ sub order_by
     # certain date. We have to order by the date of any field in each record.
     if ($self->limit_qty && $options{with_min} && @order_by)
     {
-        my $date = $self->schema->storage->datetime_parser->format_datetime($self->from || $self->to);
+        my $date = $::db->datetime_parser->format_datetime($self->from || $self->to);
         @order_by = map {
             my ($field) = values %$_;
             my $quoted = $self->quote($field);
@@ -1905,10 +1905,8 @@ sub _search_construct
             # code here as the calc/rag fields, but this can be accessed by
             # any user, so should be a lot tighter.
             if ($_ && $_ =~ /CURDATE/)
-            {
-                my $vdt = GADS::View->parse_date_filter($_);
-                my $dtf = $self->schema->storage->datetime_parser;
-                $_ = $dtf->format_date($vdt);
+            {   my $vdt = GADS::View->parse_date_filter($_);
+                $_ = $::db->datetime_parser->format_date($vdt);
             }
             elsif ($transform_date || ($column->return_type eq 'date' && $_))
             {
@@ -2083,7 +2081,7 @@ sub _resolve
 sub _date_for_db
 {   my ($self, $column, $value) = @_;
     my $dt = $column->parse_date($value);
-    $self->schema->storage->datetime_parser->format_date($dt);
+    $::db->datetime_parser->format_date($dt);
 }
 
 has _csv => (
@@ -2340,7 +2338,7 @@ sub _max_date { shift->_min_max_date('max', @_) };
 
 sub _min_max_date
 {   my ($self, $action, $date1, $date2) = @_;
-    my $dt_parser = $self->schema->storage->datetime_parser;
+    my $dt_parser = $::db->datetime_parser;
     my $d1 = $date1 && $dt_parser->parse_date($date1);
     my $d2 = $date2 && $dt_parser->parse_date($date2);
     return $d1 if !$d2;
@@ -2761,7 +2759,7 @@ sub _build_group_results
             },
         )->all;
 
-        my $dt_parser = $self->schema->storage->datetime_parser;
+        my $dt_parser = $::db->datetime_parser;
         # Find min/max dates from above, including linked field if required
         my $daterange_from = $self->from ? $self->from->clone : $self->_min_date(
             $result->get_column('start_date'),

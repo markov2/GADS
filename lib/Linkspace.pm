@@ -167,7 +167,7 @@ has db => (
         my $sclass = delete $dbconf->{schema_class} || 'Linkspace::Schema';
         my $schema = $sclass->new();
 
-        $class->new(%$dbconf, schema => $schema);
+        $::db = $class->new(%$dbconf, schema => $schema);
     },
 );
 

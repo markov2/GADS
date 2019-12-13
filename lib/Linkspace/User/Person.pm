@@ -49,13 +49,11 @@ creating shared graphs.
 sub groups_viewable
 {   my $self = shift;
 
-    my $site = $::session->site;
-
-    return $site->resultset('Group')->all
+    return $::db->resultset('Group')->all
         if $self->is_admin;
 
     # Layout admin, all groups in their layout(s)
-    my $instance_ids = $site->search(InstanceGroup => {
+    my $instance_ids = $::db->search(InstanceGroup => {
         'me.permission'       => 'layout',
         'user_groups.user_id' => $self->id,
     },{
@@ -64,7 +62,7 @@ sub groups_viewable
         },
     })->get_column('me.instance_id');
 
-    my $owner_groups = $site->search(LayoutGroup => {
+    my $owner_groups = $::db->search(LayoutGroup => {
         instance_id => { -in => $instance_ids->as_query },
     }, {
         join => 'layout',
@@ -98,7 +96,7 @@ sub set_groups
     # Delete any groups that no longer exist
     my @has_group_ids = map $_->id,
         grep $is_admin || $has_group->{$_->id},
-            $::session->site->resultset('Group')->all;
+            $::db->resultset('Group')->all;
 
     #XXX this is too complex
     my %search;
@@ -177,7 +175,7 @@ sub sheet_permissions($)
 
     my $perms = $self->{LUP_sheet_perms};
     unless($perms)
-    {   my $rs = $::session->site->search(InstanceGroup =>
+    {   my $rs = $::db->search(InstanceGroup =>
             user_id => $self->id,
         },{
             select => [
@@ -208,7 +206,7 @@ sub column_permissions($)
     my $perms = $self->{LUP_col_perms};
     unless($perms)
     {   #XXX Why is instance_id in here?
-        my $rs = my$::session->site->search(LayoutGroup => {
+        my $rs = $::db->search(LayoutGroup => {
             user_id => $self->id,
         }, {
             select => [

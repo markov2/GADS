@@ -125,27 +125,24 @@ sub _parse_dt
             to   => $2,
         };
     }
-
     # Otherwise assume it's a hashref: { from => .., to => .. }
 
-    if (!$original->{from} && !$original->{to})
-    {
-        return;
-    }
+    $original->{from} || $original->{to}
+        or return;
 
     my ($from, $to);
     if ($source eq 'db')
     {
-        my $db_parser = session->site->schema->storage->datetime_parser;
+        my $db_parser = $::db->datetime_parser;
         $from = $db_parser->parse_date($original->{from});
         $to   = $db_parser->parse_date($original->{to});
     }
     else { # Assume 'user'
         # If it's not a valid value, see if it's a duration instead (only for bulk)
-        if ($self->column->validate($original, fatal => !$options{bulk}))
-        {
-            $from = $self->column->parse_date($original->{from});
-            $to   = $self->column->parse_date($original->{to});
+        my $column = $self->column;
+        if ($column->validate($original, fatal => !$options{bulk}))
+        {   $from = $column->parse_date($original->{from});
+            $to   = $column->parse_date($original->{to});
         }
         elsif($options{bulk}) {
             my $from_duration = DateTime::Format::DateManip->parse_duration($original->{from});

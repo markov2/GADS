@@ -347,10 +347,9 @@ __PACKAGE__->has_many(
     "audits_last_month",
     "GADS::Schema::Result::Audit",
     sub {
-        my $args = shift;
-        my $schema    = $args->{self_resultsource}->schema;
+        my $args      = shift;
         my $month     = DateTime->now->subtract(months => 1);
-        my $formatted = $schema->storage->datetime_parser->format_date($month);
+        my $formatted = $::db->datetime_parser->format_date($month);
         +{
             "$args->{foreign_alias}.user_id"  => { -ident => "$args->{self_alias}.id" },
             "$args->{foreign_alias}.datetime" => { '>'    => $formatted },
@@ -824,14 +823,14 @@ sub retire
 
     my $alerts = $self->search_related(alerts => {});
     my @alert_ids = map $_->id, $alerts->all;
-    $site->delete(AlertSend => { alert_id => \@alert_ids });
+    $::db->delete(AlertSend => { alert_id => \@alert_ids });
     $alerts->delete;
 
     $self->update({ lastview => undef });
     my $views    = $self->search_related(views => {});
     my @view_ids = map $_->id, $views->all;
 
-    $site->delete($_ => { view_id => \@view_ids })
+    $::db->delete($_ => { view_id => \@view_ids })
         for qw/Filter ViewLayout Sort AlertCache Alert/;
 
     $views->delete;
@@ -850,10 +849,10 @@ sub retire
 }
 
 sub has_draft
-{   my ($self, $instance_id) = @_;
-    $instance_id or panic "Need instance ID for draft test";
-    $::session->site->search(Current => {
-        instance_id  => $instance_id,
+{   my ($self, $which) = @_;
+    my $sheet_id = blessed $which ? $which->id : $which;
+    $::db->search(Current => {
+        instance_id  => $sheet_id,
         draftuser_id => $self->id,
         'curvals.id' => undef,
     }, {

@@ -105,7 +105,7 @@ sub audit
      $log{user_id}   ||= $self->user->id;
      $log{datetime}  ||= DateTime->now;
      $log{type}      ||= 'user_action';
-     Linkspace::Audit->log($self->site, \%log);
+     Linkspace::Audit->log(\%log);
 }
 
 =head1 METHODS: Request related

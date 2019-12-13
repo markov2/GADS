@@ -61,31 +61,31 @@ sub delete($)
 {   my ($self, $site) = @_;
     my $sheet_id = $self->id;
 
-    my $guard = $::linkspace->db->begin_work;
+    my $guard = $::db->begin_work;
 
     $_->delete
        for $self->search_columns(only_internal => 1, include_hidden => 1);
 
-    $site->delete(InstanceGroup => { instance_id => $sheet_id });
+    $::db->delete(InstanceGroup => { instance_id => $sheet_id });
 
-    my $dash = $site->search(Dashboard => { instance_id => $sheet_id });
-    $site->delete(Widget => { dashboard_id =>
+    my $dash = $::db->search(Dashboard => { instance_id => $sheet_id });
+    $::db->delete(Widget => { dashboard_id =>
        { -in => $dash->get_column('id')->as_query }});
 
     $dash->delete;
-    $site->delete(Instance => $sheet_id);
+    $::db->delete(Instance => $sheet_id);
 
     $guard->commit;
 }
 
-=head2 $sheet = $class->create($site, %settings);
+=head2 $sheet = $class->create(%settings);
 Create a new sheet object, which is saved to the database with its
 initial C<%settings>.
 =cut
 
 sub create($%)
-{   my ($class, $site, %settings) = @_;
-    my $sheet_id = $site->create(Instance => \%settings)->id;
+{   my ($class, %settings) = @_;
+    my $sheet_id = $::db->create(Instance => \%settings)->id;
 
     # Start with a clean sheet
     $class->from_id($sheet_id);

@@ -66,7 +66,7 @@ sub logs
 {   my $self = shift;
 
     my $filtering = $self->filtering;
-    my $dtf  = $self->schema->storage->datetime_parser;
+    my $dtf  = $::db->datetime_parser;
 
     my %search = (
         datetime => {
@@ -77,16 +77,17 @@ sub logs
         },
     );
 
-    $search{method}  = uc $filtering->{method} if $filtering->{method};
-    $search{type}    = $filtering->{type} if $filtering->{type};
+    $search{method} = uc $filtering->{method} if $filtering->{method};
+    $search{type}   = $filtering->{type}      if $filtering->{type};
+
     if (my $user_id = $filtering->{user})
     {
         $user_id =~ /^[0-9]+$/
             or error __x"Invalid user ID {id}", id => $user_id;
-        $search{user_id} = $filtering->{user};
+        $search{user_id} = $user_id;
     }
 
-    my @logs = $::session->site->search(Audit => \%search, {
+    my @logs = $::db->search(Audit => \%search, {
         prefetch => 'user',
         order_by => {
             -desc => 'datetime',
@@ -95,7 +96,6 @@ sub logs
     })->all;
 
     $_->{user} = GADS::Datum::Person->new(
-        schema     => $self->schema,
         init_value => { value => $_->{user} },
     ) for @logs;
 
@@ -123,8 +123,8 @@ sub csv
 }
 
 sub log
-{   my ($class, $site, $log) = @_;
-    $site->resultset('Audit')->create($log);
+{   my ($class, $log) = @_;
+    $::db->resultset('Audit')->create($log);
 }
 
 1;

@@ -104,41 +104,21 @@ sub _to_dt
 {   my ($self, $value, %options) = @_;
     my $source = $options{source};
     $value = $value->{value} if ref $value eq 'HASH';
-    if (!$value)
-    {
-        return;
+    $value or return;
+
+    if(ref $value eq 'DateTime')
+    {   return $value->clone;
     }
-    if (ref $value eq 'DateTime')
-    {
-        return $value->clone;
-    }
-    elsif ($source eq 'db')
-    {
-        if ($value =~ / /) # Assume datetime
-        {
-            return session->site->schema->storage->datetime_parser->parse_datetime($value);
-        } else {
-            return session->site->schema->storage->datetime_parser->parse_date($value);
-        }
+    elsif($source eq 'db')
+    {   my $dtp = $::db->datetime_parser;
+        return $value =~ / / ? $dtp->parse_datetime($value) : $dtp->parse_date($value);
     }
     else { # Assume 'user'
         if (!$self->column->validate($value) && $options{bulk}) # Only allow duration during bulk update
         {
             # See if it's a duration and return that instead if so
-            if (my $duration = DateTime::Format::DateManip->parse_duration($value))
-            {
-                if (@{$self->values})
-                {
-                    my @return;
-                    foreach my $value (@{$self->values})
-                    {
-                        push @return, $value->clone->add_duration($duration);
-                    }
-                    return @return;
-                }
-                else {
-                    return; # Don't bork as we might be bulk updating, with some blank values
-                }
+            if(my $duration = DateTime::Format::DateManip->parse_duration($value))
+            {   return map $_->clone->add_duration($duration), @{$self->values};
             }
             else {
                 # Will bork below

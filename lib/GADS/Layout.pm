@@ -47,31 +47,6 @@ use String::CamelCase qw(camelize);
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
-has user => (
-    is       => 'rw',
-    required => 1,
-);
-
-has config => (
-    is       => 'ro',
-    required => 1,
-);
-
-has instance_id => (
-    is  => 'rwp',
-    isa => Int,
-);
-
-has _rset => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
 has name => (
     is      => 'rw',
     isa     => Str,
@@ -83,76 +58,51 @@ has name_short => (
 );
 
 has identifier => (
-    is      => 'lazy',
+    is      => 'ro',
 );
 
 has homepage_text => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { $_[0]->_rset->homepage_text },
-    clearer => 1,
+    is      => 'ro',
+    isa     => Maybe[Str],
 );
 
 has homepage_text2 => (
     is      => 'rw',
-    lazy    => 1,
-    builder => sub { $_[0]->_rset->homepage_text2 },
-    clearer => 1,
+    isa     => Maybe[Str],
 );
 
 has forget_history => (
     is      => 'ro',
     isa     => Bool,
-    lazy    => 1,
-    builder => sub { $_[0]->_rset->forget_history },
-    clearer => 1,
 );
 
 has forward_record_after_create => (
     is      => 'ro',
     isa     => Bool,
-    lazy    => 1,
-    builder => sub { $_[0]->_rset->forward_record_after_create },
-    clearer => 1,
 );
 
 has no_hide_blank => (
     is      => 'ro',
     isa     => Bool,
-    lazy    => 1,
-    builder => sub { $_[0]->_rset->no_hide_blank },
-    clearer => 1,
 );
 
 has no_overnight_update => (
     is      => 'ro',
     isa     => Bool,
-    lazy    => 1,
-    builder => sub { $_[0]->_rset->no_overnight_update },
-    clearer => 1,
 );
 
 has sort_layout_id => (
     is      => 'rw',
     isa     => Maybe[Int],
-    lazy    => 1,
-    clearer => 1,
-    builder => sub { $_[0]->_rset->sort_layout_id },
 );
 
 has default_view_limit_extra => (
     is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub { $_[0]->_rset->default_view_limit_extra },
 );
 
 has default_view_limit_extra_id => (
     is      => 'ro',
     isa     => Maybe[Int],
-    lazy    => 1,
-    clearer => 1,
-    builder => sub { $_[0]->_rset->default_view_limit_extra_id },
 );
 
 has api_index_layout => (
@@ -160,7 +110,7 @@ has api_index_layout => (
     lazy    => 1,
     builder => sub {
         my $self = shift;
-        $self->column($self->_rset->api_index_layout_id);
+        $self->column($self->api_index_layout_id);
     },
     clearer => 1,
 );
@@ -168,16 +118,10 @@ has api_index_layout => (
 has api_index_layout_id => (
     is      => 'ro',
     isa     => Maybe[Int],
-    lazy    => 1,
-    builder => sub { $_[0]->_rset->api_index_layout_id },
-    clearer => 1,
 );
 
 has sort_type => (
     is      => 'rw',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub { $_[0]->_rset->sort_type },
 );
 
 # Reference to the relevant record using this layout if applicable. Used for
@@ -197,13 +141,11 @@ has columns => (
 has _columns_namehash => (
     is      => 'lazy',
     isa     => HashRef,
-    clearer => 1,
 );
 
 has _columns_name_shorthash => (
     is      => 'lazy',
     isa     => HashRef,
-    clearer => 1,
 );
 
 sub _build__user_permissions_columns
@@ -309,7 +251,6 @@ sub user_can_column
 has _group_permissions => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 sub _build__group_permissions
@@ -324,7 +265,6 @@ sub _build__group_permissions
 has _group_permissions_hash => (
     is      => 'lazy',
     isa     => HashRef,
-    clearer => 1,
 );
 
 sub _build__group_permissions_hash
@@ -443,7 +383,7 @@ sub write
                 };
             }
         }
-        $self->schema->resultset('InstanceGroup')->search([@delete])->delete
+        $self->schema->resultset('InstanceGroup')->search(\@delete)->delete
             if @delete;
     }
     $self->clear; # Rebuild all permissions etc
@@ -937,7 +877,7 @@ sub has_homepage
 #XXX move to Document
 sub all_user_columns {
     my ($class, $site) = @_;
-    $site->search(Layout => { internal => 0 })->all;
+    $::db->search(Layout => { internal => 0 })->all;
 }
 
 #XXX move to Document
@@ -945,7 +885,7 @@ sub all_user_columns {
 # Warning: Field ids are strictly sequentially assigned.
 sub newest_field_id {
     my ($class, $site) = @_;
-    $site->search(Layout => { internal => 0 })->get_column('id')->max;
+    $::db->search(Layout => { internal => 0 })->get_column('id')->max;
 }
 
 1;

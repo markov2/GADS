@@ -52,10 +52,7 @@ has '+option_names' => (
     default => sub { [ 'default_to_login' ] },
 );
 
-sub _build_retrieve_fields
-{   my $self = shift;
-    \@person_properties;
-}
+sub _build_retrieve_fields { \@person_properties }
 
 has default_to_login => (
     is      => 'rw',
@@ -84,8 +81,7 @@ after build_values => sub {
     my ($self, $original) = @_;
 
     if(my $file_option = $original->{file_options}->[0])
-    {
-        $self->file_options({ filesize => $file_option->{filesize} });
+    {   $self->file_options({ filesize => $file_option->{filesize} });
     }
 };
 
@@ -106,13 +102,13 @@ sub resultset_for_values
 
 sub cleanup
 {   my ($class, $schema, $id) = @_;
-    $::session->site->delete(Person => { layout_id => $id });
+    $::db->delete(Person => { layout_id => $id });
 }
 
 sub import_value
 {   my ($self, $value) = @_;
 
-    $::session->site->create(Person => {
+    $::db->create(Person => {
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},

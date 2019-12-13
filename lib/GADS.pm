@@ -169,9 +169,7 @@ hook before => sub {
             # Redirect if AUP not signed
             my $aup_accepted;
             if (my $aup_date = $user->aup_accepted)
-            {
-                my $db_parser   = schema->storage->datetime_parser;
-                my $aup_date_dt = $db_parser->parse_datetime($aup_date);
+            {   my $aup_date_dt = $::db->datetime_parser->parse_datetime($aup_date);
                 $aup_accepted   = $aup_date_dt && DateTime->compare( $aup_date_dt, DateTime->now->subtract(months => 12) ) > 0;
             }
             redirect '/aup' unless $aup_accepted || request->uri =~ m!^/aup!;
@@ -489,13 +487,15 @@ any ['get', 'post'] => '/login' => sub {
     {
         my $username  = param('username');
         my $lastfail  = DateTime->now->subtract(minutes => 15);
-        my $lastfailf = schema->storage->datetime_parser->format_datetime($lastfail);
+        my $lastfailf = $::db->datetime_parser->format_datetime($lastfail);
+
         my $fail      = $users->user_rs->search({
             username  => $username,
             failcount => { '>=' => 5 },
             lastfail  => { '>' => $lastfailf },
         })->count;
         $fail and assert "Reached fail limit for user $username";
+
         my ($success, $realm) = !$fail && authenticate_user(
             $username, params->{password}
         );
@@ -979,7 +979,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         return forwardHome(
             { danger => "Cannot delete current logged-in User" } )
             if logged_in_user->id eq $delete_id;
-        my $user = $site->users->resultset('User')->find($delete_id);
+        my $user = $::db->resultset('User')->find($delete_id);
         if (process( sub { $user->retire(send_reject_email => 1) }))
         {
             $login_change->("User ID $delete_id deleted");

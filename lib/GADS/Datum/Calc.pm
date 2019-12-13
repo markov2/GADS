@@ -50,7 +50,7 @@ sub as_string
 
 sub _parse_date
 {   $_[1] or return;
-    $_[0]->schema->storage->datetime_parser->parse_date($_[1]);
+    $::db->datetime_parser->parse_date($_[1]);
 }
 
 sub convert_value

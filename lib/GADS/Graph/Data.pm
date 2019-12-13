@@ -709,7 +709,7 @@ sub _records_to_results
                 !$x_value and next;
                 my $x_dt = $x_daterange
                          ? $x
-                         : $self->schema->storage->datetime_parser->parse_date($x_value);
+                         : $::db->datetime_parser->parse_date($x_value);
                 $x_value = $self->_group_date($x_dt);
                 $datemin = $x_value if !defined $datemin || $datemin->epoch > $x_value->epoch;
                 $datemax = $x_value if !defined $datemax || $datemax->epoch < $x_value->epoch;
