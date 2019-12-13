@@ -32,20 +32,15 @@ Create the object from the database.  Sites are globally maintained
 sub find {
 	my ($class, $host) = @_;
 
-    my $db   = $::linkspace->db;
-
     #XXX must match case-insens
-	my $site = $db->resultset('Site')->search({ host => $host })->next
+	my $site = $::db->search(Site => { host => $host })->first
 		or return ();
 
     my $self = bless $site, $class;
-    $db->schema->setup_site($site);
+    $::db->schema->setup_site($site);
 
     $self;
 }
-
-
-=head1 METHODS: Database
 
 =head2 $site->refresh;
 When you are re-using the site object, you may miss information altered
@@ -59,56 +54,6 @@ sub refresh
     $self;
 }
 
-=head2 my $rs = $site->resultset($table);
-=cut
-
-sub resultset
-{   my ($self, $table) = @_;
-    $self->{_rs}{$table} ||= $::linkspace->db->schema->resultset($table)
-        ->search_rs({'me.site_id' => $self->id});
-}
-
-=head2 my $results = $site->search($table, @more);
-Search for (site related) records in the C<$table>.  You may pass C<@more>
-parameters for the search.
-=cut
-
-sub search
-{   my ($self, $table) = (shift, shift);
-    $self->resultset($table)->search(@_);
-}
-
-=head2 my $result = $site->get_record($table, $id);
-Returns one result HASH.
-=cut
-
-sub get_record($$)
-{   my ($self, $table, $id) = @_;
-    $self->resultset($table)->search({id => $id})->next;
-}
-
-=head2 my $result = $site->create($table, \%data);
-Create a (site related) record in the C<$table>, containing C<%data>.
-=cut
-
-sub create
-{   my ($self, $table, $data) = @_;
-    $self->resultset($table)->create($data);
-}
-
-
-=head2 $site->delete($table, \%search);
-
-=head2 $site->delete($table, $id);
-
-Delete from C<$table> all matching records.
-=cut
-
-sub delete
-{   my ($self, $table, $search) = (shift, shift, shift);
-    $search = +{ id => $search } unless ref $search eq 'HASH';
-    $self->resultset($table)->search($search, @_)->delete;
-}
 
 =head1 METHODS: Site presentation
 =cut
