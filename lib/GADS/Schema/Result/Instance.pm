@@ -6,6 +6,12 @@ package GADS::Schema::Result::Instance;
 
 GADS::Schema::Result::Instance
 
+=head1 DESCRIPTION
+
+The term "instance" is very inconvenient in an object oriented program:
+any object is an instance of a class.  In Linkspace/GADS, the "instance"
+is also used to refer to a sheet (in the spreadsheet sense).  Maybe,
+once we will spend energy to rename everything in the database.
 =cut
 
 use strict;

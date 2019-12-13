@@ -16,29 +16,29 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Sheets;
+package Linkspace::Documents;
 use Moo ();
 
 use Log::Report  'linkspace';
 use Scalar::Util qw(weaken);
 use List::Util   qw(first);
 
-use Linkspace::Sheet ();
+use Linkspace::Document ();
 
 =head1 NAME
-Linkspace::Sheets - manages sheets for one site
+Linkspace::Documents - manages sheets for one site
 
 =head1 SYNOPSIS
 
-  my $sheets  = $::session->site->sheets;
-  my $all_ref = $sheets->all_sheets;
+  my $doc     = $::session->site->document;
+  my $all_ref = $doc->all_sheets;
 
 =head1 DESCRIPTION
 
 =head1 METHODS: Constructors
 M
 
-=head2 my $sheets = Linkspace::Sheets->new(%options);
+=head2 my $doc = Linkspace::Documents->new(%options);
 Required is C<site>.
 =cut
 
@@ -51,7 +51,7 @@ has site => (
 
 =head1 METHODS: Sheet management
 
-=head2 my @all = $sheets->all_sheets;
+=head2 my @all = $doc->all_sheets;
 Return all sheets, even those which the session user is not allowed to access.
 They are sorted by name (case insensitive).
 =cut
@@ -61,7 +61,7 @@ has all_sheets => (
    isa     => ArrayRef,
    builder => sub
    {   my $self   = shift;
-       my @sheets = map Linkspace::Sheet->fromInstance($_),
+       my @sheets = map Linkspace::Document->fromInstance($_),
            $self->site->resultset('Instance')->all;
 
        [ sort { fc($a->name) cmp fc($b->name) } @sheets ];
@@ -69,7 +69,7 @@ has all_sheets => (
 }
 
 
-=head2 my $sheet = $sheets->sheet($which);
+=head2 my $sheet = $doc->sheet($which);
 Get a single sheet, C<$which> may be specified as name, short name or id.
 =cut
 
@@ -92,13 +92,13 @@ has _sheet_index => (
 sub sheet($)
 {   my ($self, $which) = @_;
     return $which
-        if blessed $which && $which->isa('Linkspace::Sheet');
+        if blessed $which && $which->isa('Linkspace::Document');
 
     $self->_sheet_index->{$which};
 }
 
 
-=head2 $sheets->delete_sheet($which);
+=head2 $doc->delete_sheet($which);
 Remove the indicated sheet.
 =cut
 
@@ -114,7 +114,7 @@ sub delete_sheet($)
     $self;
 }
 
-=head2 my $sheet = $sheets->first_homepage
+=head2 my $sheet = $doc->first_homepage
 Returns the first sheet which has text in the 'homepage_text' field, or
 the first sheet when there is none.
 =cut
@@ -151,7 +151,7 @@ has _column_index => (
 );
 
 
-=head2 my $col_info = $sheets->column_info_by_id($id);
+=head2 my $col_info = $doc->column_info_by_id($id);
 =cut
 
 sub column_by_info_id($)
@@ -160,7 +160,9 @@ sub column_by_info_id($)
 }
 
 
-=head2 my $layout = $sheets->layout_for_sheet($sheet);
+=head1 METHODS: Layout management
+
+=head2 my $layout = $doc->layout_for_sheet($sheet);
 =cut
 
 has _layout_index => (

@@ -6,8 +6,8 @@ use strict;
 
 use Log::Report 'linkspace';
 
-use Linkspace::Users  ();
-use Linkspace::Sheets ();
+use Linkspace::Users    ();
+use Linkspace::Document ();
 
 =head1 NAME
 Linkspace::Site - manages one Site (set of Documents with Users)
@@ -17,10 +17,10 @@ Linkspace::Site - manages one Site (set of Documents with Users)
   my $site = $::session->site;
 
 =head1 DESCRIPTION
-Manage a single "Site": a set of Documents with Data, accessed by Users.
+Manage a single "Site": a set of sheets with data, accessed by users.
 
 There may be more than one separate site in a single Linkspace database
-instance, therefore most of the tables have a C<site_id> column.
+instance, therefore the top-level tables have a C<site_id> column.
 
 =head1 METHODS: Constructors
 
@@ -73,14 +73,14 @@ sub users
     $self->{_users} = Linkspace::Users->new(site => $self);
 }
 
-=head2 my $sheets = $site->sheets;
-Returns the L<Linkspace::Sheets> object which manages the sheets for
+=head2 my $document = $site->document;
+Returns the L<Linkspace::Document> object which manages the sheets for
 this site.
 =cut
 
-sub sheets()
+sub document()
 {   my $self = shift;
-    $self->{_sheets} ||= Linkspace::Sheets->new(site => $self);
+    $self->{LS_sheets} ||= Linkspace::Document->new(site => $self);
 }
 
 
@@ -89,12 +89,12 @@ sub sheets()
 =head2 my $sheet = $site->sheet($id, %options);
 
 Returns the sheet with that (long or short) C<$name> or C<$id>.  Have
-a look at L<Linkspace::Sheets> method C<sheet()> for the C<%options>.
+a look at L<Linkspace::Document> method C<sheet()> for the C<%options>.
 =cut
 
 sub sheet($%)
 {   my $self = shift;
-    $self->sheets->sheet(@_);
+    $self->document->sheet(@_);
 }
 
 1;

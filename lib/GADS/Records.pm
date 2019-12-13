@@ -1393,14 +1393,11 @@ has additional_filters => (
 
 sub _search_date
 {   my ($self, $c, $search_date, %options) = @_;
-    if ($c->is_curcommon)
-    {
-        foreach my $cc (@{$c->curval_fields})
-        {
-            $self->_search_date($cc, $search_date, parent_id => $c->id);
-        }
+    if($c->is_curcommon)
+    {   $self->_search_date($_, $search_date, parent_id => $c->id);
+            for @{$c->curval_fields};
     }
-    elsif ($c->return_type =~ /date/)
+    elsif($c->returns_date)
     {   # Apply any date filters if required
         my @f;
         my $sid = $options{parent_id} ? "$options{parent_id}_".$c->id : $c->id;
@@ -1436,11 +1433,10 @@ sub _query_params
 
     my $layout = $self->layout;
 
-    my $search_date = [];      # The search criteria to narrow-down by date range
-    foreach my $c (@{$self->columns_retrieved_no})
-    {
-        $self->_search_date($c, $search_date);
-    }
+    # The search criteria to narrow-down by date range
+    my $search_date = [];
+    $self->_search_date($_, $search_date)
+        for @{$self->columns_retrieved_no};
 
     my @limit;  # The overall limit, for example reduction by date range or approval field
     my @search; # The user search
@@ -1501,25 +1497,26 @@ sub _build__sorts
 
 sub _build__sorts_limit
 {   my $self = shift;
-    return $self->_sorts unless $self->limit_qty;
-    $self->_sort_builder(limit_qty => 1);
+    $self->limit_qty ? $self->_sort_builder(limit_qty => 1) : $self->_sorts;
 }
 
 sub _all_sorts
-{   my ($self, $col, $sorts, %options) = @_;
-    if ($col->is_curcommon)
-    {
-        $self->_all_sorts($_, $sorts, parent_id => $col->id)
-            foreach @{$col->curval_fields};
+{   my ($self, $col, %options) = @_;
+
+    if($col->is_curcommon)
+    {   return map $self->_all_sorts($_, parent_id => $col->id),
+            @{$col->curval_fields};
     }
-    elsif ($col->return_type =~ /date/)
-    {
-        push @$sorts, {
-            id   => $col->id,
+
+    if($col->returns_date)
+    {   return +{
+            id        => $col->id,
             parent_id => $options{parent_id},
-            type => $self->limit_qty eq 'from' ? 'asc' : 'desc',
+            type      => $self->limit_qty eq 'from' ? 'asc' : 'desc',
         };
     }
+
+    ();
 }
 
 sub _sort_builder
@@ -1532,17 +1529,10 @@ sub _sort_builder
     # First, special test where we are retrieving from a date for a number of
     # records until an unknown date. In this case, order by all the date
     # fields.
-    if ($options{limit_qty} && $self->limit_qty)
-    {
-        my $sorts = [];
-        foreach my $col (@{$self->columns_retrieved_no})
-        {
-            $self->_all_sorts($col, $sorts);
-        }
-        @sorts = @$sorts;
-        return [] if !@sorts;
-    }
-    if (!@sorts && $self->sort)
+    return [ map $self->_all_sorts($_), @{$self->columns_retrieved_no} ]
+        if $options{limit_qty} && $self->limit_qty;
+
+    if($self->sort)
     {
         foreach my $s (@{$self->sort})
         {
@@ -1552,6 +1542,7 @@ sub _sort_builder
             } if $self->layout->column($s->{id});
         }
     }
+
     if (!@sorts && $self->view && @{$self->view->sorts}) {
         foreach my $sort (@{$self->view->sorts})
         {
@@ -1562,6 +1553,7 @@ sub _sort_builder
             };
         }
     }
+
     if (!@sorts && $self->default_sort)
     {
         push @sorts, {
@@ -1569,6 +1561,7 @@ sub _sort_builder
             type => $self->default_sort->{type} || 'asc',
         } if $self->layout->column($self->default_sort->{id});
     }
+
     unless (@sorts) {
         push @sorts, {
             id   => $column_id->id,
@@ -2232,23 +2225,21 @@ sub data_timeline
     }
 
     # Remove dt (DateTime) value, otherwise JSON encoding borks
-    delete $_->{dt}
-        foreach @items;
-    delete $_->{dt_to}
-        foreach @items;
+    delete @{$_}{ qw/dt dt_to/ }
+        for @items;
 
     if($options{overlay} && $options{overlay} != $self->layout->instance_id)
-    {   my $overlay = $::linkspace->sheets->sheet($options{overlay});
+    {   my $overlay = $::session->site->document->sheet($options{overlay});
 
         # Only show the first field, plus all the date fields
         my ($picked, @to_show);
-        foreach ($overlay->search_columns(user_can_read => 1))
+        foreach my $column ($overlay->search_columns(user_can_read => 1))
         {
-            if ($_->return_type =~ /date/)
-            {   push @to_show, $_;
+            if($column->returns_date)
+            {   push @to_show, $column;
             }
             elsif(!$picked)
-            {   push @to_show, $_;
+            {   push @to_show, $column;
                 $picked = 1;
             }
         }

@@ -31,8 +31,8 @@ Linkspace::Sheet - manages one sheet: one table with a Layout
 
 =head1 SYNOPSIS
 
-  my $sheets = $::session->site->sheets;
-  my @sheets = $sheets->all;
+  my $doc = $::session->site->document;
+  my @sheets = $doc->all_sheets;
 
 =head1 DESCRIPTION
 
@@ -110,7 +110,7 @@ has columns => (
 has column_ids => (
     is    => 'lazy',
     isa   => ArrayRef,
-    builder => sub { $::session->site->sheets->columns_for_sheet($_[0]) },
+    builder => sub { $::session->site->document->columns_for_sheet($_[0]) },
 }
 
 =head2 $col = $sheet->column_by_id($id);

@@ -82,18 +82,18 @@ has from_id => (
         my ($self, $value) = @_;
         # Column needs to be built from its sub-class, otherwise methods only
         # relavent to that type will not be available
-        ref $self eq 'GADS::Column'
+        ref $self eq __PACKAGE__
             and panic "from_id cannot be called on raw GADS::Column object";
-        my $cols_rs = $self->schema->resultset('Layout')->search({
+
+        my $col = $::db->search(Layout => {
             'me.id'          => $value,
-            'me.instance_id' => $self->instance_id,
+            'me.instance_id' => $self->sheet->id,
         },{
             order_by => ['me.position', 'enumvals.id'],
-            prefetch => ['enumvals', 'calcs', 'rags', 'file_options' ],
-        });
+            prefetch => [ qw/enumvals calcs rags file_options/ ],
+            result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+        })->first;
 
-        $cols_rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-        my ($col) = $cols_rs->all;
         $col or error __x"Field ID {id} not found", id => $value;
         $self->set_values($col);
     },
@@ -151,6 +151,9 @@ has return_type => (
     lazy    => 1,
     builder => sub { 'string' },
 );
+
+#XXX make extensible
+sub returns_date { $_[0]->return_type =~ /date/ }
 
 has table => (
     is  => 'lazy',
