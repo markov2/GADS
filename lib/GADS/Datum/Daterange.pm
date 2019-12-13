@@ -19,11 +19,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package GADS::Datum::Daterange;
 
 use DateTime;
-use DateTime::Format::DateManip;
 use DateTime::Span;
 use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+
+use Linkspace::Util qw/parse_duration/;
 
 extends 'GADS::Datum';
 
@@ -44,14 +45,12 @@ after set_value => sub {
         my @dt = $self->_parse_dt([$start, $end], source => 'user', %options);
         push @values, @dt if @dt;
     }
-    my @text_all = sort map { $self->_as_string($_) } @values;
-    my @old_texts = @{$self->text_all};
-    my $changed = "@text_all" ne "@old_texts";
-    if ($changed)
+    my @text_all = sort map $self->_as_string($_), @values;
+    if("@text_all" ne "@{$self->text_all}")
     {
         $self->changed(1);
-        $self->_set_values([@values]);
-        $self->_set_text_all([@text_all]);
+        $self->_set_values(\@values);
+        $self->_set_text_all(\@text_all);
         $self->clear_html_form;
         $self->clear_blank;
     }
@@ -64,10 +63,10 @@ has values => (
     lazy    => 1,
     builder => sub {
         my $self = shift;
-        $self->init_value or return [];
-        my @values = map { $self->_parse_dt($_, source => 'db') } @{$self->init_value};
+        my $iv = $self->init_value or return [];
+        my @values = map $self->_parse_dt($_, source => 'db'), @$iv;
         $self->has_value(!!@values);
-        [@values];
+        \@values;
     },
 );
 
@@ -77,7 +76,7 @@ has text_all => (
     lazy    => 1,
     builder => sub {
         my $self = shift;
-        [ map { $self->_as_string($_) } @{$self->values} ];
+        [ map $self->_as_string($_), @{$self->values} ];
     },
 );
 
@@ -143,8 +142,8 @@ sub _parse_dt
             $to   = $column->parse_date($original->{to});
         }
         elsif($options{bulk}) {
-            my $from_duration = DateTime::Format::DateManip->parse_duration($original->{from});
-            my $to_duration = DateTime::Format::DateManip->parse_duration($original->{to});
+            my $from_duration = parse_duration $original->{from};
+            my $to_duration   = parse_duration $original->{to};
             if ($from_duration || $to_duration)
             {
                 if (@{$self->values})

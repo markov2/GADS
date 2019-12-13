@@ -26,10 +26,13 @@ our @EXPORT_OK = qw/
     configure_util
     email_valid
     iso2datetime
+    parse_duration
     scan_for_plugins
 /;
 
-use DateTime::Format::ISO8601 ();
+use DateTime::Format::ISO8601   ();
+use DateTime::Format::DateManip ();
+
 use List::Util    qw(first);
 use File::Glob    qw(bsd_glob);
 
@@ -44,7 +47,6 @@ Linkspace::Util - collection of useful functions
 Collections of functions used all over the place.  Sometimes it is hard
 to decide whether some code should be in a function or as method to an
 object.  Keep it simple!
-
 =cut
 
 sub configure_util($)
@@ -53,10 +55,8 @@ sub configure_util($)
 
 
 =head2 email_valid $email or die;
-
 Returns a true value when a C<user@domain.tld> string is passed: not a full
 RFC2822 email address.
-
 =cut
 
 # Noddy email address validator. Not much point trying to be too clever here.
@@ -69,9 +69,7 @@ sub email_valid($)
 
 
 =head2 my $dt = iso2datetime $string;
-
 Convert a date represented as ISO8601 string to a L<DateTime> object.
-
 =cut
 
 sub iso2datetime($)
@@ -80,7 +78,14 @@ sub iso2datetime($)
 }
 
 
-=head2 my $plugins = scan_for_plugins $subpkg, %options
+=head2 my $duration = parse_duration $string;
+Returns a L<DateTime::Duration> object.
+=cut
+
+sub parse_duration($) { DateTime::Format::DateManip->parse_duration($_[0]) }
+
+
+=head2 my $plugins = scan_for_plugins $subpkg, %options;
 
 Search the C<@INC> path (set by 'use lib' and the PERL5LIB environment
 variable) for files which seem to contain plugins of a certain group.

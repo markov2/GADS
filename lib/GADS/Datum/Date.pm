@@ -25,6 +25,8 @@ use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 use namespace::clean;
 
+use Linkspace::Util qw/parse_duration/;
+
 extends 'GADS::Datum';
 
 after set_value => sub {
@@ -116,7 +118,7 @@ sub _to_dt
         if (!$self->column->validate($value) && $options{bulk}) # Only allow duration during bulk update
         {
             # See if it's a duration and return that instead if so
-            if(my $duration = DateTime::Format::DateManip->parse_duration($value))
+            if(my $duration = parse_duration $value)
             {   return map $_->clone->add_duration($duration), @{$self->values};
             }
             else {
