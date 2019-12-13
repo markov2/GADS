@@ -48,11 +48,6 @@ sub as_string
     join ', ', @return;
 }
 
-sub _parse_date
-{   $_[1] or return;
-    $::db->datetime_parser->parse_date($_[1]);
-}
-
 sub convert_value
 {   my ($self, $in) = @_;
 
@@ -66,8 +61,7 @@ sub convert_value
     }
 
     if ($in->{error}) # Will have already been reported
-    {
-        @values = ('<evaluation error>');
+    {   @values = ('<evaluation error>');
     }
 
     my @return;

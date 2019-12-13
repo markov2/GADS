@@ -363,7 +363,6 @@ foreach my $c (keys %$values)
         set_value       => undef,
         column          => $column,
         init_no_value   => 1,
-        datetime_parser => $schema->storage->datetime_parser,
         schema          => $schema,
     );
     $datum->set_value($values->{$c}->{new});
@@ -373,7 +372,6 @@ foreach my $c (keys %$values)
         set_value       => undef,
         column          => $column,
         init_no_value   => 1,
-        datetime_parser => $schema->storage->datetime_parser,
         schema          => $schema,
     );
     $datum->set_value($data->{blank}->[0]->{$c});

@@ -344,17 +344,17 @@ __PACKAGE__->has_many(
 );
 
 __PACKAGE__->has_many(
-    "audits_last_month",
-    "GADS::Schema::Result::Audit",
-    sub {
-        my $args      = shift;
-        my $month     = DateTime->now->subtract(months => 1);
-        my $formatted = $::db->datetime_parser->format_date($month);
-        +{
-            "$args->{foreign_alias}.user_id"  => { -ident => "$args->{self_alias}.id" },
-            "$args->{foreign_alias}.datetime" => { '>'    => $formatted },
-        };
-    }
+  "audits_last_month",
+  "GADS::Schema::Result::Audit",
+  sub {
+      my $args    = shift;
+      my $foreign = $args->{foreign_alias};
+      my $month   = DateTime->now->subtract(months => 1);
+      +{
+          "$foreign.user_id"  => { -ident => "$args->{self_alias}.id" },
+          "$foreign.datetime" => { '>'    => $::db->format_date($month) },
+      };
+  }
 );
 
 =head2 lastrecord

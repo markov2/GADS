@@ -132,10 +132,8 @@ sub _parse_dt
 
     my ($from, $to);
     if ($source eq 'db')
-    {
-        my $db_parser = $::db->datetime_parser;
-        $from = $db_parser->parse_date($original->{from});
-        $to   = $db_parser->parse_date($original->{to});
+    {   $from = $::db->parse_date($original->{from});
+        $to   = $::db->parse_date($original->{to});
     }
     else { # Assume 'user'
         # If it's not a valid value, see if it's a duration instead (only for bulk)

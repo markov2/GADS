@@ -497,7 +497,7 @@ sub _build_created
     $self->record
         or return $::db->resultset('Record')->find($self->record_id)->created;
 
-    $::db->datetime_parser->parse_datetime($self->record->{created});
+    $::db->parse_datetime($self->record->{created});
 }
 
 has set_deleted => (
@@ -521,8 +521,7 @@ sub _build_deleted
         return $::db->get_record(Record => $self->record_id)->deleted;
     }
 
-    $self->set_deleted or return undef;
-    $::db->datetime_parser->parse_datetime($self->set_deleted);
+    $::db->parse_datetime($self->set_deleted);
 }
 
 # Whether to take results from some previous point in time
@@ -989,10 +988,10 @@ sub versions
         'current_id' => $self->current_id,
         approval     => 0,
     };
-    $search->{'me.created'} = { '<' => $::db->datetime_parser->format_datetime($self->rewind) }
+    $search->{'me.created'} = { '<' => $::db->format_datetime($self->rewind) }
         if $self->rewind;
 
-    ::db->search(Record => {
+    $::db->search(Record => {
         prefetch => 'createdby',
         order_by => { -desc => 'me.created' }
     })->all;
@@ -1000,7 +999,7 @@ sub versions
 
 sub _set_record_id
 {   my ($self, $record) = @_;
-    $record->{id};
+    $record->{id};    #XXX set?
 }
 
 sub _transform_values
@@ -1017,9 +1016,9 @@ sub _transform_values
     # We must do these columns in dependent order, otherwise the
     # column values may not exist for the calc values.
     foreach my $column (@{$self->columns_retrieved_do})
-    {
-        next if $column->internal;
-        my $key = $self->linked_id && $column->link_parent ? $column->link_parent->field : $column->field;
+    {   next if $column->internal;
+
+        my $key = ($self->linked_id && $column->link_parent ? $column->link_parent : $column)->field;
         # If this value was retrieved as part of a grouping, and if it's a sum,
         # then the field key will be appended with "_sum". XXX Ideally we'd
         # have a better way of knowing this has happened, but this should
@@ -1034,6 +1033,8 @@ sub _transform_values
                 $key = $key."_distinct";
             }
         }
+
+        #XXX $original in either case
         my $value = $self->linked_id && $column->link_parent ? $original->{$key} : $original->{$key};
         $value = $self->linked_record_raw && $self->linked_record_raw->{$key}
             if $self->linked_record_raw && $column->link_parent && !$self->is_historic;
@@ -1043,6 +1044,7 @@ sub _transform_values
             : ref $value eq 'HASH' && exists $value->{child_unique}
             ? $value->{child_unique}
             : undef;
+
         my %params = (
             record           => $self,
             record_id        => $self->record_id,
@@ -1062,6 +1064,7 @@ sub _transform_values
         my $class = $self->is_group && !$column->numeric && !$self->group_cols->{$column->id}
             ? 'GADS::Datum::Count'
             : $column->class;
+
         $fields->{$column->id} = $class->new(%params);
     }
 
@@ -1189,7 +1192,6 @@ sub initialise_field
             column           => $column,
             schema           => $self->schema,
             layout           => $self->layout,
-            datetime_parser  => $::db->datetime_parser,
         );
     }
 }

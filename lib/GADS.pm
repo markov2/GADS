@@ -169,7 +169,7 @@ hook before => sub {
             # Redirect if AUP not signed
             my $aup_accepted;
             if (my $aup_date = $user->aup_accepted)
-            {   my $aup_date_dt = $::db->datetime_parser->parse_datetime($aup_date);
+            {   my $aup_date_dt = $::db->parse_datetime($aup_date);
                 $aup_accepted   = $aup_date_dt && DateTime->compare( $aup_date_dt, DateTime->now->subtract(months => 12) ) > 0;
             }
             redirect '/aup' unless $aup_accepted || request->uri =~ m!^/aup!;
@@ -487,12 +487,11 @@ any ['get', 'post'] => '/login' => sub {
     {
         my $username  = param('username');
         my $lastfail  = DateTime->now->subtract(minutes => 15);
-        my $lastfailf = $::db->datetime_parser->format_datetime($lastfail);
 
         my $fail      = $users->user_rs->search({
             username  => $username,
             failcount => { '>=' => 5 },
-            lastfail  => { '>' => $lastfailf },
+            lastfail  => { '>' => $::db->format_datetime($lastfail) },
         })->count;
         $fail and assert "Reached fail limit for user $username";
 

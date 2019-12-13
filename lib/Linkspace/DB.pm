@@ -112,14 +112,26 @@ sub delete
 }
 
 
-=head1 METHODS: Other
+=head1 METHODS: Database time format parser
 
-=head2 my $dtp = $db->datetime_parser;
+=head2 my $string = $db->format_date($dt);
+=head2 my $string = $db->format_datetime($dt);
+=head2 my $dt = $db->parse_date($string);
+=head2 my $dt = $db->parse_datetime($string);
 =cut
 
-# This is a weird hook for now... why do we need this trick via the schema?
-# Can't we simply use it from ::Util?
 
-sub datetime_parser { $_[0]->schema->storage->datetime_parser }
+sub _datetime_parser {
+   my ($self, $method, $value) = @_;
+   defined $value or return;
+
+   ($self->{LD_dtp} ||= $self->schema->storage->datetime_parser)
+       ->$method($value);
+}
+
+sub format_date($)     { $_[0]->_datetime_parser(format_date     => $_[1]) }
+sub format_datetime($) { $_[0]->_datetime_parser(format_datetime => $_[1]) }
+sub parse_date($)      { $_[0]->_datetime_parser(parse_date      => $_[1]) }
+sub parse_datetime($)  { $_[0]->_datetime_parser(parse_datetime  => $_[1]) }
 
 1;

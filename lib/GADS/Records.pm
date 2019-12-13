@@ -325,8 +325,7 @@ has rewind => (
 
 sub rewind_formatted
 {   my $self = shift;
-    my $r = $self->rewind or return;
-    $::db->datetime_parser->format_datetime($r);
+    $::db->format_datetime($self->rewind);
 }
 
 has include_approval => (
@@ -1641,7 +1640,7 @@ sub order_by
     # certain date. We have to order by the date of any field in each record.
     if ($self->limit_qty && $options{with_min} && @order_by)
     {
-        my $date = $::db->datetime_parser->format_datetime($self->from || $self->to);
+        my $date = $::db->format_datetime($self->from || $self->to);
         @order_by = map {
             my ($field) = values %$_;
             my $quoted = $self->quote($field);
@@ -1812,7 +1811,8 @@ sub _search_construct
     my $operator = $ops{$filter_operator}
         or error __x"Invalid operator {filter}", filter => $filter_operator;
 
-    my @conditions; my $gate = 'and';
+    my @conditions;
+    my $gate = 'and';
     my $transform_date; # Whether to convert date value to database format
     if ($column->type eq "daterange")
     {
@@ -1906,30 +1906,25 @@ sub _search_construct
             # any user, so should be a lot tighter.
             if ($_ && $_ =~ /CURDATE/)
             {   my $vdt = GADS::View->parse_date_filter($_);
-                $_ = $::db->datetime_parser->format_date($vdt);
+                $_ = $::db->format_date($vdt);
             }
             elsif ($transform_date || ($column->return_type eq 'date' && $_))
-            {
-                $_ = $self->_date_for_db($column, $_);
+            {   $_ = $self->_date_for_db($column, $_);
             }
 
             $_ =~ s/\_/\\\_/g if $operator eq '-like';
 
-            if ($_ && $_ =~ /\[CURUSER\]/)
-            {
-                if ($column->type eq "person")
-                {
-                    my $curuser = ($options{user} && $options{user}->id) || ($self->user && $self->user->id)
+            if( $_ =~ /\[CURUSER\]/)
+            {   my $user = $options{user} || $self->user;
+                if ($column->type eq 'person')
+                {   my $curuser = $user->id || ''
                         or warning "FIXME: user not set for person filter";
-                    $curuser ||= "";
                     $_ =~ s/\[CURUSER\]/$curuser/g;
                     $conditions[0]->{s_field} = "id";
                 }
-                elsif ($column->return_type eq "string")
-                {
-                    my $curuser = ($options{user} && $options{user}->value) || ($self->user && $self->user->value)
+                elsif ($column->return_type eq 'string')
+                {   my $curuser = $user->value || ''
                         or warning "FIXME: user not set for string filter";
-                    $curuser ||= "";
                     $_ =~ s/\[CURUSER\]/$curuser/g;
                 }
             }
@@ -1962,31 +1957,24 @@ sub _search_construct
             %options
         );
     } @conditions;
-    @final = ("-$gate" => [@final]);
-    my $parent_column_link = $parent_column && $parent_column->link_parent;;
-    if ($parent_column_link || $column->link_parent)
-    {
-        my $link_parent;
-        if ($parent_column)
-        {
-            $link_parent = $column;
-        }
-        else {
-            $link_parent = $column->link_parent;
-        }
-        my @final2 = map {
-            $self->_resolve($link_parent, $_, \@values, 1,
-                parent          => $parent_column_link,
-                filter          => $filter,
-                previous_values => $previous_values,
-                reverse         => $reverse,
-                %options
-            );
-        } @conditions;
-        @final2 = ("-$gate" => [@final2]);
-        @final = (['-or' => [@final], [@final2]]);
-    }
-    return @final;
+
+    my $parent_column_link = $parent_column && $parent_column->link_parent;
+    $parent_column_link || $column->link_parent
+        or return "-$gate" => \@final;
+
+    my $link_parent = $parent_column ? $column : $column->link_parent;
+
+    my @final2 = map {
+        $self->_resolve($link_parent, $_, \@values, 1,
+            parent          => $parent_column_link,
+            filter          => $filter,
+            previous_values => $previous_values,
+            reverse         => $reverse,
+            %options
+        );
+    } @conditions;
+
+    [ -or => ["-$gate" => \@final], [ "-$gate" => \@final2] ];
 }
 
 sub _resolve
@@ -2080,8 +2068,7 @@ sub _resolve
 
 sub _date_for_db
 {   my ($self, $column, $value) = @_;
-    my $dt = $column->parse_date($value);
-    $::db->datetime_parser->format_date($dt);
+    $::db->format_date($column->parse_date($value));
 }
 
 has _csv => (
@@ -2338,9 +2325,8 @@ sub _max_date { shift->_min_max_date('max', @_) };
 
 sub _min_max_date
 {   my ($self, $action, $date1, $date2) = @_;
-    my $dt_parser = $::db->datetime_parser;
-    my $d1 = $date1 && $dt_parser->parse_date($date1);
-    my $d2 = $date2 && $dt_parser->parse_date($date2);
+    my $d1 = $::dt->parse_date($date1);
+    my $d2 = $::dt->parse_date($date2);
     return $d1 if !$d2;
     return $d2 if !$d1;
     if ($action eq 'min') {
@@ -2759,7 +2745,6 @@ sub _build_group_results
             },
         )->all;
 
-        my $dt_parser = $::db->datetime_parser;
         # Find min/max dates from above, including linked field if required
         my $daterange_from = $self->from ? $self->from->clone : $self->_min_date(
             $result->get_column('start_date'),
@@ -2801,10 +2786,10 @@ sub _build_group_results
             {
                 # Add the required timespan to the CASE statement
                 my $from  = $self->schema->storage->dbh->quote(
-                    $dt_parser->format_date($pointer->clone->add($increment => 1))
+                    $::dt->format_date($pointer->clone->add($increment => 1))
                 );
                 my $to    = $self->schema->storage->dbh->quote(
-                    $dt_parser->format_date($pointer)
+                    $::dt->format_date($pointer)
                 );
                 my $sum   = $dr_y_axis->{operator} eq 'count' ? 1 : $col_val;
                 my $casef = $field_link

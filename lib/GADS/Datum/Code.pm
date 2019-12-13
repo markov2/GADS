@@ -170,14 +170,12 @@ sub _build_value
 
     my @values;
 
-    if ($self->init_value)
+    if(my $iv = $self->init_value)
     {
-        my @vs = map { ref $_ eq 'HASH' ? $_->{$column->value_field} : $_ } @{$self->init_value};
-        @values = map {
-            $column->return_type eq 'date'
-               ?  $self->_parse_date($_)
-               : $_;
-        } @vs;
+        my @vs = map { ref $_ eq 'HASH' ? $_->{$column->value_field} : $_ } @$iv;
+
+        @values = $column->return_type eq 'date' ? @vs
+          :  map $::db->parse_date($_), @vs;
     }
     elsif (!$code)
     {

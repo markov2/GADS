@@ -66,13 +66,12 @@ sub logs
 {   my $self = shift;
 
     my $filtering = $self->filtering;
-    my $dtf  = $::db->datetime_parser;
 
     my %search = (
         datetime => {
             -between => [
-                $dtf->format_datetime($filtering->{from}),
-                $dtf->format_datetime($filtering->{to}),
+                $::db->format_datetime($filtering->{from}),
+                $::db->format_datetime($filtering->{to}),
             ],
         },
     );

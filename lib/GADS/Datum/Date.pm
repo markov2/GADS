@@ -110,8 +110,7 @@ sub _to_dt
     {   return $value->clone;
     }
     elsif($source eq 'db')
-    {   my $dtp = $::db->datetime_parser;
-        return $value =~ / / ? $dtp->parse_datetime($value) : $dtp->parse_date($value);
+    {   return $value =~ / / ? $::db->parse_datetime($value) : $::db->parse_date($value);
     }
     else { # Assume 'user'
         if (!$self->column->validate($value) && $options{bulk}) # Only allow duration during bulk update

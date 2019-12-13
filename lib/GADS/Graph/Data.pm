@@ -707,9 +707,7 @@ sub _records_to_results
             if (!$self->trend && $self->x_axis_grouping_calculated) # Group by date, round to required interval
             {
                 !$x_value and next;
-                my $x_dt = $x_daterange
-                         ? $x
-                         : $::db->datetime_parser->parse_date($x_value);
+                my $x_dt = $x_daterange ? $x : $::db->parse_date($x_value);
                 $x_value = $self->_group_date($x_dt);
                 $datemin = $x_value if !defined $datemin || $datemin->epoch > $x_value->epoch;
                 $datemax = $x_value if !defined $datemax || $datemax->epoch < $x_value->epoch;
