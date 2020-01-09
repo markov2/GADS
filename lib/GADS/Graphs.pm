@@ -49,18 +49,17 @@ sub _all
     my @graphs; my @user_graphs;
 
     # First create a hash of all the graphs the user has selected
-    my %user_selected = map {
-        $_->id => 1
-    } $self->schema->resultset('Graph')->search({
-        'user_graphs.user_id' => $self->current_user->id,
-        instance_id           => $self->layout->instance_id,
-    },{
-        join => 'user_graphs',
-    })->all;
+    my %user_selected = map +($_->id => 1),
+        $::db->search(Graph => {
+            'user_graphs.user_id' => $self->current_user->id,
+            instance_id           => $self->layout->instance_id,
+        },{
+            join => 'user_graphs',
+        })->all;
 
     # Now get all graphs, and use the previous hash to see
     # if the user has this graph selected
-    my $all_rs = $self->schema->resultset('Graph')->search(
+    my @all_graphs = $::db->search(Graph => {
     {
         instance_id => $self->layout->instance_id,
         -or         => [
@@ -82,9 +81,9 @@ sub _all
         },
         collapse => 1,
         order_by => 'me.title',
-    });
-    $all_rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    my @all_graphs = $all_rs->all;
+        result_set => 'HASH',
+    })->all;
+
     foreach my $grs (@all_graphs)
     {
         my $graph = GADS::Graph->new(
@@ -127,12 +126,12 @@ has all_all_users => (
 sub _build_all_all_users
 {   my $self = shift;
 
-    my $all_rs = $self->schema->resultset('Graph')->search(
-    {
+    my @all_graphs = $::db->search(Graph => {
         instance_id => $self->layout->instance_id,
-    });
-    $all_rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    my @all_graphs = $all_rs->all;
+    }, {
+        result_class => 'HASH',
+    })->all;
+
     my @graphs;
     foreach my $grs (@all_graphs)
     {

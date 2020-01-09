@@ -4,7 +4,7 @@ use warnings;
 
 use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
 use Log::Report;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Record;
 use GADS::Records;
 use GADS::Schema;

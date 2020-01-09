@@ -27,7 +27,7 @@ use Log::Report ();
 use Dancer2::Plugin::LogReport mode => 'NORMAL';
 use Data::Dumper;
 use GADS::DB;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Record;
 use Text::CSV;
 use Getopt::Long;
@@ -93,7 +93,7 @@ open my $fh, "<:encoding(utf8)", $file or die "$file: $!";
 my $row = $csv->getline($fh);
 my @f = @$row;
 
-my $layout = GADS::Layout->new(
+my $layout = Linkspace::Layout->new(
     user                     => undef,
     schema                   => schema,
     config                   => GADS::Config->instance,

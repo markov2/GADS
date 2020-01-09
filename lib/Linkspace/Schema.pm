@@ -7,7 +7,7 @@ use Log::Report 'linkspace';
 
 use Tie::Cache ();
 
-use GADS::Layout ();
+use Linkspace::Layout ();
 use GADS::DBICProfiler ();
 
 # Load all classes which relate to the schema.
@@ -84,7 +84,7 @@ sub setup_site
     my $rec_class = $self->class('Record');
 
     $self->_add_column($rec_class, $_)
-        for GADS::Layout->all_user_columns($site);
+        for Linkspace::Layout->all_user_columns($site);
 
     $self;
 }
@@ -119,7 +119,7 @@ for missing ones and adds them.
 sub update_fields
 {   my ($self, $site) = @_;
 
-    my $newest = GADS::Layout->newest_field_id($site)
+    my $newest = Linkspace::Layout->newest_field_id($site)
         or return; # No fields
 
     # up to date when 

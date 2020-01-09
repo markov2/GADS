@@ -16,29 +16,11 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Layout;
+package Linkspace::Layout;
 
 use Log::Report 'linkspace';
 
 use GADS::Column;
-use GADS::Column::Autocur;
-use GADS::Column::Calc;
-use GADS::Column::Createdby;
-use GADS::Column::Createddate;
-use GADS::Column::Curval;
-use GADS::Column::Date;
-use GADS::Column::Daterange;
-use GADS::Column::Deletedby;
-use GADS::Column::Enum;
-use GADS::Column::File;
-use GADS::Column::Id;
-use GADS::Column::Intgr;
-use GADS::Column::Person;
-use GADS::Column::Rag;
-use GADS::Column::Serial;
-use GADS::Column::String;
-use GADS::Column::Tree;
-use GADS::Instances;
 use GADS::Graphs;
 use GADS::MetricGroups;
 use GADS::Views;
@@ -161,7 +143,7 @@ sub _build__user_permissions_columns
 
 sub _get_user_permissions
 {   my ($self, $user_id) = @_;
-    my $user_perms = $site->get_record(User => {
+    my $user_perms = $::db=>search(User => {
         'me.id'              => $user_id,
     },
     {
@@ -170,7 +152,7 @@ sub _get_user_permissions
                 group => { layout_groups => 'layout' },
             }
         },
-        result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+        result_class => 'HASH',
     });
 
     my $return;
@@ -473,7 +455,7 @@ sub load_columns($)
         select   => 'me.*',
         join     => 'instance',
         prefetch => [ qw/calcs rags link_parent display_fields/ ],
-        result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+        result_class => 'HASH',
     })->all ];
 }
 

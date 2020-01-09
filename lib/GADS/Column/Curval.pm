@@ -274,14 +274,14 @@ sub fetch_multivalues
 
     # Order by record_id so that all values for one record are grouped together
     # (enabling later code to work)
-    my $m_rs = $self->schema->resultset('Curval')->search({
+    my @values = $self->schema->resultset('Curval')->search({
         'me.record_id'      => $record_ids,
         'me.layout_id'      => $self->id,
     },{
         order_by => 'me.record_id',
-    });
-    $m_rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    my @values = $m_rs->all;
+        result_class => 'HASH',
+    })->all;
+
     my $records = GADS::Records->new(
         user                 => $self->override_permissions ? undef : $self->layout->user,
         layout               => $self->layout_parent,

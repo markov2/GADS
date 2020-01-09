@@ -545,7 +545,7 @@ sub _update_curvals
 sub _build_layout_parent
 {   my $self = shift;
     $self->refers_to_instance_id or return;
-    GADS::Layout->new(
+    Linkspace::Layout->new(
         user                            => $self->layout->user,
         # We want to honour the permissions for the fields that we retrieve,
         # but apply filtering regardless (for curval filter fields)

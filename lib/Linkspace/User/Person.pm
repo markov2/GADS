@@ -185,7 +185,7 @@ sub sheet_permissions($)
             as       => [ qw/instance_id permission/ ],
             group_by => [ qw/permission instance_id/ ],
             join     => { group => 'user_groups' },
-            result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+            result_class => 'HASH',
         });
 
         $perms = $self->{LUP_sheet_perms} = {};
@@ -220,7 +220,7 @@ sub column_permissions($)
                 'layout',
                 { group => 'user_groups' },
             ],
-            result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+            result_class => 'HASH',
         });
 
         $perms = $self->{LUP_col_perms} = {};

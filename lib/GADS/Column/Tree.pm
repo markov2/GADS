@@ -92,13 +92,13 @@ has enumvals => (
 
 sub _build_enumvals
 {   my $self = shift;
-    my $enumrs = $self->schema->resultset('Enumval')->search({
+
+    my @enumvals = $::db->search(Enumval => {
         layout_id => $self->id,
     },{
         order_by => 'me.value',
-    });
-    $enumrs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    my @enumvals = $enumrs->all;
+        result_class => 'HASH',
+    })->all;
     \@enumvals;
 }
 
@@ -332,13 +332,13 @@ sub _delete_unused_nodes
 
     # Get all ones currently in database. This will be different to
     # the ones currently in _enumvals_index
-    my $node_rs = $self->schema->resultset('Enumval')->search({
+    my @all_nodes = $self->schema->resultset('Enumval')->search({
         layout_id => $self->id,
-    });
-    $node_rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    my @all_nodes = $node_rs->all;
+    },{
+        result_class => 'HASH',
+    })->all;
 
-    my @top = grep { !$_->{parent} } @all_nodes;
+    my @top = grep !$_->{parent}, @all_nodes;
 
     sub _flat
     {

@@ -91,7 +91,7 @@ sub logs
         order_by => {
             -desc => 'datetime',
         },
-        result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+        result_class => 'HASH',
     })->all;
 
     $_->{user} = GADS::Datum::Person->new(

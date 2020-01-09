@@ -5,7 +5,6 @@ use utf8;
 
 use JSON qw(encode_json);
 use Log::Report;
-use GADS::Layout;
 use GADS::Column::Calc;
 use GADS::Filter;
 use GADS::Record;

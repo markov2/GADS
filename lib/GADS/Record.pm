@@ -21,7 +21,6 @@ package GADS::Record;
 use CtrlO::PDF;
 use DateTime;
 use DateTime::Format::Strptime qw( );
-use DBIx::Class::ResultClass::HashRefInflator;
 use GADS::AlertSend;
 use GADS::Config;
 use GADS::Datum::Autocur;
@@ -39,7 +38,7 @@ use GADS::Datum::Rag;
 use GADS::Datum::Serial;
 use GADS::Datum::String;
 use GADS::Datum::Tree;
-use GADS::Layout;
+use Linkspace::Layout;
 use Log::Report 'linkspace';
 use JSON qw(encode_json);
 use PDF::Table 0.11.0; # Needed for colspan feature
@@ -86,7 +85,7 @@ sub _build_layout
     my $instance_id = $self->_set_instance_id
         or panic "instance_id not set to create layout object";
 
-    return GADS::Layout->new(
+    return Linkspace::Layout->new(
         user                     => $self->user,
         user_permission_override => $self->user_permission_override,
         schema                   => $self->schema,
@@ -810,19 +809,17 @@ sub _find
         # another draft record
         push @prefetches, 'curvals' if $find{draftuser_id};
 
-        my $result = $self->schema->resultset($root_table)->search(
+        my @recs = $self->schema->resultset($root_table)->search(
             [
                 -and => $search
             ],
             {
                 join    => [@prefetches],
                 columns => \@columns_fetch,
+                result_class => 'HASH',
             },
-        );
+        )->all;
 
-        $result->result_class('DBIx::Class::ResultClass::HashRefInflator');
-
-        my @recs = $result->all;
         return if !@recs && $find{no_errors};
         @recs or error __"Requested record not found";
 
@@ -2080,7 +2077,7 @@ sub _field_write
                         my $is_used;
                         foreach my $refers (@{$column->layout_parent->referred_by})
                         {
-                            my $refers_layout = GADS::Layout->new(
+                            my $refers_layout = Linkspace::Layout->new(
                                 user                     => $self->layout->user,
                                 user_permission_override => 1,
                                 schema                   => $self->schema,

@@ -15,6 +15,7 @@ my %has_site_id = map +($_ => 1),
 
 use Moo;
 #use MooX::Types::MooseLike::Base qw/:all/;
+use DBIx::Class::ResultClass::HashRefInflator;
 
 =head1 NAME
 Linkspace::DB - database abstraction
@@ -68,14 +69,21 @@ sub resultset
     $rs;
 }
 
-=head2 my $results = $db->search($table, @more);
+=head2 my $results = $db->search($table, [ \%cond, [ \%attrs ]]);
 Search for records in the C<$table>.  You may pass C<@more> parameters for
 the search.
+
+Simply use C<results_class = 'HASH'> in C<%attrs> when you mean
+C<DBIx::Class::ResultClass::HashRefInflator>.
 =cut
 
 sub search
-{   my ($self, $table) = (shift, shift);
-    $self->resultset($table)->search(@_);
+{   my ($self, $table, $cond, $attrs) = @_;
+
+    $attrs->{result_class} = 'DBIx::Class::ResultClass::HashRefInflator'
+        if $attrs && $attrs->{result_class} && $attrs->{result_class} eq 'HASH';
+
+    $self->resultset($table)->search($cond, $attrs);
 }
 
 =head2 my $result = $db->get_record($table, $id);
@@ -91,12 +99,31 @@ sub get_record($$)
 Create a record in the C<$table>, containing C<%data>.
 =cut
 
-sub create
+sub create($$)
 {   my ($self, $table, $data) = @_;
     $data->{site_id} ||= $::session->site->id if $has_site_id{$table};
     $self->schema->resultset($table)->create($data);
 }
 
+=head2 $db->update($table, $id, \%changes);
+
+=head2 $db->update($table, $object, \%changes);
+
+=head2 $db->update($table, \%search, \%changes);
+
+Update the record with C<$id> (or simple C<%search>) with the C<%changes>.
+When an C<$object> is passed, it must have the C<$id> method.
+=cut
+
+sub update($$$)
+{    my ($self, $table, $which, $data) = @_;
+     my $search
+        = ! ref $which   ? +{ id => $which }
+        : blessed $which ? +{ id => $which->id }
+        :                  $which;
+
+     $self->resultset($table)->search($which)->update($data);
+}
 
 =head2 $db->delete($table, \%search);
 

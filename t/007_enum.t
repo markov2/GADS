@@ -4,7 +4,6 @@ use warnings;
 use utf8;
 
 use Log::Report;
-use GADS::Layout;
 use GADS::Column::Calc;
 use GADS::Filter;
 use GADS::Record;

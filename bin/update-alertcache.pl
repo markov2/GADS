@@ -23,7 +23,7 @@ use lib "$FindBin::Bin/../lib";
 
 use GADS::DB;
 use GADS::Instances;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Views;
 use Dancer2;
 use Dancer2::Plugin::DBIC;

@@ -168,9 +168,7 @@ has view => (
 sub fetch_multivalues
 {   my ($self, $record_ids) = @_;
 
-    my $m_rs = $self->multivalue_rs($record_ids);
-    $m_rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    my @values = $m_rs->all;
+    my @values = $self->multivalue_rs($record_ids)->all;
     my $records = GADS::Records->new(
         user                 => $self->override_permissions ? undef : $self->layout->user,
         layout               => $self->layout_parent,
@@ -191,8 +189,8 @@ sub fetch_multivalues
     my @v; my %done;
     foreach (@values)
     {
-        next unless exists $retrieved{$_->{record}->{current_id}};
         my $cid = $_->{record}->{current_id};
+        next unless exists $retrieved{$cid};
         push @v, +{
             layout_id => $self->id,
             record_id => $_->{value}->{records}->[0]->{id},
@@ -209,26 +207,25 @@ sub multivalue_rs
     # If this is called with undef record_ids, then make sure we don't search
     # for that, otherwise a large number of unreferenced curvals could be
     # returned
-    $record_ids = [ grep { defined $_ } @$record_ids ];
-    my $subquery = $self->schema->resultset('Current')->search({
+    my @record_ids = grep defined $_, @$record_ids;
+    my $subquery = $::db->search(Current => {
             'record_later.id' => undef,
     },{
         join => {
-            'record_single' => 'record_later'
+            record_single => 'record_later',
         },
     })->get_column('record_single.id')->as_query;
 
     $self->schema->resultset('Curval')->search({
         'me.record_id' => { -in => $subquery },
         'me.layout_id' => $self->related_field->id,
-        'records.id'   => $record_ids,
+        'records.id'   => \@record_ids,
     },{
         prefetch => [
             'record',
-            {
-                value => 'records',
-            },
+            { value => 'records' },
         ],
+        result_set => 'HASH',
     });
 
 }
@@ -236,7 +233,6 @@ sub multivalue_rs
 around export_hash => sub {
     my $orig = shift;
     my $self = shift;
-    my %options = @_;
     my $hash = $orig->($self, @_);
     $hash->{related_field_id} = $self->related_field_id;
     $hash;

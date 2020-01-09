@@ -26,7 +26,7 @@ use Dancer2::Plugin::DBIC;
 use GADS::Config;
 use GADS::Instances;
 use GADS::Graphs;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::MetricGroups;
 use GADS::Schema;
 use Getopt::Long;

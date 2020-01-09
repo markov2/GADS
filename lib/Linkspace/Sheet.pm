@@ -41,24 +41,67 @@ Linkspace::Sheet - manages one sheet: one table with a Layout
 =head2 my $sheet = Linkspace::Sheet->new(%options);
 =cut
 
-=head2 my $sheet = Linkspace::Sheet->from_instance($data, %options);
+=head2 my $sheet = Linkspace::Sheet->from_record($record, %options);
 =cut
 
-sub from_instance
-{   my ($class, $data) = @_;
-    bless $data, $class;
+sub from_record
+{   my ($class, $record, %args) = @_;
+    $class->new( { %$record, %args } );
 }
+
+=head2 my $new = $sheet->update(\%changes, %options);
+Apply the changes to the sheet's database structure.  For now, this can
+only change the sheet (Instance) record, not its dependencies.
+
+The whole sheet will be instantiated again, to get the default set by
+the database and to clear all the cacheing.  But when there are no
+changes to the record, it will return the original object.
+=cut
+
+sub update($)
+{   my ($self, $changes, %args) = @_;
+    keys %$changes or return $self;
+
+    $::db->update(Instance => $self, $changes);
+    (ref $self)->from_record(
+        $::db->get_record(Instances => $self->id),
+        layout   => $self->layout,
+        document => $self->document,
+    );
+}
+
+=head1 METHODS: Accessors
+
+=head2 my $doc = $sheet->document;
+=cut
+
+has document => (
+    is       => 'ro',
+    required => 1,
+    weak_ref => 1,
+);
+
+=head2 my $layout = $sheet->layout;
+=cut
+
+has layout => (
+    is => 'lazy',
+    builder => sub {
+        my $self = shift;
+        $self->document->layout_for_sheet($self);
+    },
+);
 
 =head1 METHODS: the sheet itself
 
 =cut
 
-=head2 $sheet->delete($site)
-Remove the sheet from the site.
+=head2 $sheet->delete;
+Remove the sheet.
 =cut
 
 sub delete($)
-{   my ($self, $site) = @_;
+{   my $self     = shift;
     my $sheet_id = $self->id;
 
     my $guard = $::db->begin_work;

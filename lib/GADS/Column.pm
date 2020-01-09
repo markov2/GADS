@@ -20,11 +20,28 @@ package GADS::Column;
 
 use Log::Report 'linkspace';
 
-use GADS::DB;
 use GADS::Filter;
 use GADS::Groups;
 use GADS::Type::Permission;
 use GADS::View;
+
+use GADS::Column::Autocur;
+use GADS::Column::Calc;
+use GADS::Column::Createdby;
+use GADS::Column::Createddate;
+use GADS::Column::Curval;
+use GADS::Column::Date;
+use GADS::Column::Daterange;
+use GADS::Column::Deletedby;
+use GADS::Column::Enum;
+use GADS::Column::File;
+use GADS::Column::Id;
+use GADS::Column::Intgr;
+use GADS::Column::Person;
+use GADS::Column::Rag;
+use GADS::Column::Serial;
+use GADS::Column::String;
+use GADS::Column::Tree;
 
 use MIME::Base64 /encode_base64/;
 use JSON qw(decode_json encode_json);
@@ -91,7 +108,7 @@ has from_id => (
         },{
             order_by => ['me.position', 'enumvals.id'],
             prefetch => [ qw/enumvals calcs rags file_options/ ],
-            result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+            result_class => 'HASH',
         })->first;
 
         $col or error __x"Field ID {id} not found", id => $value;
@@ -873,25 +890,26 @@ has filter_name => (
 sub fetch_multivalues
 {   my ($self, $record_ids) = @_;
 
-    my $select = {
-        join     => 'layout',
+    my %select = (
+        join       => 'layout',
         # Order by values so that multiple values appear in consistent order as
         # field values
-        order_by => "me.".$self->value_field,
-    };
+        order_by   => "me.".$self->value_field,
+        result_set => 'HASH',
+    );
+
     if (ref $self->tjoin)
     {
         my ($left, $prefetch) = %{$self->tjoin}; # Prefetch table is 2nd part of join
-        $select->{prefetch} = $prefetch;
+        $select{prefetch} = $prefetch;
         # Override previous setting
-        $select->{order_by} = "$prefetch.".$self->value_field;
+        $select{order_by} = "$prefetch.".$self->value_field;
     }
-    my $m_rs = $self->schema->resultset($self->table)->search({
+
+    $::db->search($self->table => {
         'me.record_id'      => $record_ids,
         'layout.multivalue' => 1,
-    }, $select);
-    $m_rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    $m_rs->all;
+    }, \%select)->all;
 }
 
 sub delete

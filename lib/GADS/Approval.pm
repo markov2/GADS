@@ -118,7 +118,7 @@ sub _build__records
             createdby.value
         /],
         group_by => 'record.id',
-        result_class => 'DBIx::Class::ResultClass::HashRefInflator',
+        result_class => 'HASH',
     };
 
     my @records;

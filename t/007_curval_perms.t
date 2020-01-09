@@ -5,7 +5,7 @@ use utf8;
 
 use JSON qw(encode_json);
 use Log::Report;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Column::Calc;
 use GADS::Filter;
 use GADS::Record;
@@ -78,7 +78,7 @@ is($record->fields->{$columns->{curval1}->id}->as_string, "Foo", "Curval correct
 
 # Now check that user_permission_override on layout works
 {
-    my $layout = GADS::Layout->new(
+    my $layout = Linkspace::Layout->new(
         user                     => undef,
         user_permission_override => 1,
         schema                   => $schema,
@@ -93,7 +93,7 @@ is($record->fields->{$columns->{curval1}->id}->as_string, "Foo", "Curval correct
     my $record = $records->single;
     is($record->fields->{$columns->{curval1}->id}->as_string, "Foo, 50", "Curval correct with full perms");
 
-    # A record's GADS::Layout is cleared for a find_current_id. Therefore the
+    # A record's Linkspace::Layout is cleared for a find_current_id. Therefore the
     # override needs to be set directly on GADS::Record
     $record = GADS::Record->new(
         user                     => undef,

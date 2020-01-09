@@ -48,7 +48,7 @@ use GADS::Group;
 use GADS::Groups;
 use GADS::Import;
 use GADS::Instances;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::MetricGroup;
 use GADS::MetricGroups;
 use GADS::Record;
@@ -745,14 +745,11 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
     {
         if (param 'submit')
         {
-            if (!$layout_edit)
-            {
-                $layout_edit = GADS::Layout->new(
-                    user   => $user,
-                    schema => schema,
-                    config => config,
-                );
-            }
+            $layout_edit ||= Linkspace::Layout->new(
+                user   => $user,
+                schema => schema,
+                config => config,
+            );
             $layout_edit->name(param 'name');
             $layout_edit->name_short(param 'name_short');
             $layout_edit->sort_layout_id(param('sort_layout_id') || undef);

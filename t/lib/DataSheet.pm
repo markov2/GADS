@@ -6,7 +6,7 @@ use warnings;
 use JSON qw(encode_json);
 use Log::Report;
 use GADS::Group;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Record;
 use GADS::Schema;
 use Moo;
@@ -490,7 +490,7 @@ sub _build_layout
         site_id => $self->schema->site_id,
     });
 
-    my $layout = GADS::Layout->new(
+    my $layout = Linkspace::Layout->new(
         user                     => $self->user_layout,
         schema                   => $self->schema,
         config                   => $self->config,

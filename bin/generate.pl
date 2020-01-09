@@ -10,7 +10,7 @@ use Dancer2;
 use Dancer2::Plugin::DBIC;
 use DateTime::Event::Random;
 use GADS::DB;
-use GADS::Layout;
+use Linkspace::Layout;
 use Getopt::Long;
 use Text::CSV;
 
@@ -35,7 +35,7 @@ schema->site_id($site_id);
 my $csv = Text::CSV->new ( { binary => 1 } )  # should set binary attribute.
     or die "Cannot use CSV: ".Text::CSV->error_diag ();
 
-my $layout = GADS::Layout->new(
+my $layout = Linkspace::Layout->new(
     user        => undef,
     schema      => schema,
     config      => config,

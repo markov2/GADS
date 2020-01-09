@@ -25,7 +25,7 @@ use Dancer2;
 use Dancer2::Plugin::DBIC;
 use Path::Tiny;
 use GADS::DB;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Column::Calc;
 use GADS::Column::Curval;
 use GADS::Column::Date;
@@ -170,7 +170,7 @@ foreach my $ins (readdir $root)
 
     }
 
-    my $layout = GADS::Layout->new(
+    my $layout = Linkspace::Layout->new(
        user                     => undef,
        user_permission_override => 1,
        schema                   => schema,

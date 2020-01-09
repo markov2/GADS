@@ -5,7 +5,7 @@ use warnings;
 use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
 use JSON qw(encode_json);
 use Log::Report;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Record;
 use GADS::Records;
 use GADS::Schema;
@@ -1172,7 +1172,7 @@ foreach my $viewtype (qw/normal group global/)
         code => "function evaluate (L1daterange1) \nif L1daterange1.from.year < 2014 then return 1 else return 0 end\nend",
     });
     # Create new layout without user ID, as it would be in overnight updates
-    $layout = GADS::Layout->new(
+    $layout = Linkspace::Layout->new(
         user                     => undef,
         schema                   => $schema,
         config                   => $sheet->config,

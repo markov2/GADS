@@ -22,7 +22,6 @@ use Data::Dumper qw/Dumper/;
 use DateTime;
 use DateTime::Format::Strptime qw( );
 use DBIx::Class::Helper::ResultSet::Util qw(correlate);
-use DBIx::Class::ResultClass::HashRefInflator;
 use GADS::Config;
 use GADS::Graph::Data;
 use GADS::Record;
@@ -910,14 +909,14 @@ sub _build_standard_results
     my $rec2 = @j ? { record_single => [@j, 'record_later'] } : { record_single => 'record_later' };
     my @linked_prefetch = $self->linked_hash(prefetch => 1);
 
-    my $select = {
+    my %select = (
         prefetch => [
             'deletedby',
-            [@linked_prefetch],
+            \@linked_prefetch,
             $rec1,
         ],
         join     => [
-            [$self->linked_hash(sort => 1)],
+            [ $self->linked_hash(sort => 1) ],
             $rec2,
         ],
         '+select' => $self->_plus_select, # Used for additional sort columns
@@ -931,9 +930,9 @@ sub _build_standard_results
             # This makes the assumption that the lowest record ID will be the
             # first created
             {
-                record_created_user => $self->schema->resultset('Record')->search({
+                record_created_user => $::db->search(Record => {
                     'me_created.id' => {
-                        -in => $self->schema->resultset('Current')
+                        -in => $::db->schema->resultset('Current')
                             ->correlate('records')
                             ->get_column('id')
                             ->min_rs->as_query,
@@ -943,18 +942,17 @@ sub _build_standard_results
                 })->get_column('createdby')->as_query,
             },
         ],
-        order_by  => $self->order_by(prefetch => 1),
-    };
+        order_by     => $self->order_by(prefetch => 1),
+        result_class => 'HASH',
+    );
 
-    my $result = $self->schema->resultset('Current')->search($self->_cid_search_query, $select);
-
-    $result->result_class('DBIx::Class::ResultClass::HashRefInflator');
+    my @retrieved = $::db->search(Current => $self->_cid_search_query,
+       \%select)->all;
 
     my @all; my @record_ids; my @created_ids;
-    my @retrieved = $result->all;
     foreach my $rec (@retrieved)
     {
-        my @children = map { $_->{id} } @{$rec->{currents}};
+        my @children = map $_->{id}, @{$rec->{currents}};
         push @all, GADS::Record->new(
             schema                  => $self->schema,
             record                  => $rec->{record_single},
@@ -2885,14 +2883,13 @@ sub _build_group_results
         $self->_cid_search_query(sort => 0, aggregate => $options{aggregate}), $select
     );
 
-    return [$result->all]
+    return [ $result->all ]
         if $self->isa('GADS::RecordsGraph') || $self->isa('GADS::RecordsGlobe');
 
     $result->result_class('DBIx::Class::ResultClass::HashRefInflator');
 
     my @all;
-    my @retrieved = $result->all;
-    foreach my $rec (@retrieved)
+    foreach my $rec ($result->all)
     {
         push @all, GADS::Record->new(
             schema                  => $self->schema,

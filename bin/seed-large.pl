@@ -31,7 +31,7 @@ use Dancer2::Plugin::DBIC;
 use DBIx::Class::Migration;
 
 use GADS::Config;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Group;
 use GADS::Column::String;
 use GADS::Column::Intgr;
@@ -156,7 +156,7 @@ sub _create_table
         name => "$name",
     });
 
-    my $layout = GADS::Layout->new(
+    my $layout = Linkspace::Layout->new(
         user        => $user,
         schema      => schema,
         config      => config,

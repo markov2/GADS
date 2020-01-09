@@ -28,7 +28,7 @@ use Dancer2;
 use Dancer2::Plugin::DBIC;
 use Data::Dumper;
 use GADS::DB;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Record;
 use Log::Report;
 use Text::CSV;

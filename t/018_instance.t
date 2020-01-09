@@ -21,7 +21,7 @@ is($schema->resultset('Instance')->count, 1, "One instance created initially");
 
 # Create second table, with no groups initially
 my $group2 = $schema->resultset('Group')->create({ name => 'group2' });
-my $layout2 = GADS::Layout->new(
+my $layout2 = Linkspace::Layout->new(
     name       => 'Table2',
     user       => $user_admin,
     schema     => $schema,

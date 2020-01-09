@@ -55,14 +55,15 @@ sub tjoin
 sub fetch_multivalues
 {   my ($self, $user_ids) = @_;
 
-    my %user_ids = map { $_ => 1 } grep { $_ } @$user_ids; # De-duplicate
+    my %user_ids = map +($_ => 1), grep $_, @$user_ids; # De-duplicate
 
     my $m_rs = $self->schema->resultset('User')->search({
-        'me.id' => [keys %user_ids],
-    });
-    $m_rs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-    my %users = map { $_->{id} => $_ } $m_rs->all;
-    return \%users;
+        'me.id' => [ keys %user_ids ],
+    },
+    { result_class => 'HASH' },
+    );
+
+    +{ map +($_->{id} => $_), $m_rs->all };
 }
 
 1;

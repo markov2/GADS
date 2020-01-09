@@ -6,8 +6,8 @@ use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
 use JSON qw(encode_json);
 use Log::Report;
 use GADS::Filter;
-use GADS::Layout;
-use GADS::Column::Calc; # Needed after GADS::Layout otherwise module loading problems
+use Linkspace::Layout;
+use GADS::Column::Calc; # Needed after Linkspace::Layout otherwise module loading problems
 use GADS::Record;
 use GADS::Records;
 use GADS::Schema;

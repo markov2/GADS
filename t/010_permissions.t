@@ -7,7 +7,7 @@ use Log::Report;
 use GADS::Filter;
 use GADS::Group;
 use GADS::Groups;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Record;
 use GADS::Records;
 use GADS::Schema;
@@ -104,13 +104,13 @@ foreach my $user_type (qw/readwrite read limited/)
     my $user = $users{$user_type};
     # Need to build layout each time, to get user permissions
     # correct
-    my $layout = GADS::Layout->new(
+    my $layout = Linkspace::Layout->new(
         user        => $user,
         schema      => $schema,
         config      => GADS::Config->instance,
         instance_id => $sheet->instance_id,
     );
-    my $layout_curval = GADS::Layout->new(
+    my $layout_curval = Linkspace::Layout->new(
         user        => $user,
         schema      => $schema,
         config      => GADS::Config->instance,

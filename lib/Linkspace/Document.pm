@@ -61,8 +61,9 @@ has all_sheets => (
    isa     => ArrayRef,
    builder => sub
    {   my $self   = shift;
-       my @sheets = map Linkspace::Document->fromInstance($_),
-           $self->site->resultset('Instance')->all;
+       my @sheets = map Linkspace::Document->from_record($_,
+           document => $self,
+       ), $self->site->resultset('Instance')->all;
 
        [ sort { fc($a->name) cmp fc($b->name) } @sheets ];
    }
@@ -73,19 +74,22 @@ has all_sheets => (
 Get a single sheet, C<$which> may be specified as name, short name or id.
 =cut
 
+sub _sheet_index_update($$$)
+{   my ($index, $sheet, $to) = @_;
+    $index->{$sheet->id}         =
+    $index->{'table'.$sheet->id} =
+    $index->{$sheet->name}       =
+    $index->{$sheet->short_name} = $to;
+}
+
 has _sheet_index => (
     is      => 'lazy',
     isa     => HashRef,
     builder => sub
-    {   my $self = shift;
-        my %index;
-        foreach my $sheet ( @{$self->all_sheets} )
-        {   $index{$sheet->id}         =
-            $index{'table'.$sheet->id} =
-            $index{$sheet->name}       =
-            $index{$sheet->short_name} = $sheet;
-        }
-        \%index;
+    {   my $self  = shift;
+        my $index = {};
+        _sheet_index_update $index, $_, $_ for @{$self->all_sheets};
+        $index;
     }
 );
 
@@ -108,10 +112,26 @@ sub delete_sheet($)
     my $sheet = $self->sheet($which)
         or return;
 
-    my $site  = $self->site;
-    $sheet->delete($site);
-    $site->structure_changed;
+    _sheet_index_update $self->_sheet_index, $sheet, undef;
+    $sheet->delete;
+
+    $self->site->structure_changed;
     $self;
+}
+
+=head2 my $new_sheet = $doc->update_sheet($sheet, \%changes);
+When a sheet gets updated, it may need result in a new sheet.
+=cut
+
+sub update_sheet($$)
+{   my ($self, $sheet, $changes) = @_;
+    my $new = $sheet->update($changes);
+    return $sheet if $new==$sheet;
+
+    my $index = $self->_sheet_index;
+    _sheet_index_update $index, $sheet, undef;
+    _sheet_index_update $index, $new, $new;
+    $new;
 }
 
 =head2 my $sheet = $doc->first_homepage
@@ -127,6 +147,7 @@ sub first_homepage
 
 
 =head1 METHODS: Set of columns
+
 In the original design, column knowledge was limited to single sheets: when
 you were viewing one sheet (with a certain layout), you could only access
 those columns.  However: cross sheet references are sometimes required.
@@ -154,32 +175,21 @@ has _column_index => (
 =head2 my $col_info = $doc->column_info_by_id($id);
 =cut
 
-sub column_by_info_id($)
-{   my ($self, $id) = @_;
-    $self->_column_info_index->{$id};
-}
+sub column_by_info_id($) { $_[0]->_column_info_index->{$_[1]} }
 
 
 =head1 METHODS: Layout management
 
 =head2 my $layout = $doc->layout_for_sheet($sheet);
+The layout gets attached to a sheet on the moment it gets used.
 =cut
-
-has _layout_index => (
-    is => 'ro',
-    default => +{},
-);
 
 sub layout_for_sheet($)
 {   my ($self, $sheet) = @_;
-    my $layout = $self->_layout_index->{$sheet->id};
-    return $layout if $layout;
 
-#XXX
+    my $sheet_id = $sheet->id;
     my @cols = grep $_->instance_id == $sheet_id, @{$self->_column_info};
-    my $layout = Linkspace::Layout->revive(sheet => $sheet, columns =>C \@cols);
-
-    $self->_layout_index->{$sheet->id} = $layout;
+    Linkspace::Layout->for_sheet($sheet, columns => \@cols);
 }
 
 1;

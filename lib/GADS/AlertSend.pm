@@ -95,7 +95,7 @@ sub process
     # If there are, process each one
     foreach my $instance_id (@instance_ids)
     {
-        my $layout = GADS::Layout->new(
+        my $layout = Linkspace::Layout->new(
             user                     => undef,
             user_permission_override => 1,
             schema                   => $self->schema,

@@ -36,14 +36,14 @@ has enumvals => (
             : $self->ordering && $self->ordering eq 'desc'
             ? { -desc => 'me.value' }
             : ['me.position', 'me.id'];
-        my $enumrs = $self->schema->resultset('Enumval')->search({
+
+        my @enumvals = $self->schema->resultset('Enumval')->search({
             layout_id => $self->id,
             deleted   => 0,
         }, {
-            order_by => $sort
-        });
-        $enumrs->result_class('DBIx::Class::ResultClass::HashRefInflator');
-        my @enumvals = $enumrs->all;
+            order_by => $sort,
+            result_class => 'HASH',
+        })->all;
         \@enumvals;
     },
     trigger => sub {

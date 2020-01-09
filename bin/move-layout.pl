@@ -26,7 +26,7 @@ use Algorithm::Dependency::Source::HoA;
 use Dancer2;
 use Dancer2::Plugin::DBIC;
 use GADS::Config;
-use GADS::Layout;
+use Linkspace::Layout;
 use GADS::Views;
 use Getopt::Long;
 use String::CamelCase qw(camelize);
@@ -51,7 +51,7 @@ $load_file || $dump_file or die "Need either --load-file or --dump-file";
 
 schema->site_id($site_id);
 
-my $layout = GADS::Layout->new(
+my $layout = Linkspace::Layout->new(
     user_permission_override => 1,
     user                     => undef,
     instance_id              => $instance_id,
