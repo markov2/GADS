@@ -235,34 +235,37 @@ hook before_template => sub {
 
     $tokens->{header} = config->{gads}->{header};
 
-    my $layout = var 'layout';
     # Possible for $layout to be undef if user has no access
-    if ($user && $layout && ($layout->user_can('approve_new') || $layout->user_can('approve_existing')))
+    if($sheet &&
+       ($sheet->user_can('approve_new') || $sheet->user_can('approve_existing')))
     {
         my $approval = GADS::Approval->new(
-            schema => schema,
             user   => $user,
-            layout => $layout
+            layout => $sheet,
         );
         $tokens->{user_can_approve} = 1;
         $tokens->{approve_waiting} = $approval->count;
     }
+
     if (logged_in_user)
     {
         # var 'instances' not set for 404
         my $instances = var('instances') || GADS::Instances->new(schema => schema, user => $user);
         $tokens->{instances}     = $instances->all;
-        $tokens->{instance_name} = var('layout')->name if var('layout');
         $tokens->{user}          = $user;
         $tokens->{search}        = session 'search';
         # Somehow this sets the instance_id session if no persistent session exists
         $tokens->{instance_id}   = session('persistent')->{instance_id}
             if session 'persistent';
-        $tokens->{user_can_edit}   = $layout && $layout->user_can('write_existing');
-        $tokens->{user_can_create} = $layout && $layout->user_can('write_new');
-        $tokens->{show_link}       = rset('Current')->next ? 1 : 0;
-        $tokens->{layout}          = $layout;
-        $tokens->{v}               = current_view(logged_in_user, $layout);  # View is reserved TT word
+
+        if($sheet)
+        {   $tokens->{instance_name}  = $sheet->name
+            $tokens->{user_can_edit}   = $sheet->user_can('write_existing');
+            $tokens->{user_can_create} = $sheet->user_can('write_new');
+        }
+        $tokens->{show_link} = rset('Current')->next ? 1 : 0;
+        $tokens->{layout}    = $sheet->layout;   #XXX
+        $tokens->{v}         = current_view(logged_in_user, $layout);  # View is reserved TT word
     }
     $tokens->{messages}      = session('messages');
     $tokens->{site}          = $site;
@@ -1357,7 +1360,7 @@ prefix '/:layout_name' => sub {
         }
 
         my $params = {
-            readonly        => $dashboard->is_shared && !$layout->user_can('layout'),
+            readonly        => $dashboard->is_shared && !$sheet->user_can('layout'),
             dashboard       => $dashboard,
             dashboards_json => schema->resultset('Dashboard')->dashboards_json(%params),
             page            => 'index',
@@ -1996,7 +1999,7 @@ prefix '/:layout_name' => sub {
             }
 
             my @columns = @{$records->columns_view};
-            $params->{user_can_edit}        = $layout->user_can('write_existing');
+            $params->{user_can_edit}        = $sheet->user_can('write_existing');
             $params->{sort}                 = $records->sort_first;
             $params->{subset}               = $subset;
             $params->{records}              = $records->presentation;
@@ -2489,8 +2492,8 @@ prefix '/:layout_name' => sub {
 
         my $user        = logged_in_user;
 
-        forwardHome({ danger => "You do not have permission to manage fields"}, '')
-            unless $layout->user_can("layout");
+        $layout->user_can('layout')
+            or forwardHome({ danger => "You do not have permission to manage fields"}, '')
 
         my @all_columns = $layout->all;
 
@@ -2877,8 +2880,8 @@ prefix '/:layout_name' => sub {
         my $view   = current_view($user, $layout);
         my $type   = param 'type';
 
-        forwardHome({ danger => "You do not have permission to perform bulk operations"}, $layout->identifier.'/data')
-            unless $layout->user_can("bulk_update");
+        $layout->user_can("bulk_update")
+            or forwardHome({ danger => "You do not have permission to perform bulk operations"}, $layout->identifier.'/data');
 
         $type eq 'update' || $type eq 'clone'
             or error __x"Invalid bulk type: {type}", type => $type;
@@ -3079,12 +3082,11 @@ prefix '/:layout_name' => sub {
 
     any ['get', 'post'] => '/import/data/?' => require_login sub {
 
-        my $layout = var('layout') or pass;
+        my $sheet = var('layout') or pass;
 
-        my $user        = logged_in_user;
-
-        forwardHome({ danger => "You do not have permission to import data"}, '')
-            unless $layout->user_can("layout");
+        my $user  = $::session->user;
+        $sheet->user_can("layout")
+            or forwardHome({ danger => "You do not have permission to import data"}, '');
 
         if (param 'submit')
         {
@@ -3240,10 +3242,10 @@ sub current_view {
         layout      => $layout,
         instance_id => $layout->instance_id,
     );
-    my $view;
     # If an invalid view is stuck in the session, then this can result in the
     # user in a continuous loop unable to open any other views
-    try { $view = $views->view(session('persistent')->{view}->{$layout->instance_id}) };
+    my $view =
+       try { $views->view(session('persistent')->{view}->{$layout->instance_id}) };
     $@->reportAll(is_fatal => 0); # XXX results in double reporting
     return $view || $views->default || undef; # Can still be undef
 };
@@ -3343,6 +3345,7 @@ sub _data_graph
     my $user    = logged_in_user;
     my $layout  = var 'layout';
     my $view    = current_view($user, $layout);
+
     my $records = GADS::RecordsGraph->new(
         user                => $user,
         search              => session('search'),
@@ -3351,6 +3354,7 @@ sub _data_graph
         layout              => $layout,
         schema              => schema,
     );
+
     GADS::Graph::Data->new(
         id      => $id,
         records => $records,
@@ -3488,10 +3492,9 @@ sub _process_edit
                 return forwardHome(
                     { success => 'Draft has been saved successfully'}, $layout->identifier.'/data' );
             }
-            elsif ($record->already_submitted_error)
-            {
-                return forwardHome(undef, $layout->identifier.'/data');
-            }
+
+            return forwardHome(undef, $layout->identifier.'/data')
+                if $record->already_submitted_error;
         }
         elsif (!$failed)
         {
@@ -3501,10 +3504,9 @@ sub _process_edit
                 return forwardHome(
                     { success => 'Submission has been completed successfully for record ID '.$record->current_id }, $forward );
             }
-            elsif ($record->already_submitted_error)
-            {
-                return forwardHome(undef, $layout->identifier.'/data');
-            }
+
+            return forwardHome(undef, $layout->identifier.'/data')
+                if $record->already_submitted_error;
         }
     }
     elsif($id) {
@@ -3513,9 +3515,7 @@ sub _process_edit
     elsif (my $from = param('from'))
     {
         my $toclone = GADS::Record->new(
-            user                 => $user,
             layout               => $layout,
-            schema               => schema,
             curcommon_all_fields => 1,
         );
         $toclone->find_current_id($from);
@@ -3525,17 +3525,15 @@ sub _process_edit
         $record->load_remembered_values;
     }
 
-    foreach my $col ($layout->all(user_can_write => 1))
+    foreach my $col ($sheet->layout->search_columns(user_can_write => 1))
     {
-        $record->fields->{$col->id}->set_value("")
+        $record->field($col)->set_value("")
             if !$col->user_can('read');
     }
 
     my $child_rec = $child && $layout->user_can('create_child')
         ? int(param 'child')
-        : $record->parent_id
-        ? $record->parent_id
-        : undef;
+        : $record->parent_id;
 
     notice __"Values entered on this page will have their own value in the child "
             ."record. All other values will be inherited from the parent."

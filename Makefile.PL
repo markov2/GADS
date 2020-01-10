@@ -10,6 +10,7 @@ $eumm_version =~ s/_//;
 our %prereq_pm = (
     'Algorithm::Dependency::Ordered'            => 0,
     'CGI::Deurl::XS'                            => 0,
+    'Clone'                                     => 0,
     'Crypt::URandom'                            => 0,
     'CtrlO::Crypt::XkcdPassword'                => 0,
     'CtrlO::PDF'                                => 0,

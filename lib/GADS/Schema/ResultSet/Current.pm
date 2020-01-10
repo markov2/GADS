@@ -15,13 +15,6 @@ __PACKAGE__->load_components(qw/
     /
 );
 
-sub active_rs
-{   shift->search({
-        'me.deleted'      => undef,
-        'me.draftuser_id' => undef,
-    });
-}
-
 sub import_hash
 {   my ($self, $record, %params) = @_;
 

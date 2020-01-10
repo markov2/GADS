@@ -106,13 +106,6 @@ has sort_type => (
     is      => 'rw',
 );
 
-# Reference to the relevant record using this layout if applicable. Used for
-# filtered curvals
-has record => (
-    is       => 'rw',
-    weak_ref => 1,
-);
-
 has columns => (
     is      => 'rw',
     lazy    => 1,
@@ -195,16 +188,6 @@ sub _build__user_permissions_overall
         }
     }
 
-    # Then the table permissions
-    my $perms = $user->sheet_permissions($self);
-    $overall->{$_} = 1
-        foreach keys %$perms;
-
-    if($perms->{superadmin})
-    {   $overall->{layout} = 1;
-        $overall->{view_create} = 1;
-    }
-
     $overall;
 }
 
@@ -229,53 +212,6 @@ sub user_can_column
 
     return $user_cache->{$column_id}->{$permission};
 }
-
-has _group_permissions => (
-    is      => 'lazy',
-    isa     => ArrayRef,
-);
-
-sub _build__group_permissions
-{   my $self = shift;
-    [
-        $self->schema->resultset('InstanceGroup')->search({
-            instance_id => $self->instance_id,
-        })->all
-    ];
-}
-
-has _group_permissions_hash => (
-    is      => 'lazy',
-    isa     => HashRef,
-);
-
-sub _build__group_permissions_hash
-{   my $self = shift;
-    my $return = {};
-    foreach (@{$self->_group_permissions})
-    {
-        $return->{$_->group_id}->{$_->permission} = 1;
-    }
-    $return;
-}
-
-sub group_has
-{   my ($self, $group_id, $permission) = @_;
-    my $h = $self->_group_permissions_hash->{$group_id};
-    $h && $h->{$permission};
-}
-
-has user_permission_override => (
-    is      => 'rw',
-    isa     => Bool,
-    default => 0,
-);
-
-has user_permission_override_search => (
-    is      => 'rw',
-    isa     => Bool,
-    default => 0,
-);
 
 has columns_index => (
     is      => 'rw',
@@ -314,65 +250,16 @@ sub write
         sort_layout_id => $self->sort_layout_id,
     });
 
-    # Now set any groups if needed
-    if ($self->has_set_groups)
-    {
-        my @create;
-        my $delete = {};
+    $sheet->set_permissions($self->set_groups);
+        if $self->has_set_groups;
 
-        my %valid = (
-            delete           => 1,
-            purge            => 1,
-            download         => 1,
-            layout           => 1,
-            message          => 1,
-            view_create      => 1,
-            view_group       => 1,
-            create_child     => 1,
-            bulk_update      => 1,
-            link             => 1,
-            view_limit_extra => 1,
-        );
-
-        my $existing = $self->_group_permissions_hash;
-
-        # Parse the form submimssion. Take the existing permissions: if exists, do
-        # nothing, otherwise create
-        foreach my $perm (@{$self->set_groups})
-        {
-            $perm =~ /^([0-9]+)\_(.*)/;
-            my ($group_id, $permission) = ($1, $2);
-            $group_id && $valid{$permission}
-                or panic "Invalid permission $perm";
-            # If it exists, delete from hash so we know what to delete
-            delete $existing->{$group_id}->{$permission}
-                or push @create, { instance_id => $self->instance_id, group_id => $group_id, permission => $permission };
-
-        }
-        # Create anything we need
-        $self->schema->resultset('InstanceGroup')->populate(\@create);
-
-        # Delete anything left - not in submission so therefore removed
-        my @delete;
-        foreach my $group_id (keys %$existing)
-        {
-            foreach my $permission (keys %{$existing->{$group_id}})
-            {
-                push @delete, {
-                    instance_id => $self->instance_id,
-                    group_id    => $group_id,
-                    permission  => $permission,
-                };
-            }
-        }
-        $self->schema->resultset('InstanceGroup')->search(\@delete)->delete
-            if @delete;
-    }
-    $self->clear; # Rebuild all permissions etc
-    $self; # Return self for chaining
+    $self;
 }
 
-### Each empty sheet gets them
+=head2 $class->create_for_sheet($sheet);
+Create the initial Columns for a new sheet.
+=cut
+
 my @internal_columns = (
     {
         name        => 'ID',
@@ -418,28 +305,22 @@ my @internal_columns = (
     },
 );
 
-sub create($)
-{   my $sheet = shift;
+sub create_for_sheet($)
+{   my ($class, $sheet) = @_;
     my $sheet_id = $sheet->id;
 
-    foreach my $col (@internal_columns)
-    {
-        # Already exists?
-        next if $site->get_record(Layout => {
-            instance_id => $sheet_id
-            name_short  => $col->{name_short},
-        });
+	my $guard = $::db->begin_work;
 
-        $site->create(Layout => {
-            name        => $col->{name},
-            type        => $col->{type},
-            name_short  => $col->{name_short},
-            isunique    => $col->{isunique},
+    foreach my $col (@internal_columns)
+    {   $::db->create(Layout => {
+            %$col,
             can_child   => 0,
             internal    => 1,
-            instance_id => $sheet_id
+            instance_id => $sheet_id,
         });
     }
+
+	$guard->commit;
 }
 
 =head2 my @cols = $class->load_columns;
@@ -868,6 +749,167 @@ sub all_user_columns {
 sub newest_field_id {
     my ($class, $site) = @_;
     $::db->search(Layout => { internal => 0 })->get_column('id')->max;
+}
+
+=head1 METHODS: Column management
+Column definitions are shared between all Sheets in a Document: a
+Layout maintains is a subset of these definitions.
+
+=head2 \@cols = $layout->columns;
+=cut
+
+has columns => (
+    is    => 'lazy',
+    isa   => ArrayRef,
+    builder => sub {
+        [ map Linkspace::Column->from_id($_), $_[0]->column_ids ]
+    },
+);
+
+=head2 \@col_ids = $layout->column_ids;
+=cut
+
+has column_ids => (
+    is    => 'lazy',
+    isa   => ArrayRef,
+    builder => sub { $_[0]->document->columns_for_layout($_[0]) },
+}
+
+=head2 $col = $layout->column_by_id($id);
+=cut
+
+has _column_by_id => (
+    is      => 'lazy',
+    isa     => HashRef,
+    builder => sub {
+}
+
+sub column_by_id($)
+{   my ($self, $id) = @_;
+    $self->_column_by_id->{$id};
+}
+
+=head2 \@cols = $layout->search_columns(%options);
+=cut
+
+my %filters_invariant = (
+    exclude_hidden   => sub { ! $_[0]->hidden },
+    exclude_internal => sub { ! $_[0]->internal },
+    only_internal    => sub {   $_[0]->internal },
+    only_unique      => sub {   $_[0]->isunique },
+    can_child        => sub {   $_[0]->can_child },
+    linked           => sub {   $_[0]->link_parent },
+    is_globe         => sub {   $_[0]->return_type eq 'globe' },
+    has_cache        => sub {   $_[0]->has_cache },
+    user_can_read    => sub {   $_[0]->user_can('read') },
+    user_can_write   => sub {   $_[0]->user_can('write') },
+    without_topic    => sub { ! $_[0]->topic_id },
+    user_can_write_new          => sub { $_[0]->user_can('write_new') },
+    user_can_write_existing     => sub { $_[0]->user_can('write_existing') },
+    user_can_readwrite_existing =>
+        sub { $_[0]->user_can('write_existing') || $_[0]->user_can('read') },
+    user_can_approve_new        => sub { $_[0]->user_can('approve_new') },
+    user_can_approve_existing   => sub { $_[0]->user_can('approve_existing') },
+);
+
+my %filters_compare = (
+    type       => sub { $_[0]->type       eq $_[1] },
+    remember   => sub { $_[0]->remember   == $_[1] },
+    userinput  => sub { $_[0]->userinput  == $_[1] },
+    multivalue => sub { $_[0]->multivalue == $_[1] },
+    topic      => sub { $_[0]->topic_id   == $_[1] },
+);
+
+# Order the columns in the order that the calculated values depend
+# on other columns
+sub _order_dependencies
+{   my ($self, @columns) = @_;
+    @columns or return;
+
+    my %deps  = map +($_->id => $_->dependencies), @columns;
+    my $source = Algorithm::Dependency::Source::HoA->new(\%deps);
+    my $dep    = Algorithm::Dependency::Ordered->new(source => $source)
+        or die 'Failed to set up dependency algorithm';
+
+    map $self->column_by_id($_), @{$dep->schedule_all};
+}
+
+sub search_columns
+{   my ($self, %options) = @_;
+
+    # Some parameters are a bit inconvenient
+    $options{exclude_hidden} = ! delete $options{include_hidden}
+        if exists $options{include_hidden};
+
+    if(exists $options{topic_id})
+    {   if(my $topic = delete $options{topic_id})
+             { $options{topic} = $topic }
+        else { $options{without_topic} = 1 }
+    }
+
+    my @filters;
+    foreach my $flag (keys %options)
+    {
+        if(my $f = $filters_invariant{$flag})
+        {   # A simple filter, based on the layout alone
+            push @filters, $f if $options{$flag};
+        }
+        elsif(my $g = $filters_compare{$flag})
+        {   # Filter based on comparison
+            if(defined(my $need = $options{$flag}))
+            {   push @filters, sub { $g->($_[0], $need) };
+            }
+        }
+    }
+
+    my $filter
+      = !@filters   ? sub { 1 }
+      : @filters==1 ? $filters[0]
+      : sub {
+            my $v = shift;
+            $_->($v) || return 0 for @filters;
+            1;
+        };
+
+    my @columns  = grep $filter->($_), @{$self->columns};
+
+    @columns = $self->_order_dependencies(@columns)
+        if $options{order_dependencies};
+
+    if($options{sort_by_topics})
+    {
+        # Sorting by topic involves keeping the order of fields that do not
+        # have a defined topic, but slotting in those together that have the
+        # same topic.
+
+        # First build up an index of topics and their fields
+        my %topics;
+        foreach my $col (@columns)
+        {   my $topic = $col->topic_id or next;
+            push @{$topics{$topic}}, $col;
+        }
+
+        my @new; my $previous_topic_id = 0; my %done;
+        foreach my $col (@columns)
+        {
+            next if $done{$col->id};
+            $done{$col->id} = 1;
+            if ($col->topic_id && $col->topic_id != $previous_topic_id)
+            {   foreach (@{$topics{$col->topic_id}})
+                {   push @new, $_;
+                    $done{$_->id} = 1;
+                }
+            }
+            else {
+                push @new, $col;
+                $done{$col->id} = 1;
+            }
+            $previous_topic_id = $col->topic_id || 0;
+        }
+        @columns = @new;
+    }
+
+    @columns;
 }
 
 1;

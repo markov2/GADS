@@ -54,6 +54,10 @@ has schema => (
 =head2 my $guard = $db->begin_work;
 Start a transaction.  You need to commit or rollback the guard when you
 finish working.
+
+  my $guard = $db->begin_work;
+  # ... complex db work ....
+  $guard->commit;
 =cut
 
 sub begin_work() { shift->schema->txn_scope_guard }

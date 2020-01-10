@@ -22,9 +22,14 @@ use base 'GADS::Schema::Result::Instance';
 use Log::Report  'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+use Clone        'clone';
 
 use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
+
+###!!!!  The naming is confusing, because that's legacy.
+###  table Instance      contains Sheet data
+###  table InstanceGroup relates Sheets to Users
 
 =head1 NAME
 Linkspace::Sheet - manages one sheet: one table with a Layout
@@ -34,14 +39,19 @@ Linkspace::Sheet - manages one sheet: one table with a Layout
   my $doc = $::session->site->document;
   my @sheets = $doc->all_sheets;
 
+  my $sheet  = $doc->get_sheet($id);
+
 =head1 DESCRIPTION
 
 =head1 METHODS: Constructors
 
 =head2 my $sheet = Linkspace::Sheet->new(%options);
+Option C<allow_everything> will overrule access permission checking.
+Required is a C<document>.
 =cut
 
 =head2 my $sheet = Linkspace::Sheet->from_record($record, %options);
+The C<%options> are passed to C<new()>.
 =cut
 
 sub from_record
@@ -49,7 +59,17 @@ sub from_record
     $class->new( { %$record, %args } );
 }
 
-=head2 my $new = $sheet->update(\%changes, %options);
+=head2 my $sheet = $class->from_id($sheet_id, %options);
+Create a Sheet object based on a C<$sheet_id> (old name: instance_id).
+The same C<%options> as method C<from_record()>.
+=cut
+
+sub from_id
+{   my ($class, $sheet_id, %args) = @_;
+    $class->from_record($::db->get_record(Instances => $sheet_id), %args);
+}
+
+=head2 my $new_sheet = $sheet->update(\%changes, %options);
 Apply the changes to the sheet's database structure.  For now, this can
 only change the sheet (Instance) record, not its dependencies.
 
@@ -67,12 +87,15 @@ sub update($)
         $::db->get_record(Instances => $self->id),
         layout   => $self->layout,
         document => $self->document,
+        $args,
     );
 }
 
 =head1 METHODS: Accessors
 
 =head2 my $doc = $sheet->document;
+The Site where the User has logged-in contains Sheets which are clustered
+into Documents (at the moment, only one Document per Site is supported)
 =cut
 
 has document => (
@@ -82,6 +105,7 @@ has document => (
 );
 
 =head2 my $layout = $sheet->layout;
+Each Sheet has a Layout which contains the Column descriptions.
 =cut
 
 has layout => (
@@ -92,7 +116,7 @@ has layout => (
     },
 );
 
-=head1 METHODS: the sheet itself
+=head1 METHODS: the Sheet itself
 
 =cut
 
@@ -130,167 +154,146 @@ sub create($%)
 {   my ($class, %settings) = @_;
     my $sheet_id = $::db->create(Instance => \%settings)->id;
 
+    my %layout_defaults;  #XXX how do I get them?
+	Linkspace::Layout->create_for_sheet($self, %layout_defaults);
+
     # Start with a clean sheet
     $class->from_id($sheet_id);
 }
 
-=head1 METHODS: Column management
+=head1 METHODS: Keeping records
 
-=head2 \@cols = $sheet->columns;
+=head2 $sheet->blank_fields(%search);
+Find columns which match the C<%search>, and set those values to blank ('').
 =cut
 
-has columns => (
-    is    => 'lazy',
-    isa   => ArrayRef,
+sub blank_records(%)
+{   my $self = shift;
+    $self->data->blank_fields($self->columns(@_));
+}
+
+=head2 my @cols = $sheet->columns(%search);
+Returns the definitions of the columns of this sheet
+
+Same:
+  $sheet->layout->search_columns(%search);
+=cut
+
+
+=head1 METHODS: permission management
+=cut
+
+my @sheet_permissions = qw/
+    bulk_update
+    create_child
+    delete
+    download
+    layout
+    link
+    message
+    purge
+    view_create
+    view_group
+    view_limit_extra
+/;
+
+my %is_valid_permission = map +($_ => 1), @sheet_permissions;
+my %superadmin_rights   = map +($_ => 1), qw/layout view_create/;
+
+=head2 $sheet->set_allow_everything(1);
+
+=head2 my $overrule_permissions = $sheet->allow_everything;
+When set, permissions for do anything are overruled.
+=cut
+
+has allow_everything => (
+    is       => 'rw',
+    isa      => Bool,
+    default  => 0,
+);
+
+# The index contains a HASH of permissions per (user)group_id.
+has _permission_index => (
+    is      => 'lazy',
+    isa     => HashRef,
     builder => sub {
-        [ map Linkspace::Column->from_id($_), $_[0]->column_ids ]
+        my $self = shift;
+        my %perms = map +($_->group_id => $_->permission),
+            $::db->search(InstanceGroup => { instance_id => $self->id })->all;
+        \%perms;
     },
 );
 
-=head2 \@col_ids = $sheet->column_ids;
+=head2 $sheet->set_permissions(@perms|\@perms);
+Change the Sheet wide permissions for Groups.  There are also (user)group
+permissions which span multiple sheets, and column specific permissions.
+
+The C<@perms> are in the form C<< ${group_id}_${permission} >>, probably
+directly from a web-form.
 =cut
 
-has column_ids => (
-    is    => 'lazy',
-    isa   => ArrayRef,
-    builder => sub { $::session->site->document->columns_for_sheet($_[0]) },
-}
+sub set_permissions
+{   my $self  = shift;
+    my @perms = ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_;
 
-=head2 $col = $sheet->column_by_id($id);
-=cut
+    my $sheet_id = $self->id;
+    my $index    = $self->_permission_index;
 
-has _column_by_id => (
-    is      => 'ro',
-    isa     => HashRef,
-    default => +{},
-}
+    my %missing  = clone %$index;
 
-sub column_by_id($)
-{   my ($self, $id) = @_;
-    
-}
+	my @create;
+    foreach my $perm (@perms)
+    {   my ($group_id, $permission) = $perm =~ /^([0-9]+)\_(.*)/;
+        $group_id && $is_valid_permission{$permission}
+            or panic "Invalid permission $perm";
 
-=head2 \@cols = $sheet->search_columns(%options)
-=cut
+        next if delete $missing{$group_id}{$permission};
 
-my %filters_invariant = (
-    exclude_hidden   => sub { ! $_[0]->hidden },
-    exclude_internal => sub { ! $_[0]->internal },
-    only_internal    => sub {   $_[0]->internal },
-    only_unique      => sub {   $_[0]->isunique },
-    can_child        => sub {   $_[0]->can_child },
-    linked           => sub {   $_[0]->link_parent },
-    is_globe         => sub {   $_[0]->return_type eq 'globe' },
-    has_cache        => sub {   $_[0]->has_cache },
-    user_can_read    => sub {   $_[0]->user_can('read') },
-    user_can_write   => sub {   $_[0]->user_can('write') },
-    without_topic    => sub { ! $_[0]->topic_id },
-    user_can_write_new          => sub { $_[0]->user_can('write_new') },
-    user_can_write_existing     => sub { $_[0]->user_can('write_existing') },
-    user_can_readwrite_existing =>
-        sub { $_[0]->user_can('write_existing') || $_[0]->user_can('read') },
-    user_can_approve_new        => sub { $_[0]->user_can('approve_new') },
-    user_can_approve_existing   => sub { $_[0]->user_can('approve_existing') },
-);
-
-my %filters_compare = (
-    type       => sub { $_[0]->type       eq $_[1] },
-    remember   => sub { $_[0]->remember   == $_[1] },
-    userinput  => sub { $_[0]->userinput  == $_[1] },
-    multivalue => sub { $_[0]->multivalue == $_[1] },
-    topic      => sub { $_[0]->topic_id   == $_[1] },
-);
-
-# Order the columns in the order that the calculated values depend
-# on other columns
-sub _order_dependencies
-{   my ($self, @columns) = @_;
-    @columns or return;
-
-    my %deps  = map +($_->id => $_->dependencies), @columns;
-    my $source = Algorithm::Dependency::Source::HoA->new(\%deps);
-    my $dep    = Algorithm::Dependency::Ordered->new(source => $source)
-        or die 'Failed to set up dependency algorithm';
-
-    map $self->column_by_id($_), @{$dep->schedule_all};
-}
-
-sub search_columns
-{   my ($self, %options) = @_;
-
-    # Some parameters are a bit inconvenient
-    $options{exclude_hidden} = ! delete $options{include_hidden}
-        if exists $options{include_hidden};
-
-    if(exists $options{topic_id})
-    {   if(my $topic = delete $options{topic_id})
-             { $options{topic} = $topic }
-        else { $options{without_topic} = 1 }
-    }
-
-    my @filters;
-    foreach my $flag (keys %options)
-    {
-        if(my $f = $filters_invariant{$flag})
-        {   # A simple filter, based on the layout alone
-            push @filters, $f if $options{$flag};
-        }
-        elsif(my $g = $filters_compare{$flag})
-        {   # Filter based on comparison
-            if(defined(my $need = $options{$flag}))
-            {   push @filters, sub { $g->($_[0], $need) };
-            }
-        }
-    }
-
-    my $filter
-      = !@filters   ? sub { 1 }
-      : @filters==1 ? $filters[0]
-      : sub {
-            my $v = shift;
-            $_->($v) || return 0 for @filters;
-            1;
+		$index->{$group_id}{$permission} = 1;
+		push @create, +{
+            instance_id => $sheet_id,
+            group_id    => $group_id,
+            permission  => $permission,
         };
-
-    my @columns  = grep $filter->($_), @{$self->columns};
-
-    @columns = $self->_order_dependencies(@columns)
-        if $options{order_dependencies};
-
-    if($options{sort_by_topics})
-    {
-        # Sorting by topic involves keeping the order of fields that do not
-        # have a defined topic, but slotting in those together that have the
-        # same topic.
-
-        # First build up an index of topics and their fields
-        my %topics;
-        foreach my $col (@columns)
-        {   my $topic = $col->topic_id or next;
-            push @{$topics{$topic}}, $col;
-        }
-
-        my @new; my $previous_topic_id = 0; my %done;
-        foreach my $col (@columns)
-        {
-            next if $done{$col->id};
-            $done{$col->id} = 1;
-            if ($col->topic_id && $col->topic_id != $previous_topic_id)
-            {   foreach (@{$topics{$col->topic_id}})
-                {   push @new, $_;
-                    $done{$_->id} = 1;
-                }
-            }
-            else {
-                push @new, $col;
-                $done{$col->id} = 1;
-            }
-            $previous_topic_id = $col->topic_id || 0;
-        }
-        @columns = @new;
     }
 
-    @columns;
+    my @delete;
+    foreach my $group_id (keys %missing)
+    {   push @delete, map +{ 
+            instance_id => $sheet_id,
+            group_id    => $group_id,
+            permission  => $_,
+        }, keys $missing{$group_id};
+    }
+
+    @create || @delete or return;
+
+    my $guard = $::db->begin_work;
+    $::db->resultset('InstanceGroup')->populate(\@create) if @create;
+    $::db->delete(InstanceGroup => \@delete) if @delete;
+    $guard->commit;
+}
+
+=head2 my $allowed = $sheet->user_can($perm, [$user]);
+Check whether a certain C<$user> (defaults to the session user) has
+a specific permission flag.
+
+Most components of the program should try to avoid other access check
+routines: where permissions reside change.
+
+=cut
+
+sub user_can($;$)
+{   my ($self, $permission, $user) = @_;
+    $user ||= $::session->user;
+
+      $self->allow_everything
+    ? 1
+    : $is_valid_permission{$permission}
+    ? $self->_permission_index->{$user->group_id}{$permission}
+    : $user->is_permitted('superadmin') && $superadmin_rights{$permission}
+    ? 1
+    : $user->is_permitted($permission);
 }
 
 1;
