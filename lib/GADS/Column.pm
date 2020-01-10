@@ -1030,7 +1030,7 @@ sub write
     error __"Internal fields cannot be edited"
         if $self->internal;
 
-    my $guard = $self->schema->txn_scope_guard;
+    my $guard = $::db->begin_work;
 
     my $newitem;
     $newitem->{name} = $self->name
@@ -1048,9 +1048,9 @@ sub write
             'me.name_short'    => $self->name_short,
             'instance.site_id' => $self->schema->site_id,
         };
+
         if ($self->id)
-        {
-            # Don't search self if already in DB
+        {   # Don't search self if already in DB
             $search->{'me.id'} = { '!=' => $self->id };
         }
 
@@ -1063,7 +1063,7 @@ sub write
     # back to the current layout
     if ($self->link_parent_id)
     {
-        my $link_parent = $self->schema->resultset('Layout')->find($self->link_parent_id);
+        my $link_parent = $::db->get_record(Layout => $self->link_parent_id);
         if ($link_parent->type eq 'curval')
         {
             foreach ($link_parent->curval_fields_parents)
@@ -1090,13 +1090,12 @@ sub write
     $newitem->{display_condition} = $self->display_fields->as_hash->{condition},
     $newitem->{instance_id}       = $self->layout->instance_id;
     $newitem->{aggregate}         = $self->aggregate;
-    if ($self->numeric)
-    {
-        $newitem->{group_display} = 'sum';
-    }
-    else {
-        $newitem->{group_display} = $self->group_display && $self->group_display eq 'unique' ? 'unique' : undef;
-    }
+
+    $newitem->{group_display}
+       = $self->numeric ? 'sum';
+       : $self->group_display && $self->group_display eq 'unique' ? 'unique'
+       : undef;
+
     $newitem->{position}          = $self->position
         if $self->position; # Used on layout import
 
@@ -1111,27 +1110,23 @@ sub write
             # Add at end of other items
             $newitem->{position} = ($self->schema->resultset('Layout')->get_column('position')->max || 0) + 1
                 unless $self->position;
-            $rset = $self->schema->resultset('Layout')->create($newitem);
-            $new_id = $rset->id;
-            $self->_set__rset($rset);
+            my $new_id = $self->create(Layout => $newitem);
+
             # Don't set $self->id here, as we could yet bail out and the object
             # would be left with an id, which would signify it is not a new field
             # (affects display of type when creating field)
         }
+        elsif($rset = $::db->get_record(Layout => $self->id))
+        {
+            # Check whether attempt to move between instances - this is a bug
+            $newitem->{instance_id} != $rset->instance_id
+                and panic "Attempt to move column between instances";
+            $old_rset = { $rset->get_columns };  #XXX pairs?
+            $::db->update(Layout => $newitem);
+        }
         else {
-            if ($rset = $self->schema->resultset('Layout')->find($self->id))
-            {
-                # Check whether attempt to move between instances - this is a bug
-                $newitem->{instance_id} != $rset->instance_id
-                    and panic "Attempt to move column between instances";
-                $old_rset = {$rset->get_columns};
-                $rset->update($newitem);
-            }
-            else {
-                $newitem->{id} = $self->id;
-                $rset = $self->schema->resultset('Layout')->create($newitem);
-                $self->_set__rset($rset);
-            }
+            $newitem->{id} = $self->id;
+            $::db->create(Layout => $newitem);
         }
 
         # Write any column-specific params
@@ -1142,9 +1137,10 @@ sub write
     $self->_write_permissions(id => $new_id || $self->id, %options);
 
     # Write display_fields
-    my $display_rs = $self->schema->resultset('DisplayField');
+    my $display_rs = $::db->resultset('DisplayField');
     $display_rs->search({ layout_id => $self->id })->delete
         if $self->id;
+
     foreach my $cond (@{$self->display_fields->filters})
     {
         $cond->{column_id} == $self->id
@@ -1589,6 +1585,24 @@ sub how_to_link_to_record {
     };
 
     ($self->table, $linker);
+}
+
+=head2 my @entries = $column->field_values($datum, $row, %options);
+Returns entries to be written to the database for $datum.
+Fields C<child_unique> and C<layout_id> are added later.
+
+The C<$row> and C<%options> are only used for Curval.
+=cut
+
+#XXX %options are used by Curval.  For which purpose?
+#XXX For Curvals this has weird side effects
+sub field_values($$%)
+{   my ($self, $datum) = @_;
+
+    my @values = $self->can('ids') ? $datum->ids : $datum->value;
+    @values or @values = (undef);
+
+    map +{ value => $_ }, @values;
 }
 
 1;

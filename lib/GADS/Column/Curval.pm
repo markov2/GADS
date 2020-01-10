@@ -353,4 +353,83 @@ sub import_value
     });
 }
 
+#XXX move to Curcommon?
+#XXX Unexpected side effects
+sub field_values($$%)
+{   my ($self, $datum, $row, %options) = @_;
+
+    my @values;
+    if($self->show_add)
+    {
+        foreach my $record (@{$datum_write->values_as_query_records})
+        {
+            $record->write(%options, no_draft_delete => 1, no_write_values => 1);
+            push @{$row->_records_to_write_after}, $record
+                if $record->is_edited;
+
+            push @values, $record->current_id;
+        }
+    }
+
+    push @values, @{$datum->ids};
+
+    if($self->delete_not_used)
+    {
+        my @ids_deleted;
+        foreach my $id_deleted (@{$datum->ids_removed})
+        {
+            my $is_used;
+            foreach my $refers (@{$self->layout_parent->referred_by})
+            {
+                my $refers_layout = Linkspace::Layout->new(
+                    user                     => $row->layout->user,
+                    user_permission_override => 1,
+                    config                   => GADS::Config->instance,
+                    instance_id              => $refers->instance_id,
+                );
+                my $rules = GADS::Filter->new(
+                    as_hash => {
+                        rules     => [{
+                            id       => $refers->id,
+                            type     => 'string',
+                            value    => $id_deleted,
+                            operator => 'equal',
+                        }],
+                    },
+                );
+                my $view = GADS::View->new( # Do not write to database!
+                    name        => 'Temp',
+                    filter      => $rules,
+                    instance_id => $refers->instance_id,
+                    layout      => $refers_layout,
+                    user        => undef,
+                );
+                my $refers_records = GADS::Records->new(
+                    user    => undef,
+                    view    => $view,
+                    columns => [],
+                    layout  => $refers_layout,
+                );
+                $is_used = $refers_records->count;
+                last if $is_used;
+            }
+
+            if (!$is_used)
+            {
+                my $record = GADS::Record->new(
+                    layout   => $self->layout_parent,
+                );
+                $record->find_current_id($id_deleted);
+                $record->delete_current(override => 1);
+                push @ids_deleted, $id_deleted;
+            }
+        }
+        $datum->ids_deleted(\@ids_deleted);
+    }
+
+    @values or @values = (undef);
+    map +{ value => $_ }, @values;
+}
+
+
 1;

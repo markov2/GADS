@@ -119,5 +119,17 @@ sub import_value
     });
 }
 
+sub field_values($;$%)
+{   my ($self, $datum) = @_;
+    my @values = @{$datum->values};
+
+    # No values, but still need to write null value
+    @values or return +{ value => undef, value_index => undef };
+
+    map +{ value => $_, 
+           (defined ? (value_index => (lc substr $_, 0, 128)) : ())
+         }, @values;
+}
+
 1;
 

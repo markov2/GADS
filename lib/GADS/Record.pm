@@ -1915,11 +1915,12 @@ sub write_values
 sub set_blank_dependents
 {   my $self = shift;
 
-    foreach my $column ($self->layout->all(exclude_internal => 1))
+    foreach my $column ($self->layout->columns(exclude_internal => 1))
     {
-        my $datum = $self->fields->{$column->id};
+        my $datum = $self->field($column);
         $datum->set_value('')
-            if $datum->dependent_not_shown && ($datum->column->can_child || !$self->parent_id);
+            if $datum->dependent_not_shown
+            && ($datum->column->can_child || !$self->parent_id);
     }
 }
 
@@ -1939,183 +1940,54 @@ sub _field_write
 
     if ($column->userinput)
     {
-        my $datum_write = $options{old} ? $datum->oldvalue : $datum;
-        my $table = $column->table;
-        my $entry = {
-            child_unique => $datum ? $column->can_child : 0, # No datum for new invisible fields
-            layout_id    => $column->id,
-        };
-        $entry->{record_id} = $options{approval} ? $self->approval_id : $self->record_id;
+        # No datum for new invisible fields
+        my $child_unique = $datum ? $column->can_child : 0;
+
+        my $layout_id    = $column->id;
+        my $row_id       = $options{approval} ? $self->approval_id : $self->record_id;
+
         my @entries;
-        if ($datum_write) # Possible that we're writing a blank value
-        {
-            if ($column->type eq "daterange")
-            {
-                if (!@{$datum_write->values})
-                {
-                    $entry->{from}  = undef;
-                    $entry->{to}    = undef;
-                    $entry->{value} = undef,
-                    push @entries, $entry; # No values, but still need to write null value
-                }
-                my @texts = @{$datum_write->text_all};
-                foreach my $range (@{$datum_write->values})
-                {
-                    my %entry = %$entry; # Copy to stop referenced values being overwritten
-                    $entry{from}  = $range->start;
-                    $entry{to}    = $range->end;
-                    $entry{value} = shift @texts;
-                    push @entries, \%entry;
-                }
-            }
-            elsif ($column->type =~ /(file|enum|tree|person|curval)/)
-            {
-                if ($column->type eq 'curval' && $column->show_add)
-                {
-                    foreach my $record (@{$datum_write->values_as_query_records})
-                    {
-                        $record->write(%options, no_draft_delete => 1, no_write_values => 1);
-                        push @{$self->_records_to_write_after}, $record
-                            if $record->is_edited;
-                        my $id = $record->current_id;
-                        my %entry = %$entry; # Copy to stop referenced id being overwritten
-                        $entry{value} = $id;
-                        push @entries, \%entry;
-                    }
-                }
-                foreach my $id (@{$datum_write->ids})
-                {
-                    my %entry = %$entry; # Copy to stop referenced id being overwritten
-                    $entry{value} = $id;
-                    push @entries, \%entry;
-                }
-                if ($column->type eq 'curval' && $column->delete_not_used)
-                {
-                    my @ids_deleted;
-                    foreach my $id_deleted (@{$datum->ids_removed})
-                    {
-                        my $is_used;
-                        foreach my $refers (@{$column->layout_parent->referred_by})
-                        {
-                            my $refers_layout = Linkspace::Layout->new(
-                                user                     => $self->layout->user,
-                                user_permission_override => 1,
-                                config                   => GADS::Config->instance,
-                                instance_id              => $refers->instance_id,
-                            );
-                            my $rules = GADS::Filter->new(
-                                as_hash => {
-                                    rules     => [{
-                                        id       => $refers->id,
-                                        type     => 'string',
-                                        value    => $id_deleted,
-                                        operator => 'equal',
-                                    }],
-                                },
-                            );
-                            my $view = GADS::View->new( # Do not write to database!
-                                name        => 'Temp',
-                                filter      => $rules,
-                                instance_id => $refers->instance_id,
-                                layout      => $refers_layout,
-                                user        => undef,
-                            );
-                            my $refers_records = GADS::Records->new(
-                                user    => undef,
-                                view    => $view,
-                                columns => [],
-                                layout  => $refers_layout,
-                                schema  => $self->schema,
-                            );
-                            $is_used = $refers_records->count;
-                            last if $is_used;
-                        }
-                        if (!$is_used)
-                        {
-                            my $record = GADS::Record->new(
-                                user     => $self->user,
-                                layout   => $column->layout_parent,
-                                schema   => $self->schema,
-                            );
-                            $record->find_current_id($id_deleted);
-                            $record->delete_current(override => 1);
-                            push @ids_deleted, $id_deleted;
-                        }
-                    }
-                    $datum->ids_deleted(\@ids_deleted);
-                }
-                if (!@entries)
-                {
-                    $entry->{value} = undef;
-                    push @entries, $entry; # No values, but still need to write null value
-                }
-            }
-            elsif ($column->type eq 'string')
-            {
-                if (!@{$datum_write->values})
-                {
-                    $entry->{value} = undef,
-                    $entry->{value_index} = undef,
-                    push @entries, $entry; # No values, but still need to write null value
-                }
-                foreach my $value (@{$datum_write->values})
-                {
-                    my %entry = %$entry; # Copy to stop referenced values being overwritten
-                    $entry{value} = $value;
-                    $entry{value_index} = lc substr $value, 0, 128
-                        if defined $value;
-                    push @entries, \%entry;
-                }
 
-            }
-            elsif ($column->type eq 'date')
-            {
-                if (!@{$datum_write->values})
-                {
-                    $entry->{value} = undef,
-                    push @entries, $entry; # No values, but still need to write null value
-                }
-                foreach my $value (@{$datum_write->values})
-                {
-                    my %entry = %$entry; # Copy to stop referenced values being overwritten
-                    $entry{value} = $value;
-                    push @entries, \%entry;
-                }
-
-            }
-            else
-            {   $entry->{value} = $datum_write->value;
-                push @entries, $entry;
+        my $datum_write  = $options{old} ? $datum->oldvalue : $datum;
+        if ($datum_write)
+        {   #XXX field_values() weird side-effects for Curval
+            foreach my $v ($column->field_values($datum_write, $self, %options))
+            {   $v->{child_unique} = $child_unique;
+                $v->{layout_id}    = $layout_id;
+                $v->{record_id}    = $row_id;
+                push @entries, $v;
             }
         }
 
-        my $create;
+        my $table = $column->table;
         if ($options{update_only})
         {
             # Would be better to use find() here, but not all tables currently
             # have unique constraints. Also, we might want to add multiple values
             # for each field in the future
-            my @rows = $self->schema->resultset($table)->search({
+            my @rows = $::db->search($table => {
                 record_id => $entry->{record_id},
                 layout_id => $entry->{layout_id},
             })->all;
+
             foreach my $row (@rows)
             {
                 if (my $entry = pop @entries)
-                {
-                    $row->update($entry);
+                {   $row->update($entry);
                 }
-                else {
-                    $row->delete; # Now less values than before
+                else
+                {   $row->delete; # Now less values than before
                 }
             }
         }
+
+        #XXX ???
         # For update_only, there might still be some @entries to be written
-        $self->schema->resultset($table)->create($_)
-            foreach @entries;
+        $::db->create($table => $_)
+            for @entries;
     }
-    else {
-        $datum->record_id($self->record_id);
+    else
+    {   $datum->record_id($self->record_id);
         $datum->re_evaluate;
         $datum->write_value;
     }
@@ -2123,51 +1995,49 @@ sub _field_write
 
 sub user_can_delete
 {   my $self = shift;
-    return 0 unless $self->current_id;
-    return $self->layout->user_can("delete");
+    $self->current_id ? $self->sheet->user_can("delete") : 0;
 }
 
 sub user_can_purge
 {   my $self = shift;
-    return 0 unless $self->current_id;
-    return $self->layout->user_can("purge");
+    $self->current_id ? $self->sheet->user_can("purge") : 0;
 }
 
 # Mark this entire record and versions as deleted
 sub delete_current
 {   my ($self, %options) = @_;
 
-    error __"You do not have permission to delete records"
-        if !$options{override} && $self->user && !$self->user_can_delete;
+    $options{override} || $self->user_can_delete
+        or error __"You do not have permission to delete records";
 
-    my $current = $self->schema->resultset('Current')->search({
+    my $current = $::db->search(Current => {
         id          => $self->current_id,
-        instance_id => $self->layout->instance_id,
-    })->next
+        instance_id => $self->sheet->id,
+    })->first
         or error "Unable to find current record to delete";
 
     $current->update({
         deleted   => DateTime->now,
-        deletedby => $self->user && $self->user->id
+        deletedby => $::session->user->id
     });
 }
 
 # Delete this this version completely from database
 sub purge
 {   my $self = shift;
-    error __"You do not have permission to purge records"
-        unless !$self->user || $self->user_can_purge;
+    $self->user_can_purge
+        or error __"You do not have permission to purge records";
+
     $self->_purge_record_values($self->record_id);
-    $self->schema->resultset('Record')->find($self->record_id)->delete;
+    $::db->delete(Record => $self->record_id);
 }
 
 sub restore
 {   my $self = shift;
-    error __"You do not have permission to restore records"
-        unless !$self->user || $self->user_can_purge;
-    $self->schema->resultset('Current')->find($self->current_id)->update({
-        deleted => undef,
-    });
+    $self->user_can_purge
+        or error __"You do not have permission to restore records";
+
+    $::db->update(Current => $self->current_id, { deleted => undef });
 }
 
 sub as_json

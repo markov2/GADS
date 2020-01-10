@@ -173,5 +173,17 @@ sub import_value
     });
 }
 
+sub field_values($$%)
+{    my ($self, $datum) = @_;
+
+     my @ranges = @{$datum->values};
+     @ranges or return +{ from => undef, to => undef, value => undef };
+
+     my @texts = @{$datum->text_all};
+
+     map +{ from => $_->start, to => $_->end, value => shift @texts },
+        @ranges;
+}
+
 1;
 
