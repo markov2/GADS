@@ -24,13 +24,9 @@ use MooX::Types::MooseLike::Base qw/ArrayRef HashRef Int Maybe Bool/;
 
 # Whether the logged-in user has the layout permission
 has user_has_layout => (
-    is => 'lazy',
+    is      => 'lazy',
+    builder => sub { $_[0]->layout->user_can("layout") },
 );
-
-sub _build_user_has_layout
-{   my $self = shift;
-    $self->layout->user_can("layout");
-}
 
 # Whether to show another user's views
 has other_user_id => (
@@ -38,59 +34,59 @@ has other_user_id => (
     isa => Maybe[Int],
 );
 
-has user_permission_override => (
-    is      => 'rw',
-    isa     => Bool,
-    default => 0,
-);
-
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
-has instance_id => (
+has sheet => (
     is       => 'ro',
-    isa      => Int,
+    isa      => InstanceOf['Linkspace::Sheet'],
     required => 1,
+    weakref  => 1,
 );
 
 has user_views => (
     is      => 'rw',
     lazy    => 1,
-    builder => sub { $_[0]->_user_views },
+    isa     => HashRef,
 );
 
 has user_views_all => (
     is  => 'lazy',
     isa => ArrayRef,
-);
-
-sub _build_user_views_all
-{   my $all = shift->user_views;
-    [@{$all->{shared}}, @{$all->{personal}}, @{$all->{admin}}];
+    builder => sub {
+        my $all = shift->user_views;
+        [ @{$all->{shared}}, @{$all->{personal}}, @{$all->{admin}} ];
+    },
 }
 
-has global => (
-    is  => 'lazy',
-    isa => ArrayRef,
+has global_view_ids => (
+    is      => 'lazy',
+    isa     => ArrayRef,
+    builder => sub {
+        my $self = shift;
+        my $views = $::db->search(View => {
+            global      => 1,
+            instance_id => $self->instance_id,
+        });
+        [ map $self->view($_->id), $views->all ];
+    },
 );
 
 has all => (
-    is  => 'lazy',
-    isa => ArrayRef,
+    is      => 'lazy',
+    isa     => ArrayRef,
+    builder => sub {
+        my $self  = shift;
+        my $views = $::db->search(View => { instance_id => $self->sheet->id });
+        [ map $self->view($_->id), $views->all ];
+    },
 );
 
-# Only required a full view is retrieved
-has layout => (
-    is => 'rw',
-);
-
-sub _user_views
+sub builder_user_views
 {   my $self = shift;
+
     # Allow user ID to be overridden, but only if the logged-in user has permission
-    my $user_id = ($self->user_has_layout && $self->other_user_id) || ($self->layout->user && $self->layout->user->id);
-    my $search = [
+    my $user_id = ($self->user_has_layout && $self->other_user_id)
+       || ($self->layout->user && $self->layout->user->id);
+
+    my @search = (
         'me.user_id' => $user_id,
         {
             global  => 1,
@@ -99,10 +95,13 @@ sub _user_views
                 'user_groups.user_id' => $user_id,
             ],
         }
-    ];
-    push @$search, (is_admin => 1) if $self->user_has_layout;
-    my @views = $self->schema->resultset('View')->search({
-        -or         => $search,
+    );
+
+    push @search, (is_admin => 1)
+        if $self->user_has_layout;
+
+    my @views = $::db->search(View => {
+        -or         => \@search,
         instance_id => $self->instance_id,
     },{
         join     => {
@@ -111,95 +110,94 @@ sub _user_views
         order_by => ['me.global', 'me.is_admin', 'me.name'],
         collapse => 1,
     })->all;
-    my $return = {
-        admin    => [],
-        shared   => [],
-        personal => [],
-    };
+
+    my (@admins, @shared, @personal);
     foreach my $view (@views)
-    {
-        if ($view->global)
-        {
-            push @{$return->{shared}}, $view;
-        }
-        elsif ($view->is_admin)
-        {
-            push @{$return->{admin}}, $view;
-        }
-        else {
-            push @{$return->{personal}}, $view;
-        }
+    {   push @{ $view->global   ? \@shared
+              : $view->is_admin ? \@admins
+              :                   \@personal}, @view;
     }
-    $return;
+
+      +{ admin => \@admins, shared => \@shared, personal => \@personal };
 }
 
 has views_limit_extra => (
-    is => 'lazy',
+    is      => 'lazy',
+    builder => sub
+    {   my $self = shift;
+        return [] if !$self->sheet->user_can('view_limit_extra');
+
+        my $views = $::db->search(View =>
+            is_limit_extra => 1,
+            instance_id    => $self->sheet->id,
+        },{
+            order_by => 'me.name',
+        });
+        [ $views->all ];
+    },
 );
 
-sub _build_views_limit_extra
-{   my $self = shift;
-    return [] if !$self->layout->user_can('view_limit_extra');
-    my @views = $self->schema->resultset('View')->search({
-        is_limit_extra => 1,
-        instance_id    => $self->instance_id,
-    },{
-        order_by => 'me.name',
-    });
-    \@views;
-}
-
-sub _build_global
-{   my $self = shift;
-    my @views = $self->schema->resultset('View')->search({
-        global      => 1,
-        instance_id => $self->instance_id,
-    })->all;
-    my @global = map { $self->view($_->id) } @views;
-    \@global;
-}
-
-sub _build_all
-{   my $self = shift;
-    my @views = $self->schema->resultset('View')->search({
-        instance_id => $self->instance_id,
-    })->all;
-    my @all = map { $self->view($_->id) } @views;
-    \@all;
-}
-
 # Default user view
+#XXX rename to default_view
 sub default
 {   my $self = shift;
-    my @user_views   = @{$self->user_views_all} or return;
-    my $default_view = shift @user_views or return;
+    my $default_view = $self->user_views_all->[0] or return;
     my $view_id      = $default_view->id or return;
     $self->view($view_id);
-}
-
-sub view
-{   my ($self, $view_id) =  @_;
-    my $layout = $self->layout or die "layout needs to be defined to retrieve view";
-    # Try to create a view using the ID. Don't bork if it fails
-    my $view = GADS::View->new(
-        id                       => $view_id,
-        instance_id              => $self->instance_id,
-        schema                   => $self->schema,
-        layout                   => $self->layout,
-        user_permission_override => $self->user_permission_override,
-    );
-    $view->exists ? $view : undef;
 }
 
 sub purge
 {   my $self = shift;
     foreach my $view (@{$self->all})
-    {
-        # Remove any view limits, which would otherwise cause the view to not be deleted
-        $self->schema->resultset('ViewLimit')->search({ view_id => $view->id })->delete;
+    {   $::db->delete(ViewLimit => { view_id => $view->id });
         $view->delete;
     }
 }
 
-1;
+=head2 my $view = $views->view($view_id, %options);
+=cut
 
+sub view($)
+{   my ($self, $view_id, %args) = @_;
+    my $sheet = $self->sheet;
+
+    my $view = Linkspace::View->from_id($view_id,
+        sheet => $sheet,
+    ) or return;
+
+    return $view if $self->user_permission_override;
+
+    my $user  = $::session->user;
+    my $owner = $view->owner;
+
+    return 1
+        if !$view->global
+        && !$view->is_admin
+        && !$view->is_limit_extra
+        && !$view->user_can_layout
+        && $owner->id==$user->id;
+
+    return 1
+        if $view->global
+        && $view->group_id
+        && $user->has_group($view->group_id);
+
+    return 1
+        if $user->is_admin;
+
+    0;
+}
+
+=head2 my $view_id = $views->create_view(%data);
+
+=head2 my $view_id = $views->create_view(\%data, %options);
+=cut
+
+sub create_view
+{   my $self = shift;
+    my ($data, $args) = @_%1 ? (shift, +{@_}) : (+{@_}, {});
+
+    Linkspace::View->create($data, 
+}
+
+1;

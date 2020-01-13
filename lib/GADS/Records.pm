@@ -52,7 +52,6 @@ has user => (
 
 has pages => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_pages
@@ -65,7 +64,6 @@ sub _build_pages
 has search => (
     is      => 'rw',
     isa     => Maybe[Str],
-    clearer => 1,
 );
 
 # Whether to show only deleted records or only records not deleted
@@ -115,7 +113,6 @@ has view => (
 # in a specific view
 has _view_limits => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build__view_limits
@@ -272,7 +269,6 @@ has columns_extra => (
 has columns_retrieved_no => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 # Value containing the actual columns retrieved.
@@ -280,7 +276,6 @@ has columns_retrieved_no => (
 has columns_retrieved_do => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 # All the columns that will be rendered for the current view
@@ -288,12 +283,10 @@ has columns_retrieved_do => (
 has columns_view => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 has max_results => (
     is      => 'rw',
-    clearer => 1,
 );
 
 has rows => (
@@ -303,13 +296,11 @@ has rows => (
 has count => (
     is      => 'lazy',
     isa     => Int,
-    clearer => 1,
 );
 
 has has_children => (
     is      => 'lazy',
     isa     => Bool,
-    clearer => 1,
 );
 
 has page => (
@@ -352,7 +343,6 @@ has limit_current_ids => (
 has current_ids => (
     is        => 'lazy',
     isa       => Maybe[ArrayRef], # If undef will be ignored
-    clearer   => 1,
     predicate => 1,
 );
 
@@ -443,14 +433,12 @@ sub clear_sorts
 has _sorts => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 # The sorts for a limit_qty query
 has _sorts_limit => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 # User-specified sort override
@@ -467,7 +455,6 @@ has sort => (
 # The first sort of the calculated list of sorts
 has sort_first => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_sort_first
@@ -482,7 +469,6 @@ has schema => (
 
 has default_sort => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_default_sort
@@ -497,7 +483,6 @@ sub _build_default_sort
 has results => (
     is        => 'lazy',
     isa       => ArrayRef,
-    clearer   => 1,
     predicate => 1,
 );
 
@@ -611,7 +596,6 @@ sub search_views
 has _search_all_fields => (
     is      => 'lazy',
     isa     => HashRef,
-    clearer => 1,
 );
 
 sub _build__search_all_fields
@@ -789,7 +773,6 @@ sub _build_search_limit_reached
 has is_group => (
     is      => 'lazy',
     isa     => Bool,
-    clearer => 1,
 );
 
 sub _build_is_group
@@ -801,14 +784,10 @@ sub _build_is_group
 # has more than one group and they can be drilled down into
 has current_group_id => (
     is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_current_group_id
-{   my $self = shift;
-    return undef if !$self->is_group || !$self->view;
-    return undef if !@{$self->view->groups};
-    $self->view->groups->[0]->layout_id;
+    builder => sub {
+        my $self = shift;
+        $self->is_group && $self->view ? $self->view->first_column_id : undef;
+    },
 }
 
 # Produce a standard set of results without grouping
@@ -828,7 +807,7 @@ sub _current_ids_rs
         join     => [
             [$self->linked_hash(search => 1, sort => 1)],
             {
-                'record_single' => [ # The (assumed) single record for the required version of current
+                record_single => [ # The (assumed) single record for the required version of current
                     'record_later',  # The record after the single record (undef when single is latest)
                     $self->jpfetch(search => 1, sort => 1, linked => 0),
                 ],
@@ -902,7 +881,7 @@ sub _build_standard_results
 
     my @prefetches = $self->jpfetch(prefetch => 1, linked => 0);
 
-    my $rec1 = @prefetches ? { record_single => [@prefetches] } : 'record_single';
+    my $rec1 = @prefetches ? { record_single => \@prefetches } : 'record_single';
     # Add joins for sorts, but only if they're not already a prefetch (otherwise ordering can be messed up).
     # We also add the join for record_later, so that we can take only the latest required record
     my @j = $self->jpfetch(sort => 1, prefetch => 0, linked => 0);
@@ -932,7 +911,7 @@ sub _build_standard_results
             {
                 record_created_user => $::db->search(Record => {
                     'me_created.id' => {
-                        -in => $::db->schema->resultset('Current')
+                        -in => $::db->resultset('Current')
                             ->correlate('records')
                             ->get_column('id')
                             ->min_rs->as_query,
@@ -990,9 +969,7 @@ sub _build_standard_results
     my $created_column = $self->layout->column_by_name_short('_created_user');
     my $created_users  = $created_column->fetch_multivalues(\@created_ids);
     foreach my $rec (@all)
-    {
-        my $original = $rec->set_record_created_user
-            or next;
+    {   my $original = $rec->set_record_created_user or next;
         my $user     = $created_users->{$original};
         $rec->set_record_created_user($user);
     }
@@ -1008,8 +985,10 @@ sub fetch_multivalues
     my $records       = $params{records};
 
     my @linked_ids;
-    push @linked_ids, map { $_->linked_record_raw->{id} } grep { $_->linked_record_raw } @$records;
-    push @linked_ids, map { $_->linked_id } grep { $_->linked_id } @$records;
+    push @linked_ids, map $_->linked_record_raw->{id},
+        grep $_->linked_record_raw, @$records;
+
+    push @linked_ids, map $_->linked_id, grep $_->linked_id, @$records;
 
     my %curval_fields;
 
@@ -1019,14 +998,12 @@ sub fetch_multivalues
     {
         my @cols = ($column);
         if ($column->type eq 'curval')
-        {
-            push @cols, @{$column->curval_fields_multivalue};
+        {   my $multivals = $column->curval_fields_multivalue;
+            push @cols, @$multivals;
+
             # Flag any curval multivalue fields as also requiring fetching
-            foreach (@{$column->curval_fields_multivalue})
-            {
-                $curval_fields{$_->field} ||= [];
-                push @{$curval_fields{$_->field}}, $column->field;
-            }
+            push @{$curval_fields{$_->field}}, $column->field
+                for @$multivals;
         }
         foreach my $col (@cols)
         {
@@ -1128,15 +1105,14 @@ sub fetch_multivalues
                 }
             }
         }
-        if ($row->linked_record_raw)
-        {
-            my $record_linked = $row->linked_record_raw;
-            my $record_id_linked = $record_linked->{id};
-            $record_linked->{$_} = $multi{$record_id_linked}->{$_} foreach keys %{$multi{$record_id_linked}};
+
+        if($record_linked = $row->linked_record_raw)
+        {   my $multi = $multi{$record_linked->{id}};
+            @{$record_linked}{keys %$multi} = values %$multi;
         }
-        elsif ($row->linked_id)
-        {
-            $record->{$_} = $multi{$row->linked_id}->{$_} foreach keys %{$multi{$row->linked_id}};
+        elsif(my $linked = $row->linked_id)
+        {   my $multi = $multi{$linked_id};
+            @{$record}{keys %$multi} = values %$multi;
         }
     };
 }
@@ -1147,13 +1123,8 @@ sub fetch_multivalues
 has _all_cids_store => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
+    builder => sub { $_[0]->current_ids },
 );
-
-sub _build__all_cids_store
-{   my $self = shift;
-    $self->current_ids;
-}
 
 # Which internal page we are on for retrieving sets of rows. This is not the
 # same as page(), which directly affects the page of the database row retrieval
@@ -1338,11 +1309,15 @@ sub _build_columns_view
     my @cols;
     if (my $view = $self->view)
     {
-        my %view_layouts = map { $_ => 1 } @{$view->columns}, map $_->layout_id, @{$view->groups};
+        my %view_layouts = map +($_ => 1),
+            @{$view->column_ids},
+            map $_->layout_id, @{$view->groups};
+
         delete $view_layouts{$self->current_group_id}
             if $self->current_group_id;
+
         my $group_display = $view->is_group && !@{$self->additional_filters};
-        @cols = $self->layout->all(user_can_read => 1, group_display => $group_display, include_column_ids => \%view_layouts);
+        @cols = $self->sheet->columns(user_can_read => 1, group_display => $group_display, include_column_ids => \%view_layouts);
         if ($self->current_group_id)
         {
             unshift @cols, $self->layout->column($self->current_group_id);
@@ -1358,35 +1333,12 @@ sub _build_columns_view
     return \@cols;
 }
 
-sub clear
-{   my $self = shift;
-    $self->clear_pages;
-    $self->_clear_view_limits;
-    $self->clear_columns_retrieved_no;
-    $self->clear_columns_retrieved_do;
-    $self->clear_columns_view;
-    $self->clear_count;
-    $self->clear_current_ids;
-    $self->_clear_search_all_fields;
-    $self->clear_results;
-    $self->clear_aggregate_results;
-    $self->clear_search;
-    $self->_set__next_single_id(0);
-    $self->_set_current_ids(undef);
-    $self->_clear_all_cids_store;
-    $self->clear_default_sort;
-    $self->clear_is_group;
-    $self->clear_current_group_id;
-    $self->clear_additional_filters;
-}
-
 has additional_filters => (
     is      => 'ro',
     isa     => ArrayRef,
     # A default non-lazy value does not seem to work here
     lazy    => 1,
     builder => sub { [] },
-    clearer => 1,
 );
 
 sub _search_date
@@ -2384,7 +2336,6 @@ sub _build_columns_aggregate
 
 has aggregate_results => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_aggregate_results

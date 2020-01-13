@@ -2394,62 +2394,55 @@ prefix '/:layout_name' => sub {
 
     any ['get', 'post'] => '/view/:id' => require_login sub {
 
-        my $layout = var('layout') or pass;
-
-        my $user   = logged_in_user;
-
         return forwardHome(
             { danger => 'You do not have permission to edit views' }, $layout->identifier.'/data' )
-            unless $layout->user_can("view_create");
+            unless $sheet->user_can("view_create");
 
         my $view_id = param('id');
-
-        error __x"Invalid view ID: {id}", id => $view_id
-            unless $view_id =~ /^[0-9]+$/;
+        $view_id =~ /^[0-9]+$/
+            or error __x"Invalid view ID: {id}", id => $view_id;
 
         $view_id = param('clone') if param('clone') && !request->is_post;
-        my @ucolumns; my $view_values;
+        my (@ucolumns, $view_values);
 
-        my %vp = (
-            user          => $user,
-            other_user_id => session('views_other_user_id'),
-            schema        => schema,
-            layout        => $layout,
-            instance_id   => $layout->instance_id,
-        );
-        $vp{id} = $view_id if $view_id;
-        my $view = GADS::View->new(%vp);
+        my $view = $sheet->views->view($view_id);
 
         # If this is a clone of a full global view, but the user only has group
         # view creation rights, then remove the global parameter, otherwise it
         # means that it is ticked by default but only for a group instead
-        $view->global(0) if param('clone') && !$view->group_id && !$layout->user_can('layout');
+
+        my $global = $param('global') ? 1 : 0;
+        $global = 0
+            if param('clone')
+            && !$view->group_id
+            && !$sheet->user_can('layout');
 
         if (param 'update')
         {
-            my $params = params;
-            my $columns = ref param('column') ? param('column') : [ param('column') // () ]; # Ensure array
-            $view->columns($columns);
-            $view->global(param('global') ? 1 : 0);
-            $view->is_admin(param('is_admin') ? 1 : 0);
-            $view->group_id(param 'group_id');
-            $view->name  (param 'name');
-            $view->filter->as_json(param 'filter');
-            if (process( sub { $view->write }))
+
+            #XXX other_user_id => session('views_other_user_id'),
+            #XXX not needed anymore?
+
+            if(process sub{ $view->update(
+                sheet      => $sheet,
+                column_ids => param('column'),
+                global     => $global,
+                is_admin   => param('is_admin') ? 1 : 0,
+                group_id   => param('group_id'),
+                name       => param('name'),
+                sortfields => [ body_parameters->get_all('sortfield') ],
+                sorttypes  => [ body_parameters->get_all('sorttype')  ],
+                groups     => [ body_parameters->get_all('groupfield') ],
+                filter     => param('filter'),
+            ) } )
             {
-                $view->set_sorts(
-                    [body_parameters->get_all('sortfield')],
-                    [body_parameters->get_all('sorttype')],
-                );
-                $view->set_groups(
-                    [body_parameters->get_all('groupfield')],
-                );
                 # Set current view to the one created/edited
-                session('persistent')->{view}->{$layout->instance_id} = $view->id;
-                # And remove any search to avoid confusion
-                session search => '';
+                session('persistent')->{view}{$sheet->id} = $view->id;
+                session search => ''; # remove any search to avoid confusion
+
                 # And remove any custom sorting, so that sort of view takes effect
                 session 'sort' => undef;
+
                 return forwardHome(
                     { success => "The view has been updated successfully" }, $layout->identifier.'/data' );
             }
@@ -2457,23 +2450,31 @@ prefix '/:layout_name' => sub {
 
         if (param 'delete')
         {
-            session('persistent')->{view}->{$layout->instance_id} = undef;
-            if (process( sub { $view->delete }))
+            session('persistent')->{view}{$sheet->id} = undef;
+            if (process( sub { $view->delete($sheet) }))
             {
                 return forwardHome(
                     { success => "The view has been deleted successfully" }, $layout->identifier.'/data' );
             }
         }
 
-        my $page = param('clone')
-            ? 'view/clone'
-            : defined param('id') && !param('id')
-            ? 'view/0' : 'view';
+        my $page
+            = param('clone') ? 'view/clone'
+            : defined param('id') && !param('id') ? 'view/0'
+            :                  'view';
 
-        my $breadcrumbs = [Crumb($layout) => Crumb( $layout, '/data' => 'records' )];
-        push @$breadcrumbs, Crumb( $layout, "/view/0?clone=$view_id" => 'clone view "'.$view->name.'"' ) if param('clone');
-        push @$breadcrumbs, Crumb( $layout, "/view/$view_id" => 'edit view "'.$view->name.'"' ) if $view_id && !param('clone');
-        push @$breadcrumbs, Crumb( $layout, "/view/0" => 'new view' ) if !$view_id && defined $view_id;
+        my @breadcrumbs = (
+           Crumb($layout),
+           Crumb($layout, '/data' => 'records'),
+        );
+        push @breadcrumbs, Crumb($layout, "/view/0?clone=$view_id" => 'clone view "'.$view->name.'"' )
+            if param('clone');
+
+        push @breadcrumbs, Crumb($layout, "/view/$view_id" => 'edit view "'.$view->name.'"' )
+            if $view_id && !param('clone');
+
+        push @breadcrumbs, Crumb($layout, "/view/0" => 'new view' )
+            if !$view_id && defined $view_id;
 
         my $output = template 'view' => {
             layout      => $layout,
@@ -2481,8 +2482,9 @@ prefix '/:layout_name' => sub {
             view_edit   => $view, # TT does not like variable "view"
             clone       => param('clone'),
             page        => $page,
-            breadcrumbs => $breadcrumbs,
+            breadcrumbs => \@breadcrumbs,
         };
+
         $output;
     };
 

@@ -106,7 +106,7 @@ Create a record in the C<$table>, containing C<%data>.
 sub create($$)
 {   my ($self, $table, $data) = @_;
     $data->{site_id} ||= $::session->site->id if $has_site_id{$table};
-    $self->schema->resultset($table)->create($data);
+    $self->resultset($table)->create($data);
 }
 
 =head2 $db->update($table, $id, \%changes);

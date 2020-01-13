@@ -55,6 +55,10 @@ sub is_admin { 0 }
 #XXX Not sure whether this needs to be generic, but might simplify code.
 sub groups { () }
 
+=head2 my $has = $user->has_group($group_id);
+=cut
+
+sub has_group($) { 1 }
 
 =head1 METHODS: Other
 

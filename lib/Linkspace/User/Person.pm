@@ -106,6 +106,10 @@ sub set_groups
         ->delete;
 }
 
+=head2 my $has = $user->has_group($group_id);
+=cut
+
+sub has_group XXX
 
 =head1 METHODS: Views
 

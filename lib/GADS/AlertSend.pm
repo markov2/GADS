@@ -224,11 +224,7 @@ sub _process_instance
             my $view_id = $alert->view_id;
             my $user_id = $alert->user_id || '';
             my $cid     = $alert->current_id;
-            if (!$now_in_views
-                ->{$view_id}
-                ->{$user_id}
-                ->{$cid}
-            )
+            if (!$now_in_views->{$view_id}{$user_id}{$cid})
             {
                 # The row we're processing doesn't exist in the hash, so it's disappeared
                 my $view = $views->view($view_id);
@@ -237,11 +233,11 @@ sub _process_instance
                     current_id => $cid,
                     user_id    => $user_id,
                 };
-                $self->schema->resultset('AlertCache')->search({
+                $::db->delete(AlertCache => {
                     view_id    => $view_id,
                     user_id    => ($user_id || undef),
                     current_id => $cid,
-                })->delete;
+                });
             }
             else {
                 # The row we're processing does appear in the hash, so no change. Flag
@@ -262,7 +258,7 @@ sub _process_instance
                 view_id    => $view->id,
                 layout_id  => $_,
                 current_id => $item->{id},
-            } foreach @{$view->columns};
+            } for @{$view->column_ids};
 
             # Add it to a hash suitable for emailing alerts with
             push @arrived, {
@@ -361,7 +357,7 @@ sub _gone_arrived
     foreach my $item (@items)
     {
         my @emails;
-        foreach my $alert (@{$item->{view}->all_alerts})
+        foreach my $alert ($item->{view}->all_alerts)
         {
             if ($alert->frequency)
             {
@@ -369,7 +365,7 @@ sub _gone_arrived
                 try {
                     # Unique constraint on table. Catch
                     # any exceptions
-                    $self->schema->resultset('AlertSend')->create({
+                    $::db->create(AlertSend => {
                         alert_id   => $alert->id,
                         current_id => $item->{current_id},
                         status     => $action,

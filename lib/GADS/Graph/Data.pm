@@ -339,7 +339,7 @@ sub _build_data
     my @columns = $self->x_axis
         ? ($self->x_axis)
         : $self->view
-        ? @{$self->view->columns}
+        ? @{$self->view->column_ids}
         : $self->records->layout->all(user_can_read => 1);
 
     @columns = map {

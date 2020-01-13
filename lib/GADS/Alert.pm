@@ -152,7 +152,7 @@ sub update_cache
     # alert caches for each user that has this alert. Only need
     # to worry about this if all_users flag is set
     my @users = $view->has_curuser && $options{all_users}
-        ? $self->schema->resultset('Alert')->search({
+        ? $::db->search(Alert => {
             view_id => $view->id
         }, {
             prefetch => 'user'
@@ -170,7 +170,6 @@ sub update_cache
             # case we generate them individually.
             user   => $u,
             layout => $self->layout,
-            schema => $self->schema,
             view   => $view,
         );
 
@@ -187,16 +186,16 @@ sub update_cache
             while (my $record = $records->single)
             {
                 my $current_id = $record->current_id;
-                foreach my $column (@{$view->columns})
+                foreach my $column_id (@{$view->column_ids})
                 {
                     my $a = {
-                        layout_id  => $column,
+                        layout_id  => $column_id,
                         view_id    => $view->id,
                         current_id => $current_id,
                         user_id    => $user_id,
                     };
-                    my ($a_rs) = $self->schema->resultset('AlertCache')->search($a);
-                    $a_rs ||= $self->schema->resultset('AlertCache')->create($a);
+                    my ($a_rs) = $::db->search(AlertCache => $a);
+                    $a_rs ||= $::db->create(AlertCache => $a);
                     # Keep track of all those that should be in the cache
                     $exists{$a_rs->id} = undef;
                 }
@@ -205,7 +204,7 @@ sub update_cache
         $@->reportFatal;
 
         # Now iterate through all of them and delete any that shouldn't exist
-        my $rs = $self->schema->resultset('AlertCache')->search({
+        my $rs = $::db->search(AlertCache => {
             view_id => $view->id,
             user_id => $user_id,
         });
@@ -220,10 +219,8 @@ sub update_cache
     {
         # Possibly just changed to curuser, cleanup any
         # undef user rows from previous alert
-        $self->schema->resultset('AlertCache')->search({
-            view_id => $view->id,
-            user_id => undef,
-        })->delete;
+        $::db->delete(AlertCache => { view_id => $view->id, user_id => undef });
+
         # Cleanup any user_id alerts for users that no longer have this alert
         if ($options{all_users})
         {
