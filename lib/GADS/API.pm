@@ -523,7 +523,7 @@ sub _get_dashboard_widget_edit {
             instance_id   => $layout->instance_id,
         );
         $params->{user_views}   = $views->user_views;
-        $params->{columns_read} = [$layout->all(user_can_read => 1)];
+        $params->{columns_read} = [ $layout->search_columns(user_can_read => 1) ];
     }
 
     if ($widget->type eq 'graph')

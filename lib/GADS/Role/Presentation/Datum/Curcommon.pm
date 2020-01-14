@@ -14,23 +14,21 @@ sub _presentation_details {
         href                  => $_->{value},
         refers_to_instance_id => $rti,
         values                => $_->{values},
-        presentation          => $_->{record}->presentation(curval_fields => $self->column->curval_fields),
+        presentation          => $_->{record}->presentation($sheet, curval_fields => $self->column->curval_fields),
     }, @{$self->values};
 
-    return \@links;
+    \@links;
 }
 
 sub presentation {
     my $self = shift;
 
-    my $multivalue = $self->column->multivalue;
+    my $multivalue = $self->column->multivalue;   #XXX ???
 
     my $base = $self->presentation_base;
-
     $base->{text}  = $base->{value};
     $base->{links} = $self->_presentation_details;
-
-    return $base;
+    $base;
 }
 
 1;

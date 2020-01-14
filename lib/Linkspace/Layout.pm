@@ -24,7 +24,6 @@ use GADS::Column;
 use GADS::Graphs;
 use GADS::MetricGroups;
 use GADS::Views;
-use String::CamelCase qw(camelize);
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -136,7 +135,7 @@ sub _build__user_permissions_columns
 
 sub _get_user_permissions
 {   my ($self, $user_id) = @_;
-    my $user_perms = $::db=>search(User => {
+    my $user_perms = $::db->search(User => {
         'me.id'              => $user_id,
     },
     {
@@ -172,23 +171,23 @@ has _user_permissions_overall => (
 sub _build__user_permissions_overall
 {   my $self = shift;
     my $user_id = $::session->user->id;
-    my $overall = {};
+    my %overall;
 
     # First all the column permissions
     if(my $h = $user->sheet_permissions($self))
     {
-        $overall->{$_} = 1 for keys %$h;
+        $overall{$_} = 1 for keys %$h;
     }
-    else {
-        my $perms = $self->_user_permissions_columns->{$user_id};
+    else
+    {   my $perms = $self->_user_permissions_columns->{$user_id};
         foreach my $col_id (@{$self->all_ids})
         {
-            $overall->{$_} = 1
-                foreach keys %{$perms->{$col_id}};
+            $overall{$_} = 1
+                for keys %{$perms->{$col_id}};
         }
     }
 
-    $overall;
+    \%overall;
 }
 
 sub current_user_can_column
@@ -202,15 +201,12 @@ sub current_user_can_column
 sub user_can_column
 {   my ($self, $user_id, $column_id, $permission) = @_;
 
-    my $user_cache = $self->_user_permissions_columns->{$user_id};
+    my $user_permissions = $self->_user_permissions_columns;
 
-    if (!$user_cache)
-    {
-        my $user_permissions = $self->_user_permissions_columns;
-        $user_cache = $user_permissions->{$user_id} = $self->_get_user_permissions($user_id);
-    }
+    my $user_cache = $user_permissions->{$user_id}
+        ||= $self->_get_user_permissions($user_id);
 
-    return $user_cache->{$column_id}->{$permission};
+    $user_cache->{$column_id}{$permission};
 }
 
 has columns_index => (
@@ -330,14 +326,16 @@ Initially load all column information for a certain site.
 sub load_columns($)
 {   my ($class, $site) = @_;
 
-    [ $::linkspace->db->search(Layout => {
+    my $cols = $::db->search(Layout => {
         'instance.site_id' => $site->id,
     },{
         select   => 'me.*',
         join     => 'instance',
         prefetch => [ qw/calcs rags link_parent display_fields/ ],
         result_class => 'HASH',
-    })->all ];
+    });
+
+    [ $cols->all ];
 }
 
 # Instantiate new class. This builds a list of all
@@ -591,16 +589,15 @@ has referred_by => (
 
 sub _build_referred_by
 {   my $self = shift;
-    [
-        $self->schema->resultset('Layout')->search({
-            'child.instance_id' => $self->instance_id,
-        },{
-            join => {
-                curval_fields_parents => 'child',
-            },
-            distinct => 1,
-        })->all
-    ];
+    my $refd = $::db->search(Layout => {
+        'child.instance_id' => $self->instance_id,
+    },{
+        join => {
+            curval_fields_parents => 'child',
+        },
+        distinct => 1,
+    });
+    [ $refd->all ];
 }
 
 has global_view_summary => (
@@ -611,34 +608,33 @@ has global_view_summary => (
 
 sub _build_global_view_summary
 {   my $self = shift;
-    my @views = $self->schema->resultset('View')->search({
-        -or => [
-            global   => 1,
-            is_admin => 1,
-        ],
-        instance_id => $self->instance_id,
+    my $views = $::db->search(View => {
+        -or => [ global => 1, is_admin => 1 ],
+        instance_id => $self->sheet->id,
     },{
         order_by => 'me.name',
-    })->all;
-    \@views;
+    });
+
+    [ $views->all ];
 }
 
 sub export
 {   my $self = shift;
-    +{
+
+    my @perms = map +{
+        group_id   => $_->group_id,
+        permission => $_->permission,
+    }, @{$self->_group_permissions};
+
+     +{
         name           => $self->name,
         name_short     => $self->name_short,
         homepage_text  => $self->homepage_text,
         homepage_text2 => $self->homepage_text2,
         sort_layout_id => $self->sort_layout_id,
         sort_type      => $self->sort_type,
-        permissions    => [ map {
-            {
-                group_id   => $_->group_id,
-                permission => $_->permission,
-            }
-        } @{$self->_group_permissions} ],
-    };
+        permissions    => \@perms,
+     };
 }
 
 sub import_hash
@@ -688,7 +684,7 @@ sub import_hash
     }
 
     $self->set_groups([
-        map { $_->{group_id} .'_'. $_->{permission} } @{$values->{permissions}}
+        map "$_->{group_id} .'_'. $_->{permission}", @{$values->{permissions}}
     ]);
 }
 
@@ -789,7 +785,7 @@ sub column_by_id($)
     $self->_column_by_id->{$id};
 }
 
-=head2 \@cols = $layout->search_columns(%options);
+=head2 \@cols = $layout->columns(%options);
 =cut
 
 my %filters_invariant = (
@@ -836,6 +832,7 @@ sub _order_dependencies
 
 sub search_columns
 {   my ($self, %options) = @_;
+    return @
 
     # Some parameters are a bit inconvenient
     $options{exclude_hidden} = ! delete $options{include_hidden}

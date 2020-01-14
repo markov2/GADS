@@ -28,21 +28,6 @@ use Text::CSV;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-has schema => (
-    is       => 'ro',
-    required => 1,
-);
-
-has layout => (
-    is       => 'ro',
-    required => 1,
-);
-
-has user => (
-    is       => 'ro',
-    required => 1,
-);
-
 has take_first_enum => (
     is  => 'ro',
     isa => Bool,
@@ -259,9 +244,8 @@ sub _build_fields
     foreach my $field (@$fields_in)
     {
         if (
-            (
-                ($self->update_unique && $self->update_unique == $column_id->id) ||
-                ($self->skip_existing_unique && $self->skip_existing_unique == $column_id->id)
+            (  ($self->update_unique && $self->update_unique == $column_id->id)
+            || ($self->skip_existing_unique && $self->skip_existing_unique == $column_id->id)
             ) &&
             $field eq 'ID'
         )
@@ -269,21 +253,21 @@ sub _build_fields
             push @fields, $self->layout->column($column_id->id); # Special case
         }
         elsif ($field =~ /^(Last edited time|Last edited by)$/)
-        {
-            my $id = $self->layout->column_by_name($field)->id;
-            push @fields, $self->layout->column($id);
+        {   push @fields, $self->layout->column($field);
         }
-        else {
-            my $f_rs = $self->schema->resultset('Layout')->search({
+        else
+        {   my @f = $::db->search(Layout => {
                 name        => $field,
-                instance_id => $self->layout->instance_id
-            });
+                instance_id => $sheet->id,
+            })->all;
+
             error __x"Layout has more than one field named {name}", name => $field
-                if $f_rs->count > 1;
+                if @f > 1;
+
             error __x"Field '{name}' in import headings not found in table", name => $field
-                if $f_rs->count == 0;
-            my $f = $f_rs->next;
-            my $column = $self->layout->column($f->id);
+                if ! @f;
+
+            my $column = $self->layout->column($f[0]->id);
 
             push @fields, $column;
 
@@ -295,15 +279,19 @@ sub _build_fields
                     next if $v->{deleted};
                     my $text = _trim(lc $v->{value});
                     # See if it already exists - possible multiple values
-                    if (exists $self->selects->{$f->id}->{$text})
-                    {
-                        next if $self->take_first_enum;
-                        my $existing = $self->selects->{$f->id}->{$text};
-                        my @existing = ref $existing eq "ARRAY" ? @$existing : ($existing);
-                        $self->selects->{$f->id}->{$text} = [@existing, $v->{id}];
+                    my $selected = $self->selects->{$f->id};
+
+                    if(exists $selected->{$text})
+                    {   next if $self->take_first_enum;
+                        if(ref $selected->{$text} eq 'ARRAY')
+                        {   push @{$selected->{$text}}, $v->{id};
+                        }
+                        else
+                        {   $selected->{$text} = [ $selected->{$text}, $->{id}];
+                        }
                     }
-                    else {
-                        $self->selects->{$f->id}->{$text} = $v->{id};
+                    else
+                    {   $selected->{$text} = $v->{id};
                     }
                 }
             }
@@ -313,14 +301,17 @@ sub _build_fields
                 {
                     my $text = lc $v->value;
                     # See if it already exists - possible multiple values
-                    if (exists $self->selects->{$f->id}->{$text})
-                    {
-                        my $existing = $self->selects->{$f->id}->{$text};
-                        my @existing = ref $existing eq "ARRAY" ? @$existing : ($existing);
-                        $self->selects->{$f->id}->{$text} = [@existing, $v->id];
+                    my $selected = $self->selects->{$f->id};
+                    if(exists $selected->{$text})
+                    {   if(ref $selected->{$text} eq 'ARRAY')
+                        {    push @{$selected->{$text}}, $v->id;
+                        }
+                        else
+                        {    $selected->{$text} = [ $selected->{$text}, $v->id];
+                        }
                     }
-                    else {
-                        $self->selects->{$f->id}->{$text} = $v->id;
+                    else
+                    {   $selected->{$text} = $v->id;
                     }
                 }
             }
@@ -337,7 +328,7 @@ has _import_status_rs => (
 sub _build__import_status_rs
 {   my $self = shift;
     $self->schema->resultset('Import')->create({
-        user_id => $self->user->id,
+        user_id => $::session->user->id,
         type    => 'data',
         started => DateTime->now,
     });
@@ -360,8 +351,10 @@ sub _import_rows
     # Make sure fields is built from first row before we start reading
     $self->fields;
 
+	my $layout = $sheet->layout;
+
     # Used to retrieve all columns when searching unique field
-    my @all_column_ids = map { $_->id } $self->layout->all;
+    my $all_column_ids = $layout->column_ids;
 
     my $import = $self->_import_status_rs;
 
@@ -392,7 +385,7 @@ sub _import_rows
                 push @bad, qq(Extraneous value found on row: "$cell");
                 next;
             }
-            elsif ($col->id == $self->layout->column_id->id) # ID column
+            elsif ($col->id == $layout->column_id->id) # ID column
             {
                 push @{$input->{$col->id}}, $cell;
                 $col_count++;
@@ -502,9 +495,7 @@ sub _import_rows
         {
             # Insert record into DB. May still be problems
             my $record = GADS::Record->new(
-                user   => $self->user,
-                layout => $self->layout,
-                schema => $self->schema,
+                layout => $layout,
             );
 
             # Look for existing record?
@@ -521,21 +512,21 @@ sub _import_rows
                 elsif (@values == 1)
                 {
                     my $unique_value = pop @values;
-                    if ($self->update_unique == $self->layout->column_id->id) # ID
+                    if ($self->update_unique == $layout->column_id->id) # ID
                     {
-                        try { $record->find_current_id($unique_value, instance_id => $self->layout->instance_id) };
+                        try { $record->find_current_id($unique_value, instance_id => $layout->instance_id) };
                         if ($@)
                         {
                             push @bad, qq(Failed to retrieve record ID $unique_value ($@). Data will not be uploaded.);
                             $skip = 1;
                         }
                     }
-                    elsif (my $existing = $record->find_unique($self->layout->column($self->update_unique), $unique_value, @all_column_ids))
+                    elsif (my $existing = $record->find_unique($layout->column($self->update_unique), $unique_value, $all_column_ids))
                     {
                         $record = $existing;
                     }
-                    else {
-                        push @changes, __x"Unique identifier '{unique_value}' does not exist. Data will be uploaded as new record.",
+                    else
+                    {   push @changes, __x"Unique identifier '{unique_value}' does not exist. Data will be uploaded as new record.",
                             unique_value => $unique_value;
                         $record->initialise;
                     }
@@ -545,28 +536,28 @@ sub _import_rows
                     my $full = "@row";
                     $full =~ s/\n//g;
                     push @changes, __x"Missing unique identifier for '{unique_field}'. Data will be uploaded as new record.",
-                        unique_field => $self->layout->column($self->update_unique)->name;
+                        unique_field => $layout->column($self->update_unique)->name;
                 }
             }
             elsif (my $unique_id = $self->skip_existing_unique)
             {
-                my @values = @{$input->{$unique_id}};
-                if (@values > 1)
+                my $values = $input->{$unique_id};
+                if(@$values > 1)
                 {
                     push @bad, qq(Multiple values specified for unique field);
                     $skip = 1;
                 }
-                elsif (defined $values[0])
+                elsif(defined(my $value = $values->[0]))
                 {
-                    my $unique_field = $self->layout->column($unique_id);
-                    if (my $existing = $record->find_unique($unique_field, $values[0]))
+                    my $unique_field = $layout->column($unique_id);
+                    if (my $existing = $record->find_unique($unique_field, $value))
                     {
                         push @bad, __x"Skipping: unique identifier '{value}' already exists for '{unique_field}'",
-                            value => $values[0], unique_field => $unique_field->name;
+                            value => $value, unique_field => $unique_field->name;
                         $skip = 1;
                     }
-                    else {
-                        $record->initialise;
+                    else
+                    {   $record->initialise;
                     }
                 }
                 else {
@@ -576,21 +567,18 @@ sub _import_rows
                     push @bad, qq(Missing unique identifier. Data will be uploaded as new record.);
                 }
             }
-            else {
-                $record->initialise;
+            else
+            {   $record->initialise;
             }
 
             if ($skip)
-            {
-                $count->{skipped}++;
+            {   $count->{skipped}++;
             }
-            else {
-                my @failed = $self->update_fields($input, $record, \@changes);
+            else
+            {   my @failed = $self->update_fields($input, $record, \@changes);
 
-                if ($self->report_changes && @changes)
-                {
-                    $import_row->changes(join ', ', @changes);
-                }
+                $import_row->changes(join ', ', @changes)
+                    if $self->report_changes && @changes;
 
                 if (!@failed)
                 {
@@ -627,17 +615,14 @@ sub _import_rows
         $import_row->content($self->csv->string);
         $import_row->status($write ? 'Record written' : 'Record not written');
 
-        if (@bad)
-        {
-            $count->{errors}++ unless $skip; # already counted in skip
+        if(@bad)
+        {   $count->{errors}++ unless $skip; # already counted in skip
             $import_row->errors(join ', ', @bad);
         }
 
         $import_row->insert;
         
-        $import->update({
-            row_count => $count->{in},
-        });
+        $import->update({ row_count => $count->{in} });
     }
 
     my $result = "Rows in: $count->{in}, rows written: $count->{written}, errors: $count->{errors}";
@@ -668,8 +653,8 @@ sub update_fields
                 {
                     push @$newv, @{$datum->set_values};
                 }
-                else {
-                    $newv = pop @$newv;
+                else
+                {   $newv = pop @$newv;
                     $newv =~ s/^\s+// if !$old_value; # Trim preceding line returns if no value to append to
                     # Make sure CR at end of old value if applicable
                     $old_value =~ s/\s+$//;

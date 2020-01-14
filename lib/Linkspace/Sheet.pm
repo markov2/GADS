@@ -127,11 +127,12 @@ Remove the sheet.
 sub delete($)
 {   my $self     = shift;
     my $sheet_id = $self->id;
+    my $layout   = $self->layout;
 
-    my $guard = $::db->begin_work;
+    my $guard    = $::db->begin_work;
 
     $_->delete
-       for $self->search_columns(only_internal => 1, include_hidden => 1);
+       for $self->layout->columns(only_internal => 1, include_hidden => 1);
 
     $::db->delete(InstanceGroup => { instance_id => $sheet_id });
 
@@ -171,14 +172,6 @@ sub blank_records(%)
 {   my $self = shift;
     $self->data->blank_fields($self->columns(@_));
 }
-
-=head2 my @cols = $sheet->columns(%search);
-Returns the definitions of the columns of this sheet
-
-Same:
-  $sheet->layout->search_columns(%search);
-=cut
-
 
 =head1 METHODS: permission management
 =cut

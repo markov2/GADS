@@ -459,6 +459,8 @@ sub html_form
 {   my $self = shift;
     return $self->ids
         unless $self->column->value_selector eq 'noshow';
+
+    my $record = $val->{record};
     my @return;
     foreach my $val (@{$self->values})
     {
@@ -468,8 +470,8 @@ sub html_form
         }
         # New entries may have a current ID from a failed database write, but
         # don't use
-        delete $val->{id} if $val->{record}->new_entry || $val->{record}->is_draft;
-        $val->{presentation} = $val->{record}->presentation(curval_fields => $self->column->curval_fields);
+        delete $val->{id} if $record->new_entry || $record->is_draft;
+        $val->{presentation} = $record->presentation($sheet, curval_fields => $self->column->curval_fields);
         push @return, $val;
     }
     return \@return;

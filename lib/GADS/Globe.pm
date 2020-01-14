@@ -296,6 +296,7 @@ sub _build_data
 {   my $self = shift;
 
     my $records = $self->records;
+    my $layout = $records->layout;
 
     # Add on any extra required columns for labelling etc
     my @extra;
@@ -310,12 +311,13 @@ sub _build_data
     # Messier than it should be, but if there is no globe column in the view
     # and only one in the layout, then add it on, otherwise nothing will be
     # shown
+
     if (my $view_id = $records->view && $records->view->id)
     {
         my %existing = map { $_->{col}->id => 1 } @extra;
         push @extra, map { +{ col => $_ } } grep { !$existing{$_->id} }
             @{$records->columns_view};
-        my @gc = $records->layout->all(is_globe => 1, user_can_read => 1);
+        my @gc = $layout->search_columns(is_globe => 1, user_can_read => 1);
         my $has_globe;
         $has_globe = 1
             if grep { $_->{col}->return_type eq 'globe' } @extra;
@@ -323,15 +325,15 @@ sub _build_data
             if @gc == 1 && !$has_globe;
     }
     else {
-        push @extra, map { +{ col => $_ } } $records->layout->all(user_can_read => 1);
+        push @extra, map +{ col => $_ }, $layout->search_columns(user_can_read => 1);
     }
 
     if ($self->is_group)
     {
-        $_->{group} = 1 foreach grep { $_->{col}->return_type eq 'globe' } @extra;
+        $_->{group} = 1 for grep $_->{col}->return_type eq 'globe', @extra;
     }
 
-    $self->records->columns([map {
+    $records->columns([map {
         +{
             id        => $_->{col}->id,
             parent_id => $_->{parent} && $_->{parent}->id,
@@ -356,8 +358,8 @@ sub _build_data
                 {
                     $value_color = $record->get_column('id_count');
                 }
-                else {
-                    my $field = $self->color_col->field;
+                else
+                {   my $field = $self->color_col->field;
                     $field .= "_sum" if $self->color_col_operator eq 'sum';
                     $value_color = $record->get_column($field);
                     if (!$self->color_col->numeric)

@@ -135,7 +135,6 @@ has column_ids => (
 has has_curuser => (
     is      => 'lazy',
     isa     => Bool,
-    clearer => 1,
 );
 
 sub _build_has_curuser
@@ -157,26 +156,30 @@ has owner => (
 
 sub _is_writable($)
 {   my ($self, $sheet) = @_;
-    my $layout = $sheet->layout;
 
     if($self->is_admin)
-    {   return 1 if $layout->user_can("layout");
+    {   return 1 if $sheet->user_can("sheet");
     }
-    elsif ($self->global)
-    {   return 1 if !$self->group_id && $layout->user_can("layout");
-        return 1 if  $self->group_id && $layout->user_can("view_group");
+    elsif($self->global)
+    {   return 1 if !$self->group_id && $sheet->user_can("sheet");
+        return 1 if  $self->group_id && $sheet->user_can("view_group");
     }
-    elsif (!$self->has_id)
+    elsif(!$self->has_id)
     {   # New view, not global
-        return 1 if $layout->user_can("view_create");
+        return 1 if $sheet->user_can("view_create");
     }
-    elsif ($self->owner && $self->owner == $layout->user->id)
-    {   return 1 if $layout->user_can("view_create");
+    elsif($self->owner && $self->owner == $sheet->user->id)
+    {   return 1 if $sheet->user_can("view_create");
     }
-    elsif ($layout->user_can("layout"))
+    elsif($sheet->user_can("sheet"))
     {   return 1;
     }
-    return 0;
+
+    0;
+}
+
+sub _set_sorts($$)
+{    my ($self, $fields, $types) = @_;
 }
 
 sub update
@@ -205,9 +208,9 @@ sub update
     my $guard = $::db->begin_work;
 
     $self->_update_column_ids($col_ids);
-    $self->_update_sorts(delete $update{sortfields}, $update{sorttypes});
-    $self->_update_groups(delete $update{groups});
-    $self->_update_filter(delete $update{filter});
+    $self->_set_sorts(delete $update{sortfields}, $update{sorttypes});
+    $self->_set_groups(delete $update{groups});
+    $self->_set_filter(delete $update{filter});
 
     $::session->user->isa('Linkspace::User::Person')
         or $update{global} = 1;
@@ -305,7 +308,7 @@ XXX caller must reinstate full View.
 
     my @colviews = @{$self->column_ids};
 
-    foreach my $c ($sheet->columns(user_can_read => 1))
+    foreach my $c ($sheet->layout->search_columns(user_can_read => 1))
     {
         my %item = (view_id => $self->id, layout_id => $c->id);
 

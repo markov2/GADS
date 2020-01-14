@@ -1170,8 +1170,8 @@ get '/record_body/:id' => require_login sub {
     my @columns = @{$record->columns_view};
     template 'record_body' => {
         is_modal       => 1, # Assume modal if loaded via this route
-        record         => $record->presentation,
-        has_rag_column => !!(grep { $_->type eq 'rag' } @columns),
+        record         => $record->presentation($sheet),
+        has_rag_column => !!(first { $_->type eq 'rag' } @columns),
         all_columns    => \@columns,
     }, { layout => undef };
 };
@@ -1210,7 +1210,7 @@ get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
     my @first_crumb = $action eq 'purge' ? ( $layout, "/purge" => 'deleted records' ) : ( $layout, "/data" => 'records' );
 
     my $output = template 'record' => {
-        record         => $record->presentation,
+        record         => $record->presentation($sheet),
         versions       => \@versions,
         all_columns    => \@columns,
         has_rag_column => !!(grep { $_->type eq 'rag' } @columns),
@@ -1527,32 +1527,36 @@ prefix '/:layout_name' => sub {
         # Check for bulk delete
         if (param 'modal_delete')
         {
+            $sheet->user_can("delete")
+               or error __"You do not have permission to delete records";
+
             my %params = (
                 user                => $user,
                 search              => session('search'),
                 layout              => $layout,
-                schema              => schema,
                 rewind              => session('rewind'),
                 view                => current_view($user, $layout),
                 view_limit_extra_id => current_view_limit_extra_id($user, $layout),
             );
-            $params{limit_current_ids} = [body_parameters->get_all('delete_id')]
-                if body_parameters->get_all('delete_id');
+
+            my @delete_ids = body_parameters->get_all('delete_id');
+            $params{limit_current_ids} = \@delete_ids
+                if @delete_ids;
+
             my $records = GADS::Records->new(%params);
 
             my $count; # Count actual number deleted, not number reported by search result
+
             while (my $record = $records->single)
             {
-                $count++
-                    if (process sub { $record->delete_current });
+                $count++ if process sub { $record->delete_current };
             }
             return forwardHome(
                 { success => "$count records successfully deleted" }, $layout->identifier.'/data' );
         }
 
-        if ( app->has_hook('plugin.data.before_request') ) {
-            app->execute_hook( 'plugin.data.before_request', user => $user );
-        }
+        app->execute_hook( 'plugin.data.before_request', user => $user )
+            if app->has_hook('plugin.data.before_request');
 
         # Check for rewind configuration
         if (param('modal_rewind') || param('modal_rewind_reset'))
@@ -1561,8 +1565,8 @@ prefix '/:layout_name' => sub {
             {
                 session rewind => undef;
             }
-            else {
-                my $input = param('rewind_date');
+            else
+            {   my $input = param('rewind_date');
                 $input   .= ' ' . (param('rewind_time') ? param('rewind_time') : '23:59:59');
                 my $dt    = $::session->user->local2dt($input)
                     or error __x"Invalid date or time: {datetime}", datetime => $input;
@@ -1575,6 +1579,7 @@ prefix '/:layout_name' => sub {
         {
             error __"Not possible to conduct a search when viewing data on a previous date"
                 if session('rewind');
+
             my $search  = param('clear_search') ? '' : param('search_text');
             $search =~ s/\h+$//;
             $search =~ s/^\h+//;
@@ -1677,7 +1682,7 @@ prefix '/:layout_name' => sub {
 
         my $params = {
             layout => var('layout'),
-        }; # Variable for the template
+        }; # Variables for the template
 
         if ($viewtype eq 'graph')
         {
@@ -1759,13 +1764,11 @@ prefix '/:layout_name' => sub {
         elsif ($viewtype eq 'timeline')
         {
             my $records = GADS::Records->new(
-                user                => $user,
                 view                => $view,
                 search              => session('search'),
                 layout              => $layout,
                 # No "to" - will take appropriate number from today
                 from                => DateTime->now, # Default
-                schema              => schema,
                 rewind              => session('rewind'),
                 view_limit_extra_id => current_view_limit_extra_id($user, $layout),
             );
@@ -1791,14 +1794,14 @@ prefix '/:layout_name' => sub {
             }
 
             my $timeline = $records->data_timeline(%{$tl_options});
-            $params->{records}              = encode_base64(encode_json(delete $timeline->{items}), '');
-            $params->{groups}               = encode_base64(encode_json(delete $timeline->{groups}), '');
-            $params->{colors}               = delete $timeline->{colors};
-            $params->{timeline}             = $timeline;
-            $params->{tl_options}           = $tl_options;
-            $params->{columns_read}         = [$layout->all(user_can_read => 1)];
-            $params->{page}                 = 'data_timeline';
-            $params->{viewtype}             = 'timeline';
+            $params->{records}      = encode_base64(encode_json(delete $timeline->{items}), '');
+            $params->{groups}       = encode_base64(encode_json(delete $timeline->{groups}), '');
+            $params->{colors}       = delete $timeline->{colors};
+            $params->{timeline}     = $timeline;
+            $params->{tl_options}   = $tl_options;
+            $params->{columns_read} = [ $layout->search_columns(user_can_read => 1) ];
+            $params->{page}         = 'data_timeline';
+            $params->{viewtype}     = 'timeline';
             $params->{search_limit_reached} = $records->search_limit_reached;
 
             if (my $png = param('png'))
@@ -2011,7 +2014,7 @@ prefix '/:layout_name' => sub {
                 query_parameters => query_parameters,
             ), @columns ];
             $params->{is_group}             = $records->is_group,
-            $params->{has_rag_column}       = grep { $_->type eq 'rag' } @columns;
+            $params->{has_rag_column}       = grep $_->type eq 'rag', @columns;
             $params->{viewtype}             = 'table';
             $params->{page}                 = 'data_table';
             $params->{search_limit_reached} = $records->search_limit_reached;
@@ -2032,25 +2035,22 @@ prefix '/:layout_name' => sub {
         my $alert = GADS::Alert->new(
             user      => $user,
             layout    => $layout,
-            schema    => schema,
         );
 
         my $views      = GADS::Views->new(
             user          => $user,
             other_user_id => session('views_other_user_id'),
-            schema        => schema,
             layout        => $layout,
             instance_id   => $layout->instance_id,
         );
 
         if ( app->has_hook('plugin.data.before_template') ) {
-            my %arg = (
-                user => $user,
+            # Note: this might modify $params
+            app->execute_hook('plugin.data.before_template', {
+                user   => $user,
                 layout => $layout,
                 params => $params,
-            );
-            # Note, this might modify $params
-            app->execute_hook( 'plugin.data.before_template', %arg );
+            });
         }
 
         $params->{user_views}               = $views->user_views;
@@ -2141,7 +2141,7 @@ prefix '/:layout_name' => sub {
 
         my $params = {
             page    => 'purge',
-            records => $records->presentation(purge => 1),
+            records => $records->presentation($sheet, purge => 1),
         };
 
         $params->{breadcrumbs} = [Crumb($layout) => Crumb( $layout, '/data' => 'records' ) => Crumb( $layout, '/purge' => 'purge records' )];
@@ -2394,9 +2394,8 @@ prefix '/:layout_name' => sub {
 
     any ['get', 'post'] => '/view/:id' => require_login sub {
 
-        return forwardHome(
-            { danger => 'You do not have permission to edit views' }, $layout->identifier.'/data' )
-            unless $sheet->user_can("view_create");
+        $sheet->user_can("view_create")
+            or return forwardHome( { danger => 'You do not have permission to edit views' }, $layout->identifier.'/data' );
 
         my $view_id = param('id');
         $view_id =~ /^[0-9]+$/
@@ -2419,7 +2418,6 @@ prefix '/:layout_name' => sub {
 
         if (param 'update')
         {
-
             #XXX other_user_id => session('views_other_user_id'),
             #XXX not needed anymore?
 
@@ -2447,12 +2445,10 @@ prefix '/:layout_name' => sub {
                     { success => "The view has been updated successfully" }, $layout->identifier.'/data' );
             }
         }
-
-        if (param 'delete')
+        elsif (param 'delete')
         {
-            session('persistent')->{view}{$sheet->id} = undef;
-            if (process( sub { $view->delete($sheet) }))
-            {
+            if(process( sub { $view->delete($sheet) }))
+            {   session('persistent')->{view}{$sheet->id} = undef;
                 return forwardHome(
                     { success => "The view has been deleted successfully" }, $layout->identifier.'/data' );
             }
@@ -2497,11 +2493,9 @@ prefix '/:layout_name' => sub {
         $layout->user_can('layout')
             or forwardHome({ danger => "You do not have permission to manage fields"}, '')
 
-        my @all_columns = $layout->all;
-
         my $params = {
             page        => defined param('id') && !param('id') ? 'layout/0' : 'layout',
-            all_columns => \@all_columns,
+            all_columns => $layout->columns,
         };
 
         if (defined param('id'))
@@ -2523,11 +2517,10 @@ prefix '/:layout_name' => sub {
             }
             else {
                 my $class = param('type');
-                grep {$class eq $_} GADS::Column::types
+                first {$class eq $_} GADS::Column::types
                     or error __x"Invalid column type {class}", class => $class;
                 $class = "GADS::Column::".camelize($class);
                 $column = $class->new(
-                    schema => schema,
                     user   => $user,
                     layout => $layout
                 );
@@ -2548,13 +2541,10 @@ prefix '/:layout_name' => sub {
 
             if (param 'submit')
             {
-
-                my @permission_params = grep { /^permission_(?:.*?)_\d+$/ } keys %{ params() };
-
                 my %permissions;
 
-                foreach (@permission_params) {
-                    my ($name, $group_id) = m/^permission_(.*?)_(\d+)$/;
+                foreach (keys %{ params() }) {
+                    my ($name, $group_id) = m/^permission_(.*?)_(\d+)$/ or next;
                     push @{ $permissions{$group_id} ||= [] }, $name;
                 }
 
@@ -2565,8 +2555,10 @@ prefix '/:layout_name' => sub {
                         multivalue remember link_parent_id topic_id width aggregate group_display/);
                 $column->type(param 'type')
                     unless param('id'); # Can't change type as it would require DBIC resultsets to be removed and re-added
+
                 $column->$_(param $_)
                     foreach @{$column->option_names};
+
                 $column->display_fields(param 'display_fields');
                 # Set the layout in the GADS::Filter object, in case the write
                 # doesn't success, in which case the filter will need to be
@@ -2576,8 +2568,7 @@ prefix '/:layout_name' => sub {
 
                 my $no_alerts;
                 if ($column->type eq "file")
-                {
-                    $column->filesize(param('filesize') || undef) if $column->type eq "file";
+                {   $column->filesize(param('filesize') || undef);
                 }
                 elsif ($column->type eq "rag")
                 {
@@ -2731,7 +2722,7 @@ prefix '/:layout_name' => sub {
             );
             $record->find_record_id($id);
             $params->{record} = $record;
-            $params->{record_presentation} = $record->presentation(edit => 1, new => $approval_of_new, approval => 1);
+            $params->{record_presentation} = $record->presentation($sheet, edit => 1, new => $approval_of_new, approval => 1);
 
             # Get existing values for comparison
             unless ($approval_of_new)
@@ -2900,7 +2891,7 @@ prefix '/:layout_name' => sub {
         my %params = (
             view                 => $view,
             search               => session('search'),
-            columns              => [map { $_->id } $layout->all], # Need all columns to be able to write updated records
+            columns              => $layout->column_ids, # Need all columns to be able to write updated records
             schema               => schema,
             user                 => $user,
             layout               => $layout,
@@ -2934,14 +2925,15 @@ prefix '/:layout_name' => sub {
                 {
                     $record_update->remove_id
                         if $type eq 'clone';
+
                     my $failed;
                     foreach my $col (@updated)
                     {
-                        my $newv = [body_parameters->get_all($col->field)];
+                        my $newv = [ body_parameters->get_all($col->field) ];
                         last if $failed = !process( sub { $record_update->fields->{$col->id}->set_value($newv, bulk => 1) } );
                     }
-                    $record_update->fields->{$_->id}->re_evaluate(force => 1)
-                        foreach $layout->all(has_cache => 1);
+                    $record_update->field($_)->re_evaluate(force => 1)
+                        foreach $layout->search_columns(has_cache => 1);
                     if (!$failed)
                     {
                         # Use force_mandatory to skip "was previously blank" warnings. No
@@ -3026,7 +3018,7 @@ prefix '/:layout_name' => sub {
         template 'edit' => {
             view                => $view,
             record              => $record,
-            record_presentation => $record->presentation(edit => 1, new => 1, bulk => $type),
+            record_presentation => $record->presentation($sheet, edit => 1, new => 1, bulk => $type),
             bulk_type           => $type,
             page                => 'bulk',
             breadcrumbs         => [Crumb($layout), Crumb( $layout, "/data" => 'records' ), Crumb( $layout, "/bulk/$type" => "bulk $type records" )],
@@ -3100,9 +3092,7 @@ prefix '/:layout_name' => sub {
                 $options{skip_existing_unique} = param('skip_existing_unique') if param('skip_existing_unique');
                 my $import = GADS::Import->new(
                     file     => $upload->tempname,
-                    schema   => schema,
                     layout   => var('layout'),
-                    user     => $user,
                     %options,
                 );
 
@@ -3141,7 +3131,6 @@ prefix '/:layout_name' => sub {
 
         my $graphs = GADS::Graphs->new(
             current_user => $user,
-            schema       => schema,
             layout       => $layout,
         );
 
@@ -3368,22 +3357,26 @@ sub _data_graph
 sub _process_edit
 {   my $id = shift;
 
-    my $user   = logged_in_user;
     my %params = (
         user                 => $user,
-        schema               => schema,
         # Need to get all fields of curvals in case any are drafts for editing
         # (otherwise all field values will not be passed to form)
         curcommon_all_fields => 1,
     );
+
+#XXX layout is known by $sheet->layout
     $params{layout} = var('layout') if var('layout'); # Used when creating a new record
 
+#XXX no: do not create an empty record first
     my $record = GADS::Record->new(%params);
 
     if (my $delete_id = param 'delete')
     {
-        $record->find_current_id($delete_id);
-        if (process( sub { $record->delete_current }))
+        $sheet->user_can("delete")
+            or error __"You do not have permission to delete records";
+
+#XXX    $sheet->data->delete_current_record;
+        if (process( sub { $record->delete_current($sheet) }))
         {
             return forwardHome(
                 { success => 'Record has been deleted successfully' }, $record->layout->identifier.'/data' );
@@ -3392,8 +3385,11 @@ sub _process_edit
 
     if (param 'delete_draft')
     {
-        my $layout = var('layout');
-        if (process( sub { $record->delete_user_drafts }))
+        $sheet->user_can("delete")
+            or error __"You do not have permission to delete records";
+
+#XXX    $sheet->data->delete_drafts
+        if (process( sub { $record->delete_user_drafts($sheet) }))
         {
             return forwardHome(
                 { success => 'Draft has been deleted successfully' }, $layout->identifier.'/data' );
@@ -3480,7 +3476,7 @@ sub _process_edit
             return encode_json ({
                 error   => $message ? 1 : 0,
                 message => $message,
-                values  => +{ map { $_->field => $record->fields->{$_->id}->as_string } $layout->all },
+                values  => +{ map +($_->field => $record->field($_)->as_string), @{$layout->columns},
             });
         }
         elsif ($modal)
@@ -3527,13 +3523,14 @@ sub _process_edit
         $record->load_remembered_values;
     }
 
+    # Clear all fields which we may write but not read.
     foreach my $col ($sheet->layout->search_columns(user_can_write => 1))
     {
-        $record->field($col)->set_value("")
-            if !$col->user_can('read');
+        $col->user_can('read')
+            or $record->field($col)->set_value("");
     }
 
-    my $child_rec = $child && $layout->user_can('create_child')
+    my $child_rec = $child && $sheet->user_can('create_child')
         ? int(param 'child')
         : $record->parent_id;
 
@@ -3541,16 +3538,12 @@ sub _process_edit
             ."record. All other values will be inherited from the parent."
             if $child_rec;
 
-    my $breadcrumbs = [Crumb($layout), Crumb( $layout, "/data" => 'records' )];
-    if ($id)
-    {
-        push @$breadcrumbs, Crumb( "/edit/$id" => "edit record $id" );
-    }
-    else {
-        push @$breadcrumbs, Crumb( $layout, "/edit/" => "new record" );
-    }
+    my @breadcrumbs = (Crumb($layout), Crumb( $layout, '/data' => 'records' );
+    push @breadcrumbs, $id
+      ? Crumb( "/edit/$id" => "edit record $id" )
+      : Crumb( $layout, '/edit/' => "new record" );
 
-    my $params = {
+    my %params = (
         record              => $record,
         modal               => $modal,
         page                => 'edit',
@@ -3558,16 +3551,16 @@ sub _process_edit
         layout_edit         => $layout,
         clone               => param('from'),
         submission_token    => !$modal && $record->create_submission_token,
-        breadcrumbs         => $breadcrumbs,
-        record_presentation => $record->presentation(edit => 1, new => !$id, child => $child),
-    };
+        breadcrumbs         => \@breadcrumbs,
+        record_presentation => $record->presentation($sheet, edit => 1, new => !$id, child => $child),
+    );
 
-    $params->{modal_field_ids} = encode_json $layout->column($modal)->curval_field_ids
+    $params{modal_field_ids} = encode_json $layout->column($modal)->curval_field_ids
         if $modal;
 
     my $options = $modal ? { layout => undef } : {};
 
-    template 'edit' => $params, $options;
+    template edit => \%params, $options;
 }
 
 true;

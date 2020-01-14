@@ -24,27 +24,11 @@ use CtrlO::PDF;
 use DateTime;
 use DateTime::Format::Strptime qw( );
 use GADS::AlertSend;
-use GADS::Config;
-use GADS::Datum::Autocur;
-use GADS::Datum::Calc;
-use GADS::Datum::Count;
-use GADS::Datum::Curval;
-use GADS::Datum::Date;
-use GADS::Datum::Daterange;
-use GADS::Datum::Enum;
-use GADS::Datum::File;
-use GADS::Datum::ID;
-use GADS::Datum::Integer;
-use GADS::Datum::Person;
-use GADS::Datum::Rag;
-use GADS::Datum::Serial;
-use GADS::Datum::String;
 use GADS::Datum::Tree;
 use Linkspace::Layout;
 use Log::Report 'linkspace';
 use JSON qw(encode_json);
 use PDF::Table 0.11.0; # Needed for colspan feature
-use POSIX ();
 use Scope::Guard qw(guard);
 use Session::Token;
 use URI::Escape;
@@ -56,17 +40,6 @@ use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
 use namespace::clean;
 
 with 'GADS::Role::Presentation::Record';
-
-has record => (
-    is      => 'rw',
-);
-
-# Subroutine to create a slightly more advanced predication for "record" above
-sub has_record
-{   my $self = shift;
-    my $rec = $self->record or return;
-    !! keys %$rec;
-}
 
 # The raw parent linked record from the database, if applicable
 has linked_record_raw => (
@@ -207,30 +180,12 @@ has linked_id => (
 
 # The ID of the parent record that this is a child to, in the
 # case of a child record
-has parent_id => (
-    is      => 'rw',
-    isa     => Maybe[Int],
-    lazy    => 1,
-    coerce  => sub { $_[0] || undef },
-    builder => sub {
-        my $self = shift;
-        my $cid     = $self->current_id or return;
-        my $current = $::db->get_record(Current => $cid) or return;
-        $current->parent_id;
-    },
-);
+# from base-class parent_id
 
 has parent => (
     is      => 'lazy',
+    builder => sub { $_[0]->sheet->data->row($_[0]->parent_id) },
 );
-
-sub _build_parent
-{   my $self = shift;
-    my $pid    = $self->parent_id or return;
-    my $parent = GADS::Record->new(layout => $self->layout);
-    $parent->find_current_id($pid);
-    $parent;
-}
 
 has child_record_ids => (
     is      => 'rwp',
@@ -240,12 +195,13 @@ has child_record_ids => (
         my $self = shift;
         return [] if $self->parent_id;
 
-        my @children = $::db->search(Current => {
+        my $children = $::db->search(Current => {
             parent_id         => $self->current_id,
             'me.deleted'      => undef,
             'me.draftuser_id' => undef,
-        })->get_column('id')->all;
-        \@children;
+        });
+
+        [ $children->get_column('id')->all ];
     },
 );
 
@@ -348,12 +304,18 @@ has fields => (
 
 sub field($)
 {   my ($self, $col) = @_;
-    my $col_id
-      = blessed $col ? $col->id
-      : $col =~ /\D/ ? $self->layout->column_by_name_short($col)->id
-      :                $col;
 
-    $self->fields->{$col_id};
+    my $fields = $self->fields;
+    return $fields->{$col->id} # ::Column object
+        if blessed $col;
+
+    return $fields->{$col}     # numeric
+        if $col !~ /\D/;
+
+    my $c = $self->layout->column_by_name_short($col)
+         || $self->layout->column_by_name($col);
+
+    $c ? $fields->{$col->id} : undef;
 }
 
 has createdby => (
@@ -563,7 +525,7 @@ sub find_deleted_recordid
 
 # Returns new GADS::Record object, doesn't change current one
 sub find_unique
-{   my ($self, $column, $value, @retrieve_columns) = @_;
+{   my ($self, $column, $value, $retrieve_columns) = @_;
 
     return $self->find_current_id($value)
         if $column->id == $self->layout->column_id;
@@ -589,15 +551,15 @@ sub find_unique
         layout      => $self->layout,
         user        => undef,
     );
-    @retrieve_columns = ($column->id)
-        unless @retrieve_columns;
+    $retrieve_columns = [ $column->id ]
+        unless @$retrieve_columns;
 
     my $records = GADS::Records->new(
         user    => undef, # Do not want to limit by user
         rows    => 1,
         view    => $view,
         layout  => $self->layout,
-        columns => \@retrieve_columns,
+        columns => $retrieve_columns,
     );
 
     # Might be more, but one will do
@@ -828,9 +790,6 @@ sub load_remembered_values
 {   my ($self, %options) = @_;
     my $user = $::session->user;
 
-    $self->_set_instance_id($options{instance_id})
-        if $options{instance_id};
-
     # First see if there's a draft. If so, use that instead
     if ($user->has_draft($self->sheet)
     {
@@ -849,7 +808,7 @@ sub load_remembered_values
 
     my $lastrecord = $::db->search(UserLastrecord => {
         'me.instance_id'  => $sheet->id,
-        user_id           => $self->user->id,
+        user_id           => $user->id,
         'current.deleted' => undef,
     },{
         join => { record => 'current' },
@@ -864,8 +823,8 @@ sub load_remembered_values
     # Use the column object from the current record not the "previous" record,
     # as otherwise the column's layout object goes out of scope and is not
     # available due to its weakref
-    $self->fields->{$_->id} = $previous->field($_)->clone(record => $self, column => $self->layout->column($_->id))
-        foreach @{$previous->columns_retrieved_do};
+    $self->field($_) = $previous->field($_)->clone(record => $self, column => $self->layout->column($_->id))
+        for @{$previous->columns_retrieved_do};
 
     if ($previous->approval_flag)
     {
@@ -880,7 +839,7 @@ sub load_remembered_values
             $child->find_record_id($self->approval_record_id);
 
             my $fields = $self->fields;
-            foreach my $col ($sheet->sheet->columns(user_can_write_new => 1, userinput => 1))
+            foreach my $col ($sheet->layout->search_columns(user_can_write_new => 1, userinput => 1))
             {
                 # See if the record above had a value. If not, fill with the
                 # approval record's value
@@ -1072,11 +1031,15 @@ sub values_by_shortname
 }
 
 # Initialise empty record for new write.
+#XXX
 sub initialise
 {   my ($self, %options) = @_;
 
+    my @all_columns = $self->sheet->layout->search_columns(include_internal => 1))
+    $self->columns_retrieved_do(\@all_columns);
+
     my %fields;
-    foreach my $column ($self->sheet->columns(include_internal => 1))
+    foreach my $column (@all_columns)
     {   $fields{$column->id}
            = $self->linked_id && $column->link_parent
            ? $self->linked_record->field($column->link_parent)
@@ -1087,8 +1050,6 @@ sub initialise
                 layout           => $self->layout,
              );
     }
-
-    $self->columns_retrieved_do([ $self->sheet->columns(include_internal => 1) ]);
     $self->fields(\%fields);
 }
 
@@ -1130,24 +1091,24 @@ sub write_linked_id
     $guard->commit;
 }
 
-sub delete_user_drafts
-{   my $self = shift;
+sub delete_user_drafts($)
+{   my ($self, $sheet) = @_;
     my $user = $::session->user;
 
-    $user->has_draft($self->sheet)
+    $user->has_draft($sheet)
         or return;
 
     while (1)
     {   my $draft = $self->_sibling_record(user_permission_override => 1);
 
-        $draft->find_draftuser_id($user, instance_id => $self->sheet->id)
+        $draft->find_draftuser($user, instance_id => $self->sheet->id)
             or last;
 
         # Find and delete any draft subrecords associated with this draft
         my @curval = map $draft->field($_),
             grep $_->type eq 'curval', $draft->columns;
 
-        $draft->delete_current;
+        $draft->delete_current($sheet);
         $draft->purge_current;
         $_->purge_drafts for @curval;
     }
@@ -1287,7 +1248,7 @@ sub write
     my %no_write_topics;
     my @cols = $options{submitted_fields}
         ? @{$options{submitted_fields}}
-        : $self->sheet->columns(exclude_internal => 1);
+        : $self->sheet->layout->search_columns(exclude_internal => 1);
 
     foreach my $column (@cols)
     {
@@ -1468,7 +1429,7 @@ sub write
     }
 
     # Test duplicate unique calc values
-    foreach my $column ($self->sheet->columns)
+    foreach my $column (@{$self->sheet->layout->search_columns})
     {
         next if !$column->has_cache || !$column->isunique;
         my $datum = $self->field($column);
@@ -1520,12 +1481,14 @@ sub write
     # New record?
     if ($self->new_entry)
     {
-        $self->delete_user_drafts unless $options{no_draft_delete}; # Delete any drafts first, for both draft save and full save
+        $self->delete_user_drafts($sheet)
+             unless $options{no_draft_delete}; # Delete any drafts first, for both draft save and full save
+
         my $instance_id = $self->layout->instance_id;
-        my $current = $self->schema->resultset('Current')->create({
+        my $current = $::db->create(Current => {
             parent_id    => $self->parent_id,
             linked_id    => $self->linked_id,
-            instance_id  => $instance_id,
+            instance_id  => $sheet->id,
             draftuser_id => $options{draft} && $user_id,
         });
 
@@ -1536,8 +1499,8 @@ sub write
         while (1)
         {
             last if $options{draft};
-            my $serial = $self->schema->resultset('Current')->search({
-                instance_id => $instance_id,
+            my $serial = $::db->search(Current => {
+                instance_id => $sheet->id,
             })->get_column('serial')->max;
             $serial++;
 
@@ -1546,10 +1509,10 @@ sub write
                 $current->update({ serial => $serial });
             };
             if ($@) {
-                $self->schema->storage->svp_rollback;
+                $::db->schema->storage->svp_rollback;
             }
             else {
-                $self->schema->storage->svp_release;
+                $::db->schema->storage->svp_release;
                 last;
             }
         }
@@ -1559,7 +1522,7 @@ sub write
 
     if ($need_rec && !$options{update_only})
     {
-        my $id = $self->schema->resultset('Record')->create({
+        my $id = $::db->create(Record => {
             current_id => $self->current_id,
             created    => $created_date,
             createdby  => $createdby,
@@ -1569,7 +1532,7 @@ sub write
     }
     elsif ($self->layout->forget_history)
     {
-        $self->schema->resultset('Record')->find($self->record_id)->update({
+        $::db->update(Record => $self->record_id, {
             created   => $created_date,
             createdby => $createdby,
         });
@@ -1600,9 +1563,9 @@ sub write
         my $id = $self->approval_id || $self->record_id;
         my $this_last = {
             user_id     => $user_id,
-            instance_id => $self->layout->instance_id,
+            instance_id => $sheet->id,
         };
-        my ($last) = $::db->search(UserLastrecord => $this_last)->all;
+        my ($last) = $::db->search(UserLastrecord => $this_last)->first;
         if($last)
         {   $last->update({ record_id => $id });
         }
@@ -1645,7 +1608,7 @@ sub write_values
     my %columns_changed = ($self->current_id => []);
     my @columns_cached;
     my %update_autocurs;
-    foreach my $column ($self->sheet->columns(order_dependencies => 1, exclude_internal => 1))
+    foreach my $column ($self->sheet->layout->search_columns(order_dependencies => 1, exclude_internal => 1))
     {
         # Prevent warnings when writing incomplete calc values on draft
         next if $options{draft} && !$column->userinput;
@@ -1753,7 +1716,7 @@ sub write_values
 
     # Test all internal columns for changes - these will not have been tested
     # during the write above
-    foreach my $column ($self->sheet->columns(only_internal => 1))
+    foreach my $column ($self->sheet->layout->search_columns(only_internal => 1))
     {
         push @{$columns_changed{$self->current_id}}, $column->id
             if $self->field($column)->changed;
@@ -1787,7 +1750,7 @@ sub write_values
             my $child = $self->_sibling_record(user_permission_override => 1);
             $child->find_current_id($child_id);
 
-            foreach my $col ($self->sheet->columns(order_dependencies => 1, exclude_internal => 1))
+            foreach my $col ($self->sheet->layout->search_columns(order_dependencies => 1, exclude_internal => 1))
             {
                 my $datum_child = $child->field($col);
                 if ($col->userinput)
@@ -1977,14 +1940,12 @@ sub user_can_purge
 
 # Mark this entire record and versions as deleted
 sub delete_current
-{   my ($self, %options) = @_;
-
-    $options{override} || $self->user_can_delete
-        or error __"You do not have permission to delete records";
+{   my ($self, $sheet, %options) = @_;
+    my $cur_id = $self->current_id or return;
 
     my $current = $::db->search(Current => {
-        id          => $self->current_id,
-        instance_id => $self->sheet->id,
+        id          => $cur_id,
+        instance_id => $sheet->id,
     })->first
         or error "Unable to find current record to delete";
 
@@ -2015,7 +1976,7 @@ sub restore
 sub as_json
 {   my $self = shift;
     my $return;
-    foreach my $col ($self->sheet->columns(user_can_read => 1))
+    foreach my $col ($self->sheet->layout->search_columns(user_can_read => 1))
     {
         my $short = $col->name_short or next;
         $return->{$short} = $self->field($col)->as_string;
@@ -2026,7 +1987,7 @@ sub as_json
 sub as_query
 {   my ($self, %options) = @_;
     my @queries;
-    foreach my $col ($self->sheet->columns(userinput => 1))
+    foreach my $col ($self->sheet->layout->search_columns(userinput => 1))
     {   next if $options{exclude_curcommon} && $col->is_curcommon;
         push @queries, $col->field."=".uri_escape_utf8($_)
             for @{$self->field($col)->html_form};
@@ -2055,7 +2016,7 @@ sub pdf
     $pdf->heading('Last updated by '.$self->createdby->as_string." on $updated", size => 12);
 
     my @data = ['Field', 'Value'];
-    foreach my $col ($self->sheet->columns(user_can_read => 1))
+    foreach my $col ($self->sheet->layout->search_columns(user_can_read => 1))
     {   my $datum = $self->field($col);
         next if $datum->dependent_not_shown;
 

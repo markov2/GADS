@@ -433,12 +433,17 @@ sub clear_sorts
 has _sorts => (
     is      => 'lazy',
     isa     => ArrayRef,
+    builder => '_sort_builder',
 );
 
 # The sorts for a limit_qty query
 has _sorts_limit => (
     is      => 'lazy',
     isa     => ArrayRef,
+    builder => sub
+    {   my $self = shift;
+        $self->limit_qty ? $self->_sort_builder(limit_qty => 1) : $self->_sorts;
+    },
 );
 
 # User-specified sort override
@@ -455,29 +460,18 @@ has sort => (
 # The first sort of the calculated list of sorts
 has sort_first => (
     is      => 'lazy',
+    builder => sub { @{$_[0]->_sorts}[0] },
 );
 
-sub _build_sort_first
-{   my $self = shift;
-    @{$self->_sorts}[0];
-}
-
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
+# Default sort if not set
 has default_sort => (
     is      => 'lazy',
-);
-
-sub _build_default_sort
-{   my $self = shift;
-    # Default sort if not set
-    +{
-        id   => $self->layout->sort_layout_id,
-        type => $self->layout->sort_type,
-    };
+    builder => sub {
+        my $layout = $_[0]->layout;
+        +{ id   => $layout->sort_layout_id,
+           type => $layout->sort_type,
+         };
+    },
 }
 
 has results => (
@@ -491,24 +485,21 @@ sub _search_construct;
 # Shortcut to generate the required joining hash for a DBIC search
 sub linked_hash
 {   my ($self, %options) = @_;
-    if ($self->has_linked(%options))
-    {
-        my $alt = $options{alt} ? "_alternative" : "";
-        my @tables = $self->jpfetch(%options, linked => 1);
-        return {
-            linked => [
-                {
-                    "record_single$alt" => [
-                        "record_later$alt",
-                        @tables,
-                    ]
-                },
-            ],
-        };
-    }
-    else {
-        return {};
-    }
+    $self->has_linked(%options)
+        or return {};
+
+    my $alt    = $options{alt} ? "_alternative" : "";
+
+     +{
+        linked => [
+            {
+                "record_single$alt" => [
+                    "record_later$alt",
+                    $self->jpfetch(%options, linked => 1);   
+                ]
+            },
+        ],
+     };
 }
 
 # A function to see if any views have a particular record within
@@ -632,11 +623,11 @@ sub _build__search_all_fields
     );
 
     my @columns_can_view;
-    foreach my $col ($self->layout->all(user_can_read => 1))
+    foreach my $col ($self->layout->search_columns(user_can_read => 1))
     {
         push @columns_can_view, $col->id;
         push @columns_can_view, @{$col->curval_field_ids}
-            if ($col->type eq 'curval'); # Curval type needs all its columns from other layout
+            if $col->type eq 'curval'; # Curval type needs all its columns from other layout
     }
 
     # Applies to all types of fields being searched
@@ -645,7 +636,6 @@ sub _build__search_all_fields
     push @basic_search, $self->_view_limits_search;
 
     my $date_column = GADS::Column::Date->new(
-        schema => $self->schema,
         layout => $self->layout,
     );
     my %found;
@@ -1250,17 +1240,19 @@ sub _build_columns_retrieved_do
     # this stage, we keep track of what we've added, so that we
     # can act accordingly during the filters
     my @columns;
-    if ($self->columns)
+    my $layout_columns;
+
+    if(my $my_columns = $self->columns)
     {
         # The columns property can contain straight column IDs or hash refs
         # containing the column ID as well as more information, such as the
         # parent curval of a curval field. At the moment we don't use this here
         # (only when we start grouping results) but we may want to use
         # it in the future if retrieving individual curval fields
-        my @col_ids = map { ref $_ eq 'HASH' ? $_->{id} : $_ } @{$self->columns};
-        @col_ids = grep {defined $_} @col_ids; # Remove undef column IDs
-        my %col_ids = map { $_ => 1 } @col_ids;
-        @columns = grep { $col_ids{$_->id} } $layout->all;
+        my %col_ids = map +($_ => 1), grep defined,
+            map { ref $_ eq 'HASH' ? $_->{id} : $_ } @$my_columns;
+
+        @columns = grep $col_ids{$_->id}, @$layout_columns;
     }
     elsif ($self->view)
     {
@@ -1271,6 +1263,7 @@ sub _build_columns_retrieved_do
             {
                 push @columns, $self->layout->column($_->{parent_id})
                     if $_->{parent_id};
+
                 push @columns, $self->layout->column($_->{id});
             }
         }
@@ -1279,8 +1272,9 @@ sub _build_columns_retrieved_do
         # Otherwise assume all columns needed, even ones the user does not have
         # access to. This is so that any writes still write all column values,
         # regardless of whether a user has access
-        @columns = $layout->all;
+        @columns = @$layout_columns;
     }
+
     foreach my $c (@columns)
     {
         # We're viewing this, so prefetch all the values
@@ -1299,7 +1293,7 @@ sub _build_columns_retrieved_do
 sub _build_columns_retrieved_no
 {   my $self = shift;
     my %columns_retrieved = map { $_->id => undef } @{$self->columns_retrieved_do};
-    my @columns_retrieved_no = grep { exists $columns_retrieved{$_->id} } $self->layout->all;
+    my @columns_retrieved_no = grep { exists $columns_retrieved{$_->id} } @{$self->layout->columns};
     \@columns_retrieved_no;
 }
 
@@ -1317,14 +1311,17 @@ sub _build_columns_view
             if $self->current_group_id;
 
         my $group_display = $view->is_group && !@{$self->additional_filters};
-        @cols = $self->sheet->columns(user_can_read => 1, group_display => $group_display, include_column_ids => \%view_layouts);
-        if ($self->current_group_id)
-        {
-            unshift @cols, $self->layout->column($self->current_group_id);
-        }
+        @cols = $layout->search_columns(
+            user_can_read => 1,
+            group_display => $group_display,
+            include_column_ids => \%view_layouts
+        );
+
+        unshift @cols, $self->layout->column($self->current_group_id)
+            if $self->current_group_id;
     }
     else {
-        @cols = $self->layout->all(user_can_read => 1);
+        @cols = $self->layout->search_columns(user_can_read => 1);
     }
 
     unshift @cols, $self->layout->column_id
@@ -1440,15 +1437,6 @@ sub _query_params
     (@limit, @search);
 }
 
-sub _build__sorts
-{   my $self = shift;
-    $self->_sort_builder;
-}
-
-sub _build__sorts_limit
-{   my $self = shift;
-    $self->limit_qty ? $self->_sort_builder(limit_qty => 1) : $self->_sorts;
-}
 
 sub _all_sorts
 {   my ($self, $col, %options) = @_;

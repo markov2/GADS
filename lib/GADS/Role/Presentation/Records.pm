@@ -2,27 +2,30 @@ package GADS::Role::Presentation::Records;
 
 use Moo::Role;
 
-sub presentation {
-    my $self = shift;
+sub presentation($) {
+    my $self  = shift;
+    my $sheet = $self->sheet;
 
-    return [
-        map $_->presentation(group => $self->current_group_id, @_), @{$self->results}
-    ];
+    my @show = map $_->presentation($sheet, group => $self->current_group_id, @_),
+         @{$self->results};
+
+    \@show;
 }
 
 sub aggregate_presentation
-{   my $self = shift;
+{   my $self   = shift;
 
     my $record = $self->aggregate_results
         or return undef;
 
     my @presentation = map {
-        $record->fields->{$_->id} && $_->presentation(datum_presentation => $record->fields->{$_->id}->presentation)
+        my $field = $record->field($_);
+        $field && $_->presentation(datum_presentation => $field->presentation)
     } @{$self->columns_view};
 
-    return +{
+     +{
         columns => \@presentation,
-    };
+      };
 }
 
 1;

@@ -340,7 +340,7 @@ sub _build_data
         ? ($self->x_axis)
         : $self->view
         ? @{$self->view->column_ids}
-        : $self->records->layout->all(user_can_read => 1);
+        : $self->records->layout->search_columns(user_can_read => 1);
 
     @columns = map {
         +{
@@ -443,7 +443,7 @@ sub _build_data
         push @x, @{$self->records->columns_view};
     }
     else {
-        push @x, $layout->all(user_can_read => 1);
+        push @x, $layout->search_columns(user_can_read => 1);
     }
 
     # Now go into each of the retrieved database results, and create a more
