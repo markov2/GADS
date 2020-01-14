@@ -29,6 +29,16 @@ use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use namespace::clean;
 
+=head1 NAME
+
+Linkspace::View - rules to sub-set sheet data.
+
+=head1 SYNOPSIS
+
+=head1 DESCRIPTION
+A user's View restricts the data in a sheet according to rules.  Applying
+the view on the data results in a Page.
+
 =head1 METHODS: constructors
 
 =head2 my $view = $class->new(%options);
@@ -63,12 +73,6 @@ has user_can_layout => (
     is => 'ro',
 );
 
-# Whether to write the view as another user
-has other_user_id => (
-    is  => 'rw',
-    isa => Maybe[Int],
-);
-
 has filter => (
     is      => 'rw',
     lazy    => 1,
@@ -92,14 +96,12 @@ has filter => (
 has sorts => (
     is      => 'ro',
     lazy    => 1,
-    clearer => 1,
     builder => sub { $_[0]->_get_sorts || [] },
 );
 
 has groups => (
     is      => 'ro',
     lazy    => 1,
-    clearer => 1,
     builder => sub { [ $_[0]->view_groups->all ] },
 );
 
@@ -151,11 +153,14 @@ sub _build_has_curuser
 has owner => (
     is      => 'rw',
     lazy    => 1,
-    builder => sub { $::linkspace->users->user($_[0]->user_id },
+    builder => sub { $::linkspace->users->user($_[0]->user_id) },
 );
 
 sub _is_writable($)
 {   my ($self, $sheet) = @_;
+
+#XXX this is a bit weird... usually, the ways to get access work
+#XXX in parallel
 
     if($self->is_admin)
     {   return 1 if $sheet->user_can("sheet");
@@ -163,10 +168,6 @@ sub _is_writable($)
     elsif($self->global)
     {   return 1 if !$self->group_id && $sheet->user_can("sheet");
         return 1 if  $self->group_id && $sheet->user_can("view_group");
-    }
-    elsif(!$self->has_id)
-    {   # New view, not global
-        return 1 if $sheet->user_can("view_create");
     }
     elsif($self->owner && $self->owner == $sheet->user->id)
     {   return 1 if $sheet->user_can("view_create");
@@ -178,8 +179,9 @@ sub _is_writable($)
     0;
 }
 
-sub _set_sorts($$)
+sub _sorts($$)
 {    my ($self, $fields, $types) = @_;
+#TODO move code from write() here
 }
 
 sub update
@@ -208,9 +210,9 @@ sub update
     my $guard = $::db->begin_work;
 
     $self->_update_column_ids($col_ids);
-    $self->_set_sorts(delete $update{sortfields}, $update{sorttypes});
-    $self->_set_groups(delete $update{groups});
-    $self->_set_filter(delete $update{filter});
+    $self->_sorts(delete $update{sortfields}, $update{sorttypes});
+    $self->_groups(delete $update{groups});
+    $self->_filter(delete $update{filter});
 
     $::session->user->isa('Linkspace::User::Person')
         or $update{global} = 1;
@@ -246,8 +248,9 @@ sub write
     {
         $vu->{user_id} = undef;
     }
-    elsif (!$self->_view || !$self->user_id) { # Preserve owner if editing other user's view
-        $vu->{user_id} = ($self->user_can_layout && $self->other_user_id) || $self->layout->user->id;
+    elsif(! $self->user_id) { # preserve owner if editing other user's view
+        $vu->{user_id} = $::session->user->id;
+             if $self->user_can_layout;
     }
 
     # Get all the columns in the filter. Check whether the user has
@@ -295,8 +298,6 @@ sub write
     if ($self->filter->changed && $self->has_alerts)
     {
         my $alert = GADS::Alert->new(
-            user      => $self->layout->user,
-            layout    => $self->layout,
             view_id   => $self->id,
         );
         $alert->update_cache;
@@ -321,8 +322,8 @@ XXX caller must reinstate full View.
 
                 # Update alert cache with new column
                 my $alerts = $::db->search(View => {
-                    'me.id' => $self->id
-                },{
+                    'me.id' => $self->id,
+                }, {
                     columns  => [
                         { 'me.id'  => \"MAX(me.id)" },
                         { 'alert_caches.id'  => \"MAX(alert_caches.id)" },
@@ -432,16 +433,6 @@ sub sort_types
     ]
 }
 
-sub filter_types
-{
-    [
-        { code => 'gt'      , text => 'Greater than' },
-        { code => 'lt'      , text => 'Less than'    },
-        { code => 'equal'   , text => 'Equals'       },
-        { code => 'contains', text => 'Contains'     },
-    ]
-}
-
 my %standard_fields = (
     -11 => '_id',
     -12 => '_version_datetime',
@@ -523,7 +514,8 @@ sub _set_sorts_groups
 
         my $sorttype = shift @sorttype || $type_last;
         error __x"Invalid type {type}", type => $sorttype
-            if $type eq 'sorts' && !grep $_->{name} eq $sorttype, @{sort_types()};
+            if $type eq 'sorts'
+            && ! grep $_->{name} eq $sorttype, @{$self->sort_types};
 
         # Check column is valid and user has access
         error __x"Invalid field ID {id} in {type}", id => $column_id, type => $type
@@ -547,24 +539,15 @@ sub _set_sorts_groups
 has is_group => (
     is      => 'lazy',
     isa     => Bool,
-    clearer => 1,
     builder => sub { !! @{$_[0]->groups },
 );
 
-sub parse_date_filter
-{   my ($class, $value) = @_;
-    my $now = DateTime->now;
+=head2 my $page = $view->search(%options)
+Apply the filters, and probably some temporary restrictions.  Returns
+a L<Linkspace::Page>.
 
-    $value =~ /^(\h*([0-9]+)\h*([+])\h*)?CURDATE(\h*([-+])\h*([0-9]+)\h*)?$/
-        or return;
-    my ($v1, $op1, $op2, $v2) = ($2, $3, $5, $6);
-    if ($op1 && $op1 eq '+' && $v1) { $now->add(seconds => $v1) }
-#    if ($op1 eq '-' && $v1) # Doesn't work, needs coding differently
-#    { $now->subtract(seconds => $v1) }
+Options: C<page> (starting from 1), C<rows> max to return, C<from> DateTime.
+=cut
 
-    if ($op2 && $op2 eq '+' && $v2) { $now->add(seconds => $v2) }
-    if ($op2 && $op2 eq '-' && $v2) { $now->subtract(seconds => $v2) }
-    $now;
-}
-
+sub search(%) { ... }
 1;

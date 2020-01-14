@@ -195,7 +195,7 @@ sub _process_instance
                 $search->{'me.current_id'} = [@$current_ids[$i..$max]];
             }
 
-            push @original, $self->schema->resultset('AlertCache')->search($search,{
+            push @original, $::db->search(AlertCache => $search,{
                 select => [
                     { max => 'me.current_id' },
                     { max => 'me.user_id' },
@@ -235,7 +235,7 @@ sub _process_instance
                 };
                 $::db->delete(AlertCache => {
                     view_id    => $view_id,
-                    user_id    => ($user_id || undef),
+                    user_id    => $user_id,
                     current_id => $cid,
                 });
             }
@@ -304,10 +304,11 @@ sub _process_instance
         foreach my $alert_cache ($view->alert_caches)
         {
             my $col_id = $alert_cache->layout_id;
-            my @alerts = $alert_cache->user ? $self->schema->resultset('Alert')->search({
+            my @alerts = $alert_cache->user ? $::db->search(Alert => {
                 view_id => $alert_cache->view_id,
                 user_id => $alert_cache->user_id,
             })->all : $alert_cache->view->alerts;
+
             foreach my $alert (@alerts)
             {
                 # For each user of this alert, check they have read access
@@ -323,24 +324,25 @@ sub _process_instance
                     };
                     # Unique constraint. Catch any exceptions. This is also
                     # why we probably can't do all these with one call to populate()
-                    try { $self->schema->resultset('AlertSend')->create($write) };
+                    try { $::db->create(AlertSend => $write) };
                     # Log any messages from try block, but only as trace
                     $@->reportAll(reason => 'TRACE');
                 }
-                else {
-                    $send_now->{$alert->user_id} ||= {
+                else
+                {   my $send = $send_now->{$alert->user_id} ||= {
                         user    => $alert->user,
                         cids    => [],
                         col_ids => [],
                     };
-                    push @{$send_now->{$alert->user_id}->{col_ids}}, $col_id;
-                    push @{$send_now->{$alert->user_id}->{cids}}, $alert_cache->current_id;
+                    push @{$send->{col_ids}}, $col_id;
+                    push @{$send->{cids}}, $alert_cache->current_id;
                 }
             }
         }
+
         foreach my $a (values %$send_now)
         {
-            my @colnames = map { $layout->column($_)->name } @{$a->{col_ids}};
+            my @colnames = map $layout->column($_)->name, @{$a->{col_ids}};
             my @cids = @{$a->{cids}};
             $self->_send_alert('changed', \@cids, $view, [$a->{user}->email], \@colnames);
         }
@@ -348,7 +350,7 @@ sub _process_instance
 
     # Finally update the alert cache. We don't do this earlier, otherwise a new
     # record will be flagged as a change.
-    $self->schema->resultset('AlertCache')->populate(\@to_add) if @to_add;
+    $::db->resultset('AlertCache')->populate(\@to_add) if @to_add;
 }
 
 sub _gone_arrived
@@ -396,7 +398,8 @@ sub _send_alert
     my @current_ids = uniq @{$current_ids};
     my $base = $self->base_url;
 
-    my $text; my $html;
+    my ($text, $html);
+
     if ($action eq "changed")
     {
         # Individual fields to notify
@@ -416,23 +419,25 @@ sub _send_alert
             $html   = "<p>The following items were changed for record ID $id_html: $cnames</p>";
         }
     }
-    elsif($action eq "arrived") {
-        if (@current_ids > 1)
+
+    elsif($action eq "arrived")
+    {   if (@current_ids > 1)
         {
             $text   = qq(New items have appeared in the view "$view_name", with the following IDs: ).join(', ', @current_ids)."\n\n";
             $text  .= "Links to the new items are as follows:\n";
             my $ids_html = join ', ', _current_id_links($base, @current_ids);
             $html   = "<p>New items have appeared in the view &quot;$view_name&quot;, with the following IDs: $ids_html</p>";
         }
-        else {
-            $text   = qq(A new item (ID @current_ids) has appeared in the view "$view_name".\n\n);
+        else
+        {   $text   = qq(A new item (ID @current_ids) has appeared in the view "$view_name".\n\n);
             $text  .= "Please use the following link to access the record:\n";
             my $id_html = _current_id_links($base, @current_ids);
             $html   = qq(A new item (ID $id_html) has appeared in the view &quot;$view_name&quot;.</p>);
         }
     }
-    elsif($action eq "gone") {
-        if (@current_ids > 1)
+
+    elsif($action eq "gone")
+    {   if (@current_ids > 1)
         {
             $text   = qq(Items have disappeared from the view "$view_name", with the following IDs: ).join(', ', @current_ids)."\n\n";
             $text  .= "Links to the removed items are as follows:\n";
@@ -446,10 +451,12 @@ sub _send_alert
             $html   = qq(<p>An item (ID $id_html) has disappeared from the view &quot;$view_name&quot;</p>);
         }
     }
+
     foreach my $cid (@current_ids)
     {
         $text  .= $base."record/$cid\n";
     }
+
     my $email = GADS::Email->instance;
     $email->send({
         subject => qq(Changes in view "$view_name"),
@@ -460,4 +467,3 @@ sub _send_alert
 }
 
 1;
-

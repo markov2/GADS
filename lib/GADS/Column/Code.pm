@@ -207,7 +207,6 @@ sub update_cached
     # Send any alerts
     my $alert_send = GADS::AlertSend->new(
         layout      => $self->layout,
-        schema      => $self->schema,
         user        => $self->user,
         current_ids => \@changed,
         columns     => [$self->id],

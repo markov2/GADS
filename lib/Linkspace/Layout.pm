@@ -637,6 +637,7 @@ sub export
      };
 }
 
+#XXX must disappear: Layout object immutable
 sub import_hash
 {   my ($self, $values, %options) = @_;
     my $report = $options{report_only} && $self->instance_id;
@@ -662,6 +663,7 @@ sub import_hash
     notice __x"Update: sort_type from {old} to {new} for layout {name}",
         old => $self->sort_type, new => $values->{sort_type}, name => $self->name
         if $report && ($self->sort_type || '') ne ($values->{sort_type} || '');
+
     $self->sort_type($values->{sort_type});
 
     if ($report)
@@ -706,25 +708,25 @@ sub import_after_all
 sub purge
 {   my $self = shift;
 
-    GADS::Graphs->new(schema => $self->schema, layout => $self, current_user => $self->user)->purge;
-    GADS::MetricGroups->new(schema => $self->schema, instance_id => $self->instance_id)->purge;
-    GADS::Views->new(schema => $self->schema, instance_id => $self->instance_id, user => undef, layout => $self)->purge;
+    my $guard = $::db->begin_work;
+    GADS::Graphs->new(layout => $self, current_user => $self->user)->purge;
+    GADS::MetricGroups->new(instance_id => $self->instance_id)->purge;
+    GADS::Views->new(instance_id => $self->instance_id, user => undef, layout => $self)->purge;
 
-    $_->delete foreach reverse $self->all(order_dependencies => 1, include_hidden => 1);
+    $_->delete for reverse
+        $self->search_columns(order_dependencies => 1, include_hidden => 1);
 
-    $self->schema->resultset('UserLastrecord')->delete;
-    $self->schema->resultset('Record')->search({
-        instance_id => $self->instance_id,
-    },{
-        join => 'current',
-    })->delete;
-    $self->schema->resultset('Current')->search({
-        instance_id => $self->instance_id,
-    })->delete;
-    $self->schema->resultset('InstanceGroup')->search({
-        instance_id => $self->instance_id,
-    })->delete;
-    $self->_rset->delete;
+    my %ref_sheet = { instance_id => $sheet->id };
+
+    $::db->resultset('UserLastrecord')->delete;   # empty table
+
+    #XXX join with delete?
+    $::db->search(Record        => \%ref_sheet, {join => 'current' })->delete;
+    $::db->delete(Current       => \%ref_sheet);
+    $::db->delete(InstanceGroup => \%ref_sheet);
+
+    $self->delete;
+    $guard->commit;
 }
 
 sub has_homepage

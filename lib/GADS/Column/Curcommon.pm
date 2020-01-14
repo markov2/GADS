@@ -272,7 +272,6 @@ sub _records_from_db
         user                 => $self->override_permissions ? undef : $self->layout->user,
         view                 => $view,
         layout               => $layout,
-        schema               => $self->schema,
         columns              => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
         limit_current_ids    => $ids,
         # Sort on all columns displayed as the Curval. Don't do all columns

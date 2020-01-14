@@ -27,31 +27,17 @@ use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use namespace::clean;
 
-has layout => (
-    is       => 'rw',
-    required => 1,
-);
-
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
-has user => (
-    is       => 'rw',
-    required => 1,
-);
-
 has id => (
     is      => 'rwp',
     isa     => Int,
     lazy    => 1,
     builder => sub {
         my $self = shift;
-        my ($alert) = $self->schema->resultset('Alert')->search({
+        my $alert = $::db->search(Alert => {
             view_id => $self->view_id,
-            user_id => $self->user->id,
-        });
+            user_id => $::session->user->id,
+        })->first;
+
         $alert->id;
     },
 );
@@ -77,60 +63,37 @@ has frequency => (
     },
 );
 
-has view_id => (
-    is      => 'rw',
-    isa     => Int,
-    trigger => sub {
-        my ($self, $view_id) = @_;
-        # Check that user has access to this view (borks on no access)
-        my $view    = GADS::View->new(
-            user        => $self->user,
-            id          => $view_id,
-            schema      => $self->schema,
-            layout      => $self->layout,
-            instance_id => $self->layout->instance_id,
-        );
-    },
-);
-
-has all => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-
-        my @alerts_rs = $self->schema->resultset('Alert')->search({
-            user_id => $self->user->id,
-        })->all;
-
-        my $alerts;
-        foreach my $alert (@alerts_rs)
-        {
-            $alerts->{$alert->view_id} = {
-                id        => $alert->id,
-                view_id   => $alert->view_id,
-                frequency => $alert->frequency,
-            };
-        };
-        $alerts;
-    },
-);
-
 has view => (
-    is => 'lazy',
+    is      => 'ro',
+    isa     => 'Linkspace::View',
 );
 
-sub _build_view
+
+=head2 my %h = $class->for_user;
+
+=head2 my %h = $class->for_user($user);
+
+Returns a nested HASH with as key the view-ids, and the alert info
+as HASH as value.
+
+=cut
+
+sub for_user(;$)
 {   my $self = shift;
-    my $views   = GADS::Views->new(
-        # Current user may not have access to all fields in view,
-        # permissions are managed when sending the alerts
-        user        => undef,
-        schema      => $self->schema,
-        layout      => $self->layout,
-        instance_id => $self->layout->instance_id,
-    );
-    $views->view($self->view_id);
+    my $user = shift ||= $::session->user;
+
+    my $alerts = $::db->search(Alert => { user_id => $user->id });
+
+    my %alerts;
+    foreach my $alert ($alerts->all)
+    {
+        $alerts{$alert->view_id} = {
+            id        => $alert->id,
+            view_id   => $alert->view_id,
+            frequency => $alert->frequency,
+        };
+    };
+    \%alerts;
 }
 
 sub update_cache
@@ -140,11 +103,8 @@ sub update_cache
 
     my $view = $self->view;
 
-    if (!$view->has_alerts)
-    {
-        $self->schema->resultset('AlertCache')->search({
-            view_id => $view->id,
-        })->delete;
+    if(!$view->has_alerts)
+    {   $::db->delete(AlertCache => { view_id => $view->id });
         return;
     }
 
@@ -152,9 +112,7 @@ sub update_cache
     # alert caches for each user that has this alert. Only need
     # to worry about this if all_users flag is set
     my @users = $view->has_curuser && $options{all_users}
-        ? $::db->search(Alert => {
-            view_id => $view->id
-        }, {
+        ? $::db->search(Alert => { view_id => $view->id }, {
             prefetch => 'user'
         })->all : ($self->user);
 
@@ -169,7 +127,6 @@ sub update_cache
             # The only exception is when the view has a CURUSER, in which
             # case we generate them individually.
             user   => $u,
-            layout => $self->layout,
             view   => $view,
         );
 

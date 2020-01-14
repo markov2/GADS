@@ -1314,16 +1314,16 @@ sub _write_permissions
                 $filter->delete;
 
                 # Alert cache
-                $self->schema->resultset('AlertCache')->search({
+                $::db->delete(AlertCache => {
                     layout_id => $id,
                     view_id   => $filter->view_id,
-                })->delete;
+                });
 
                 # Column in the view
-                $self->schema->resultset('ViewLayout')->search({
+                $::db->delete(ViewLayout => {
                     layout_id => $id,
                     view_id   => $filter->view_id,
-                })->delete;
+                });
 
                 # And the JSON filter itself
                 my $filtered = _filter_remove_colid($self, $filter->view->filter);

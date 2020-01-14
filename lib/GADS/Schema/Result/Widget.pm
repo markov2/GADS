@@ -113,9 +113,8 @@ sub before_create
     {
         # Potential race condition, but unlikely and unique constrant will
         # catch anyway
-        my $schema = $self->result_source->schema;
         my $grid_id;
-        my $existing = $schema->resultset('Widget')->search({
+        my $existing = $::db->search(Widget => {
             dashboard_id => $self->dashboard_id,
         });
         while (!$grid_id || $existing->search({ grid_id => $grid_id })->count)
@@ -145,72 +144,50 @@ sub html
     {
         $params->{content} = $self->content;
     }
-    else {
-        my $layout = $self->layout
-            or panic "Missing layout";
-
-        my $user   = $layout->user;
-        my $schema = $self->result_source->schema;
-
-        my $view = GADS::View->new(
-            id                       => $self->view_id,
-            instance_id              => $layout->instance_id,
-            schema                   => $schema,
-            layout                   => $self->layout,
-        );
+    else
+    {   my $view = $sheet->views->view($self->view_id);
 
         if ($self->type eq 'table')
         {
-            return 'Configuration required' if !$self->view_id || !$self->rows;
-            my $records = GADS::Records->new(
-                user   => $user,
-                layout => $layout,
-                schema => $schema,
+            my $page = $view->search(
                 page   => 1,
-                view   => $view,
                 rows   => $self->rows,
                 #rewind => session('rewind'), # Maybe add in the future
             );
-            my @columns = @{$records->columns_view};
-            $params->{records} = $records->presentation;
-            $params->{columns} = [ map $_->presentation(sort => $records->sort_first), @columns ];
+
+            my @columns =  map $_->presentation(sort => $page->sort_first),
+                @{$page->columns_view};
+
+            $params->{records} = $page->presentation;
+            $params->{columns} = \@columns;
         }
         elsif ($self->type eq 'graph')
         {
-            return 'Configuration required' if !$self->view_id || !$self->graph_id;
             my $records = GADS::RecordsGraph->new(
-                user                => $user,
                 layout              => $layout,
-                schema              => $schema,
             );
+
             my $gdata = GADS::Graph::Data->new(
                 id      => $self->graph_id,
                 records => $records,
-                schema  => $schema,
                 view    => $view,
             );
+
             my $plot_data = encode_base64 $gdata->as_json, ''; # base64 plugin does not like new lines in content $gdata->as_json;
             my $graph = GADS::Graph->new(
                 id     => $self->graph_id,
                 layout => $layout,
-                schema => $schema,
             );
-            my $options_in = encode_base64 $graph->as_json, '';
 
             $params->{graph_id}     = $self->graph_id;
             $params->{plot_data}    = $plot_data;
-            $params->{plot_options} = $options_in;
+            $params->{plot_options} = encode_base64 $graph->as_json, '';
         }
         elsif ($self->type eq 'timeline')
         {
-            return 'Configuration required' if !$self->view_id;
-            my $records = GADS::Records->new(
-                user                => $user,
-                view                => $view,
-                layout              => $layout,
+            my $records = $view->search(
                 # No "to" - will take appropriate number from today
                 from                => DateTime->now, # Default
-                schema              => $schema,
             );
             my $tl_options = $self->tl_options_inflated;
             my $timeline = $records->data_timeline(%{$tl_options});
@@ -222,19 +199,15 @@ sub html
         }
         elsif ($self->type eq 'globe')
         {
-            return 'Configuration required' if !$self->view_id;
-            my $records_options = {
-                user   => $user,
-                view   => $view,
-                layout => $layout,
-                schema => $schema,
-            };
             my $globe_options = $self->globe_options_inflated;
             my $globe = GADS::Globe->new(
                 group_col_id    => $globe_options->{group},
                 color_col_id    => $globe_options->{color},
                 label_col_id    => $globe_options->{label},
-                records_options => $records_options,
+                records_options => {
+                    view   => $view,
+                    layout => $layout,
+                },
             );
             $params->{globe_data} = encode_base64(encode_json($globe->data), '');
         }
@@ -242,10 +215,12 @@ sub html
 
     my $config = GADS::Config->instance;
     my $template = Template->new(INCLUDE_PATH => $config->template_location);
+
     my $output;
     my $t = $template->process('snippets/widget_content.tt', $params, \$output)
         or panic $template->error;
-    return $output;
+
+    $output;
 }
 
 1;

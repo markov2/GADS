@@ -1609,31 +1609,22 @@ prefix '/:layout_name' => sub {
 
         my $new_view_id = param('view');
         if (param 'views_other_user_clear')
-        {
-            session views_other_user_id => undef;
-            my $views      = GADS::Views->new(
-                user        => $user,
-                schema      => schema,
-                layout      => $layout,
-                instance_id => session('persistent')->{instance_id},
-            );
-            $new_view_id = $views->default->id;
+        {   session views_other_user_id => undef;
+            $new_view_id = $sheet->views->default->id;
         }
         elsif (my $user_id = param 'views_other_user_id')
-        {
-            session views_other_user_id => $user_id;
+        {   session views_other_user_id => $user_id;
         }
 
         # Deal with any alert requests
         if (param 'modal_alert')
         {
-            my $alert = GADS::Alert->new(
-                user      => $user,
-                layout    => $layout,
-                schema    => schema,
-                frequency => param('frequency'),
-                view_id   => param('view_id'),
+            if(my $view = $sheet->views->view(param('view_id')))
+            {   $view->create_alert(
+                    frequency => param('frequency'),
+                );
             );
+
             if (process(sub { $alert->write }))
             {
                 return forwardHome(
@@ -1643,7 +1634,7 @@ prefix '/:layout_name' => sub {
 
         if ($new_view_id)
         {
-            session('persistent')->{view}->{$layout->instance_id} = $new_view_id;
+            session('persistent')->{view}{$sheet->id} = $new_view_id;
             # Save to database for next login.
             # Check that it's valid first, otherwise database will bork
             my $view = current_view($user, $layout);
@@ -1656,26 +1647,21 @@ prefix '/:layout_name' => sub {
             session search => '';
         }
 
-        if (my $rows = param('rows'))
-        {
-            session 'rows' => int $rows;
+        if(my $rows = param('rows'))
+        {   session 'rows' => int $rows;
         }
 
         if (my $page = param('page'))
-        {
-            session 'page' => int $page;
+        {   session 'page' => int $page;
         }
 
         my $viewtype;
-        if ($viewtype = param('viewtype'))
-        {
-            if ($viewtype =~ /^(graph|table|calendar|timeline|globe)$/)
-            {
-                session('persistent')->{viewtype}->{$layout->instance_id} = $viewtype;
-            }
+        if($viewtype = param('viewtype'))
+        {   session('persistent')->{viewtype}{$sheet->id} = $viewtype
+                if $viewtype =~ /^(graph|table|calendar|timeline|globe)$/;
         }
-        else {
-            $viewtype = session('persistent')->{viewtype}->{$layout->instance_id} || 'table';
+        else
+        {   $viewtype = session('persistent')->{viewtype}{$sheet->id} ||'table';
         }
 
         my $view       = current_view($user, $layout);
@@ -2031,19 +2017,6 @@ prefix '/:layout_name' => sub {
             }
         }
 
-        # Get all alerts
-        my $alert = GADS::Alert->new(
-            user      => $user,
-            layout    => $layout,
-        );
-
-        my $views      = GADS::Views->new(
-            user          => $user,
-            other_user_id => session('views_other_user_id'),
-            layout        => $layout,
-            instance_id   => $layout->instance_id,
-        );
-
         if ( app->has_hook('plugin.data.before_template') ) {
             # Note: this might modify $params
             app->execute_hook('plugin.data.before_template', {
@@ -2053,12 +2026,21 @@ prefix '/:layout_name' => sub {
             });
         }
 
+        my $views      = $sheet->views;
         $params->{user_views}               = $views->user_views;
         $params->{views_limit_extra}        = $views->views_limit_extra;
-        $params->{current_view_limit_extra} = current_view_limit_extra($user, $layout) || $layout->default_view_limit_extra;
-        $params->{alerts}                   = $alert->all;
+
+        $params->{current_view_limit_extra}
+           =  current_view_limit_extra($user, $layout)
+           || $layout->default_view_limit_extra;
+
+        $params->{alerts}                   = Layout::View::Alert->for_user;
         $params->{views_other_user}         = session('views_other_user_id') && rset('User')->find(session('views_other_user_id')),
-        $params->{breadcrumbs}              = [Crumb($layout) => Crumb( $layout, '/data' => 'records' )];
+
+        $params->{breadcrumbs}              = [
+            Crumb($layout) =>
+            Crumb( $layout, '/data' => 'records' )
+        ];
 
         template 'data' => $params;
     };
@@ -2107,21 +2089,21 @@ prefix '/:layout_name' => sub {
         {
             my @current_ids = body_parameters->get_all('record_selected')
                 or forwardHome({ danger => "Please select some records before clicking an action" }, $layout->identifier.'/purge');
+
             my $records = GADS::Records->new(
-                limit_current_ids   => [@current_ids],
+                limit_current_ids   => \@current_ids,
                 columns             => [],
-                user                => $user,
                 is_deleted          => 1,
-                layout              => $layout,
-                schema              => schema,
                 view_limit_extra_id => undef, # Override any value that may be set
             );
+
             if (param 'purge')
             {
                 my $record;
                 $record->purge_current while $record = $records->single;
                 forwardHome({ success => "Records have now been purged" }, $layout->identifier.'/purge');
             }
+
             if (param 'restore')
             {
                 my $record;
@@ -2132,10 +2114,7 @@ prefix '/:layout_name' => sub {
 
         my $records = GADS::Records->new(
             columns             => [],
-            user                => $user,
             is_deleted          => 1,
-            layout              => $layout,
-            schema              => schema,
             view_limit_extra_id => undef, # Override any value that may be set
         );
 
@@ -2144,7 +2123,12 @@ prefix '/:layout_name' => sub {
             records => $records->presentation($sheet, purge => 1),
         };
 
-        $params->{breadcrumbs} = [Crumb($layout) => Crumb( $layout, '/data' => 'records' ) => Crumb( $layout, '/purge' => 'purge records' )];
+        $params->{breadcrumbs} = [
+            Crumb($layout) =>
+            Crumb( $layout, '/data' => 'records' ) =>
+            Crumb( $layout, '/purge' => 'purge records' )
+        ];
+
         template 'purge' => $params;
     };
 

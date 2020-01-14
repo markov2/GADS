@@ -77,7 +77,7 @@ has as_hash => (
         $self->_set_changed(1) if $self->has_value && !Compare(decode_json_utf8($self->as_json), $new, { ignore_hash_keys => ['column_id'] });
         $self->clear_as_json;
         # Force the JSON to build with the new value, which will effectively
-        # allow it to hold the old value, if we make any further changse (which
+        # allow it to hold the old value, if we make any further changes (which
         # is then used to see if a change as happened)
         $self->as_json;
         $self->_clear_lazy;
@@ -104,13 +104,6 @@ has layout => (
 sub decode_json_utf8
 {   decode_json(encode("utf8", shift)) }
 
-# Clear various lazy accessors that depend on the above values
-sub _clear_lazy
-{   my $self = shift;
-    $self->clear_filters;
-    $self->clear_column_ids;
-}
-
 sub base64
 {   my $self = shift;
     # First make sure we have the hash version
@@ -123,6 +116,7 @@ sub base64
         $self->layout or panic "layout has not been set in filter";
         my $col = $self->layout->column($filter->{column_id})
             or next; # Ignore invalid - possibly since deleted
+
         if ($col->has_filter_typeahead)
         {
             $filter->{data} = {
@@ -134,28 +128,17 @@ sub base64
     encode_base64($self->as_json, ''); # Base64 plugin does not like new lines
 }
 
-has changed => (
-    is => 'rwp',
-    isa => Bool,
-);
-
 # The IDs of all the columns referred to by this filter
 has column_ids => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
+    builder => sub { [ map $_->{id}, @{$self->filters} ] },
 );
-
-sub _build_column_ids
-{   my $self = shift;
-    [ map { $_->{id} } @{$self->filters} ];
-}
 
 # All the filters in a flat structure
 has filters => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 sub _build_filters
@@ -173,27 +156,21 @@ sub _filter_tables
     {
         # Filter has other nested filters
         foreach my $rule (@$rules)
-        {
-            $self->_filter_tables($rule, $tables);
+        {   $self->_filter_tables($rule, $tables);
         }
     }
-    elsif (my $id = $filter->{id}) {
-        # XXX column_id should not really be stored in the hash, as it is
+    elsif(my $id = $filter->{id})
+    {   # XXX column_id should not really be stored in the hash, as it is
         # temporary but may be written out with the JSON later for permanent
         # use
-        if ($id =~ s/^([0-9])+_([0-9]+)$//)
-        {
-            $filter->{column_id} = $2;
-        }
-        else {
-            $filter->{column_id} = $filter->{id};
-        }
+        $filter->{column_id} = $id =~ /^([0-9])+_([0-9]+)$/ ? $2 : $filter->{id};
+
         # If we have a layout, remove any invalid columns
-        if ($self->layout && !$self->layout->column($filter->{column_id}))
-        {
-            delete $filter->{$_} foreach keys %$filter;
-        }
-        push @$tables, $filter; # Keep as reference so can be updated by other functions
+        delete $filter->{$_} for keys %$filter
+            if $self->layout && !$self->layout->column($filter->{column_id});
+ 
+        # Keep as reference so can be updated by other functions
+        push @$tables, $filter;
     }
 }
 
@@ -205,10 +182,12 @@ has columns_in_subs => (
 
 sub _build_columns_in_subs
 {   my $self = shift;
-    my $layout = $self->layout
-        or panic "layout has not been set in filter";
-    my @filters = grep { $_ } map { $_->{value} && $_->{value} =~ /^\$([_0-9a-z]+)$/i && $1 } @{$self->filters};
-    [ grep { $_ } map { $layout->column_by_name_short($_) } @filters ];
+
+    my @colnames = grep defined,
+         map { $_->{value} && $_->{value} =~ /^\$([_0-9a-z]+)$/i && $1 }
+             @{$self->filters};
+
+    [ grep defined, map $layout->column_by_name_short($_), @colnames ];
 }
 
 # Sub into the filter values from a record
@@ -225,8 +204,8 @@ sub sub_values
         # at all (there are no values to substitute in)
         $filter = {};
     }
-    else {
-        foreach (@{$filter->{rules}})
+    else
+    {   foreach (@{$filter->{rules}})
         {
             return 0 unless $self->_sub_filter_single($_, $layout);
         }
@@ -241,32 +220,30 @@ sub _sub_filter_single
     if ($single->{rules})
     {
         foreach (@{$single->{rules}})
-        {
-            return 0 unless $self->_sub_filter_single($_, $layout);
+        {   return 0 unless $self->_sub_filter_single($_, $layout);
         }
     }
     elsif ($single->{value} && $single->{value} =~ /^\$([_0-9a-z]+)$/i)
     {
         my $col = $layout->column_by_name_short($1);
         if (!$col)
-        {
-            trace "No match for short name $1";
+        {   trace "No match for short name $1";
             return 1; # Not a failure, just no match
         }
-        my $datum = $record->fields->{$col->id};
+
+        my $datum = $record->field($col);
+
         # First check for multivalue. If it is, we replace the singular rule
         # in this hash with a rule for each value and OR them all together
         if ($col->type eq 'curval')
-        {
-            # Can't really try and match on a text value
+        {   # Can't really try and match on a text value
             $single->{value} = $datum->ids;
         }
         elsif ($col->multivalue)
-        {
-            $single->{value} = $datum->text_all;
+        {   $single->{value} = $datum->text_all;
         }
-        else {
-            $datum->re_evaluate if !$col->userinput;
+        else
+        {   $datum->re_evaluate if !$col->userinput;
             $single->{value} = $col->numeric ? $datum->value : $datum->as_string;
             trace "Value subbed into rule: $single->{value} for column: ".$col->name;
         }
@@ -274,30 +251,22 @@ sub _sub_filter_single
     return 1;
 }
 
-sub filter_types
-{
-    [
-        { code => 'gt'      , text => 'Greater than' },
-        { code => 'lt'      , text => 'Less than'    },
-        { code => 'equal'   , text => 'Equals'       },
-        { code => 'contains', text => 'Contains'     },
-    ]
-}
-
 sub parse_date_filter
 {   my ($class, $value) = @_;
+
     $value =~ /^(\h*([0-9]+)\h*([+])\h*)?CURDATE(\h*([-+])\h*([0-9]+)\h*)?$/
         or return;
+
     my $now = DateTime->now;
     my ($v1, $op1, $op2, $v2) = ($2, $3, $5, $6);
-    if ($op1 && $op1 eq '+' && $v1)
-    { $now->add(seconds => $v1) }
+    if ($op1 && $op1 eq '+' && $v1) { $now->add(seconds => $v1) }
+
+#XXX?
 #    if ($op1 eq '-' && $v1) # Doesn't work, needs coding differently
 #    { $now->subtract(seconds => $v1) }
-    if ($op2 && $op2 eq '+' && $v2)
-    { $now->add(seconds => $v2) }
-    if ($op2 && $op2 eq '-' && $v2)
-    { $now->subtract(seconds => $v2) }
+
+    if ($op2 && $op2 eq '+' && $v2) { $now->add(seconds => $v2) }
+    if ($op2 && $op2 eq '-' && $v2) { $now->subtract(seconds => $v2) }
     $now;
 }
 
