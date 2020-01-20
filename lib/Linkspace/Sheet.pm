@@ -104,18 +104,6 @@ has document => (
     weak_ref => 1,
 );
 
-=head2 my $layout = $sheet->layout;
-Each Sheet has a Layout which contains the Column descriptions.
-=cut
-
-has layout => (
-    is => 'lazy',
-    builder => sub {
-        my $self = shift;
-        $self->document->layout_for_sheet($self);
-    },
-);
-
 =head1 METHODS: the Sheet itself
 
 =cut
@@ -160,6 +148,35 @@ sub create($%)
 
     # Start with a clean sheet
     $class->from_id($sheet_id);
+}
+
+
+=head2 my $layout = $sheet->layout;
+Each Sheet has a Layout which contains the Column descriptions.
+=cut
+
+has layout => (
+    is => 'lazy',
+    builder => sub {
+        my $self = shift;
+        $self->document->layout_for_sheet($self);
+    },
+);
+
+=head2 my $layout = $sheet->create_layout($insert, %options);
+=cut
+
+sub create_layout($%)
+{   my ($self, $insert, %args) = @_;
+    Linkspace::Layout->create_layout($insert, %args);
+        $layout->create_internal_columns;
+
+    $_->{group_id} = $group_mapping->{$_->{group_id}}
+        for @{$instance_info->{permissions}};
+
+    $layout->import_hash($sheet_info, report_only => $report_only);
+    $layout->write unless $report_only;
+
 }
 
 =head1 METHODS: Keeping records
@@ -288,5 +305,35 @@ sub user_can($;$)
     ? 1
     : $user->is_permitted($permission);
 }
+
+=head2 my $page = $sheet->get_page(%options);
+Return a L<Linkspace::Page> based on the sheet data.
+=cut
+
+#XXX This may need to move to Document, when searches cross sheets
+
+sub get_page($)
+{   my ($self, %args) = @_;
+    my $views = $self->views;
+
+    $args{view_limits} =
+       [ map $views->view($_->view_id), $views->limits_for_user ];
+
+    my $view_limit_extra_id
+      = $self->user_can("view_limit_extra")
+      ? $option{view_limit_extra_id}
+      : $self->layout->default_view_limit_extra_id;
+
+    $args{view_limit_extra} = $views->view($view_limit_extra_id);
+
+    $self->data->search(%args);
+}
+
+=head1 METHODS: MetricGroup administration
+
+=cut
+
+sub metric_group {...}
+sub create_metric_group { $metric_group->import_hash($mg) }
 
 1;

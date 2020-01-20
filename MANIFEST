@@ -203,14 +203,12 @@ lib/GADS/Datum/Serial.pm
 lib/GADS/Datum/String.pm
 lib/GADS/Datum/Tree.pm
 lib/GADS/DBIC.pm
-lib/GADS/Email.pm
 lib/GADS/Filter.pm
 lib/GADS/Globe.pm
 lib/GADS/Graph.pm
 lib/GADS/Graph/Data.pm
 lib/GADS/Graphs.pm
 lib/GADS/Group.pm
-lib/GADS/Groups.pm
 lib/GADS/Helper/BreadCrumbs.pm
 lib/GADS/Helper/Concat.pm
 lib/GADS/Import.pm
@@ -298,6 +296,7 @@ lib/Linkspace/Audit.pm
 lib/Linkspace/DB.pm
 lib/Linkspace/DBICProfiler.pm
 lib/Linkspace/Document.pm
+lib/Linkspace/Mailer.pm
 lib/Linkspace/Session.pm
 lib/Linkspace/Session/Dancer2.pm
 lib/Linkspace/Session/System.pm

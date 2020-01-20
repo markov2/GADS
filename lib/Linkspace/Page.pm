@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Sheet::Page;
+package Linkspace::Page;
 
 use Data::Dumper qw/Dumper/;
 use DateTime;
@@ -47,146 +47,66 @@ has layout => (
 
 =head1 NAME
 
-Linkspace::Sheet::Data - maintain the data, part of a sheet
+Linkspace::Page - A collection of records
 
 =head1 SYNOPSIS
+
+   my $page = Linkspace::Page->new(
+       # required
+       nr       => 1,
+       nr_pages => 10,
+       view     => $view,
+
+       # optional
+       is_draft => 0,
+   );
+
 =head1 DESCRIPTION
+
+A Page is the result of a search in sheet data.  It may even cover information
+from multiple sheets.  The search is usually triggered by applying Filter
+rules from a View.
+
 =head1 METHODS: Constructors
 
-=head1 METHODS: Maintaining pages
+=head1 METHODS: Generic accessors
 
-=head2 my $nr_pages = $data->pages;
-Returns the number of pages
+=head2 my $nr = $page->nr;
+Pages start with number 1.
 =cut
 
-has pages => (
-    is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-        return 1 if $self->is_group;
-        my $count = $self->search_limit_reached || $self->count;
-        $self->rows ? ceil($count / $self->rows) : 1;
-    },
+has nr => (
+    is       => 'ro',
+    required => 1,
 );
 
-has page => (
-    is => 'rw',
+=head2 my $count = $page->nr_pages;
+Returns the number of pages, where this page is one of.
+=cut
+
+has nr_pages => (
+    is       => 'ro',
+    required => 1,
 );
 
-=head2 METHODS: Other
+=head2 my $is_draft = $page->is_draft;
+Whether to show only draft records or only live records.
+=cut
 
-has search => (
-    is      => 'rw',
-    isa     => Maybe[Str],
-);
-
-# Whether to show only deleted records or only records not deleted
-has is_deleted => (
-    is      => 'ro',
-    default => 0,
-);
-
-# Whether to search all previous values instead of just current record
-has previous_values => (
-    is      => 'ro',
-    default => 0,
-);
-
-# Whether to build all fields for any curvals. This is needed when producing a
-# record for editing that contains draft curvals (in which case all the fields
-# are rendered as a query), and when needing to retrieve the curcommon values
-# for code evaluations
-has curcommon_all_fields => (
-    is      => 'ro',
-    default => 0,
-);
-
-# Whether to exclude children from the results
-has include_children => (
-    is  => 'lazy',
-    isa => Bool,
-);
-
-sub _build_include_children
-{   my $self = shift;
-    return 1 if grep { $_->can_child } @{$self->columns_retrieved_no};
-    return 0;
-}
-
-# Whether to show only draft records or only live records
 has is_draft => (
     is      => 'ro',
     default => 0,
 );
 
+=head2 my $view = $page->view;
+Returns the L<Linkspace::View> which has created this page.
+=cut
+
 has view => (
-    is => 'rw',
+    is       => 'ro',
+    required => 1,
+    isa      => 'Linkspace::View',
 );
-
-# Whether to limit any results to only those
-# in a specific view
-has _view_limits => (
-    is      => 'lazy',
-);
-
-sub _build__view_limits
-{   my $self = shift;
-    $self->user or return [];
-
-    # User view limits first
-    my @view_limits = $self->schema->resultset('ViewLimit')->search({
-        'me.user_id' => $self->user->id,
-    },{
-        prefetch => 'view',
-    })->all;
-    my @views;
-    foreach my $view_limit (@view_limits)
-    {
-        push @views, GADS::View->new(
-            id          => $view_limit->view_id,
-            schema      => $self->schema,
-            layout      => $self->layout,
-            instance_id => $self->layout->instance_id,
-        ) if $view_limit->view->instance_id == $self->layout->instance_id;
-    }
-    \@views;
-}
-
-has _view_limit_extra => (
-    is => 'lazy',
-);
-
-sub _build__view_limit_extra
-{   my $self = shift;
-    my $extra   = $self->view_limit_extra_id;
-    my $default = $self->_build_view_limit_extra_id;
-    # Validate first - can the user set this? (may be from session and have
-    # had permission removed)
-    $extra = $default
-        if $default && !$self->layout->user_can("view_limit_extra");
-    if ($extra)
-    {
-        my $view_limit = $self->schema->resultset('View')->find($extra);
-        return GADS::View->new(
-            id          => $view_limit->id,
-            schema      => $self->schema,
-            layout      => $self->layout,
-            instance_id => $self->layout->instance_id,
-        ) if $view_limit->instance_id == $self->layout->instance_id;
-    }
-    return;
-}
-
-# Any extra view limits in addition to those applied per-user
-has view_limit_extra_id => (
-    is  => 'lazy',
-    isa => Maybe[Int],
-);
-
-sub _build_view_limit_extra_id
-{   my $self = shift;
-    $self->layout->default_view_limit_extra_id;
-}
 
 has no_view_limits => (
     is => 'ro',

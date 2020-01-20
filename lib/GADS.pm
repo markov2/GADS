@@ -39,7 +39,6 @@ use GADS::Column::Rag;
 use GADS::Column::String;
 use GADS::Column::Tree;
 use GADS::Config;
-use GADS::Email;
 use GADS::Globe;
 use GADS::Graph;
 use GADS::Graph::Data;
@@ -47,7 +46,6 @@ use GADS::Graphs;
 use GADS::Group;
 use GADS::Groups;
 use GADS::Import;
-use GADS::Instances;
 use Linkspace::Layout;
 use GADS::MetricGroup;
 use GADS::MetricGroups;
@@ -91,16 +89,8 @@ GADS::Config->instance(
     app_location => app->location,
 );
 
-GADS::Email->instance(
-    config => config,
-);
-
 config->{plugins}->{'Auth::Extensible'}->{realms}->{dbic}->{user_as_object}
     or panic "Auth::Extensible DBIC provider needs to be configured with user_as_object";
-
-# Make sure that internal columns have been populated in tables
-my $instances = GADS::Instances->new(user => undef, user_permission_override => 1);
-$_->create_internal_columns foreach @{$instances->all};
 
 my $password_generator = CtrlO::Crypt::XkcdPassword->new;
 
@@ -250,7 +240,7 @@ hook before_template => sub {
     if (logged_in_user)
     {
         # var 'instances' not set for 404
-        my $instances = var('instances') || GADS::Instances->new(schema => schema, user => $user);
+        my $instances = var('instances') || GADS::Instances->new(user => $user);
         $tokens->{instances}     = $instances->all;
         $tokens->{user}          = $user;
         $tokens->{search}        = session 'search';
@@ -259,13 +249,13 @@ hook before_template => sub {
             if session 'persistent';
 
         if($sheet)
-        {   $tokens->{instance_name}  = $sheet->name
+        {   $tokens->{instance_name}   = $sheet->name
             $tokens->{user_can_edit}   = $sheet->user_can('write_existing');
             $tokens->{user_can_create} = $sheet->user_can('write_new');
+            $tokens->{layout}    = $sheet->layout;   #XXX?
         }
-        $tokens->{show_link} = rset('Current')->next ? 1 : 0;
-        $tokens->{layout}    = $sheet->layout;   #XXX
-        $tokens->{v}         = current_view(logged_in_user, $layout);  # View is reserved TT word
+        $tokens->{show_link} = rset('Current')->next ? 1 : 0; #XXX?
+        $tokens->{v}         = current_view($user, $layout);  # View is reserved TT word
     }
     $tokens->{messages}      = session('messages');
     $tokens->{site}          = $site;
@@ -308,7 +298,7 @@ sub _forward_last_table
     my $forward;
     if (my $l = session('persistent')->{instance_id})
     {
-        my $instances = GADS::Instances->new(schema => schema, user => logged_in_user);
+        my $instances = GADS::Instances->new(user => logged_in_user);
         $forward = $instances->layout($l)->identifier;
     }
     forwardHome(undef, $forward);
@@ -331,12 +321,12 @@ get '/' => require_login sub {
         site   => $site,
     );
 
-    my $dashboard = schema->resultset('Dashboard')->dashboard(%params);
+    my $dashboard = $::db->resultset('Dashboard')->dashboard(%params);
 
     my $params = {
         readonly        => $dashboard->is_shared && !$user->permission->{superadmin},
         dashboard       => $dashboard,
-        dashboards_json => schema->resultset('Dashboard')->dashboards_json(%params),
+        dashboards_json => $::db->resultset('Dashboard')->dashboards_json(%params),
         page            => 'index',
     };
 
@@ -410,13 +400,14 @@ any ['get', 'post'] => '/login' => sub {
     my ($error, $error_modal);
 
     # Request a password reset
-    if (param('resetpwd'))
+    if (param 'resetpwd')
     {
         if (my $username = param('emailreset'))
         {
             if(email_valid $username)
             {
                 $login_change->("Password reset request for $username");
+#XXX password_reset_send?  In plugin?
                 my $result = password_reset_send(username => $username);
                 defined $result
                     ? success(__('An email has been sent to your email address with a link to reset your password'))
@@ -424,8 +415,8 @@ any ['get', 'post'] => '/login' => sub {
                 report INFO =>  __x"Password reset requested for non-existant username {username}", username => $username
                     if defined $result && !$result;
             }
-            else {
-                $error = qq("$username" is not a valid email address);
+            else
+            {   $error = qq("$username" is not a valid email address);
                 $error_modal = 'resetpw';
             }
         }
@@ -439,56 +430,45 @@ any ['get', 'post'] => '/login' => sub {
 
     if (param 'register')
     {
+        my $email = param 'email';
         error __"Self-service account requests are not enabled on this site"
             if $site->hide_account_request;
-        my $params = params;
-        # Check whether this user already has an account
-        if ($users->user_exists($params->{email}))
-        {
-            my $reset_code = Session::Token->new( length => 32 )->get;
-            my $user = $site->users->get_user(username => $params->{email});
-            $user->update({ resetpw => $reset_code });
-            my %welcome_text = welcome_text(undef, code => $reset_code);
-            my $email        = GADS::Email->instance;
-            my $args = {
-                subject => $welcome_text{subject},
-                text    => $welcome_text{plain},
-                html    => $welcome_text{html},
-                emails  => [$params->{email}],
-            };
 
-            if (process( sub { $email->send($args) }))
+        # Check whether this user already has an account
+        if(my $resetpw = $site->users->user_password_reset($email))
+        {
+            if(process( sub { $::linkspace->mailer
+               ->send_welcome({email => $email, code => $resetpw}) }))
             {
                 # Show same message as normal request
                 return forwardHome(
                     { success => "Your account request has been received successfully" } );
             }
-            $login_change->("Account request for $params->{email}. Account already existed, resending welcome email.");
+            $login_change->("Account request for $email. Account already existed, resending welcome email.");
             return forwardHome({ success => "Your account request has been received successfully" });
         }
-        else {
-            try { $users->register($params) };
-            if(my $exception = $@->wasFatal)
+
+        try { $users->register($params) };
+        if(my $exception = $@->wasFatal)
+        {
+            if ($exception->reason eq 'ERROR')
             {
-                if ($exception->reason eq 'ERROR')
-                {
-                    $error = $exception->message->toString;
-                    $error_modal = 'register';
-                }
-                else {
-                    $exception->throw;
-                }
+                $error = $exception->message->toString;
+                $error_modal = 'register';
             }
-            else {
-                $login_change->("New user account request for $params->{email}");
-                return forwardHome({ success => "Your account request has been received successfully" });
+            else
+            {   $exception->throw;
             }
+        }
+        else
+        {   $login_change->("New user account request for $email");
+            return forwardHome({ success => "Your account request has been received successfully" });
         }
     }
 
     if (param('signin'))
     {
-        my $username  = param('username');
+        my $username  = param 'username';
         my $lastfail  = DateTime->now->subtract(minutes => 15);
 
         my $fail      = $users->user_rs->search({
@@ -501,6 +481,7 @@ any ['get', 'post'] => '/login' => sub {
         my ($success, $realm) = !$fail && authenticate_user(
             $username, params->{password}
         );
+
         if ($success) {
             # change session ID if we have a new enough D2 version with support
             app->change_session_id
@@ -523,8 +504,8 @@ any ['get', 'post'] => '/login' => sub {
             session persistent => ($session_settings || {});
             _forward_last_table();
         }
-        else {
-            $::session->audit("Login failure using username $username",
+        else
+        {   $::session->audit("Login failure using username $username",
                 type => 'login_failure'
             );
 
@@ -588,23 +569,21 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
     }
 
     if (param 'submit')
-    {
-        my $params = params;
-        # Update of user details
+    {   my $email  = param 'email';
         my %update = (
-            firstname     => param('firstname')    || undef,
-            surname       => param('surname')      || undef,
-            email         => param('email'),
-            username      => param('email'),
-            freetext1     => param('freetext1')    || undef,
-            freetext2     => param('freetext2')    || undef,
-            title         => param('title')        || undef,
-            organisation  => param('organisation') || undef,
-            department_id => param('department_id') || undef,
-            team_id       => param('team_id') || undef,
+            firstname     => param('firstname'),
+            surname       => param('surname'),
+            email         => $email.
+            username      => $email.
+            freetext1     => param('freetext1'),
+            freetext2     => param('freetext2'),
+            title         => param('title'),
+            organisation  => param('organisation'),
+            department_id => param('department_id'),
+            team_id       => param('team_id'),
         );
 
-        if (process( sub { $user->update_user(current_user => logged_in_user, %update) }))
+        if (process( sub { $site->users->user_update({email => $mail}, \%update) }))
         {
             return forwardHome(
                 { success => "The account details have been updated" }, 'myaccount' );
@@ -614,58 +593,39 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
     my $users = $site->users;
     template 'user' => {
         edit          => $user->id,
-        users         => [$user],
+        users         => [ $user ],
         titles        => $users->titles,
         organisations => $users->organisations,
         departments   => $users->departments,
         teams         => $users->teams,
         page          => 'myaccount',
-        breadcrumbs   => [Crumb( '/myaccount/' => 'my details' )],
+        breadcrumbs   => [ Crumb( '/myaccount/' => 'my details' ) ],
     };
 };
 
-my $new_account = config->{gads}->{new_account};
-
-my $default_email_welcome_subject = ($new_account && $new_account->{subject})
-    || "Your new account details";
-my $default_email_welcome_text = ($new_account && $new_account->{body}) || <<__BODY;
-An account for [NAME] has been created for you. Please
-click on the following link to retrieve your password:
-
-[URL]
-__BODY
-
 any ['get', 'post'] => '/system/?' => require_login sub {
 
-    my $user = logged_in_user;
-
     forwardHome({ danger => "You do not have permission to manage system settings"}, '')
-        unless logged_in_user->permission->{superadmin};
+        unless $user->permission->{superadmin};
 
     if (param 'update')
-    {
-        $site->email_welcome_subject(param 'email_welcome_subject');
-        $site->email_welcome_text(param 'email_welcome_text');
-        $site->name(param 'name');
+    {   my %update = (
+            email_welcome_subject => param('email_welcome_subject'),
+            email_welcome_text    => param('email_welcome_text'),
+            name                  => param('name'),
+        );
 
-        if (process( sub { $site->update }))
+        if(process( sub { $site->site_update(%update) } )
         {
             return forwardHome(
                 { success => "Configuration settings have been updated successfully" } );
         }
     }
 
-    $site->email_welcome_subject($default_email_welcome_subject)
-        if !$site->email_welcome_subject;
-    $site->email_welcome_text($default_email_welcome_text)
-        if !$site->email_welcome_text;
-    $site->name(config->{gads}->{name} || 'Linkspace')
-        if !$site->name;
-
     template 'system' => {
         instance    => $site,
         page        => 'system',
-        breadcrumbs => [Crumb( '/system' => 'system-wide settings' )],
+        breadcrumbs => [ Crumb( '/system' => 'system-wide settings' ) ],
     };
 };
 
@@ -712,14 +672,16 @@ any ['get', 'post'] => '/group/?:id?' => require_any_role [qw/useradmin superadm
     {
         # id will be 0 for new group
         $params->{group}       = $group;
-        $params->{permissions} = [@permissions];
+        $params->{permissions} = \@permissions;
         my $group_name = $id ? $group->name : 'new group';
         my $group_id   = $id ? $group->id : 0;
-        $params->{breadcrumbs} = [Crumb( '/group' => 'groups' ) => Crumb( "/group/$group_id" => $group_name )];
+        $params->{breadcrumbs} = [
+            Crumb( '/group' => 'groups' ) =>
+            Crumb( "/group/$group_id" => $group_name )
+        ];
     }
     else {
-        my $groups = GADS::Groups->new(schema => schema);
-        $params->{groups}      = $groups->all;
+        $params->{groups}      = $site->groups;
         $params->{layout}      = $layout;
         $params->{breadcrumbs} = [Crumb( '/group' => 'groups' )];
     }
@@ -731,7 +693,7 @@ get '/table/?' => require_role superadmin => sub {
     template 'tables' => {
         page        => 'table',
         instances   => [rset('Instance')->all],
-        breadcrumbs => [Crumb( '/table' => 'tables' )],
+        breadcrumbs => [ Crumb( '/table' => 'tables' ) ],
     };
 };
 
@@ -750,7 +712,6 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
         {
             $layout_edit ||= Linkspace::Layout->new(
                 user   => $user,
-                schema => schema,
                 config => config,
             );
             $layout_edit->name(param 'name');
@@ -796,11 +757,11 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
         my $count;
         my $file = upload('file') && upload('file')->tempname;
         if (process sub {
-            $count = rset('User')->upload($file,
+            $count = $site->users->upload($file,
                 request_base => request->base,
-                view_limits  => [body_parameters->get_all('view_limits')],
-                groups       => [body_parameters->get_all('groups')],
-                permissions  => [body_parameters->get_all('permission')],
+                view_limits  => [ body_parameters->get_all('view_limits') ],
+                groups       => [ body_parameters->get_all('groups') ],
+                permissions  => [ body_parameters->get_all('permission') ],
                 current_user => logged_in_user,
             )}
         )
@@ -813,10 +774,13 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
     my $users = $site->users;
 
     template 'user/upload' => {
-        groups      => GADS::Groups->new(schema => schema)->all,
+        groups      => $site->groups,
         permissions => $users->permissions,
         user_fields => $users->user_fields,
-        breadcrumbs => [Crumb( '/user' => 'users' ), Crumb( '/user/upload' => "user upload" ) ],
+        breadcrumbs => [
+            Crumb( '/user' => 'users' ),
+            Crumb( '/user/upload' => "user upload" ),
+        ],
         # XXX Horrible hack - see single user edit route
         edituser    => +{ view_limits_with_blank => [ undef ] },
     };
@@ -825,7 +789,6 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
 any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmin/] => sub {
 
     my $id = body_parameters->get('id');
-    my $user            = logged_in_user;
     my $users           = $site->users;
     my %all_permissions = map { $_->id => $_->name } @{$users->permissions};
     my $login_change    = sub { $::session->audit(@_, type => 'login_change') };
@@ -833,21 +796,15 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     my $users;
 
     if (param 'sendemail')
-    {
+    {   my $org_id = param 'email_organisation';
         my @emails = map $_->email,
-           ( param('email_organisation')
-           ? @{$users->all_in_org(param 'email_organisation')}
-           : @{$users->all}
-           );
+         ( $org_id ? @{$users->all_in_org($org_id)} : @{$users->all} );
 
-        my $email  = GADS::Email->instance;
-        my $args   = {
+        if(process( sub { $::linkspace->mailer->message(
             subject => param('email_subject'),
             text    => param('email_text'),
             emails  => \@emails,
-        };
-
-        if (process( sub { $email->message($args, logged_in_user) }))
+        ) }))
         {
             return forwardHome(
                 { success => "The message has been sent successfully" }, 'user' );
@@ -875,15 +832,11 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             groups                => [body_parameters->get_all('groups')],
         );
         $values{permissions} = [ body_parameters->get_all('permission') ]
-            if $::session->user->is_admin;
+            if $user->is_admin;
 
         if (!param('account_request') && $id) # Original username to update (hidden field)
         {
-            if (process sub {
-                my $user = rset('User')->active->search({ id => $id })->next;
-                # Don't use DBIC update directly, so that permissions etc are updated properly
-                $user->update_user(current_user => logged_in_user, %values);
-            })
+            if(process sub { $site->users->user_update($id => \%values) })
             {
                 return forwardHome(
                     { success => "User has been updated successfully" }, 'user' );
@@ -891,7 +844,11 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         }
         else {
             # This sends a welcome email etc
-            if (process(sub { rset('User')->create_user(current_user => $user, request_base => request->base, %values) }))
+            if(process(sub {
+                 my ($user_rs, $code) = $site->users->user_create(%values);
+                 $values{code} = $code;
+                 $::linkspace->mailer->send_welcome(\%values);
+            }))
             {
                 return forwardHome(
                     { success => "User has been created successfully" }, 'user' );
@@ -1904,15 +1861,13 @@ prefix '/:layout_name' => sub {
                     { danger => 'You do not have permission to send messages' }, $layout->identifier.'/data' )
                     unless $layout->user_can("message");
 
-                my $email  = GADS::Email->instance;
-                my $args   = {
+                if(process( sub {
+                    $::linkspace->mailer->message(
                     subject => param('subject'),
                     text    => param('text'),
                     records => $records,
                     col_id  => param('peopcol'),
-                };
-
-                if (process( sub { $email->message($args, $user) }))
+                ) }))
                 {
                     return forwardHome(
                         { success => "The message has been sent successfully" }, $layout->identifier.'/data' );
@@ -3174,36 +3129,6 @@ __HTML
         plain   => wrap('', '', $body),
         html    => $html,
     )
-}
-
-sub welcome_text
-{   my ($dsl, %options) = @_;
-    my $name = $site->name || config->{gads}->{name} || 'Linkspace';
-    my $url  = request->base . "resetpw/$options{code}";
-    my $new_account = config->{gads}->{new_account};
-    my $subject = $site->email_welcome_subject
-        || $default_email_welcome_subject;
-
-    my $body = $site->email_welcome_text
-        || $default_email_welcome_text;
-
-    $body =~ s/\Q[URL]/$url/;
-    $body =~ s/\Q[NAME]/$name/;
-
-    my $html = text2html(
-        $body,
-        lines     => 1,
-        urls      => 1,
-        email     => 1,
-        metachars => 1,
-    );
-
-    (
-        from    => config->{gads}->{email_from},
-        subject => $subject,
-        plain   => $body,
-        html    => $html,
-    );
 }
 
 sub current_view {

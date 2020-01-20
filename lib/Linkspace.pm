@@ -15,6 +15,7 @@ use Linkspace::DB    ();
 use Linkspace::Site  ();
 use Linkspace::Util  qw(configure_util);
 use Linkspace::Session::System ();
+use Linkspace::Email ();
 
 =head1 NAME
 Linkspace - the Linkspace application
@@ -92,7 +93,7 @@ has config_fn => (
     required => 1,
 );
 
-=head2 $::linkspace->settings
+=head2 $::linkspace->settings;
 This is I<only> the Linkspace logic specific configuration: the
 Dancer2 plugin configuration is not handled here...
 =cut
@@ -215,6 +216,29 @@ sub start_logging()
 
     dispatcher close => 'default'
         unless $has_new_default;
+}
+
+=head2 my $mailer = Linkspace->mailer;
+=cut
+
+sub mailer()
+{   my $self = shift;
+    return $self->{L_mailer} if $self->{L_mailer};
+
+#   my $mailconf = $self->settings_for('mailer')
+#       or return;
+
+    #XXX should disappear
+    my $config = GADS::Config->instance->{gads};
+
+    my $prefix = $config->{message_prefix} || "";
+    $prefix .= "\n" if lenght $prefix;
+
+    $self->{L_mailer} = Linkspace::Email->new(
+        mail_from => $config->{mail_from},
+        message_prefix => $prefix,
+        new_account    => $config->{new_account},
+    );
 }
 
 1;

@@ -18,8 +18,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::AlertSend;
 
-use GADS::Config;
-use GADS::Email;
 use GADS::Records;
 use GADS::Views;
 use List::MoreUtils qw/ uniq /;
@@ -31,16 +29,6 @@ use MooX::Types::MooseLike::Base qw(:all);
 use namespace::clean;
 
 has layout => (
-    is       => 'rw',
-    required => 1,
-);
-
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
-has user => (
     is       => 'rw',
     required => 1,
 );
@@ -453,17 +441,15 @@ sub _send_alert
     }
 
     foreach my $cid (@current_ids)
-    {
-        $text  .= $base."record/$cid\n";
+    {   $text  .= $base."record/$cid\n";
     }
 
-    my $email = GADS::Email->instance;
-    $email->send({
+    $::linkspace->mailer->send(
         subject => qq(Changes in view "$view_name"),
         emails  => $emails,
         text    => $text,
         html    => $html,
-    });
+    );
 }
 
 1;

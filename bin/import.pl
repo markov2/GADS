@@ -76,118 +76,126 @@ schema->site_id($site_id);
 
 my $encoder = JSON->new;
 
-my $guard = schema->txn_scope_guard;
+my $guard = $::db->begin_work;
 
 if ($purge && !$report_only)
 {
-    foreach my $instance (@{GADS::Instances->new(schema => schema, user => undef, user_permission_override => 1)->all})
+    foreach my $instance (@{GADS::Instances->new(user => undef, user_permission_override => 1)->all})
     {
         $instance->purge;
     }
 
-    GADS::Groups->new(schema => schema)->purge;
+    GADS::Groups->new->purge;
 }
 
-schema->resultset('Group')->count && !$add && !$report_only && !$merge
+$::db->resultset('Group')->count && !$add && !$report_only && !$merge
     and report ERROR => "Groups already exists. Use --purge to remove everything from this site before import or --add to add config";
 
 -d '_export/groups'
     or report ERROR => "Groups directory does not exist";
 
-my $group_mapping; # ID mapping
-my $groups = GADS::Groups->new(schema => schema);
-foreach my $g(dir('_export/groups'))
-{
-    my ($group) = grep { $_->name eq $g->{name} } @{$groups->all};
+my %group_mapping; # ID mapping
 
-    if ($group)
-    {
-        report TRACE => __x"Existing: Group {name} already exists", name => $g->{name}
+foreach my $g (dir('_export/groups'))
+{   my $group_name = $g->{name};
+
+    if(my $group = $site->group_by_name($group_name))
+    {   report TRACE => __x"Existing: Group {name} already exists",
+            name => $group_name
             if $report_only;
+         $group_mapping{$g->{id}} = $group->id;
     }
-    else {
-        report NOTICE => __x"Creation: New group {name} to be created", name => $g->{name};
-        $group = GADS::Group->new(
-            name   => $g->{name},
-            schema => schema,
-        );
-        $group->write;
+    else
+    {   report NOTICE => __x"Creation: New group {name} to be created",
+            name => $ggroup_name;
+        my $group_rs = $site->group_create($g);
+        $group_mapping{$g->{id}} = $group_rs->id;
     }
 
-    $group_mapping->{$g->{id}} = $group->id;
 }
 
-my $user_mapping;
+my %user_mapping;
 if (-d '_export/users')
-{
-    foreach my $user (dir("_export/users"))
+{   my $users = $site->users;
+    foreach my $ui (dir "_export/users")
     {
-        $user->{groups} = [map $group_mapping->{$_}, @{$user->{groups}}];
-        my $u = schema->resultset('User')->import_hash($user);
-        $user_mapping->{$user->{id}} = $u->id;
+        my @groups = map $group_mapping{$_}, @{$ui->{groups}};
+        my $perms  = delete $ui->{permissions};
+ 
+        $ui->{pwchanged} => iso2datetime($ui->{pwchanged});
+        $ui->{deleted}   => iso2datetime($ui->{deleted});
+        $ui->{lastlogin} => iso2datetime($ui->{lastlogin});
+        $ui->{created}   => iso2datetime($ui->{created});
+ 
+        my $which  = { email => $ui->{email} };
+        my $user_id;
+        if($user = $users->user($which))
+        {   $users->user_update($user, $ui);
+            $user_id = $user->id;
+        }
+        else
+        {   my $rs = $users->user_create($ui);
+            $user_id = $rs->id;
+        }
+
+        $user_mapping{$ui->{id}} = $user_id;
+
+        $user->set_groups($groups);
+        $user->permissions(@$perms);
     }
 }
 
-opendir my $root, '_export' or report FAULT => "Cannot open directory _export";
+opendir my $root, '_export'
+    or report FAULT => "Cannot open directory _export";
 
-my $column_mapping;
-my $metrics_mapping;
-my $record_mapping;
-my $enum_mapping = {};
-my $values_to_import = {};
-my @all_columns;
-my @all_layouts;
-my %ignore_fields = map { $_ => 1 } @ignore_fields;
+my (%column_mapping, %metrics_mapping, %record_mapping, %enum_mapping);
+my %values_to_import;
+my (@all_columns, @all_layouts);
+
+my %ignore_fields = map +($_ => 1), @ignore_fields;
 
 foreach my $ins (readdir $root)
 {
-    next unless $ins =~ /^instance/;
+    $ins =~ /^instance/ or next;
 
-    my $instance_info = load_json("_export/$ins/instance");
+    my $instance_info = load_json "_export/$ins/instance";
+    my $sheet_name = delete $instance_info->{name};
 
-    my $existing = rset('Instance')->search({
-        name => $instance_info->{name},
-    });
+    $_->{group_id} = $group_mapping{$_->{group_id}}
+        for @{$instance_info->{permissions}};
 
-    my $instance;
-    if (my $count = $existing->count)
+    my $sheet;
+    if($sheet = $site->sheet(name => $sheet_name))
     {
-        report ERROR => __x"More than one existing instance name {name}",
-            name => $instance_info->{name} if $count > 1;
-        $instance = $existing->next;
-        report NOTICE => __x"Existing: Instance {name} already exists", name => $instance_info->{name}
+        report NOTICE => __x"Existing: Instance {name} already exists",
+            name => $sheet_name
             if $report_only && !$merge;
-        report ERROR => __x"Instance {name} already exists", name => $instance_info->{name}
+
+        report ERROR => __x"Instance {name} already exists",
+            name => $sheet_name
             unless $merge;
+
+update existing sheet
     }
-    else {
-        report ERROR => __x"Instance name {name} does not exist. Specify --add to create it.",
-            name => $instance_info->{name} if $merge && !$add;
-        report NOTICE => __x"Creation: Instance name {name} created", name => $instance_info->{name};
-        $instance = rset('Instance')->create({
-            name   => $instance_info->{name},
-        });
+    else
+    {   report ERROR => __x"Instance name {name} does not exist. Specify --add to create it.",
+            name => $sheet_name
+            if $merge && !$add;
 
+        report NOTICE => __x"Creation: Instance name {name} created",
+            name => $sheet_name;
+
+        $sheet = $site->document->sheet_create(
+           name        => $sheet_name,
+           layout      => $instance_info,
+           report_only => $report_only,
+        );
     }
-
-    my $layout = Linkspace::Layout->new(
-       user                     => undef,
-       user_permission_override => 1,
-       schema                   => schema,
-       config                   => GADS::Config->instance,
-       instance_id              => $instance->id,
-    );
-    $layout->create_internal_columns;
-
-    $_->{group_id} = $group_mapping->{$_->{group_id}}
-        foreach @{$instance_info->{permissions}};
-    $layout->import_hash($instance_info, report_only => $report_only);
-    $layout->write unless $report_only;
 
     my $topic_mapping; # topic ID mapping
     if (-d "_export/$ins/topics")
     {
-        foreach my $topic (dir("_export/$ins/topics"))
+        foreach my $topic (dir "_export/$ins/topics")
         {
             my $top;
             my $topic_hash = {
@@ -196,8 +204,9 @@ foreach my $ins (readdir $root)
                 initial_state         => $topic->{initial_state},
                 click_to_edit         => $topic->{click_to_edit},
                 prevent_edit_topic_id => $topic->{prevent_edit_topic_id},
-                instance_id           => $instance->id,
+                instance_id           => $sheet->id,
             };
+
             if ($report_only || $merge)
             {
                 $top = rset('Topic')->search({
@@ -210,6 +219,7 @@ foreach my $ins (readdir $root)
                     if $top->count && $report_only;
                 report NOTICE => __x"Creation: Topic {name} to be created", name => $topic->{name}
                     if !$top->count && $report_only;
+
                 if ($top = $top->next)
                 {
                     $top->import_hash($topic_hash, report_only => $report_only);
@@ -218,26 +228,25 @@ foreach my $ins (readdir $root)
             }
             if (!$top)
             {
-                $top = schema->resultset('Topic')->create($topic_hash);
+                $top = $::db->create(Topic => $topic_hash);
             }
 
             $topic_mapping->{$topic->{id}} = $top->id;
         }
     }
 
-    my %existing_columns = map { $_->id => $_ } $layout->all(exclude_internal => 1);
-
+    my %existing_columns = map +($_->id => $_),
+        $layout->search_columns(exclude_internal => 1);
 
     my $highest_update; # The column with the highest ID that's been updated
     my @created;
-    foreach my $col (dir("_export/$ins/layout"))
+    foreach my $col (dir "_export/$ins/layout")
     {
         my $updated;
         my $column = $layout->column_by_name($col->{name});
 
-        if ($column && $ignore_fields{$column->name})
-        {
-            $column_mapping->{$col->{id}} = $column->id;
+        if($column && $ignore_fields{$column->name})
+        {   $column_mapping{$col->{id}} = $column->id;
             next;
         }
 
@@ -245,11 +254,14 @@ foreach my $ins (readdir $root)
         {
             report TRACE => __x"Update: Column {name} already exists, will update", name => $col->{name}
                 if $report_only;
+
             report ERROR => __x"Column {name} already exists", name => $col->{name}
                 unless $merge;
+
             report ERROR => __x"Existing column type does not match import for column name {name} in table {table}",
                 name => $col->{name}, table => $layout->name
                     if $col->{type} ne $column->type;
+
             $highest_update = $col->{id} if !$highest_update || $col->{id} > $highest_update;
             $updated = 1;
         }
@@ -271,8 +283,9 @@ foreach my $ins (readdir $root)
         $column->topic_id($topic_mapping->{$col->{topic_id}}) if $col->{topic_id};
         # Don't add to the DBIx schema yet, as we may not have all the
         # information needed (e.g. related field IDs)
-        $column->write(override => 1, no_db_add => 1, no_cache_update => 1, update_dependents => 0, enum_mapping => $enum_mapping);
-        $column->import_after_write($col, report_only => $updated && $report_only, force => $force, enum_mapping => $enum_mapping);
+        $column->write(override => 1, no_db_add => 1, no_cache_update => 1, update_dependents => 0, enum_mapping => \%enum_mapping);
+
+        $column->import_after_write($col, report_only => $updated && $report_only, force => $force, enum_mapping => \%enum_mapping);
 
         my $perms_to_set = {};
         foreach my $old_id (keys %{$col->{permissions}})
@@ -282,7 +295,7 @@ foreach my $ins (readdir $root)
         }
         $column->set_permissions($perms_to_set, report_only => $report_only);
 
-        $column_mapping->{$col->{id}} = $column->id;
+        $column_mapping{$col->{id}} = $column->id;
 
         push @all_columns, {
             column  => $column,
@@ -304,45 +317,25 @@ foreach my $ins (readdir $root)
     }
 
     if ($merge)
-    {
-        foreach my $col (values %existing_columns)
-        {
-            unless ($ignore_fields{$col->name})
-            {
-                report NOTICE => __x"Deletion: Column {name} no longer exist", name => $col->name;
-                $col->delete
-                    unless $report_only;
-            }
+    {   foreach my $col (values %existing_columns)
+        {   next if $ignore_fields{$col->name};
+            report NOTICE => __x"Deletion: Column {name} no longer exist", name => $col->name;
+            $col->delete unless $report_only;
         }
     }
 
-    foreach my $mg (dir("_export/$ins/metrics"))
-    {
-        my $existing = schema->resultset('MetricGroup')->search({
-            name => $mg->{name},
-        })->next;
-        my $metric_group;
-        if ($existing)
-        {
-            $metric_group = GADS::MetricGroup->new(
-                id          => $existing->id,
-                instance_id => $layout->instance_id,
-                schema      => schema,
-            );
+    foreach my $mg (dir "_export/$ins/metrics")
+    {   my $mg_name = $mg->{name};
+        my $metric_group_id;
+        if(my $metric_group = $sheet->metric_group(name => $mg_name))
+        {   $metric_group->update($mg);
+            $metrics_mapping{$mg->{id}} = $metric_group->id;
         }
-        else {
-            $metric_group = GADS::MetricGroup->new(
-                name        => $mg->{name},
-                instance_id => $layout->instance_id,
-                schema      => schema,
-            );
-            $metric_group->write;
+        else
+        {   my $mg_rs = $sheet->create_metric_group($msg);
+            $metrics_mapping{$mg->{id}} = $mg_rs->id;
         }
-        $metric_group->import_hash($mg);
-        $metrics_mapping->{$mg->{id}} = $metric_group->id;
     }
-
-    $layout->clear;
 
     # The layout in a column is a weakref, so it will have been destroyed by
     # the time we try and use it later in the script. Therefore, keep a
@@ -360,13 +353,13 @@ foreach my $ins (readdir $root)
     {
         foreach my $record (dir($records_dir))
         {
-            my $c = schema->resultset('Current')->import_hash($record,
+            my $c = $::db->resultset('Current')->import_hash($record,
                 instance         => $instance,
-                user_mapping     => $user_mapping,
-                values_to_import => $values_to_import,
-                column_mapping   => $column_mapping,
+                user_mapping     => \%user_mapping,
+                values_to_import => \%values_to_import,
+                column_mapping   => \%column_mapping,
             );
-            $record_mapping->{$record->{id}} = $c->id;
+            $record_mapping{$record->{id}} = $c->id;
         }
     }
     # XXX Then do record_id entries in records
@@ -375,53 +368,49 @@ foreach my $ins (readdir $root)
 foreach my $l (@all_layouts)
 {
     my $layout = $l->{layout};
-    $layout->import_after_all($l->{values}, mapping => $column_mapping, report_only => $report_only);
+    $layout->import_after_all(
+        $l->{values},
+         mapping => \%column_mapping,
+         report_only => $report_only
+    );
     $layout->write;
-    $layout->clear;
 
     foreach my $g (dir($l->{graphs}))
     {
         # Convert to new column IDs
-        $g->{x_axis} = $column_mapping->{$g->{x_axis}}
-            if $g->{x_axis};
-        $g->{x_axis_link} = $column_mapping->{$g->{x_axis_link}}
-            if $g->{x_axis_link};
-        $g->{y_axis} = $column_mapping->{$g->{y_axis}};
-        $g->{group_by} = $column_mapping->{$g->{group_by}}
-            if $g->{group_by};
-        $g->{metric_group_id} = $metrics_mapping->{$g->{metric_group_id}}
+        $g->{$_} = $column_mapping{$g->{$_}}
+            for grep defined $g->{$_}, qw/x_axis x_axis_link y_axis group_by/;
+
+        $g->{metric_group_id} = $metrics_mapping{$g->{metric_group_id}}
             if $g->{metric_group_id};
 
         # And users and groups where applicable
-        $g->{user_id} = $user_mapping->{$g->{user_id}}
-            if $user_mapping && $g->{user_id};
-        $g->{group_id} = $group_mapping->{$g->{group_id}}
-            if $group_mapping && $g->{group_id};
+        $g->{user_id} = $user_mapping{$g->{user_id}}
+            if keys %$user_mapping && $g->{user_id};
+
+        $g->{group_id} = $group_mapping{$g->{group_id}}
+            if keys %$group_mapping && $g->{group_id};
 
         my $graph;
         if ($merge || $report_only)
         {
-            my $graph_rs = rset('Graph')->search({
-                title => $g->{title},
-            });
+            my $graph_rs = $::db->search(Graph => { title => $g->{title} });
+
             report ERROR => "More than one existing graph titled {title}", title => $g->{title}
                 if $graph_rs->count > 1;
+
             if ($graph_rs->count)
             {
                 $graph = GADS::Graph->new(
                     id     => $graph_rs->next->id,
                     layout => $layout,
-                    schema => schema,
                 );
             }
             else {
                 report NOTICE => __x"Graph to be created: {graph}", graph => $g->{title};
             }
         }
-        $graph ||= GADS::Graph->new(
-            layout => $layout,
-            schema => schema,
-        );
+        $graph ||= GADS::Graph->new(layout => $layout);
         $graph->import_hash($g, report_only => $report_only);
         $graph->write unless $report_only;
     }
@@ -434,26 +423,29 @@ foreach (@all_columns)
 
     next if $ignore_fields{$col->name};
 
-    foreach my $val (@{$values_to_import->{$col->id}})
+    foreach my $val (@{$values_to_import{$col->id}})
     {
-        $val->{value} = $val->{value} && $record_mapping->{$val->{value}}
+        $val->{value} = $val->{value} && $record_mapping{$val->{value}}
             if $col->type eq 'curval';
-        $val->{value} = $val->{value} && $enum_mapping->{$val->{value}}
+
+        $val->{value} = $val->{value} && $enum_mapping{$val->{value}}
             if $col->type eq 'enum' || $col->type eq 'tree';
-        $val->{value} = $val->{value} && $user_mapping->{$val->{value}}
+
+        $val->{value} = $val->{value} && $user_mapping{$val->{value}}
             if $col->type eq 'person';
+
         $col->import_value($val);
     }
 
     report TRACE => __x"Final update of column {name}", name => $col->name;
-    $col->import_after_all($_->{values}, mapping => $column_mapping, report_only => $report_only && $_->{updated}, force => $force);
+    $col->import_after_all($_->{values}, mapping => \%column_mapping, report_only => $report_only && $_->{updated}, force => $force);
+
     # Now add to the DBIx schema
     $col->write(no_cache_update => 1, add_db => 1, update_dependents => 1, report_only => $report_only);
 }
 
 if (!$report_only && $update_cached)
 {
-    GADS::DB->setup(schema);
     $_->{column}->can('update_cached') && $_->{column}->update_cached(no_alerts => 1)
         foreach @all_columns;
 }
@@ -461,10 +453,14 @@ if (!$report_only && $update_cached)
 exit if $report_only;
 $guard->commit;
 
+#### Helpers
+
 sub dir
 {   my $name = shift;
     opendir my $dir, $name or report FAULT => "Cannot open directory $name";
-    map { load_json("$name/$_") } grep { $_ ne '.' && $_ ne '..' } sort readdir $dir;
+    map load_json("$name/$_"),
+        grep { $_ ne '.' && $_ ne '..' }
+            sort readdir $dir;
 }
 
 sub load_json

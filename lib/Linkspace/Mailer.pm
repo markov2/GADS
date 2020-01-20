@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Email;
+package Linkspace::Mailer;
 
 use Log::Report 'linkspace';
 use Mail::Message;
@@ -26,38 +26,30 @@ use Text::Autoformat qw(autoformat break_wrap);
 
 use Moo;
 
-with 'MooX::Singleton';
-
 has message_prefix => (
-    is => 'lazy',
-);
-
-sub _build_message_prefix
-{   my $self = shift;
-    my $prefix = $self->config->{gads}->{message_prefix} || "";
-    $prefix .= "\n" if $prefix;
-    $prefix;
-}
-
-has config => (
     is       => 'ro',
     required => 1,
 );
 
 has email_from => (
-    is => 'lazy',
+    is       => 'ro',
+    required => 1,
 );
 
-sub _build_email_from
-{   my $self = shift;
-    $self->config->{gads}->{email_from};
-}
+has new_account => (   #XXX???
+    is       => 'ro',
+);
 
 sub send
-{   my ($self, $args) = @_;
+{   my $self = @_;
+    my $args = @_ > 1 ? +{ @_ } : shift;
 
-    my $emails   = $args->{emails} or error __"Please specify some recipients to send an email to";
-    my $subject  = $args->{subject} or error __"Please enter a subject for the email";
+    my $emails   = $args->{emails}
+        or error __"Please specify some recipients to send an email to";
+
+    my $subject  = $args->{subject}
+        or error __"Please enter a subject for the email";
+
     my $reply_to = $args->{reply_to};
 
     my @parts;
@@ -100,34 +92,84 @@ sub send
 }
 
 sub message
-{   my ($self, $args, $user) = @_;
+{   my ($self, %args) = @_;
 
     my @emails;
+    my $user = $::session->user;
 
-    if ($args->{records} && $args->{col_id})
-    {
-        foreach my $record (@{$args->{records}->results})
-        {
-            my $email = $record->fields->{$args->{col_id}}->email;
+    if ($args{records} && $args{col_id})
+    {   foreach my $record (@{$args{records}->results})
+        {   my $email = $record->fields->{$args{col_id}}->email;
             push @emails, $email if $email;
         }
     }
 
-    push @emails, @{$args->{emails}} if $args->{emails};
+    push @emails, @{$args{emails}}
+        if $args{emails};
 
     @emails or return;
 
-    (my $text = $args->{text}) =~ s/\s+$//;
-    $text = $self->message_prefix.$text
-             ."\n\nMessage sent by: ".($user->value||"")." (".$user->email.")\n";
+    my $text = $args{text} =~ s/\s+$//r;
+    $text = $self->message_prefix
+          . $text
+          . "\n\nMessage sent by: "
+          . ($user->value||"")." (".$user->email.")\n";
 
-    my $email = {
-        subject  => $args->{subject},
+    $self->send(
+        subject  => $args{subject},
         emails   => \@emails,
         text     => $text,
         reply_to => $user->email,
-    };
-    $self->send($email);
+    );
+}
+
+sub send_welcome($)
+{   my ($self, $args) = @_;
+
+    my $site = $::session->site;
+    my $body = $site->email_welcome_text;
+
+    my $url  = $::session->request->base . "resetpw/$args->{code}";
+    $body    =~ s/\Q[URL]/$url/;
+    $body    =~ s/\Q[NAME]/$site->name/e;
+
+    my $html = text2html(
+        $body,
+        lines     => 1,
+        urls      => 1,
+        email     => 1,
+        metachars => 1,
+    );
+
+    $self->send(
+        subject => $site->email_welcome_subject,
+        text    => $body,
+        html    => $html,
+        emails  => [ $args->{email} ],
+    );
+}
+
+sub send_user_rejected($)
+{   my ($self, $user) = @_;
+    my $site = $::session->site;
+
+    $self->send(
+        subject => $site->email_reject_subject || "Account request rejected",
+        emails  => [ $user->email ],
+        text    => $site->email_reject_text || "Your account request has been rejected.";
+    );
+}
+
+sub send_user_deleted($)
+{   my ($self, $user) = @_;
+    my $site = $::session->site;
+    my $msg = $site->email_delete_text or return;
+
+    $self->send(
+         subject => $site->email_delete_subject || "Account deleted",
+         emails  => [ $user->email ],
+         text    => $msg,
+    );
 }
 
 1;

@@ -119,19 +119,40 @@ sub delete_sheet($)
     $self;
 }
 
-=head2 my $new_sheet = $doc->update_sheet($sheet, \%changes);
+=head2 $doc->update_sheet($sheet, \%changes);
 When a sheet gets updated, it may need result in a new sheet.
 =cut
 
 sub update_sheet($$)
 {   my ($self, $sheet, $changes) = @_;
+    $changes or return $self;
+
+    my $layout_changes = delete $changes->{layout};
+
     my $new = $sheet->update($changes);
     return $sheet if $new==$sheet;
 
     my $index = $self->_sheet_index;
     _sheet_index_update $index, $sheet, undef;
     _sheet_index_update $index, $new, $new;
-    $new;
+
+    $sheet->layout->update_layout($layout_changes);
+    $self;
+}
+
+=head2 my $sheet = $doc->create_sheet(%insert);
+=cut
+
+sub create_sheet(%)
+{   my ($self, %insert) = @_;
+    my $layout_info = delete $insert{layout};
+    my $report_only = delete $insert{report_only};
+
+    my $sheet_rs  = Linkspace::Sheet->create_sheet(\%insert);
+    my $layout_rs = Linkspace::Layout->create_layout($layout_info,
+        sheet => $sheet_rs->id);
+
+    $self->sheet($sheet_rs->id);
 }
 
 =head2 my $sheet = $doc->first_homepage

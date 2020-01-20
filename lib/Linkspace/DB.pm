@@ -91,12 +91,21 @@ sub search
 }
 
 =head2 my $result = $db->get_record($table, $id);
+
+=head2 my $result = $db->get_record($table, %which);
+
+=head2 my $result = $db->get_record($table, \%which);
 Returns one result HASH.
 =cut
 
-sub get_record($$)
-{   my ($self, $table, $id) = @_;
-    $self->resultset($table)->single({id => $id});
+sub get_record($$@)
+{   my ($self, $table) = (shift, shift);
+    my $which
+      = @_ > 1    ? +{ @_ }
+      : ref $_[0] ? $_[0]
+      :             +{ id => $id };
+
+    $self->resultset($table)->single($which);
 }
 
 =head2 my $result = $db->create($table, \%data);

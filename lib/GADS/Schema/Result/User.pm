@@ -14,9 +14,6 @@ use Log::Report 'linkspace';
 use Moo;
 use DateTime;
 
-use GADS::Email;
-use Linkspace::Audit;
-
 extends 'DBIx::Class::Core';
 
 =head1 COMPONENTS LOADED
@@ -675,59 +672,40 @@ sub sqlt_deploy_hook {
     $sqlt_table->add_index(name => 'user_idx_username', fields => [ { name => 'username', size => 64 } ]);
 }
 
-# Used to check if a user has a group
-has has_group => (
-    is => 'lazy',
-);
-
-sub _build_has_group
-{   my $self = shift;
-    +{
-        map { $_->group_id => 1 } $self->user_groups
-    };
-}
-
-# Used to check if a user has a permission
-has permission => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_permission
-{   my $self = shift;
-    my %all = map { $_->id => $_->name } $self->result_source->schema->resultset('Permission')->all;
-    +{
-        map { $all{$_->permission_id} => 1 } $self->user_permissions
-    };
-}
-
 sub update_user
 {   my ($self, %params) = @_;
 
-    my $guard = $self->result_source->schema->txn_scope_guard;
+    my $guard = $::db->begin_work;
 
     my $current_user = delete $params{current_user}
         or panic "Current user not defined on user update";
 
     length $params{firstname} <= 128
         or error __"Forename must be less than 128 characters";
+
     length $params{surname} <= 128
         or error __"Surname must be less than 128 characters";
+
     !defined $params{organisation} || $params{organisation} =~ /^[0-9]+$/
         or error __x"Invalid organisation {id}", id => $params{organisation};
+
     !defined $params{department_id} || $params{department_id} =~ /^[0-9]+$/
         or error __x"Invalid department {id}", id => $params{department_id};
+
     !defined $params{team_id} || $params{team_id} =~ /^[0-9]+$/
         or error __x"Invalid team {id}", id => $params{team_id};
-    GADS::Util->email_valid($params{email})
-        or error __x"The email address \"{email}\" is invalid", email => $params{email};
 
+    my $email    = $params{email};
+    email_valid $email
+        or error __x"The email address \"{email}\" is invalid", email => $email;
+
+    my $username = $email;
     my $values = {
         firstname             => $params{firstname},
         surname               => $params{surname},
         value                 => $params{value},
-        email                 => $params{email},
-        username              => $params{email},
+        email                 => $email,
+        username              => $username,
         freetext1             => $params{freetext1},
         freetext2             => $params{freetext2},
         title                 => $params{title} || undef,
@@ -737,28 +715,26 @@ sub update_user
         account_request_notes => $params{account_request_notes},
     };
 
-    my $audit = Linkspace::Audit->new;
-
     if (lc $values->{username} ne lc $self->username)
     {
-        $self->result_source->schema->resultset('User')->active->search({
-            username => $values->{username},
-        })->count
-            and error __x"Email address {username} already exists as an active user", username => $values->{username};
-        $audit->login_change("Username ".$self->username." (id ".$self->id.") being changed to $values->{username}");
+        $users->search_active({ username => $values->{username} })->count
+            and error __x"Email address {username} already exists as an active user", username => $username;
+
+        $::session->audit->login_change("Username ".$self->username." (id ".$self->id.") being changed to $username");
     }
 
     $values->{value} = _user_value($values);
     $self->update($values);
 
-    $self->set_groups($params{groups})
-        if $params{groups};
+    my $group_ids = $params{groups}
+    $self->set_groups($group_ids)
+        if $group_ids;
 
-    if ($params{permissions})
-    {
-        error __"You do not have permission to set global user permissions"
-            if !$current_user->permission->{superadmin};
-        $self->permissions(@{$params{permissions}});
+    my $perms = $params{permissions};
+    if($perms)
+    {   $::session->user->is_admin
+            or error __"You do not have permission to set global user permissions";
+        $self->permissions(@$perms);
     }
 
     if(my $view_limits = $params{view_limits})
@@ -768,127 +744,18 @@ sub update_user
     }
 
     my $msg = __x"User updated: ID {id}, username: {username}",
-        id => $self->id, username => $params{username};
-    $msg .= __x", groups: {groups}", groups => join ', ', @{$params{groups}}
-        if $params{groups};
-    $msg .= __x", permissions: {permissions}", permissions => join ', ', @{$params{permissions}}
-        if $params{permissions};
+        id => $self->id, username => $username;
+
+    $msg .= __x", groups: {groups}", groups => (join ', ', @$group_ids)
+        if $group_ids
+
+    $msg .= __x", permissions: {permissions}", permissions => join ', ', @$perms
+        if $perms
 
     $audit->login_change($msg);
 
     $guard->commit;
 
-}
-
-sub permissions
-{   my ($self, @permissions) = @_;
-
-    my %user_perms = map { $_ => 1 } @permissions;
-    my %all_perms  = map { $_->name => $_->id } $self->result_source->schema->resultset('Permission')->all;
-
-    foreach my $perm (qw/useradmin audit superadmin/)
-    {
-        my $pid = $all_perms{$perm};
-        if ($user_perms{$perm})
-        {
-            $self->find_or_create_related('user_permissions', { permission_id => $pid });
-        }
-        else {
-            $self->search_related('user_permissions', { permission_id => $pid })->delete;
-        }
-    }
-}
-
-sub retire
-{   my ($self, %options) = @_;
-
-    my $site   = $::session->site;
-
-    # Properly delete if account request - no record needed
-    if ($self->account_request)
-    {   $self->delete;
-        return unless $options{send_reject_email};
-
-        my $email = GADS::Email->instance;
-        $email->send({
-            subject => $site->email_reject_subject || "Account request rejected",
-            emails  => [$self->email],
-            text    => $site->email_reject_text || "Your account request has been rejected",
-        });
-
-        return;
-    }
-
-    $self->search_related(user_graphs => {})->delete;
-
-    my $alerts = $self->search_related(alerts => {});
-    my @alert_ids = map $_->id, $alerts->all;
-    $::db->delete(AlertSend => { alert_id => \@alert_ids });
-    $alerts->delete;
-
-    $self->update({ lastview => undef });
-    my $views    = $self->search_related(views => {});
-    my @view_ids = map $_->id, $views->all;
-
-    $::db->delete($_ => { view_id => \@view_ids })
-        for qw/Filter ViewLayout Sort AlertCache Alert/;
-
-    $views->delete;
-
-    $self->update({ deleted => DateTime->now });
-
-    if (my $msg = $site->email_delete_text)
-    {
-        my $email = GADS::Email->instance;
-        $email->send({
-            subject => $site->email_delete_subject || "Account deleted",
-            emails  => [ $self->email ],
-            text    => $msg,
-        });
-    }
-}
-
-sub has_draft
-{   my ($self, $which) = @_;
-    my $sheet_id = blessed $which ? $which->id : $which;
-    $::db->search(Current => {
-        instance_id  => $sheet_id,
-        draftuser_id => $self->id,
-        'curvals.id' => undef,
-    }, {
-        join => 'curvals',
-    })->next;
-}
-
-sub _user_value
-{   my $user      = shift or return;
-    my $firstname = $user->{firstname} || '';
-    my $surname   = $user->{surname}   || '';
-    "$surname, $firstname";
-}
-
-sub export_hash
-{   my $self = shift;
-    # XXX Department, organisation etc not currently exported
-    +{
-        id                    => $self->id,
-        firstname             => $self->firstname,
-        surname               => $self->surname,
-        value                 => $self->value,
-        email                 => $self->email,
-        username              => $self->username,
-        freetext1             => $self->freetext1,
-        freetext2             => $self->freetext2,
-        password              => $self->password,
-        pwchanged             => $self->pwchanged && $self->pwchanged->datetime,
-        deleted               => $self->deleted && $self->deleted->datetime,
-        lastlogin             => $self->lastlogin && $self->lastlogin->datetime,
-        account_request       => $self->account_request,
-        account_request_notes => $self->account_request_notes,
-        created               => $self->created && $self->created->datetime,
-        groups                => [map $_->id, $self->groups],
-        permissions           => [map $_->permission->name, $self->user_permissions],
-    };
 }
 
 1;

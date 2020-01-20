@@ -9,6 +9,7 @@ use strict;
 use Log::Report 'linkspace';
 
 use MooX::Types::MooseLike::Base qw/:all/;
+use Scalar::Util qw(blessed);
 
 =head1 NAME
 Linkspace::User::Person - someone via the web interface
@@ -80,12 +81,27 @@ sub groups_viewable
 
 sub groups { map $_->group, $_[0]->user_groups }
 
+=head2 my $member_of = $user->in_group($group);
+
+=head2 my $member_of = $user->in_group($group_id);
+=cut
+
+has _has_group => (
+    is => 'lazy',
+    builder => sub { +{ map +($_->group_id => 1) $_[0]->user_groups } },
+}
+
+sub in_group($)
+{   my $self = shift;
+    $self->_has_group->{blessed $_[0] ? shift->id : shift};
+}
+
 =head2 $user->set_groups(\@group_ids);
 =cut
 
 sub set_groups
 {   my ($self, $group_ids) = @_;
-    my $has_group = $self->has_group;
+    my $has_group = $self->_has_group;
     my $is_admin  = $self->is_admin;
 
     foreach my $g (@$group_ids)
@@ -96,7 +112,7 @@ sub set_groups
     # Delete any groups that no longer exist
     my @has_group_ids = map $_->id,
         grep $is_admin || $has_group->{$_->id},
-            $::db->resultset('Group')->all;
+            @{$::session->site->groups};
 
     #XXX this is too complex
     my %search;
@@ -234,5 +250,38 @@ sub column_permissions($)
 
     $perms->{$col->layout_id};
 }
+
+# Used to check if a user has a permission
+has permission => (
+    is      => 'lazy',
+    builder => sub {
+        my $self = shift;
+        my %all = map +($_->id => $_->name), $::db->resultset('Permission')->all;
+         +{
+             map +($all{$_->permission_id} => 1), $self->user_permissions
+          };
+    };
+}
+
+sub permissions
+{   my ($self, @permissions) = @_;
+
+    my %user_perms = map { $_ => 1 } @permissions;
+    my %all_perms  = map { $_->name => $_->id } $::db->search('Permission')->all;
+
+    foreach my $perm (qw/useradmin audit superadmin/)
+    {
+        my $pid = $all_perms{$perm};
+        if ($user_perms{$perm})
+        {
+            $self->find_or_create_related(user_permissions => { permission_id => $pid });
+        }
+        else
+        {   $self->search_related(user_permissions => { permission_id => $pid })->delete;
+        }
+    }
+}
+
+
 
 1;

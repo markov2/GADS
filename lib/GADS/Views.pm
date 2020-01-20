@@ -159,6 +159,8 @@ sub purge
 
 sub view($)
 {   my ($self, $view_id, %args) = @_;
+    defined $view_id or return;
+
     my $sheet = $self->sheet;
 
     my $view = Linkspace::View->from_id($view_id,
@@ -197,7 +199,24 @@ sub create_view
 {   my $self = shift;
     my ($data, $args) = @_%1 ? (shift, +{@_}) : (+{@_}, {});
 
-    Linkspace::View->create($data, 
+    Linkspace::View->create($data, ...);
+}
+
+#------------------------------
+=head1 METHODS: ViewLimits
+Relate view restrictions to users.
+
+=head2 my @views = $views->limits_for_user($user);
+
+=head2 my @views = $views->limits_for_user;
+
+=cut
+
+sub limits_for_user(;$)
+{   my $self = shift;
+    my $user = shift || $::session->user;
+
+    $::db->search(ViewLimit => { 'me.user_id' => $user->id })->all;
 }
 
 1;

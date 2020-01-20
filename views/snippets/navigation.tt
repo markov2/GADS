@@ -109,7 +109,7 @@
             <li class="table-add[% IF page=="table/0" %] active[% END %]"><a href="[% url.page %]/table/0">Add a table</a></li>
             <li class="tables-manage[% IF page=="table" %] active[% END %]"><a href="[% url.page %]/table/">Manage tables</a></li>
             <li class="divider"></li>
-            [% IF layout.user_can("layout") %]
+            [% IF sheet.user_can("layout") %]
                 <li [% IF page=="layout/0" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/layout/0">Add a field</a></li>
                 <li [% IF page=="layout" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/layout/">Manage fields</a></li>
                 <li class="divider"></li>
@@ -182,13 +182,13 @@
         <ul class="dropdown-menu" aria-labelledby="admin-menu" id="admin-menu-options">
             <li [% IF page=="data" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/data">See records</a></li>
             [% IF user_can_create %]
-                [% IF user.has_draft(layout.instance_id) %]
+                [% IF user.has_draft(sheet) %]
                     <li [% IF page=="" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/edit/">Continue draft record</a></li>
                 [% ELSE %]
                     <li class="record-add[% IF page=="" %] active[% END %]"><a href="[% url.page %]/[% layout.identifier %]/edit/">Add a record</a></li>
                 [% END %]
             [% END %]
-            [% IF layout.user_can("link") AND show_link %]
+            [% IF sheet.user_can("link") AND show_link %]
                 <li [% IF page=="" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/link/">Add a linked record</a></li>
             [% END %]
             [% IF user_can_approve %]
@@ -196,10 +196,10 @@
                 <li class="divider"></li>
                 <li [% IF page=="approval" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]approval/">Approve records[% appcount %]</a></li>
             [% END %]
-            [% IF layout.user_can("layout") %]
+            [% IF sheet.user_can("layout") %]
                 <li [% IF page=="import" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/import/">Import records</a></li>
             [% END %]
-	    [% IF layout.user_can("purge") %]
+	    [% IF sheet.user_can("purge") %]
 		<li [% IF page=="purge" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/purge/" class="manage-deleted">Manage deleted records</a></li>
 	    [% END %]
         </ul>
@@ -223,14 +223,14 @@
 
 [% BLOCK data_menu %]
     <div class="col-md-3 navbar navbar-default" id="app-navbar" aria-labelledby="app-navbar-heading">
-        [% IF layout.user_can("layout") OR user.permission.useradmin %]
+        [% IF sheet.user_can("layout") OR user.permission.useradmin %]
             <div class="heading" id="app-navbar-heading">System Administration</div>
             <ul class="nav navbar-nav">
                 [% PROCESS table_menu %]
                 [% IF user.permission.useradmin %]
                     [% PROCESS user_admin_menu %]
                 [% END %]
-                [% IF layout.user_can("layout") %]
+                [% IF sheet.user_can("layout") %]
                     [% PROCESS graphs_menu %]
                 [% END %]
             </ul>
@@ -260,7 +260,7 @@
                         <a href="[% url.page %]/approval/">Approval[% appcount %]</a>
                     </li>
                 [% END %]
-                [% IF layout.user_can("layout") OR user.permission.superadmin OR user.permission.useradmin OR user.permission.audit %]
+                [% IF sheet.user_can("layout") OR user.permission.superadmin OR user.permission.useradmin OR user.permission.audit %]
                     <li class="dropdown">
                     <button type="button" id="admin-menu" class="dropdown-toggle"
                         data-toggle="dropdown" aria-controls="admin-menu-options" aria-expanded="false" aria-haspopup="true">
@@ -268,7 +268,7 @@
                         <span class="caret"></span>
                     </button>
                     <ul class="dropdown-menu" aria-labelledby="admin-menu" id="admin-menu-options">
-                        [% IF layout.user_can("layout") %]
+                        [% IF sheet.user_can("layout") %]
                             <li [% IF page=="layout" %]class="active"[% END %]><a href="[% url.page %]/layout/">Data Layout</a></li>
                         [% END %]
                         [% IF user.permission.superadmin %]
@@ -281,13 +281,13 @@
                             <li [% IF page=="user" %]class="active"[% END %]><a href="[% url.page %]/user/">Manage Users</a></li>
                             <li [% IF page=="group" %]class="active"[% END %]><a href="[% url.page %]/group/">Manage Groups</a></li>
                         [% END %]
-                        [% IF layout.user_can("layout") %]
+                        [% IF sheet.user_can("layout") %]
                             <li [% IF page=="import" %]class="active"[% END %]><a href="[% url.page %]/import/">Imports</a></li>
                         [% END %]
                         [% IF user.permission.audit %]
                             <li [% IF page=="audit" %]class="active"[% END %]><a href="[% url.page %]/audit/">Audit logs</a></li>
                         [% END %]
-                        [% IF layout.user_can("purge") %]
+                        [% IF sheet.user_can("purge") %]
                             <li [% IF page=="purge" %]class="active"[% END %]><a href="[% url.page %]/purge/">Manage deleted records</a></li>
                         [% END %]
                     </ul>
