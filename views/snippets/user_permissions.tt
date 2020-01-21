@@ -27,26 +27,26 @@
         </div>
     [% END %]
 </div>
-[% IF user.permission.superadmin %]
+[% IF user.is_admin %]
     <label>
         User's system-wide permissions:
     </label>
     <div class="checkbox">
         <label>
             <input type="checkbox" name="permission" value="superadmin"
-                [% IF edituser.permission.superadmin %]checked[% END %]>Super-administrator
+                [% IF edituser.is_admin %]checked[% END %]>Super-administrator
         </label>
     </div>
     <div class="checkbox">
         <label>
             <input type="checkbox" name="permission" value="useradmin"
-                [% IF edituser.permission.useradmin %]checked[% END %]>User can manage other user accounts
+                [% IF edituser.has_permission('useradmin') %]checked[% END %]>User can manage other user accounts
         </label>
     </div>
     <div class="checkbox">
         <label>
             <input type="checkbox" name="permission" value="audit"
-                [% IF edituser.permission.audit %]checked[% END %]>User can access audit data
+                [% IF edituser.has_permission('audit') %]checked[% END %]>User can access audit data
         </label>
     </div>
 [% END %]
@@ -56,11 +56,11 @@
 [% IF groups.size %]
     [% FOREACH group IN groups %]
         [% key = group.id %]
-        <div class="checkbox [% UNLESS user.permission.superadmin OR user.has_group.$key %]disabled[% END %]">
+        <div class="checkbox [% UNLESS user.is_admin OR user.has_group(key) %]disabled[% END %]">
             <label>
                 <input type="checkbox" name="groups" value="[% group.id %]"
                     [% IF edituser.has_group.$key %]checked[% END %]
-                    [% UNLESS user.permission.superadmin OR user.has_group.$key %]disabled[% END %]
+                    [% UNLESS user.is_admin OR user.has_group(key) %]disabled[% END %]
                     >[% group.name | html_entity %]
             </label>
         </div>

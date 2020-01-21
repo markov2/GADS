@@ -139,6 +139,15 @@ sub settings_for
     $self->settings->{$component} || {};
 }
 
+=head2 $::linkspace->setting($component => $attribute);
+Try to avoid using this outside this module.
+=cut
+
+sub setting($$)
+{   my $for = $_[0]->settings_for($_[1]);
+    $for ? $for->{$_[2]} : undef;
+}
+
 =head2 my $db = $::linkspace->db
 Returns the L<Linkspace::DB> object which connects to the central database
 with linkspace data.

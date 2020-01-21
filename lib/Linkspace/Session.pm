@@ -108,6 +108,7 @@ sub audit
      Linkspace::Audit->log(\%log);
 }
 
+#--------------------
 =head1 METHODS: Request related
 
 =head2 $session->handles_web_request;

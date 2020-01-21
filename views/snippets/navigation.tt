@@ -117,7 +117,7 @@
                 <li [% IF page=="topics" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/topics/">Manage topics</a></li>
                 <li class="divider"></li>
             [% END %]
-            [% IF user.permission.superadmin %]
+            [% IF user.is_admin %]
                 <li [% IF page=="file" %]class="active"[% END %]>
                     <a href="[% url.page %]/file/">Manage files</a>
                 </li>
@@ -223,11 +223,11 @@
 
 [% BLOCK data_menu %]
     <div class="col-md-3 navbar navbar-default" id="app-navbar" aria-labelledby="app-navbar-heading">
-        [% IF sheet.user_can("layout") OR user.permission.useradmin %]
+        [% IF sheet.user_can("layout") OR user.has_permission('useradmin') %]
             <div class="heading" id="app-navbar-heading">System Administration</div>
             <ul class="nav navbar-nav">
                 [% PROCESS table_menu %]
-                [% IF user.permission.useradmin %]
+                [% IF user.has_permission('useradmin') %]
                     [% PROCESS user_admin_menu %]
                 [% END %]
                 [% IF sheet.user_can("layout") %]
@@ -260,7 +260,7 @@
                         <a href="[% url.page %]/approval/">Approval[% appcount %]</a>
                     </li>
                 [% END %]
-                [% IF sheet.user_can("layout") OR user.permission.superadmin OR user.permission.useradmin OR user.permission.audit %]
+                [% IF sheet.user_can("layout") OR user.is_admin OR user.has_permission('useradmin') OR user.has_permission('audit') %]
                     <li class="dropdown">
                     <button type="button" id="admin-menu" class="dropdown-toggle"
                         data-toggle="dropdown" aria-controls="admin-menu-options" aria-expanded="false" aria-haspopup="true">
@@ -268,23 +268,23 @@
                         <span class="caret"></span>
                     </button>
                     <ul class="dropdown-menu" aria-labelledby="admin-menu" id="admin-menu-options">
-                        [% IF sheet.user_can("layout") %]
+                        [% IF sheet.user_can('layout') %]
                             <li [% IF page=="layout" %]class="active"[% END %]><a href="[% url.page %]/layout/">Data Layout</a></li>
                         [% END %]
-                        [% IF user.permission.superadmin %]
+                        [% IF user.is_admin %]
                             <li [% IF page=="table" %]class="active"[% END %]><a href="[% url.page %]/table/">Tables</a></li>
                             <li [% IF page=="graphs" %]class="active"[% END %]><a href="[% url.page %]/graphs/">Graphs</a></li>
                             <li [% IF page=="metric" %]class="active"[% END %]><a href="[% url.page %]/metrics/">Metrics</a></li>
                             <li [% IF page=="config" %]class="active"[% END %]><a href="[% url.page %]/config/">General Settings</a></li>
                         [% END %]
-                        [% IF user.permission.useradmin OR user.permission.superadmin %]
+                        [% IF user.hash_permission('useradmin') OR user.is_admin %]
                             <li [% IF page=="user" %]class="active"[% END %]><a href="[% url.page %]/user/">Manage Users</a></li>
                             <li [% IF page=="group" %]class="active"[% END %]><a href="[% url.page %]/group/">Manage Groups</a></li>
                         [% END %]
-                        [% IF sheet.user_can("layout") %]
+                        [% IF sheet.user_can('layout') %]
                             <li [% IF page=="import" %]class="active"[% END %]><a href="[% url.page %]/import/">Imports</a></li>
                         [% END %]
-                        [% IF user.permission.audit %]
+                        [% IF user.has_permission('audit') %]
                             <li [% IF page=="audit" %]class="active"[% END %]><a href="[% url.page %]/audit/">Audit logs</a></li>
                         [% END %]
                         [% IF sheet.user_can("purge") %]

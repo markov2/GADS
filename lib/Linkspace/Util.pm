@@ -26,6 +26,7 @@ our @EXPORT_OK = qw/
     configure_util
     email_valid
     iso2datetime
+    is_valid_id
     parse_duration
     scan_for_plugins
 /;
@@ -47,6 +48,8 @@ Linkspace::Util - collection of useful functions
 Collections of functions used all over the place.  Sometimes it is hard
 to decide whether some code should be in a function or as method to an
 object.  Keep it simple!
+
+=head2 FUNCTIONS
 =cut
 
 sub configure_util($)
@@ -78,6 +81,15 @@ sub iso2datetime($)
 }
 
 
+=head2 my $is_valid = is_valid_id $string;
+Returns the database 'id', which is always numeric and larger than zero.
+Surrounding blanks are skipped.  For 
+=cut
+
+sub is_valid_id($)
+{   defined $_[0] && $_[0] =~ /^\s*([0-9]+)\s*$/ && $1 != 0 ? $1 : undef;
+}
+
 =head2 my $duration = parse_duration $string;
 Returns a L<DateTime::Duration> object.
 =cut
@@ -86,7 +98,6 @@ sub parse_duration($) { DateTime::Format::DateManip->parse_duration($_[0]) }
 
 
 =head2 my $plugins = scan_for_plugins $subpkg, %options;
-
 Search the C<@INC> path (set by 'use lib' and the PERL5LIB environment
 variable) for files which seem to contain plugins of a certain group.
 

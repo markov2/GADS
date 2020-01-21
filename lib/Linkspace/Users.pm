@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Users;
+package Linkspace::Users;
 
 use Log::Report 'linkspace';
 
@@ -36,33 +36,34 @@ has site => (
     weakref  => 1,
 );
 
+sub active_users($;$)
+{   my ($self, $search, $attr) = @_;
+    $::db->resultset('User')->active_users($search, $attr);
+}
+
 has all => (
     is  => 'lazy',
     isa => ArrayRef,
+    builder => sub
+    {   [ $_[0]->active_users({}, {
+            join     => { user_permissions => 'permission' },
+            order_by => 'surname',
+            collapse => 1
+        })->all ];
+    },
 );
 
-sub _build_all
-{   [ shift->active_users({}, {
-        join     => { user_permissions => 'permission' },
-        order_by => 'surname',
-        collapse => 1,
-    })->all ];
-}
-
-has all_admins => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
-
-sub _build_all_admins
-{   my $self  = shift;
-    [ $self->active_users( {
-        'permission.name' => 'useradmin',
-    }, {
-        join     => { user_permissions => 'permission' },
-        order_by => 'surname',
-        collapse => 1,
-    })->all ];
+has useradmins => (
+    is      => 'lazy',
+    builder => sub
+    {   [ $_[0]->active_users( {
+            'permission.name' => 'useradmin',
+        }, {
+            join     => { user_permissions => 'permission' },
+            order_by => 'surname',
+            collapse => 1,
+        })->all ];
+    },
 }
 
 has permissions => (
@@ -133,29 +134,50 @@ sub user
     Linkspace::User->from_record($record);
 }
 
-=head2 my $code = $users->user_password_reset($email);
+=head2 my $victim = $users->user_create(%insert);
+Returns a newly created user, a L<Linkspace::User::Person> object.
 =cut
 
-sub user_password_reset($)
-{   my ($self, $email) = @_;
-    my $user = $self->user(email => $email) or return;
+sub _generic_user_validate($)
+{   my ($self, $data) = @_;
 
-    my $reset_code = Session::Token->new(length => 32)->get
-    $self->user_update($user->id, { resetpw => $reset_code });
+    my $email = $data{email}
+        or error __"An email address must be specified for the user";
 
-    $reset_code;
+    email_valid $email
+        or error __"Invalid email address";
+
+    length $data{firstname} <= 128
+        or error __"Forename must be less than 128 characters";
+        
+    length $data{surname} <= 128
+        or error __"Surname must be less than 128 characters";
+
+    ! $data->{permissions} || $::session->user->is_admin
+        or error __"You do not have permission to set global user permissions";
+}
+
+sub _user_value($)
+{   my $data      = shift or return;
+    my $firstname = $data->{firstname} || '';
+    my $surname   = $data->{surname}   || '';
+    "$surname, $firstname";
 }
 
 sub user_create
 {   my ($self, %insert) = @_;
+    $self->_generic_user_validate(\%insert);
 
-    my $email = $insert{email}
-        or error __"An email address must be specified for the user";
+    my $group_ids   = delete $insert{group_ids}
+    my $perms       = delete $insert{permissions};
+    my $view_limits_ids = delete $insert{view_limits_ids};
 
-    email_valid $email
-        or error __"Please enter a valid email address for the new user";
+    my $email = $insert{username} = $insert{email};
+    $insert{value}   ||= _user_value \%insert;
+    $insert{created} ||= DateTime->now,
+    $insert{resetpw} ||= Session::Token->new(length => 32)->get;
 
-    error __x"User {email} already exists", email => $email
+    error __x"User '{email}' already exists", email => $email
         if $self->search_active({email => $email})->count;
 
     my $site  = $self->site;
@@ -177,88 +199,70 @@ sub user_create
     {   $::db->delete(User => $uid);
     }
 
-    myy $code = $insert{resetpw} ||= Session::Token->new(length => 32)->get;
-    $insert{created} ||= DateTime->now,
-    $insert{value}   ||= ($insert{firstname} || '') . ', ' . ($insert{surname} || '');
+    my $victim_id = $::db->create(User => \%insert)->id;
+    my $victim  = $self->user($victim_id);
 
-    my $user_rs = $::db->create(User => \%insert);
-    my $user_id = $user_rs->id;
-
-    $::session->audit->login_change(
-        __x"User created: id={id}, username={username}",
-            id => $user_id, username => $insert{username}
+    $victim->update_relations(
+        group_ids       => $group_ids,
+        permissions     => $perms,
+        view_limits_ids => $view_limits_ids,
     );
+
+    my $msg     = __x"User created: id={id}, username={username}",
+        id => $victim_id, username => $victim->username;
+
+    $msg .= __x", groups: {groups}", groups => $group_ids if $group_ids;
+    $msg .= __x", permissions: {permissions}", permissions => $perms if $perms;
+
+    $::session->audit($msg, type => 'login_change');
 
     $guard->commit;
 
-    ($user_rs, $code);
+    $victim;
 }
 
-sub user_update($$)
-{   my ($self, $which, $what) = @_;
-    #XXX check when username/email changes to not collide with existing user?
-    $::db->update(User => $which, $what);
-}
+=head2 $users->user_update($which, %update);
+=cut
 
-sub register
-{   my ($self, $params) = @_;
+sub user_update
+{   my ($self, $which, %update) = @_;
+    $self->_generic_user_validate(\%update);
 
-    my $email = $params->{email};
-    email_valid $email
-        or error __"Please enter a valid email address";
+    my $victim    = blessed $which ? $which : $::db->get_record(User => $which);
+    my $victim_id = $victim->id;
 
-    my %new   = (
-        firstname => ucfirst $params->{firstname},
-        surname   => ucfirst $params->{surname},
-        username  => $email,
-        email     => $email,
-        account_request       => 1,
-        account_request_notes => $params->{account_request_notes},
+    my @relations = (
+        group_ids       => delete $insert{group_ids},
+        permissions     => delete $insert{permissions},
+        view_limits_ids => delete $insert{view_limits_ids},
     );
 
-    my $site = $self->site;
-    my @fields;
-    push @fields, 'organisation' if $site->register_show_organisation;
-    push @fields, 'department_id'if $site->register_show_department;
-    push @fields, 'team_id'      if $site->register_show_team;
-    push @fields, 'title'        if $site->register_show_title;
-    push @fields, 'freetext1'    if $site->register_freetext1_name;
-    push @fields, 'freetext2'    if $site->register_freetext2_name;
+    my $guard = $::db->begin_work;
+    my $email       = $update{username} = $update{email};
+    $update{value} ||= _user_value \%update;
 
-    defined $params->{$_} && ($new{$_} = $params->{$_})
-        for @fields;
+    my $username  = $update{username} ||= $email;
+    my $old_name  = $victim->username;
 
-    my $user_rs = $::db->create(User => \%new);
-    my $user    = $::linkspace->users->user($user_rs->id);
+    if (lc $username ne lc $old_name)
+    {
+        $self->search_active({ username => $username })->count
+            and error __x"Email address {username} already exists as an active user", username => $username;
 
-    # Email admins with account request
-    my @f = (
-        "First name: $new{firstname}",
-        "surname: $new{surname}",
-        "email: $new{email}",
-    );
+        $::session->audit("Username $old_name (id $victim_id) changed to $username",
+            type => 'login_change');
+    }
 
-    push @f, "title: ".$user->title->name if $user->title;
-    push @f, $site->register_freetext1_name.": $new{freetext1}" if $new{freetext1};
-    push @f, $site->register_freetext2_name.": $new{freetext2}" if $new{freetext2};
-    push @f, $site->register_organisation_name.": ".$user->organisation->name if $user->organisation;
-    push @f, $site->register_department_name.": ".$user->department->name if $user->department;
-    push @f, $site->register_team_name.": ".$user->team->name   if $user->team;
+    $::db->update(User => $victim_id, \%update);
+    $victim = $self->user($victim_id);   # upgrade
+    $victim->update_relations(@relations);
 
-    my $f    = join ',', @f;
-    my $text = <<__EMAIL;
-A new account request has been received from the following person:
+    my $msg = __x"User updated: ID {id}, username: {username}",
+        id => $victim_id, username => $username;
+    $::session->audit($msg, type => 'login_change');
 
-$f
-
-User notes: $new{account_request_notes}
-__EMAIL
-
-    $::linkspace->mailer->send({
-        emails  => [ map $_->email, $self->all_admins ],
-        subject => 'New account request',
-        text    => $text,
-    });
+    $guard->commit;
+    $victim;
 }
 
 sub csv
@@ -304,34 +308,29 @@ sub csv
         group_by => 'me.id',
     })->all;
 
-    my %user_groups = map { $_->id => [ $_->user_groups ] }
+    my %user_groups = map +($_->id => [ $_->user_groups ]),
         $self->active_users({}, { prefetch => { user_groups => 'group' }})->all;
 
-    my %user_permissions = map { $_->id => [ $_->user_permissions ] }
+    my %user_permissions = map +($_->id => [ $_->user_permissions ]),
         $self->active_users({}, { prefetch => { user_permissions => 'permission' }})->all;
 
-    foreach my $user (@users)
-    {
-        my $id = $user->get_column('id_max');
-        my @csv = (
-            $id,
-            $user->get_column('surname_max'),
-            $user->get_column('firstname_max'),
-            $user->get_column('email_max'),
-            $user->get_column('lastlogin_max'),
-            $user->get_column('created_max'),
-        );
-        push @csv, $user->get_column('title_max')      if $site->register_show_title;
-        push @csv, $user->get_column('organisation_max') if $site->register_show_organisation;
-        push @csv, $user->get_column('department_max') if $site->register_show_department;
-        push @csv, $user->get_column('team_max')       if $site->register_show_team;
-        push @csv, $user->get_column('freetext1_max')  if $site->register_freetext1_name;
-        push @csv, $user->get_column('freetext2_max')  if $site->register_freetext2_name;
-        push @csv, join '; ', map $_->permission->description, @{$user_permissions{$id}};
-        push @csv, join '; ', map $_->group->name, @{$user_groups{$id}};
-        push @csv, $user->get_column('audit_count');
+    my @col_order = qw/surname_max firstname_max email_max lastlogin_max created_max/;
+    push @col_order, 'title_max'        if $site->register_show_title;
+    push @col_order, 'organisation_max' if $site->register_show_organisation;
+    push @col_order, 'department_max'   if $site->register_show_department;
+    push @col_order, 'team_max'         if $site->register_show_team;
+    push @col_order, 'freetext1_max'    if $site->register_freetext1_name;
+    push @col_order, 'freetext2_max'    if $site->register_freetext2_name;
 
-        $csv->combine(@csv)
+    foreach my $victim (@users)
+    {
+        my $id  = $victim->get_column('id_max');
+        my @row = map $victim->get_column($_), @col_order;
+        push @row, join '; ', map $_->permission->description, @{$user_permissions{$id}};
+        push @row, join '; ', map $_->group->name, @{$user_groups{$id}};
+        push @row, $victim->get_column('audit_count');
+
+        $csv->combine($id, @row)
             or error __x"An error occurred producing a line of CSV: {err}",
                 err => "".$csv->error_diag;
         $csvout .= $csv->string."\n";
@@ -339,9 +338,14 @@ sub csv
     $csvout;
 }
 
-
 sub upload
-{   my ($self, $file, %options) = @_;
+{   my ($self, $file, %args) = @_;
+
+    my %generic_insert = (
+        view_limits_ids => $args{view_limits},
+        group_ids       => $args{groups},
+        permissions     => $args{permissions},
+    );
 
     $file or error __"Please select a file to upload";
 
@@ -426,38 +430,34 @@ sub upload
             $title_id or push @errors, [ $row, qq(Title "$name" not found) ];
         }
 
-        my %values = (
+        my %insert = (
             firstname     => $cell->('forename') || '',
             surname       => $cell->('surname')  || '',
             email         => $cell->('email')    || '',
-            username      => $cell->('email')    || '',
             freetext1     => $cell->($freetext1) || '',
             freetext2     => $cell->($freetext2) || '',
-            title         => $cell->('title')    || '',
+            title         => $title_id,
             organisation  => $org_id,
             department_id => $dep_id,
             team_id       => $team_id,
-            view_limits   => $options{view_limits},
-            groups        => $options{groups},
-            permissions   => $options{permissions},
+            %generic_insert,
         );
 
-        my ($user_rs, $code) = $self->user_create(%values);
-        $values{code}  = $code;
+        my $user      = $self->user_create(\%insert);
+        $insert{code} = $user->resetpw;
         $nr_users++;
 
-        push @welcome_emails, \%values;
+        push @welcome_emails, \%insert;
     }
 
     if (@errors)
     {   # Report processing errors without sending mails.
 
-        my @e = map { (join ',', @{$_->[0]}) . " ($_->[1])" } @errors;
+        my @e = map (join ',', @{$_->[0]}) . " ($_->[1])", @errors;
         error __x"The upload failed with errors on the following lines: {errors}",
             errors => join '; ', @e;
     }
 
-    # Won't get this far if we have any errors in the previous statement
     $guard->commit;
 
     $::linkspace->mailer->send_welcome($_)

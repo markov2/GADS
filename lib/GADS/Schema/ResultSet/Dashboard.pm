@@ -34,14 +34,13 @@ sub _all_user
     # If they don't have a personal dashboard, then create a copy of the shared
     # dashboard.
 
-    my $schema = $self->result_source->schema;
-    my $guard = $schema->txn_scope_guard;
+    my $guard = $::db->begin_work;
 
     my @dashboards;
 
     # Site shared, only show if populated or superadmin
     my $dash = $self->_shared_dashboard(%params, layout => undef);
-    push @dashboards, $dash if !$dash->is_empty || $user->permission->{superadmin};
+    push @dashboards, $dash if !$dash->is_empty || $user->is_admin;
 
     # Site personal
     $dash = $self->search({
@@ -55,9 +54,9 @@ sub _all_user
     if ($layout)
     {
         $dash = $self->_shared_dashboard(%params);
-        push @dashboards, $dash if !$dash->is_empty || $layout->user_can('layout');
+        push @dashboards, $dash if !$dash->is_empty || $sheet->user_can('layout');
 
-        $dash = $self->search({
+        $dash = $::db->get_record(Dashboard => {
             'me.instance_id' => $layout->instance_id,
             'me.user_id'     => $user->id,
         })->next;
@@ -68,15 +67,16 @@ sub _all_user
 
     $guard->commit;
 
-    return @dashboards;
+    @dashboards;
 }
 
 sub _shared_dashboard
 {   my ($self, %params) = @_;
-    my $dashboard = $self->search({
-        'me.instance_id' => $params{layout} && $params{layout}->instance_id,
+    my $dashboard = $::db->get_record(Dashboard => {
+        'me.instance_id' => $sheet && $sheet->id,
         'me.user_id'     => undef,
-    })->next;
+    });
+
     $dashboard = $self->create_dashboard(%params, type => 'shared')
         if !$dashboard;
 
@@ -95,21 +95,18 @@ sub dashboard
     my $user   = $params{user};
     my $layout = $params{layout};
 
-    my $dashboard_rs = $self->search({
+    my $dashboard = $::db->get_record(Dashboard => {
         'me.id'      => $id,
-        'me.user_id' => [undef, $user->id],
+        'me.user_id' => [ undef, $user->id ],
     },{
         prefetch => 'widgets',
     });
 
-    if ($dashboard_rs->count)
-    {
-        my $dashboard = $dashboard_rs->next;
-        $dashboard->layout($layout);
-        return $dashboard;
-    }
-
-    error __x"Dashboard {id} not found for this user", id => $id;
+    $dashboard
+        or error __x"Dashboard {id} not found for this user", id => $id;
+     
+    $dashboard->layout($layout);
+    $dashboard;
 }
 
 sub create_dashboard
@@ -120,8 +117,7 @@ sub create_dashboard
     my $layout = $params{layout};
     my $site   = $params{site};
 
-    my $schema = $self->result_source->schema;
-    my $guard = $schema->txn_scope_guard;
+    my $guard  = $::db->begin_work;
 
     my $dashboard;
 
@@ -129,16 +125,14 @@ sub create_dashboard
     {
         # First time this has been called. Create default dashboard using legacy
         # homepage text if it exists
-        $dashboard = $self->create({
-            instance_id => $layout && $layout->instance_id,
-        });
+        $dashboard = $self->create({ instance_id => $sheet && $sheet->id });
 
         my $homepage_text  = $layout ? $layout->homepage_text  : $site->homepage_text;
         my $homepage_text2 = $layout ? $layout->homepage_text2 : $site->homepage_text2;
 
         if ($homepage_text2) # Assume 2 columns of homepage
         {
-            $dashboard->create_related('widgets', {
+            $dashboard->create_related(widgets => {
                 type    => 'notice',
                 h       => 6,
                 w       => 6,
@@ -152,7 +146,7 @@ sub create_dashboard
         # accordingly
         if ($homepage_text)
         {
-            $dashboard->create_related('widgets', {
+            $dashboard->create_related(widgets => {
                 type    => 'notice',
                 h       => 6,
                 w       => $homepage_text2 ? 6 : 12,
@@ -165,7 +159,7 @@ sub create_dashboard
     elsif ($type eq 'personal')
     {
         $dashboard = $self->create({
-            instance_id => $layout && $layout->instance_id,
+            instance_id => $sheet->id,
             user_id     => $user->id,
         });
 
@@ -173,7 +167,7 @@ sub create_dashboard
             <p>Create widgets using the Add Widget menu. Edit widgets using their
             edit button (including this one). Drag and resize widgets as required.</p>";
 
-        $dashboard->create_related('widgets', {
+        $dashboard->create_related(widgets => {
             type    => 'notice',
             h       => 6,
             w       => 6,
@@ -182,8 +176,8 @@ sub create_dashboard
             content => $content,
         });
     }
-    else {
-        panic "Unexpected dashboard type: $type";
+    else
+    {   panic "Unexpected dashboard type: $type";
     }
 
     $guard->commit;

@@ -656,10 +656,12 @@ sub _get_dashboard_write
 {   my ($id, $layout, $user) = @_;
     my $dashboard = _get_dashboard($id, $layout, $user);
     return $dashboard
-        if logged_in_user->permission->{superadmin} # For site dashboard
-            || ($layout && $layout->user_can('layout'));
+        if $::session->user->is_admin
+        || ($sheet && $sheet->user_can('layout'));
+
     return $dashboard
         if $dashboard->user_id && $dashboard->user_id == $user->id;
+
     status 403;
     error __x"User does not have write access to dashboard ID {id}", id => $id;
 }

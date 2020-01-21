@@ -39,13 +39,6 @@ The following specific user groups are planned:
 
 =cut
 
-sub _user_value
-{   my $user      = shift or return;
-    my $firstname = $user->{firstname} || '';
-    my $surname   = $user->{surname}   || '';
-    "$surname, $firstname";
-}
-
 =head1 METHODS: Permissions
 
 =head2 is_admin
@@ -114,83 +107,8 @@ sub dt2local($;$%)
 has date_pattern => (
     is      => 'lazy',
     build   => sub {
-       $::linkspace->settings_for('users')->{cldr_pattern} || 'yyyy-MM-dd';
+       $::linkspace->setting(users => 'cldr_pattern') || 'yyyy-MM-dd';
     },
 );
-
-=head2 my $has = $user->has_draft($sheet);
-=cut
-
-sub has_draft
-{   my ($self, $which) = @_;
-    my $sheet_id = blessed $which ? $which->id : $which;
-    $::db->search(Current => {
-        instance_id  => $sheet_id,
-        draftuser_id => $self->id,
-        'curvals.id' => undef,
-    }, {
-        join => 'curvals',
-    })->next;
-}
-
-sub export_hash
-{   my $self = shift;
-    #TODO Department, organisation etc not currently exported
-    +{
-        id                    => $self->id,
-        firstname             => $self->firstname,
-        surname               => $self->surname,
-        value                 => $self->value,
-        email                 => $self->email,
-        username              => $self->username,
-        freetext1             => $self->freetext1,
-        freetext2             => $self->freetext2,
-        password              => $self->password,
-        pwchanged             => $self->pwchanged && $self->pwchanged->datetime,
-        deleted               => $self->deleted   && $self->deleted->datetime,
-        lastlogin             => $self->lastlogin && $self->lastlogin->datetime,
-        account_request       => $self->account_request,
-        account_request_notes => $self->account_request_notes,
-        created               => $self->created   && $self->created->datetime,
-        groups                => [ map $_->id, $self->groups ],
-        permissions           => [ map $_->permission->name, $self->user_permissions ],
-    };
-}
-
-sub retire
-{   my ($self, %options) = @_;
-
-    my $site   = $::session->site;
-
-    if ($self->account_request)
-    {   # Properly delete if account request - no record needed
-        $self->delete;
-
-        $::linkspace->mailer->send_user_rejected($user)
-            if $options{send_reject_email};
-        
-        return;
-    }
-
-    $self->search_related(user_graphs => {})->delete;
-    
-    my $alerts = $self->search_related(alerts => {});
-    my @alert_ids = map $_->id, $alerts->all;
-    $::db->delete(AlertSend => { alert_id => \@alert_ids });
-    $alerts->delete;
-
-    $self->update({ lastview => undef });
-    my $views    = $self->search_related(views => {});
-    my @view_ids = map $_->id, $views->all;
-
-    $::db->delete($_ => { view_id => \@view_ids })
-        for qw/Filter ViewLayout Sort AlertCache Alert/;
-
-    $views->delete;
-
-    $self->update({ deleted => DateTime->now });
-
-    $::linkspace->mailer->send_user_deleted($user);
-}
 
 1;

@@ -149,26 +149,46 @@ sub send_welcome($)
     );
 }
 
-sub send_user_rejected($)
-{   my ($self, $user) = @_;
+sub send_victim_rejected($)
+{   my ($self, $victim) = @_;
     my $site = $::session->site;
 
     $self->send(
         subject => $site->email_reject_subject || "Account request rejected",
-        emails  => [ $user->email ],
+        emails  => [ $victim->email ],
         text    => $site->email_reject_text || "Your account request has been rejected.";
     );
 }
 
-sub send_user_deleted($)
-{   my ($self, $user) = @_;
+sub send_victim_deleted($)
+{   my ($self, $victim) = @_;
     my $site = $::session->site;
     my $msg = $site->email_delete_text or return;
 
     $self->send(
-         subject => $site->email_delete_subject || "Account deleted",
-         emails  => [ $user->email ],
-         text    => $msg,
+        subject => $site->email_delete_subject || "Account deleted",
+        emails  => [ $victim->email ],
+        text    => $msg,
+    );
+}
+
+sub send_account_requested($$)
+{   my ($self, $victim, $to) = @_;
+
+    my $summary = $victim->summary;
+    my $notes   = $victim->account_request_notes;
+    my $text    = <<__EMAIL;
+A new account request has been received from the following person:
+
+$summary
+
+User notes: $notes
+__EMAIL
+
+    $self->send(
+        subject => ''New account request',
+        emails  => $to,
+        text    => $text,
     );
 }
 

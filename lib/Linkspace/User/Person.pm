@@ -22,27 +22,77 @@ of these users is managed by L<Linkspace::Users>.
 
 =head1 METHODS: Constructors
 
-=head2 my $user = $class->from_data(\%data);
+=head2 my $user = $class->from_record(\%data);
 Upgrades a raw database record of type L<GADS::Schema::Result::User> into
 a qualified Linkspace user (by blessing).
 =cut
 
-sub from_data
-{   my ($class, $data) = @_;
+sub from_record
+{   my ($class, $record) = @_;
 
     #XXX Probably more work to do here, later
     bless $data, $class;
 }
 
-=head1 METHODS: Permissions
-
+=head2 $user->retire(%options)
+Option C<send_reject_email>.
 =cut
 
-sub is_admin { $_[0]->permissions->{superadmin} }
+sub retire(%)
+{   my ($self, %args) = @_;
 
+    if ($self->account_request)
+    {   # Properly delete if account request - no record needed
+        $self->delete;
+
+        $::linkspace->mailer->send_user_rejected($user)
+            if $args{send_reject_email};
+
+        return;
+    }
+
+    my $guard = $::db->begin_work;
+    $self->_graphs_delete;
+    $self->_alerts_delete;
+    $self->_views_delete;
+
+    $self->update({
+        lastview => undef,
+        deleted  => DateTime->now,
+    });
+
+    $guard->commit;
+
+    $::linkspace->mailer->send_user_deleted($self);
+}
+
+=head2 my $msg = $user->update_relations(%options);
+=cut
+
+sub update_relations(%)
+{   my ($self, %args) = @_;
+
+    $self->_set_group_ids($args{group_ids});
+    if(my $perms = $args{permissions})
+    {   $::session->user->is_admin
+            or error __"You do not have permission to set global user permissions";
+
+        # Permissions are still names here.
+        $self->_set_permissions(@$perms);
+    }
+
+    if($view_limits)
+    {   my @view_limits = grep /\S/,
+           ref $view_limits eq 'ARRAY' ? @$view_limits : $view_limits;
+        $self->_set_view_limits(\@view_limits);
+    }
+}
+
+
+#-----------------------
 =head1 METHODS: Groups
 
-=head2 my @group_names = $user->groups_viewable;
+=head2 my @groups = $user->groups_viewable;
 Groups that this user should be able to see for the purposes of things like
 creating shared graphs.
 =cut
@@ -50,21 +100,19 @@ creating shared graphs.
 sub groups_viewable
 {   my $self = shift;
 
-    return $::db->resultset('Group')->all
+    return @{$::session->site->groups}
         if $self->is_admin;
 
     # Layout admin, all groups in their layout(s)
-    my $instance_ids = $::db->search(InstanceGroup => {
+    my $sheet_ids_rs = $::db->search(InstanceGroup => {
         'me.permission'       => 'layout',
         'user_groups.user_id' => $self->id,
     },{
-        join => {
-            group => 'user_groups',
-        },
+        join => { group => 'user_groups' },
     })->get_column('me.instance_id');
 
     my $owner_groups = $::db->search(LayoutGroup => {
-        instance_id => { -in => $instance_ids->as_query },
+        instance_id => { -in => $sheet_ids_rs->as_query },
     }, {
         join => 'layout',
     });
@@ -75,8 +123,8 @@ sub groups_viewable
     values %groups;
 }
 
-
-=head2 my @groups = $user->groups;
+=head2 my @group = $user->groups;
+Returns group records, group records.
 =cut
 
 sub groups { map $_->group, $_[0]->user_groups }
@@ -96,11 +144,11 @@ sub in_group($)
     $self->_has_group->{blessed $_[0] ? shift->id : shift};
 }
 
-=head2 $user->set_groups(\@group_ids);
-=cut
-
-sub set_groups
+# $user->_set_group_ids(\@group_ids);
+sub _set_group_ids
 {   my ($self, $group_ids) = @_;
+    defined $group_ids or return;
+
     my $has_group = $self->_has_group;
     my $is_admin  = $self->is_admin;
 
@@ -122,11 +170,7 @@ sub set_groups
         ->delete;
 }
 
-=head2 my $has = $user->has_group($group_id);
-=cut
-
-sub has_group XXX
-
+#-----------------------
 =head1 METHODS: Views
 
 =head2 $user->view_limits_with_blank
@@ -138,14 +182,12 @@ sub view_limits_with_blank
     $view_limits->count ? $view_limits : [ undef ];
 }
 
-=head2 $user->set_view_limits(\@view_ids);
+# $user->set_view_limits(\@view_ids);
+# $user->set_view_limits(\@views);
 
-=head2 $user->set_view_limits(\@views);
-=cut
-
-sub set_view_limits
+sub _set_view_limits
 {   my ($self, $views) = @_;
-    my @view_ids = map +(ref $_ ? $_->id : $_), $views;
+    my @view_ids = map +(blessed $_ ? $_->id : $_), @$views;
 
     $self->find_or_create_related(view_limits => { view_id => $_ })
         for @view_ids;
@@ -158,8 +200,21 @@ sub set_view_limits
     $self->search_related(view_limits => \%search)->delete;
 }
 
+sub _views_delete()
+{   my $self = shift;
+    my $views    = $self->search_related(views => {});
+    my @view_ids = map $_->id, $views->all;
 
+    #XXX should move to ::Views
+    $::db->delete($_ => { view_id => \@view_ids })
+        for qw/Filter ViewLayout Sort AlertCache Alert/;
+
+    $views->delete;
+}
+
+#-----------------------
 =head1 METHODS: Graphs
+=cut
 
 =head2 $user->set_graphs($instance, \@graph_ids);
 =cut
@@ -181,9 +236,20 @@ sub set_graphs
     $self->search_related(user_graphs => \%search, { join => 'graph' })->delete;
 }
 
+sub _graphs_delete()
+{   my $self = shift;
+    $self->search_related(user_graphs => {})->delete;
+}
 
+#-----------------------
 =head1 METHODS: Permissions
 The user's permissions are heavily cached, to make it perform.
+
+=cut
+
+# Inherited
+sub is_admin { $_[0]->permissions->{superadmin} }
+
 
 =head2 \%h = $user->sheet_permissions($sheet);
 Returns a HASH which shows the user permissions which were set explicitly
@@ -220,12 +286,10 @@ sub sheet_permissions($)
 Columns are grouped into Layouts, which model Sheets.
 =cut
 
-sub column_permissions($)
-{   my ($self, $col) = @_;
-
-    my $perms = $self->{LUP_col_perms};
-    unless($perms)
-    {   #XXX Why is instance_id in here?
+has _col_perms = (
+    is      => 'lazy',
+    builder => sub {
+        #XXX Why is instance_id in here?
         my $rs = $::db->search(LayoutGroup => {
             user_id => $self->id,
         }, {
@@ -234,8 +298,8 @@ sub column_permissions($)
                 { max => 'me.layout_id' },
                 { max => 'me.permission' },
             ],
-            as       => [qw/instance_id layout_id permission/],
-            group_by => [qw/me.permission me.layout_id/],
+            as       => [ qw/instance_id layout_id permission/ ],
+            group_by => [ qw/me.permission me.layout_id/ ],
             join     => [
                 'layout',
                 { group => 'user_groups' },
@@ -243,16 +307,23 @@ sub column_permissions($)
             result_class => 'HASH',
         });
 
-        $perms = $self->{LUP_col_perms} = {};
-        $perms->{$_->{layout_id}}{$_->{permission}} = 1
+        my %perms;
+        $perms{$_->{layout_id}}{$_->{permission}} = 1
             for $rs->all;
-    }
-
-    $perms->{$col->layout_id};
+        \%perms;
+    },
 }
 
-# Used to check if a user has a permission
-has permission => (
+sub column_permissions($)
+{   my ($self, $col) = @_;
+    $self->_col_perms->{$col->layout_id};
+}
+
+=head2 my $has = $user->has_permission($perm);
+Check whether the user has a permission (by name).
+=cut
+
+has _permissions => (
     is      => 'lazy',
     builder => sub {
         my $self = shift;
@@ -263,25 +334,118 @@ has permission => (
     };
 }
 
-sub permissions
+sub has_permission($) { $_[0]->_permissions->($_[1]) }
+
+sub _set_permissions
 {   my ($self, @permissions) = @_;
 
-    my %user_perms = map { $_ => 1 } @permissions;
-    my %all_perms  = map { $_->name => $_->id } $::db->search('Permission')->all;
+    my %want_perms = map +($_ => 1), @permissions;
+    my %perm2id  = map +($_->name => $_->id), $::db->search('Permission')->all;
 
+    #XXX why limited to these three?
     foreach my $perm (qw/useradmin audit superadmin/)
     {
-        my $pid = $all_perms{$perm};
-        if ($user_perms{$perm})
-        {
-            $self->find_or_create_related(user_permissions => { permission_id => $pid });
+        my $which = { permission_id => $perm2id{$perm} };
+        if ($warn_perms{$perm})
+        {   $self->find_or_create_related(user_permissions => $which);
         }
         else
-        {   $self->search_related(user_permissions => { permission_id => $pid })->delete;
+        {   $self->search_related(user_permissions => $which)->delete;
         }
     }
 }
 
+#---------------------------
+=head1: METHODS: Alerts
+=cut
 
+sub _alerts_delete()
+{   my $self = shift;
+    my $alerts = $self->search_related(alerts => {});
+    my @alert_ids = map $_->id, $alerts->all;
+    $::db->delete(AlertSend => { alert_id => \@alert_ids });
+    $alerts->delete;
+}
+
+#---------------------------
+=head1: METHODS: other
+
+=cut
+
+sub export_hash
+{   my $self = shift;
+    #TODO Department, organisation etc not currently exported
+    +{
+        id              => $self->id,
+        firstname       => $self->firstname,
+        surname         => $self->surname,
+        value           => $self->value,
+        email           => $self->email,
+        username        => $self->username,
+        freetext1       => $self->freetext1,
+        freetext2       => $self->freetext2,
+        password        => $self->password,
+        pwchanged       => $self->pwchanged && $self->pwchanged->datetime,
+        deleted         => $self->deleted   && $self->deleted->datetime,
+        lastlogin       => $self->lastlogin && $self->lastlogin->datetime,
+        created         => $self->created   && $self->created->datetime,
+        groups          => [ map $_->id, $self->groups ],
+        permissions     => [ map $_->permission->name, $self->user_permissions ],
+        account_request => $self->account_request,
+        account_request_notes => $self->account_request_notes,
+    };
+}
+
+=head2 my $has = $user->has_draft($sheet);
+=cut
+
+sub has_draft
+{   my ($self, $sheet) = @_;
+    my $sheet_id = blessed $sheet ? $sheet->id : $sheet;
+    $::db->search(Current => {
+        instance_id  => $sheet_id,
+        draftuser_id => $self->id,
+        'curvals.id' => undef,
+    }, {
+        join => 'curvals',
+    })->next;
+}
+
+=head2 $user->password_reset;
+=cut
+
+sub password_reset()
+{   my $self = shift;
+    my $reset_code = Session::Token->new(length => 32)->get;
+    $self->update({ resetpw => $reset_code });
+    $self->resetpw($reset_code);
+    $reset_code;
+}
+
+=head2 my $text = $user->summary(%options);
+Option C<field_separator> defaults to C<,>.
+=cut
+
+sub summary(%)
+{   my ($self, %args) = @_;
+    my $sep  = $args{field_separator} || ',';
+    my $site = $::session->site;
+
+    my @f = (
+       [ 'first name' => $self->firstname ],
+       [ surname      => $self->surname   ],
+       [ email        => $self->email     ],
+    );
+
+    push @f, [ title => $self->title->name ] if $self->title;
+    push @f, [ $site->register_freetext1_name => $self->freetext1 ] if $self->freetext1;
+    push @f, [ $site->register_freetext2_name => $self->freetext2 ] if $self->freetext2;
+    push @f, [ $site->register_organisation_name => $self->organisation->name ] if $self->organisation;
+    push @f, [ $site->register_department_name => $self->department->name ] if $self->department;
+    push @f, [ $site->register_team_name => $self->team->name ] if $self->team;
+
+    #XXX it is easy to make a nice table for this
+    join $sep, map "$_->[0]: $_->[1]", @f;
+}
 
 1;

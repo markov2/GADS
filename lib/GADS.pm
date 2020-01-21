@@ -44,7 +44,6 @@ use GADS::Graph;
 use GADS::Graph::Data;
 use GADS::Graphs;
 use GADS::Group;
-use GADS::Groups;
 use GADS::Import;
 use Linkspace::Layout;
 use GADS::MetricGroup;
@@ -249,7 +248,7 @@ hook before_template => sub {
             if session 'persistent';
 
         if($sheet)
-        {   $tokens->{instance_name}   = $sheet->name
+        {   $tokens->{instance_name}   = $sheet->name;
             $tokens->{user_can_edit}   = $sheet->user_can('write_existing');
             $tokens->{user_can_create} = $sheet->user_can('write_new');
             $tokens->{layout}    = $sheet->layout;   #XXX?
@@ -270,10 +269,10 @@ hook before_template => sub {
         if !session 'csrf_token';
     $tokens->{csrf_token}    = session 'csrf_token';
 
-    if (session('views_other_user_id') && $tokens->{page} =~ /(data|view)/)
-    {
+    if($tokens->{page} =~ /(data|view)/)
+    {   my $other = $site->user(session 'views_other_user_id');
         notice __x"You are currently viewing, editing and creating views as {name}",
-            name => rset('User')->find(session 'views_other_user_id')->value;
+            name => $other->value if $other;
     }
     session 'messages' => [];
 };
@@ -296,10 +295,8 @@ sub _forward_last_table
 {
     forwardHome() if ! $site->remember_user_location;
     my $forward;
-    if (my $l = session('persistent')->{instance_id})
-    {
-        my $instances = GADS::Instances->new(user => logged_in_user);
-        $forward = $instances->layout($l)->identifier;
+    if(my $l = session('persistent')->{instance_id})
+    {   $forward = $site->sheet($l)->identifier;
     }
     forwardHome(undef, $forward);
 }
@@ -324,7 +321,7 @@ get '/' => require_login sub {
     my $dashboard = $::db->resultset('Dashboard')->dashboard(%params);
 
     my $params = {
-        readonly        => $dashboard->is_shared && !$user->permission->{superadmin},
+        readonly        => $dashboard->is_shared && !$user->is_admin,
         dashboard       => $dashboard,
         dashboards_json => $::db->resultset('Dashboard')->dashboards_json(%params),
         page            => 'index',
@@ -354,8 +351,7 @@ get '/ping' => sub {
 any ['get', 'post'] => '/aup' => require_login sub {
 
     if (param 'accepted')
-    {
-        update_current_user aup_accepted => DateTime->now;
+    {   update_current_user aup_accepted => DateTime->now;
         redirect '/';
     }
 
@@ -435,25 +431,45 @@ any ['get', 'post'] => '/login' => sub {
             if $site->hide_account_request;
 
         # Check whether this user already has an account
-        if(my $resetpw = $site->users->user_password_reset($email))
+        my $victim = $site->users->user(email => $email);
+
+        if($victim)
         {
-            if(process( sub { $::linkspace->mailer
-               ->send_welcome({email => $email, code => $resetpw}) }))
+            if(process( sub {
+                 my $resetpw = $user->password_reset;
+                 $::linkspace->mailer->send_welcome({email => $email, code => $resetpw}) }))
             {
                 # Show same message as normal request
                 return forwardHome(
                     { success => "Your account request has been received successfully" } );
             }
             $login_change->("Account request for $email. Account already existed, resending welcome email.");
-            return forwardHome({ success => "Your account request has been received successfully" });
+            return forwardHome({ success =>
+                "Your account request has been received successfully" });
         }
 
-        try { $users->register($params) };
+        my %insert = (
+            firstname => ucfirst param('firstname'),
+            surname   => ucfirst param('surname'),
+            email     => $email,
+            account_request       => 1,
+            account_request_notes => param('account_request_notes'),
+        );
+
+        my @fields;
+        push @fields, 'organisation'  if $site->register_show_organisation;
+        push @fields, 'department_id' if $site->register_show_department;
+        push @fields, 'team_id'       if $site->register_show_team;
+        push @fields, 'title'         if $site->register_show_title;
+        push @fields, 'freetext1'     if $site->register_freetext1_name;
+        push @fields, 'freetext2'     if $site->register_freetext2_name;
+        $insert{$_} = param $_ for @fields;
+
+        my $victim = try { $users->user_create(\%insert) };
         if(my $exception = $@->wasFatal)
         {
             if ($exception->reason eq 'ERROR')
-            {
-                $error = $exception->message->toString;
+            {   $error = $exception->message->toString;
                 $error_modal = 'register';
             }
             else
@@ -462,11 +478,12 @@ any ['get', 'post'] => '/login' => sub {
         }
         else
         {   $login_change->("New user account request for $email");
+            my @to => map $_->email, $users->useradmins;
+            $::linkspace->mailer->send_account_requested($victim, \@to);
             return forwardHome({ success => "Your account request has been received successfully" });
         }
     }
-
-    if (param('signin'))
+    elsif(param('signin'))
     {
         my $username  = param 'username';
         my $lastfail  = DateTime->now->subtract(minutes => 15);
@@ -561,10 +578,16 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
             $::session->audit('New password set for user',
                 type => 'login change',
             );
-            forwardHome({ success => qq(Your password has been changed to: $new_password)}, 'myaccount', user_only => 1 ); # Don't log elsewhere
+
+            # Don't log elsewhere
+            return forwardHome({ success =>
+                 qq(Your password has been changed to: $new_password)},
+                 'myaccount', user_only => 1 );
         }
         else {
-            forwardHome({ danger => "The existing password entered is incorrect"}, 'myaccount' );
+            return forwardHome({ danger =>
+                "The existing password entered is incorrect"},
+                'myaccount' );
         }
     }
 
@@ -574,19 +597,19 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
             firstname     => param('firstname'),
             surname       => param('surname'),
             email         => $email.
-            username      => $email.
             freetext1     => param('freetext1'),
             freetext2     => param('freetext2'),
-            title         => param('title'),
-            organisation  => param('organisation'),
-            department_id => param('department_id'),
-            team_id       => param('team_id'),
+            title         => is_valid_id(param 'title'),
+            organisation  => is_valid_id(param 'organisation'),
+            department_id => is_valid_id(param 'department_id'),
+            team_id       => is_valid_id(param 'team_id'),
         );
 
-        if (process( sub { $site->users->user_update({email => $mail}, \%update) }))
+        if (process( sub { $site->users->user_update({email => $email}, \%update) }))
         {
-            return forwardHome(
-                { success => "The account details have been updated" }, 'myaccount' );
+            return forwardHome({ success =>
+                "The account details have been updated" },
+                'myaccount' );
         }
     }
 
@@ -605,8 +628,9 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
 
 any ['get', 'post'] => '/system/?' => require_login sub {
 
-    forwardHome({ danger => "You do not have permission to manage system settings"}, '')
-        unless $user->permission->{superadmin};
+    $user->is_admin
+        or return forwardHome({ danger =>
+            "You do not have permission to manage system settings"}, '');
 
     if (param 'update')
     {   my %update = (
@@ -616,9 +640,8 @@ any ['get', 'post'] => '/system/?' => require_login sub {
         );
 
         if(process( sub { $site->site_update(%update) } )
-        {
-            return forwardHome(
-                { success => "Configuration settings have been updated successfully" } );
+        {   return forwardHome({ success =>
+                 "Configuration settings have been updated successfully" } );
         }
     }
 
@@ -633,7 +656,6 @@ any ['get', 'post'] => '/system/?' => require_login sub {
 any ['get', 'post'] => '/group/?:id?' => require_any_role [qw/useradmin superadmin/] => sub {
 
     my $id = param 'id';
-    my $group  = GADS::Group->new(schema => schema);
     my $layout = var 'layout';
     $group->from_id($id);
 
@@ -643,24 +665,23 @@ any ['get', 'post'] => '/group/?:id?' => require_any_role [qw/useradmin superadm
     {
         $group->name(param 'name');
         foreach my $perm (@permissions)
-        {
-            my $name = "default_".$perm->short;
+        {   my $name = "default_".$perm->short;
             $group->$name(param($name) ? 1 : 0);
         }
+
         if (process(sub {$group->write}))
         {
             my $action = param('id') ? 'updated' : 'created';
-            return forwardHome(
-                { success => "Group has been $action successfully" }, 'group' );
+            return forwardHome({ success =>
+                "Group has been $action successfully" }, 'group' );
         }
     }
 
     if (param 'delete')
     {
-        if (process(sub {$group->delete}))
-        {
-            return forwardHome(
-                { success => "The group has been deleted successfully" }, 'group' );
+        if(process(sub {$group->delete}))
+        {   return forwardHome({ success =>
+                "The group has been deleted successfully" }, 'group' );
         }
     }
 
@@ -699,54 +720,55 @@ get '/table/?' => require_role superadmin => sub {
 
 any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
 
-    my $id          = param 'id';
-    my $user        = logged_in_user;
-    my $layout_edit = $id && var('instances')->layout($id);
+    my $sheet_id = is_valid_id(param 'id');
+    if($sheet_id)
+    {   $sheet = $site->sheet($sheet_id)
+            or error __x"Sheet ID {id} not found", id => $sheet_id;
+    }
 
-    $id && !$layout_edit
-        and error __x"Instance ID {id} not found", id => $id;
+    if(param 'submit')
+    {   my %data = (
+            name           => param 'name',
+            name_short     => param 'name_short',
+            sort_layout_id => param 'sort_layout_id',
+            sort_type      => param 'sort_type',
+            group_ids      => [ body_parameters->get_all('permissions') ],  ### perms?
+        );
 
-    if (param('submit') || param('delete'))
-    {
-        if (param 'submit')
-        {
-            $layout_edit ||= Linkspace::Layout->new(
-                user   => $user,
-                config => config,
-            );
-            $layout_edit->name(param 'name');
-            $layout_edit->name_short(param 'name_short');
-            $layout_edit->sort_layout_id(param('sort_layout_id') || undef);
-            $layout_edit->sort_type(param('sort_type') || undef);
-            $layout_edit->set_groups([body_parameters->get_all('permissions')]);
-
-            if (process(sub {$layout_edit->write}))
-            {
-                # Switch user to new table
-                my $msg = param('id') ? 'The table has been updated successfully' : 'Your new table has been created successfully';
-                return forwardHome(
-                    { success => $msg }, 'table' );
+        my $msg;
+        if(process(sub {
+            if($sheet)
+            {   $sheet->sheet_update($sheet, %data);
+                $msg = 'The table has been updated successfully';
             }
+            else
+            {   $sheet = $site->documents->sheet_create(%data);
+                $msg   = 'Your new table has been created successfully';
+            }
+        }))
+        {
+            # Switch user to new table
+            return forwardHome({ success => $msg }, 'table' );
         }
-
-        if (param 'delete')
-        {
-            if (process(sub {$layout_edit->delete}))
-            {
-                return forwardHome(
-                    { success => "The table has been deleted successfully" }, 'table' );
-            }
+    }
+    elsif($sheet && param 'delete')
+    {   if(process(sub { $sheet->sheet_delete }))
+        {   return forwardHome({ success =>
+                "The table has been deleted successfully" }, 'table' );
         }
     }
 
-    my $table_name = $id ? $layout_edit->name : 'new table';
-    my $table_id   = $id ? $layout_edit->instance_id : 0;
+    my $table_name = $sheet_id ? $layout_edit->name : 'new table';
+    my $table_id   = $sheet_id ? $layout_edit->instance_id : 0;
 
     template 'table' => {
-        page        => $id ? 'table' : 'table/0',
-        layout_edit => $layout_edit,
-        groups      => GADS::Groups->new(schema => schema)->all,
-        breadcrumbs => [Crumb( '/table' => 'tables' ) => Crumb( "/table/$table_id" => $table_name )],
+        page        => $sheet_id ? 'table' : 'table/0',
+        layout_edit => $sheet->layout,
+        groups      => $site->groups,
+        breadcrumbs => [
+            Crumb( '/table' => 'tables' ) =>
+            Crumb( "/table/$table_id" => $table_name ),
+        ],
     }
 };
 
@@ -819,34 +841,30 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             firstname             => param('firstname'),
             surname               => param('surname'),
             email                 => param('email'),
-            username              => param('email'),
             freetext1             => param('freetext1'),
             freetext2             => param('freetext2'),
-            title                 => param('title') || undef,
-            organisation          => param('organisation') || undef,
-            department_id         => param('department_id') || undef,
-            team_id               => param('team_id') || undef,
+            title                 => is_valid_id(param 'title'),
+            organisation          => is_valid_id(param 'organisation'),
+            department_id         => is_valid_id(param 'department_id'),
+            team_id               => is_valid_id(param 'team_id'),
             account_request       => param('account_request'),
             account_request_notes => param('account_request_notes'),
-            view_limits           => [body_parameters->get_all('view_limits')],
-            groups                => [body_parameters->get_all('groups')],
+            view_limits_ids       => [ body_parameters->get_all('view_limits') ],
+            group_ids             => [ body_parameters->get_all('groups') ],
+            permissions           => [ body_parameters->get_all('permission') ],
         );
-        $values{permissions} = [ body_parameters->get_all('permission') ]
-            if $user->is_admin;
 
         if (!param('account_request') && $id) # Original username to update (hidden field)
-        {
-            if(process sub { $site->users->user_update($id => \%values) })
+        {   if(process sub { $site->users->user_update($id => %values) })
             {
                 return forwardHome(
                     { success => "User has been updated successfully" }, 'user' );
             }
         }
-        else {
-            # This sends a welcome email etc
-            if(process(sub {
-                 my ($user_rs, $code) = $site->users->user_create(%values);
-                 $values{code} = $code;
+        else
+        {   if(process(sub {
+                 my $user      = $site->users->user_create(%values);
+                 $values{code} = $user->resetpw;
                  $::linkspace->mailer->send_welcome(\%values);
             }))
             {
@@ -987,7 +1005,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     my $output = template 'user' => {
         edit              => $route_id,
         users             => $users,
-        groups            => GADS::Groups->new(schema => schema)->all,
+        groups            => $site->groups,
         register_requests => $register_requests,
         titles            => $users->titles,
         organisations     => $users->organisations,
@@ -1010,31 +1028,32 @@ get '/helptext/:id?' => require_login sub {
 
 get '/file/?' => require_login sub {
 
-    my $user        = logged_in_user;
+    $::session->user->is_admin
+        or forwardHome({ danger => "You do not have permission to manage files"}, '');
 
-    forwardHome({ danger => "You do not have permission to manage files"}, '')
-        unless logged_in_user->permission->{superadmin};
-
-    my @files = rset('Fileval')->search({
+    my @files = $::db->search(Fileval => {
         is_independent => 1,
     },{
         order_by => 'me.id',
     })->all;
 
     template 'files' => {
-        files       => [@files],
-        breadcrumbs => [Crumb( "/file" => 'files' )],
+        files       => \@files,
+        breadcrumbs => [ Crumb( "/file" => 'files' ) ],
     };
 };
 
 get '/file/:id' => require_login sub {
-    my $id = param 'id';
+    my $id = is_valid_id(param 'id');
 
     # Need to get file details first, to be able to populate
     # column details of applicable.
-    my $fileval = $id =~ /^[0-9]+$/ && schema->resultset('Fileval')->find($id)
+    my $fileval = $::db->get_record(Fileval => $id)
         or error __x"File ID {id} cannot be found", id => $id;
-    my ($file_rs) = $fileval->files; # In theory can be more than one, but not in practice (yet)
+
+    # In theory can be more than one, but not in practice (yet)
+    my ($file_rs) = $fileval->files;
+
     my $file = GADS::Datum::File->new(ids => $id);
     # Get appropriate column, if applicable (could be unattached document)
     # This will control access to the file
@@ -1044,17 +1063,14 @@ get '/file/:id' => require_login sub {
         $file->column($layout->column($file_rs->layout_id));
     }
     elsif (!$fileval->is_independent)
-    {
-        # If the file has been uploaded via a record edit and it hasn't been
+    {   # If the file has been uploaded via a record edit and it hasn't been
         # attached to a record yet (or the record edit was cancelled) then do
         # not allow access
+        my $user_id = $fileval->edit_user_id;
         error __"Access to this file is not allowed"
-            unless $fileval->edit_user_id && $fileval->edit_user_id == logged_in_user->id;
-        $file->schema(schema);
+            unless $user_id && $user_id == $::session->user->id;
     }
-    else {
-        $file->schema(schema);
-    }
+
     # Call content from the Datum::File object, which will ensure the user has
     # access to this file. The other parameters are taken straight from the
     # database resultset
@@ -1559,7 +1575,7 @@ prefix '/:layout_name' => sub {
         }
 
         # Setting a new view limit extra
-        if (my $extra = $layout->user_can('view_limit_extra') && param('extra'))
+        if (my $extra = $sheet->user_can('view_limit_extra') && param('extra'))
         {
             session('persistent')->{view_limit_extra}->{$layout->instance_id} = $extra;
         }
@@ -1859,7 +1875,7 @@ prefix '/:layout_name' => sub {
 
                 return forwardHome(
                     { danger => 'You do not have permission to send messages' }, $layout->identifier.'/data' )
-                    unless $layout->user_can("message");
+                    unless $sheet->user_can("message");
 
                 if(process( sub {
                     $::linkspace->mailer->message(
@@ -2015,7 +2031,7 @@ prefix '/:layout_name' => sub {
         {
             return forwardHome(
                 { danger => 'You do not have permission to edit trees' } )
-                unless $layout->user_can("layout");
+                unless $sheet->user_can("layout");
 
             my $newtree = JSON->new->utf8(0)->decode(param 'data');
             $tree->update($newtree);
@@ -2038,7 +2054,7 @@ prefix '/:layout_name' => sub {
         my $user        = logged_in_user;
 
         forwardHome({ danger => "You do not have permission to manage deleted records"}, '')
-            unless $layout->user_can("purge");
+            unless $sheet->user_can("purge");
 
         if (param('purge') || param('restore'))
         {
@@ -2133,7 +2149,6 @@ prefix '/:layout_name' => sub {
 
         $params->{graph}         = $graph;
         $params->{metric_groups} = GADS::MetricGroups->new(
-            schema      => schema,
             instance_id => session('persistent')->{instance_id},
         )->all;
 
@@ -2154,10 +2169,9 @@ prefix '/:layout_name' => sub {
         my $user        = logged_in_user;
 
         forwardHome({ danger => "You do not have permission to manage metrics" }, '')
-            unless $layout->user_can("layout");
+            unless $sheet->user_can("layout");
 
         my $metrics = GADS::MetricGroups->new(
-            schema      => schema,
             instance_id => $layout->instance_id,
         )->all;
 
@@ -2165,9 +2179,11 @@ prefix '/:layout_name' => sub {
             layout      => $layout,
             page        => 'metric',
             metrics     => $metrics,
-            breadcrumbs => [Crumb($layout) => Crumb( $layout, '/data' => 'records' )
-                => Crumb( $layout, '/graphs' => 'graphs' )
-                => Crumb( $layout, '/metrics' => 'metrics' )
+            breadcrumbs => [
+                Crumb( $layout ) =>
+                Crumb( $layout, '/data' => 'records' ) =>
+                Crumb( $layout, '/graphs' => 'graphs' ) =>
+                Crumb( $layout, '/metrics' => 'metrics' )
             ],
         };
 
@@ -2181,7 +2197,7 @@ prefix '/:layout_name' => sub {
         my $user        = logged_in_user;
 
         forwardHome({ danger => "You do not have permission to manage metrics" }, '')
-            unless $layout->user_can("layout");
+            unless $sheet->user_can("layout");
 
         my $params = {
             layout => $layout,
@@ -2266,7 +2282,7 @@ prefix '/:layout_name' => sub {
         my $instance_id = $layout->instance_id;
 
         forwardHome({ danger => "You do not have permission to manage topics"}, '')
-            unless $layout->user_can("layout");
+            unless $sheet->user_can("layout");
 
         my $id = param 'id';
         my $topic = $id && schema->resultset('Topic')->search({
@@ -2321,7 +2337,7 @@ prefix '/:layout_name' => sub {
         my $instance_id = $layout->instance_id;
 
         forwardHome({ danger => "You do not have permission to manage topics"}, '')
-            unless $layout->user_can("layout");
+            unless $sheet->user_can("layout");
 
         template 'topics' => {
             layout      => $layout,
@@ -2429,7 +2445,7 @@ prefix '/:layout_name' => sub {
 
         my $user        = logged_in_user;
 
-        $layout->user_can('layout')
+        $sheet->user_can('layout')
             or forwardHome({ danger => "You do not have permission to manage fields"}, '')
 
         my $params = {
@@ -2570,8 +2586,8 @@ prefix '/:layout_name' => sub {
             $params->{column} = 0; # New
             push @$breadcrumbs, Crumb( $layout, "/layout/0" => 'new field' );
         }
-        $params->{groups}             = GADS::Groups->new(schema => schema);
-        $params->{permissions}        = [GADS::Type::Permissions->all];
+        $params->{groups}             = $site->groups;
+        $params->{permissions}        = [ GADS::Type::Permissions->all ];
         $params->{permission_mapping} = GADS::Type::Permissions->permission_mapping;
         $params->{permission_inputs}  = GADS::Type::Permissions->permission_inputs;
         $params->{topics}             = [schema->resultset('Topic')->search({ instance_id => $layout->instance_id })->all];
@@ -2812,7 +2828,7 @@ prefix '/:layout_name' => sub {
         my $view   = current_view($user, $layout);
         my $type   = param 'type';
 
-        $layout->user_can("bulk_update")
+        $sheet->user_can("bulk_update")
             or forwardHome({ danger => "You do not have permission to perform bulk operations"}, $layout->identifier.'/data');
 
         $type eq 'update' || $type eq 'clone'
@@ -3083,7 +3099,7 @@ prefix '/:layout_name' => sub {
     get '/match/user/' => require_login sub {
 
         my $layout = var('layout') or pass;
-        $layout->user_can("layout") or error "No access to search for users";
+        $sheet->user_can("layout") or error "No access to search for users";
 
         my $query = param('q');
         content_type 'application/json';
@@ -3331,7 +3347,8 @@ sub _process_edit
         my $failed;
 
         error __"You do not have permission to create a child record"
-            if $child && !$id && !$layout->user_can('create_child');
+            if $child && !$id && !$sheet->user_can('create_child');
+
         $record->parent_id($child);
 
         # We actually only need the write columns for this. The read-only
@@ -3344,29 +3361,28 @@ sub _process_edit
         {
             my $newv;
             if ($modal)
-            {
-                next unless defined query_parameters->get($col->field);
-                $newv = [query_parameters->get_all($col->field)];
+            {   next unless defined query_parameters->get($col->field);
+                $newv = [ query_parameters->get_all($col->field) ];
             }
-            else {
-                next unless defined body_parameters->get($col->field);
-                $newv = [body_parameters->get_all($col->field)];
+            else
+            {   next unless defined body_parameters->get($col->field);
+                $newv = [ body_parameters->get_all($col->field) ];
             }
-            if ($col->userinput && defined $newv) # Not calculated fields
+
+            $col->userinput && defined $newv # Not calculated fields
+                or next;
+
+            # No need to do anything if the file's just been uploaded
+            my $datum = $record->field($col);
+            if (defined(param 'validate'))
             {
-                # No need to do anything if the file's just been uploaded
-                my $datum = $record->fields->{$col->id};
-                if (defined(param 'validate'))
-                {
-                    try { $datum->set_value($newv) };
-                    if (my $e = $@->wasFatal)
-                    {
-                        push @validation_errors, $e->message;
-                    }
+                try { $datum->set_value($newv) };
+                if (my $e = $@->wasFatal)
+                { push @validation_errors, $e->message;
                 }
-                else {
-                    $failed = !process( sub { $datum->set_value($newv) } ) || $failed;
-                }
+            }
+            else
+            {   $failed = !process( sub { $datum->set_value($newv) } ) || $failed;
             }
         }
 
@@ -3447,10 +3463,10 @@ sub _process_edit
             ."record. All other values will be inherited from the parent."
             if $child_rec;
 
-    my @breadcrumbs = (Crumb($layout), Crumb( $layout, '/data' => 'records' );
+    my @breadcrumbs = ( Crumb($layout), Crumb( $layout, '/data' => 'records' );
     push @breadcrumbs, $id
       ? Crumb( "/edit/$id" => "edit record $id" )
-      : Crumb( $layout, '/edit/' => "new record" );
+      : Crumb( $layout, '/edit/' => 'new record' );
 
     my %params = (
         record              => $record,

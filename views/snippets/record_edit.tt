@@ -11,7 +11,7 @@
         [% IF layout.user_can("create_child") AND NOT record.parent_id AND layout.has_children %]
             <li role="presentation"><a role="menuitem" href="/[% layout.identifier %]/edit/?child=[% record.current_id %]">Create child record</a></li>
         [% END %]
-        [% IF user.permission.link %]
+        [% IF user.has_permission('link') %]
             <li role="presentation"><a role="menuitem" href="/[% layout.identifier %]/link/[% record.current_id %]">Link record</a></li>
         [% END %]
         [% IF record.user_can_delete %]
