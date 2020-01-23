@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::View;
+package Linkspace::View;
 
 use Log::Report 'linkspace';
 use GADS::Alert;
@@ -156,24 +156,32 @@ has owner => (
     builder => sub { $::linkspace->users->user($_[0]->user_id) },
 );
 
-sub _is_writable($)
-{   my ($self, $sheet) = @_;
+sub has_access_via_global($)
+{   my ($self, $victim) = @_;
+    my $gid = $self->group_id;
+    $gid && $self->global ? $victim->in_group($gid) : 0;
+}
+
+sub _is_writable($;$)
+{   my ($self, $sheet, $victim) = @_;
+    $victim ||= $::session->user;
+    my $owner_id = $self->user_id;
 
 #XXX this is a bit weird... usually, the ways to get access work
 #XXX in parallel
 
     if($self->is_admin)
-    {   return 1 if $sheet->user_can("sheet");
+    {   return 1 if $sheet->user_can(sheet => $victim);
     }
     elsif($self->global)
-    {   return 1 if !$self->group_id && $sheet->user_can("sheet");
-        return 1 if  $self->group_id && $sheet->user_can("view_group");
+    {   return 1 if !$self->group_id && $sheet->user_can(sheet => $victim);
+        return 1 if  $self->group_id && $sheet->user_can(view_group => $victim);
     }
-    elsif($self->owner && $self->owner == $sheet->user->id)
-    {   return 1 if $sheet->user_can("view_create");
+    elsif($owner_id && $owner_id == $victim->id)
+    {   return 1 if $sheet->user_can(view_create => $victim);
     }
-    elsif($sheet->user_can("sheet"))
-    {   return 1;
+    else
+    {   return 1 if $sheet->user_can(sheet => $victim);
     }
 
     0;

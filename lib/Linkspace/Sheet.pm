@@ -17,13 +17,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
 package Linkspace::Sheet;
-use base 'GADS::Schema::Result::Instance';
 
-use Log::Report  'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-use Clone        'clone';
 
+extends 'GADS::Schema::Result::Instance';
+
+use Log::Report  'linkspace';
+
+use Clone        'clone';
 use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
 
@@ -69,7 +71,7 @@ sub from_id
     $class->from_record($::db->get_record(Instances => $sheet_id), %args);
 }
 
-=head2 my $new_sheet = $sheet->update(\%changes, %options);
+=head2 $sheet->sheet_update(%changes);
 Apply the changes to the sheet's database structure.  For now, this can
 only change the sheet (Instance) record, not its dependencies.
 
@@ -78,19 +80,15 @@ the database and to clear all the cacheing.  But when there are no
 changes to the record, it will return the original object.
 =cut
 
-sub update($)
-{   my ($self, $changes, %args) = @_;
-    keys %$changes or return $self;
+sub sheet_update($)
+{   my ($self, %changes) = @_;
+    keys %changes or return $self;
 
-    $::db->update(Instance => $self, $changes);
-    (ref $self)->from_record(
-        $::db->get_record(Instances => $self->id),
-        layout   => $self->layout,
-        document => $self->document,
-        $args,
-    );
+    #XXX validation?
+    $::db->update(Instance => $self, \%changes);
 }
 
+#--------------------
 =head1 METHODS: Accessors
 
 =head2 my $doc = $sheet->document;
@@ -104,15 +102,16 @@ has document => (
     weak_ref => 1,
 );
 
+#--------------------
 =head1 METHODS: the Sheet itself
 
 =cut
 
-=head2 $sheet->delete;
+=head2 $sheet->sheet_delete;
 Remove the sheet.
 =cut
 
-sub delete($)
+sub sheet_delete($)
 {   my $self     = shift;
     my $sheet_id = $self->id;
     my $layout   = $self->layout;
@@ -134,52 +133,60 @@ sub delete($)
     $guard->commit;
 }
 
-=head2 $sheet = $class->create(%settings);
+=head2 $sheet = $class->sheet_create(%settings);
 Create a new sheet object, which is saved to the database with its
 initial C<%settings>.
 =cut
 
-sub create($%)
-{   my ($class, %settings) = @_;
-    my $sheet_id = $::db->create(Instance => \%settings)->id;
+sub sheet_create($%)
+{   my ($class, %insert) = @_;
+    my $insert_layout = delete $insert{layout};
+    my $insert_data   = delete $insert{data};
+    my $document      = delete $insert{document};
 
-    my %layout_defaults;  #XXX how do I get them?
-	Linkspace::Layout->create_for_sheet($self, %layout_defaults);
+    my $guard = $::db->begin_work;
+
+    my $sheet_id   = $::db->create(Instance => \%insert)->id;
+
+    $_->{sheet_id} = $sheet_id
+        for $insert_layout, $insert_data;
+
+    $insert_layout{columns} = $document->columns_for_sheet($sheet_id);
+	my $layout_id  = $self->_layout_create($insert_layout);
+
+	my $data_id    = $self->_data_create($insert_data);
+
+    $guard->commit;
 
     # Start with a clean sheet
     $class->from_id($sheet_id);
 }
 
+#--------------------
+=head1 METHODS: Sheet layout
 
 =head2 my $layout = $sheet->layout;
 Each Sheet has a Layout which contains the Column descriptions.
 =cut
 
 has layout => (
-    is => 'lazy',
-    builder => sub {
-        my $self = shift;
-        $self->document->layout_for_sheet($self);
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->document->layout_for_sheet($self) },
 );
 
-=head2 my $layout = $sheet->create_layout($insert, %options);
-=cut
-
-sub create_layout($%)
-{   my ($self, $insert, %args) = @_;
-    Linkspace::Layout->create_layout($insert, %args);
-        $layout->create_internal_columns;
+sub _layout_create($%)
+{   my ($class, $insert, %args) = @_;
+    my $layout_id = Linkspace::Sheet::Layout->layout_create($insert);
 
     $_->{group_id} = $group_mapping->{$_->{group_id}}
         for @{$instance_info->{permissions}};
 
-    $layout->import_hash($sheet_info, report_only => $report_only);
-    $layout->write unless $report_only;
-
+    $layout->import_hash($sheet_info);
+    $layout_id
 }
 
-=head1 METHODS: Keeping records
+#--------------------
+=head1 METHODS: Sheet Data, Keeping records
 
 =head2 $sheet->blank_fields(%search);
 Find columns which match the C<%search>, and set those values to blank ('').
@@ -190,6 +197,7 @@ sub blank_records(%)
     $self->data->blank_fields($self->columns(@_));
 }
 
+#----------------------
 =head1 METHODS: permission management
 =cut
 
@@ -316,24 +324,25 @@ sub get_page($)
 {   my ($self, %args) = @_;
     my $views = $self->views;
 
-    $args{view_limits} =
+    $args{view_limits} =  #XXX views or view_limits?
        [ map $views->view($_->view_id), $views->limits_for_user ];
 
     my $view_limit_extra_id
       = $self->user_can("view_limit_extra")
-      ? $option{view_limit_extra_id}
-      : $self->layout->default_view_limit_extra_id;
+      ? $args{view_limit_extra_id}
+      : $self->default_view_limit_extra_id;
 
     $args{view_limit_extra} = $views->view($view_limit_extra_id);
 
     $self->data->search(%args);
 }
 
+#----------------------
 =head1 METHODS: MetricGroup administration
 
 =cut
 
 sub metric_group {...}
-sub create_metric_group { $metric_group->import_hash($mg) }
+sub metric_group_create { $metric_group->import_hash($mg) }
 
 1;

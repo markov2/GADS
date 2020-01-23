@@ -1,14 +1,13 @@
 package Linkspace::User::Person;
 
-use Moo;
-extends 'Linkspace::User', 'GADS::Schema::Result::User';
-
 use warnings;
 use strict;
 
-use Log::Report 'linkspace';
-
+use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+extends 'Linkspace::User', 'GADS::Schema::Result::User';
+
+use Log::Report 'linkspace';
 use Scalar::Util qw(blessed);
 
 =head1 NAME
@@ -34,7 +33,7 @@ sub from_record
     bless $data, $class;
 }
 
-=head2 $user->retire(%options);
+=head2 $person->retire(%options);
 =cut
 
 sub retire(%)
@@ -47,6 +46,12 @@ sub retire(%)
     }
 
     my $guard = $::db->begin_work;
+    $self->update_relations(
+        group_ids       => [],
+        permissions     => [],
+        view_limits_ids => [],
+    );
+
     $self->_graphs_delete;
     $self->_alerts_delete;
     $self->_views_delete;
@@ -60,6 +65,17 @@ sub retire(%)
     return;
 }
 
+#--------------------------
+=head1 METHODS: Accessors
+
+=cut
+
+has document => (
+    is       => 'ro',
+    required => 1,
+    weakref  => 1,
+);
+
 =head2 my $msg = $user->update_relations(%options);
 =cut
 
@@ -67,6 +83,7 @@ sub update_relations(%)
 {   my ($self, %args) = @_;
 
     $self->_set_group_ids($args{group_ids});
+
     if(my $perms = $args{permissions})
     {   $::session->user->is_admin
             or error __"You do not have permission to set global user permissions";
@@ -75,7 +92,7 @@ sub update_relations(%)
         $self->_set_permissions(@$perms);
     }
 
-    if($view_limits)
+    if($view_limits = $args{view_limits_ids))
     {   my @view_limits = grep /\S/,
            ref $view_limits eq 'ARRAY' ? @$view_limits : $view_limits;
         $self->_set_view_limits(\@view_limits);
@@ -98,6 +115,7 @@ sub groups_viewable
         if $self->is_admin;
 
     # Layout admin, all groups in their layout(s)
+    #XXX smart, but maybe use the abstraction
     my $sheet_ids_rs = $::db->search(InstanceGroup => {
         'me.permission'       => 'layout',
         'user_groups.user_id' => $self->id,
@@ -158,7 +176,7 @@ sub _set_group_ids
 
     #XXX this is too complex
     my %search;
-    $search{group_id} = { '!=' => [ -and => @$group_ids ] } if @$group_ids;
+    $search{group_id} = { -not_in => @$group_ids } if @$group_ids;
     $self->search_related(user_groups => \%search)
         ->search({ group_id => \@has_group_ids })
         ->delete;
@@ -176,11 +194,12 @@ sub view_limits_with_blank
     $view_limits->count ? $view_limits : [ undef ];
 }
 
-# $user->set_view_limits(\@view_ids);
-# $user->set_view_limits(\@views);
+# $user->_set_view_limits(\@view_ids);
+# $user->_set_view_limits(\@views);
 
 sub _set_view_limits
 {   my ($self, $views) = @_;
+    defined $views or return;
     my @view_ids = map +(blessed $_ ? $_->id : $_), @$views;
 
     $self->find_or_create_related(view_limits => { view_id => $_ })
@@ -188,7 +207,7 @@ sub _set_view_limits
 
     # Delete any groups that no longer exist
     my %search;
-    $search{view_id} = { '!=' => [ -and => @view_ids ] }
+    $search{view_id} = { -not_in => @view_ids }
         if @view_ids;
 
     $self->search_related(view_limits => \%search)->delete;
@@ -196,36 +215,42 @@ sub _set_view_limits
 
 sub _views_delete()
 {   my $self = shift;
-    my $views    = $self->search_related(views => {});
-    my @view_ids = map $_->id, $views->all;
+
+    my $site     = $::session->site;
+    my $views_rs = $self->search_related(views => {})
+
+    $site->sheet($_->{instance_id})->views->view_delete($_->{view_id})
+        for $views_rs->all;
 
     #XXX should move to ::Views
     $::db->delete($_ => { view_id => \@view_ids })
         for qw/Filter ViewLayout Sort AlertCache Alert/;
 
-    $views->delete;
+    $views_rs->delete;
 }
 
 #-----------------------
 =head1 METHODS: Graphs
 =cut
 
-=head2 $user->set_graphs($instance, \@graph_ids);
+=head2 $user->set_graphs($sheet, \@graphs);
+Both C<$sheet> and C<$graph> may be specified by object or id.
 =cut
 
 sub set_graphs
-{   my ($self, $instance, $graph_ids) = @_;
-    my $instance_id = ref $instance ? $instance->id : $instance;
+{   my ($self, $sheet, $graphs) = @_;
+    my $sheet_id = blessed $sheet ? $sheet->id : $sheet;
+    my @graph_ids = map +(blessed $_ ? $_->id : $_), @$graphs;
 
-    foreach my $g (@$graph_ids)
+    foreach my $graph_id (@graph_ids)
     {
-        $self->search_related(user_graphs => { graph_id => $g })->count
-            or $self->create_related(user_graphs => { graph_id => $g });
+        $self->search_related(user_graphs => { graph_id => $graph_id })->count
+            or $self->create_related(user_graphs => { graph_id => $graph_id });
     }
 
     # Delete any graphs that no longer exist
-    my %search = ( 'graph.instance_id' => $instance_id );
-    $search{graph_id} = { '!=' => [ -and => @$graph_ids ] } if @$graph_ids;
+    my %search = ( 'graph.sheet_id' => $sheet_id );
+    $search{graph_id} = { '!=' => [ -and => @graph_ids ] } if @graph_ids;
 
     $self->search_related(user_graphs => \%search, { join => 'graph' })->delete;
 }

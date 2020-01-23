@@ -28,11 +28,6 @@ use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use namespace::clean;
 
-has layout => (
-    is       => 'rw',
-    required => 1,
-);
-
 has current_ids => (
     is       => 'rw',
     isa      => ArrayRef,
@@ -71,9 +66,9 @@ sub process
     # Now see if the column changes in this layout may have changed views in
     # other layouts.
     # First, are there any views not in the main layout that contain these fields?
-    my @instance_ids = $self->schema->resultset('View')->search({
+    my @sheet_ids = $::db->search(View => {
         'alerts.id'         => { '!=' => undef },
-        instance_id         => { '!=' => $self->layout->instance_id},
+        instance_id         => { '!=' => $sheet->id},
         'filters.layout_id' => $self->columns,
     },{
         join     => ['alerts', 'filters'],
@@ -81,19 +76,13 @@ sub process
     })->get_column('instance_id')->all;
 
     # If there are, process each one
-    foreach my $instance_id (@instance_ids)
-    {
-        my $layout = Linkspace::Layout->new(
-            user                     => undef,
-            user_permission_override => 1,
-            schema                   => $self->schema,
-            config                   => $self->layout->config,
-            instance_id              => $instance_id,
-        );
+    foreach my $sheet_id (@sheet_ids)
+    {   my $sheet  = $site->sheet($sheet_id);
+
         # Get any current IDs that may have been affected, including historical
         # versions (in case a filter has been set using previous values)
-        my @current_ids = $self->schema->resultset('Curval')->search({
-            'layout.instance_id' => $instance_id,
+        my @current_ids = $::db->search(Curval => {
+            'layout.instance_id' => $sheet->id,
             value                => $self->current_ids,
         }, {
             join     => ['layout', 'record'],
@@ -114,13 +103,14 @@ sub _process_instance
     # ones that have a filter with the changed columns. If this is a brand new
     # record, however, then it doesn't matter what columns have changed, so get
     # all the views.
-    my $search = {
+    my %search = (
         'alerts.id' => { '!=' => undef },
-        instance_id => $layout->instance_id,
-    };
-    $search->{'filters.layout_id'} = $self->columns
+        instance_id => $sheet->id;
+    );
+    $search{'filters.layout_id'} = $self->columns
         unless $self->current_new;
-    my @view_ids = $self->schema->resultset('View')->search($search,{
+
+    my @view_ids = $::db->search(View => \%search, {
         join     => ['alerts', 'filters'],
     })->get_column('id')->all;
 
@@ -130,20 +120,15 @@ sub _process_instance
         # Current user may not have access to all fields in view,
         # permissions are managed when sending the alerts
         user_permission_override => 1,
-        schema                   => $self->schema,
-        layout                   => $layout,
-        instance_id              => $layout->instance_id,
     );
 
     my $records = GADS::Records->new(
         columns => [], # Otherwise all columns retrieved during search construct
-        schema  => $self->schema,
-        layout  => $layout,
         user    => $self->user,
     );
 
     my @to_add; # Items to add to the cache later
-    if (my @views = map { $views->view($_) } @view_ids)
+    if (my @views = map $views->view($_), @view_ids)
     {
         # See which of those views the new/changed records are in.
         #
@@ -155,10 +140,8 @@ sub _process_instance
             my $view_id = $now_in->{view}->id;
             my $user_id = $now_in->{user_id} || '';
             my $cid     = $now_in->{id};
-            $now_in_views
-                ->{$view_id}
-                ->{$user_id}
-                ->{$cid} = 1;
+
+            $now_in_views->{$view_id}{$user_id}{$cid} = 1;
             # The same, in a slightly different format
             $now_in_views2->{"${view_id}_${user_id}_${cid}"} = $now_in;
         }
@@ -168,22 +151,19 @@ sub _process_instance
         # of search queries in the database
         my $i = 0; my @original;
         # Only search on views we know may have been affected, as per records search
-        $search = {
-            'view.id' => \@view_ids,
-        };
+        my %search = ( 'view.id' => \@view_ids );
         while ($i < @$current_ids)
         {
             # If the number of current_ids that we have been given is the same as the
             # number that exist in the database, then assume that we are searching
             # all records. Therefore don't specify (the potentially thousands) current_ids.
-            unless (@$current_ids == $records->count)
-            {
-                my $max = $i + 499;
-                $max = @$current_ids-1 if $max >= @$current_ids;
-                $search->{'me.current_id'} = [@$current_ids[$i..$max]];
+            if(@$current_ids != $records->count)
+            {   my $max = $i + 499;
+                $max = @$current_ids -1 if $max >= @$current_ids;
+                $search{'me.current_id'} = [ @$current_ids[$i..$max] ];
             }
 
-            push @original, $::db->search(AlertCache => $search,{
+            push @original, $::db->search(AlertCache => \%search, {
                 select => [
                     { max => 'me.current_id' },
                     { max => 'me.user_id' },
@@ -198,7 +178,7 @@ sub _process_instance
                 group_by => ['me.view_id', 'me.user_id', 'me.current_id'], # Remove column information
                 order_by => ['me.view_id', 'me.user_id', 'me.current_id'],
             })->all;
-            last unless $search->{'me.current_id'}; # All current_ids
+            last unless $search{'me.current_id'}; # All current_ids
             $i += 500;
         }
 
@@ -221,14 +201,15 @@ sub _process_instance
                     current_id => $cid,
                     user_id    => $user_id,
                 };
+
                 $::db->delete(AlertCache => {
                     view_id    => $view_id,
                     user_id    => $user_id,
                     current_id => $cid,
                 });
             }
-            else {
-                # The row we're processing does appear in the hash, so no change. Flag
+            else
+            {   # The row we're processing does appear in the hash, so no change. Flag
                 # this in our second cache. Anything left in the second hash is therefore
                 # something that is new in the view.
                 delete $now_in_views2->{"${view_id}_${user_id}_${cid}"};
@@ -271,14 +252,13 @@ sub _process_instance
     while ($i < @$current_ids)
     {
         # See above comments about searching current_ids
-        unless (@$current_ids == $records->count)
-        {
-            my $max = $i + 499;
+        if(@$current_ids != $records->count)
+        {   my $max = $i + 499;
             $max = @$current_ids-1 if $max >= @$current_ids;
             $search->{'alert_caches.current_id'} = [@$current_ids[$i..$max]];
         }
-        push @caches, $self->schema->resultset('View')->search($search,{
-            prefetch => ['alert_caches', {'alerts' => 'user'} ],
+        push @caches, $::db->search(View => $search, {
+            prefetch => ['alert_caches', {alerts => 'user'} ],
         })->all;
         last unless $search->{'alert_caches.current_id'}; # All current_ids
         $i += 500;
@@ -328,11 +308,13 @@ sub _process_instance
             }
         }
 
+        my $layout = $sheet->layout;
         foreach my $a (values %$send_now)
         {
-            my @colnames = map $layout->column($_)->name, @{$a->{col_ids}};
-            my @cids = @{$a->{cids}};
-            $self->_send_alert('changed', \@cids, $view, [$a->{user}->email], \@colnames);
+            $self->_send_alert(changed =>
+               $a->{cids}, $view, [ $a->{user}->email ],
+               [ map $layout->column($_)->name, @{$a->{col_ids}} ],
+            );
         }
     }
 
@@ -387,62 +369,72 @@ sub _send_alert
     my $base = $self->base_url;
 
     my ($text, $html);
+    my $ids      = join ', ', @current_ids;
+    my $ids_html = _current_id_links($base, @current_ids);
 
-    if ($action eq "changed")
-    {
-        # Individual fields to notify
-        my $cnames = join ', ', uniq @{$columns};
-        if (@current_ids > 1)
-        {
-            my $ids = join ', ', @current_ids;
-            $text   = "The following items were changed for record IDs $ids: $cnames\n\n";
-            $text  .= "Links to the records are as follows:\n";
-            my $ids_html = join ', ', _current_id_links($base, @current_ids);
-            $html   = "<p>The following items were changed for record IDs $ids_html: $cnames</p>";
+    # There sometimes is an extra \n go get an additional blank line.  This
+    # makes it a but more readible.
+
+    if($action eq "changed")
+    {   my $cnames   = join ', ', uniq @$columns; # Individual fields to notify
+
+        if(@current_ids > 1)
+        {   ($text, $html) = (<<__TEXT, <<__HTML);
+The following items were changed for record IDs $ids: $cnames\n
+Links to the records are as follows:
+__TEXT
+<p>The following items were changed for record IDs $ids_html: $cnames</p>
+__HTML
         }
-        else {
-            $text   = "The following items were changed for record ID @current_ids: $cnames\n\n";
-            $text  .= "Please use the following link to access the record:\n";
-            my $id_html = _current_id_links($base, @current_ids);
-            $html   = "<p>The following items were changed for record ID $id_html: $cnames</p>";
+        else
+        {   ($text, $html) = ( <<__TEXT, <<__HTML );
+The following items were changed for record ID $ids: $cnames\n
+Please use the following link to access the record:
+__TEXT
+<p>The following items were changed for record ID $id_html: $cnames</p>
+__HTML
         }
     }
 
     elsif($action eq "arrived")
     {   if (@current_ids > 1)
-        {
-            $text   = qq(New items have appeared in the view "$view_name", with the following IDs: ).join(', ', @current_ids)."\n\n";
-            $text  .= "Links to the new items are as follows:\n";
-            my $ids_html = join ', ', _current_id_links($base, @current_ids);
-            $html   = "<p>New items have appeared in the view &quot;$view_name&quot;, with the following IDs: $ids_html</p>";
+        {   ($text, $html) = ( <<__TEXT, <<__HTML );
+New items have appeared in the view "$view_name", with the following IDs: $ids\n
+Links to the new items are as follows:
+__TEXT
+<p>New items have appeared in the view "$view_name", with the following IDs: $ids_html</p>
+__HTML
         }
         else
-        {   $text   = qq(A new item (ID @current_ids) has appeared in the view "$view_name".\n\n);
-            $text  .= "Please use the following link to access the record:\n";
-            my $id_html = _current_id_links($base, @current_ids);
-            $html   = qq(A new item (ID $id_html) has appeared in the view &quot;$view_name&quot;.</p>);
+        {   ($text, $html) = ( <<__TEXT, <<__HTML );
+A new item (ID $ids) has appeared in the view "$view_name".\n
+Please use the following link to access the record:
+__TEXT
+(A new item (ID $id_html) has appeared in the view "$view_name".</p>
+__HTML
         }
     }
 
     elsif($action eq "gone")
-    {   if (@current_ids > 1)
-        {
-            $text   = qq(Items have disappeared from the view "$view_name", with the following IDs: ).join(', ', @current_ids)."\n\n";
-            $text  .= "Links to the removed items are as follows:\n";
-            my $ids_html = join ', ', _current_id_links($base, @current_ids);
-            $html   = "<p>Items have disappeared from the view &quot;$view_name&quot;, with the following IDs: $ids_html</p>";
+    {   if(@current_ids > 1)
+        {   ($text, $html) = ( <<__TEXT, <<__HTML );
+Items have disappeared from the view "$view_name", with the following IDs: $ids\n
+Links to the removed items are as follows:
+__TEXT
+<p>Items have disappeared from the view "$view_name", with the following IDs: $ids_html</p>
+__HTML
         }
         else {
-            $text   = qq(An item (ID @current_ids) has disappeared from the view "$view_name".\n\n);
-            $text  .= "Please use the following link to access the original record:\n";
-            my $id_html = _current_id_links($base, @current_ids);
-            $html   = qq(<p>An item (ID $id_html) has disappeared from the view &quot;$view_name&quot;</p>);
+        {   ($text, $html) = ( <<__TEXT, <<__HTML );
+An item (ID $ids) has disappeared from the view "$view_name".\n
+Please use the following link to access the original record:
+__TEXT
+<p>An item (ID $id_html) has disappeared from the view "$view_name"</p>
+__HTML
         }
     }
 
-    foreach my $cid (@current_ids)
-    {   $text  .= $base."record/$cid\n";
-    }
+    $text  .= map "${base}record/$_\n", @current_ids;
 
     $::linkspace->mailer->send(
         subject => qq(Changes in view "$view_name"),

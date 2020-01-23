@@ -20,10 +20,11 @@ package Linkspace::Document;
 use Moo ();
 
 use Log::Report  'linkspace';
-use Scalar::Util qw(weaken);
+use Scalar::Util qw(blessed);
 use List::Util   qw(first);
 
 use Linkspace::Sheet ();
+use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 
 =head1 NAME
 Linkspace::Document - manages sheets for one site
@@ -65,6 +66,7 @@ has all_sheets => (
            document => $self,
        ), $::db->resultset('Instance')->all;
 
+       $self->_sheet_indexes_update($_) for @sheets;
        [ sort { fc($a->name) cmp fc($b->name) } @sheets ];
    }
 }
@@ -74,8 +76,11 @@ has all_sheets => (
 Get a single sheet, C<$which> may be specified as name, short name or id.
 =cut
 
-sub _sheet_index_update($$$)
-{   my ($index, $sheet, $to) = @_;
+sub _sheet_indexes_update($;$)
+{   my ($self, $sheet) = (shift, shift);
+    my $to = @_ ? shift : $sheet;
+
+    my $index = $self->_sheet_index;
     $index->{$sheet->id}         =
     $index->{'table'.$sheet->id} =
     $index->{$sheet->name}       =
@@ -104,57 +109,53 @@ sub sheet($)
 }
 
 
-=head2 $doc->delete_sheet($which);
+=head2 $doc->sheet_delete($which);
 Remove the indicated sheet.
 =cut
 
-sub delete_sheet($)
+sub sheet_delete($)
 {   my ($self, $which) = @_;
 
     my $sheet = $self->sheet($which)
         or return;
 
-    _sheet_index_update $self->_sheet_index, $sheet, undef;
+    $self->_sheet_indexes_update($sheet => undef);
     $sheet->delete;
 
     $self->site->structure_changed;
     $self;
 }
 
-=head2 $doc->update_sheet($sheet, \%changes);
-When a sheet gets updated, it may need result in a new sheet.
+=head2 my $new_sheet = $doc->sheet_update($which, %changes);
+When a sheet gets updated, it may need result in a new sheet (which may
+be the same as the old sheet).
 =cut
 
-sub update_sheet($$)
-{   my ($self, $sheet, $changes) = @_;
-    $changes or return $self;
+sub sheet_update($%)
+{   my ($self, $which, %changes) = @_;
 
-    my $layout_changes = delete $changes->{layout};
+    my $sheet = $self->sheet($which) or return;
+    $changes && keys %$changes or return $sheet;
 
-    my $new = $sheet->update($changes);
-    return $sheet if $new==$sheet;
+    $self->_sheet_indexes_update($sheet => undef);
+    $sheet->sheet_update(%changes);
 
-    my $index = $self->_sheet_index;
-    _sheet_index_update $index, $sheet, undef;
-    _sheet_index_update $index, $new, $new;
+    my $new = $doc->sheet($sheet->id);
+    $self->_sheet_indexes_update($new);
 
-    $sheet->layout->update_layout($layout_changes);
-    $self;
+    $new;
 }
 
-=head2 my $sheet = $doc->create_sheet(%insert);
+=head2 my $sheet = $doc->sheet_create(%insert);
 =cut
 
-sub create_sheet(%)
+sub sheet_create(%)
 {   my ($self, %insert) = @_;
-    my $layout_info = delete $insert{layout};
     my $report_only = delete $insert{report_only};
+    my $sheet       = Linkspace::Sheet->sheet_create(%insert);
 
-    my $sheet_rs  = Linkspace::Sheet->create_sheet(\%insert);
-    my $layout_rs = Linkspace::Layout->create_layout($layout_info,
-        sheet => $sheet_rs->id);
-
-    $self->sheet($sheet_rs->id);
+    $self->_sheet_indexes_update($sheet);
+    $self->sheet($sheet->id);
 }
 
 =head2 my $sheet = $doc->first_homepage
@@ -168,7 +169,7 @@ sub first_homepage
     $has || $all->[0];
 }
 
-
+#----------------------
 =head1 METHODS: Set of columns
 
 In the original design, column knowledge was limited to single sheets: when
@@ -179,7 +180,7 @@ those columns.  However: cross sheet references are sometimes required.
 has _column_info => (
     is  => 'lazy',
     isa => ArrayRef, 
-    builder => sub { Linkspace::Layout->load_columns($_[0]) },
+    builder => sub { Linkspace::Sheet::Layout->load_columns($_[0]) },
 );
 
 has _column_info_index => (
@@ -200,23 +201,23 @@ has _column_index => (
 
 sub column_by_info_id($) { $_[0]->_column_info_index->{$_[1]} }
 
-#---------------
-=head1 METHODS: Layout management
+=head2 \@cols = $doc->columns_for_sheet($sheet);
 
-=head2 my $layout = $doc->layout_for_sheet($sheet);
-The layout gets attached to a sheet on the moment it gets used.
+=head2 \@cols = $doc->columns_for_sheet($sheet_id);
 =cut
 
-sub layout_for_sheet($)
-{   my ($self, $sheet) = @_;
+sub columns_for_sheet($)
+{   my ($self, $which) = @_;
+    my $sheet_id = blessed $sheet ? $which->id : $which;
 
-    my $sheet_id = $sheet->id;
-    my @cols = grep $_->instance_id == $sheet_id, @{$self->_column_info};
-    Linkspace::Layout->for_sheet($sheet, columns => \@cols);
+    [ grep $_->instance_id == $sheet_id, @{$self->_column_info} ];
 }
 
 #---------------
 =head1 METHODS: Files
+Manage table "Fileval", which contains uploaded files.  Files many not
+be connected to sheets (be independent), related to a person and/or
+relate to a sheet cell.
 
 =head2 my \@files = $doc->independent_files;
 =cut
@@ -241,6 +242,32 @@ sub file_create(%)
 {   my ($self, %insert) = @_;
     $insert{edit_user_id} = $insert{is_independent} ? undef : $::session->user->id;
     $::db->create(Fileval => \%insert);
+}
+
+#---------------
+=head1 METHODS: Pointers
+Manage table "Current", which contains pointers to records.
+=cut
+
+#--------------
+=head1 METHODS: Find rows
+Rows (records) are referenced by many different id's.
+
+=head2 my $row = $doc->row($kind, $id, %options);
+Option C<rewind> says XXX.
+=cut
+
+sub row($$%)
+{   my ($self, $kind, $id, %args) = @_;
+    $id or return;
+
+    if(my $sheet = $args{sheet}) ...
+    #XXX see old GADS::Record->find...
+      'pointer_id'
+      'record_id'
+      'deleted_currentid'
+      'deleted_recordid'
+      'current_id';
 }
 
 1;

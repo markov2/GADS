@@ -16,41 +16,14 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Layout;
+package Linkspace::Sheet::Layout;
 
 use Log::Report 'linkspace';
 
 use GADS::Column;
-use GADS::Graphs;
-use GADS::MetricGroups;
-use GADS::Views;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-
-has name => (
-    is      => 'rw',
-    isa     => Str,
-);
-
-has name_short => (
-    is      => 'rw',
-    isa     => Maybe[Str],
-);
-
-has identifier => (
-    is      => 'ro',
-);
-
-has homepage_text => (
-    is      => 'ro',
-    isa     => Maybe[Str],
-);
-
-has homepage_text2 => (
-    is      => 'rw',
-    isa     => Maybe[Str],
-);
 
 has forget_history => (
     is      => 'ro',
@@ -72,18 +45,8 @@ has no_overnight_update => (
     isa     => Bool,
 );
 
-has sort_layout_id => (
-    is      => 'rw',
-    isa     => Maybe[Int],
-);
-
 has default_view_limit_extra => (
     is      => 'ro',
-);
-
-has default_view_limit_extra_id => (
-    is      => 'ro',
-    isa     => Maybe[Int],
 );
 
 has api_index_layout => (
@@ -99,10 +62,6 @@ has api_index_layout => (
 has api_index_layout_id => (
     is      => 'ro',
     isa     => Maybe[Int],
-);
-
-has sort_type => (
-    is      => 'rw',
 );
 
 has columns => (
@@ -228,18 +187,21 @@ has set_groups => (
     predicate => 1,
 );
 
+=head1 METHODS: Constructors
+
+=head2 my $layout_id = $class->layout_create(%insert);
+=cut
+
+sub layout_create(%)
+{    my ($class, %insert) = @_;
+     $insert{instance_id} = delete $insert{sheet_id};
+
+     my $layout_id = $self->create(\%insert)->id;
+     $class->_create_internal_columns($layout_id);
+}
+
 sub write
 {   my $self = shift;
-
-    my $rset;
-    if (!$self->instance_id)
-    {   my $sheet = Linkspace::Sheet->create;
-        $self->_set_instance_id($sheet->id);
-    }
-    else {
-        $rset = $self->_rset;
-    }
-
     $rset->update({
         name           => $self->name,
         name_short     => $self->name_short,
@@ -255,9 +217,8 @@ sub write
     $self;
 }
 
-=head2 $class->create_for_sheet($sheet);
-Create the initial Columns for a new sheet.
-=cut
+### $class->_create_internal_columns($layout_id);
+#   Create the initial Columns for a new sheet.
 
 my @internal_columns = (
     {
@@ -587,21 +548,17 @@ sub user_can_anything
 has referred_by => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
+    builder => sub
+    {   my $self = shift;
+        my $refd = $::db->search(Layout => {
+            'child.instance_id' => $self->sheet->id
+        },{
+            join => { curval_fields_parents => 'child' },
+            distinct => 1,
+        });
+        [ $refd->all ];
+    },
 );
-
-sub _build_referred_by
-{   my $self = shift;
-    my $refd = $::db->search(Layout => {
-        'child.instance_id' => $self->instance_id,
-    },{
-        join => {
-            curval_fields_parents => 'child',
-        },
-        distinct => 1,
-    });
-    [ $refd->all ];
-}
 
 has global_view_summary => (
     is      => 'lazy',

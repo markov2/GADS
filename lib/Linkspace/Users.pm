@@ -131,7 +131,7 @@ Returns a L<Linkspace::User> object.
 sub user
 {   my $self = shift;
     my $record = $::db->get_record(User => @_) or return;
-    Linkspace::User->from_record($record);
+    Linkspace::User->from_record($record, document => $self->document);
 }
 
 =head2 my $victim = $users->user_create(%insert);
@@ -193,11 +193,8 @@ sub user_create
 
     my $guard = $::db->begin_work;
 
-    # Delete account request user if this is a new account request
-    #XXX?
-    if (my $uid = $insert{account_request})
-    {   $::db->delete(User => $uid);
-    }
+    # Delete account request user if this is a new account request   #XXX?
+    $self->user_delete($insert{account_request});
 
     my $victim_id = $::db->create(User => \%insert)->id;
     my $victim  = $self->user($victim_id);

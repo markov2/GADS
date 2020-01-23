@@ -24,7 +24,6 @@ use Data::Dumper;
 use DateTime;
 use File::Temp qw/ tempfile /;
 use GADS::Alert;
-use GADS::Approval;
 use GADS::Column;
 use GADS::Column::Autocur;
 use GADS::Column::Calc;
@@ -217,13 +216,8 @@ hook before_template => sub {
     # Possible for $layout to be undef if user has no access
     if($sheet &&
        ($sheet->user_can('approve_new') || $sheet->user_can('approve_existing')))
-    {
-        my $approval = GADS::Approval->new(
-            user   => $user,
-            layout => $sheet,
-        );
-        $tokens->{user_can_approve} = 1;
-        $tokens->{approve_waiting} = $approval->count;
+    {   $tokens->{user_can_approve} = 1;
+        $tokens->{approve_waiting}  = $sheet->data->approval->count;
     }
 
     if (logged_in_user)
@@ -244,7 +238,7 @@ hook before_template => sub {
             $tokens->{layout}    = $sheet->layout;   #XXX?
         }
         $tokens->{show_link} = rset('Current')->next ? 1 : 0; #XXX?
-        $tokens->{v}         = current_view($user, $layout);  # View is reserved TT word
+        $tokens->{v}         = current_view();  # View is reserved TT word
     }
     $tokens->{messages}      = session 'messages';
     $tokens->{site}          = $site;
@@ -384,13 +378,14 @@ any ['get', 'post'] => '/login' => sub {
     # Request a password reset
     if (param 'resetpwd')
     {
-        if (my $username = param('emailreset'))
+        if (my $username = param 'emailreset')
         {
             if(email_valid $username)
             {
                 $login_change->("Password reset request for $username");
 #XXX password_reset_send?  In plugin?
                 my $result = password_reset_send(username => $username);
+
                 defined $result
                     ? success(__('An email has been sent to your email address with a link to reset your password'))
                     : report({is_fatal => 0}, ERROR => 'Failed to send a password reset link. Did you enter a valid email address?');
@@ -398,7 +393,8 @@ any ['get', 'post'] => '/login' => sub {
                     if defined $result && !$result;
             }
             else
-            {   $error = qq("$username" is not a valid email address);
+            {   $username =~ s/[^\w<>"'@.]/X/g;  # do not show controls
+                $error = qq("$username" is not a valid email address);
                 $error_modal = 'resetpw';
             }
         }
@@ -465,7 +461,7 @@ any ['get', 'post'] => '/login' => sub {
         }
         else
         {   $login_change->("New user account request for $email");
-            my @to => map $_->email, $users->useradmins;
+            my @to = map $_->email, $users->useradmins;
             $::linkspace->mailer->send_account_requested($victim, \@to);
             return forwardHome({ success =>
                 "Your account request has been received successfully" });
@@ -473,7 +469,10 @@ any ['get', 'post'] => '/login' => sub {
     }
     elsif(param('signin'))
     {
-        my $username  = param 'username';
+        my $username    = param 'username';
+        my $remember_me = param 'remember_me';
+        my $password    = param 'password';
+
         my $victim    = $site->users->user(username => $username);
 
         my $fail      = $victim->failcount >= 5
@@ -481,26 +480,25 @@ any ['get', 'post'] => '/login' => sub {
 
         $fail and assert "Reached fail limit for user $username";
 
-        my ($success, $realm) = !$fail && authenticate_user(
-            $username, params->{password}
-        );
+        my ($success, $realm) = !$fail
+            && authenticate_user($username, $password);
 
         if ($success) {
             # change session ID if we have a new enough D2 version with support
             app->change_session_id
                 if app->can('change_session_id');
-            session logged_in_user => $username;
+
+            session logged_in_user       => $username;
             session logged_in_user_realm => $realm;
-            if (param 'remember_me')
-            {
-                my $secure = request->scheme eq 'https' ? 1 : 0;
-                cookie 'remember_me' => param('username'), expires => '60d',
-                    secure => $secure, http_only => 1 if param('remember_me');
+            if($remember_me)
+            {   my $secure = request->scheme eq 'https' ? 1 : 0;
+                cookie remember_me => $username, expires => '60d',
+                    secure => $secure, http_only => 1;
             }
-            else {
-                cookie remember_me => '', expires => '-1d' if cookie 'remember_me';
+            elsif(cookie 'remember_me')
+            {   cookie remember_me => '', expires => '-1d'
             }
-            $::session->user_login(logged_in_user); #XXX
+            $::session->user_login($victim);
 
             # Load previous settings and forward to previous table if applicable
             my $session_settings = try { decode_json $user->session_settings };
@@ -516,14 +514,15 @@ any ['get', 'post'] => '/login' => sub {
                 trace "Fail count for $username is now $fail_count";
                 report {to => 'syslog'},
                     INFO => __x"debug_login set - failed username \"{username}\", password: \"{password}\"",
-                    username => $user->username, password => params->{password}
+                    username => $username, password => $password
                         if $user->debug_login;
             }
             report {is_fatal=>0}, ERROR => "The username or password was not recognised";
         }
     }
 
-    my $output  = template 'login' => {
+    template login => +{
+        page          => 'login',
         error         => "".($error||""),
         error_modal   => $error_modal,
         username      => cookie('remember_me'),
@@ -532,20 +531,15 @@ any ['get', 'post'] => '/login' => sub {
         departments   => $users->departments,
         teams         => $users->teams,
         register_text => $site->register_text,
-        page          => 'login',
     };
-    $output;
 };
 
 any ['get', 'post'] => '/edit/:id' => require_login sub {
-
-    my $id = param 'id';
-    _process_edit($id);
+    my $id = is_valid_id(param 'id');
+    _process_edit($id) if $id;
 };
 
 any ['get', 'post'] => '/myaccount/?' => require_login sub {
-
-    my $user   = logged_in_user;
 
     if (param 'newpassword')
     {
@@ -595,7 +589,7 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
         departments   => $users->departments,
         teams         => $users->teams,
         page          => 'myaccount',
-        breadcrumbs   => [ Crumb( '/myaccount/' => 'my details' ) ],
+        breadcrumbs   => [ Crumb('/myaccount/' => 'my details') ],
     };
 };
 
@@ -618,33 +612,38 @@ any ['get', 'post'] => '/system/?' => require_login sub {
         }
     }
 
-    template 'system' => {
-        instance    => $site,
+    template system => {
         page        => 'system',
-        breadcrumbs => [ Crumb( '/system' => 'system-wide settings' ) ],
+        instance    => $site,
+        breadcrumbs => [ Crumb('/system' => 'system-wide settings') ],
     };
 };
 
 
 any ['get', 'post'] => '/group/?:id?' => require_any_role [qw/useradmin superadmin/] => sub {
+    my $group_id = is_valid_id(param 'id');
 
-    my $id = param 'id';
-    my $layout = var 'layout';
-    $group->from_id($id);
-
+    my $doc = $site->document;
     my @permissions = GADS::Type::Permissions->all;
 
     if (param 'submit')
     {
-        $group->name(param 'name');
-        foreach my $perm (@permissions)
-        {   my $name = "default_".$perm->short;
-            $group->$name(param($name) ? 1 : 0);
-        }
+        my %data = (name => param 'name');
+        $data{$_} = param($_) ? 1 : 0
+            for map $_->short, @permissions;
 
-        if (process(sub {$group->write}))
+        my $action;
+        if(process(sub {
+            if($group_id)
+            {   $doc->group_update($group_id => %data);
+                $action = 'updated';
+            }
+            else
+            {   $group_id = $doc->group_create(%data)->id;
+                $action = 'created';
+            }
+        }))
         {
-            my $action = param('id') ? 'updated' : 'created';
             return forwardHome({ success =>
                 "Group has been $action successfully" }, 'group' );
         }
@@ -652,42 +651,40 @@ any ['get', 'post'] => '/group/?:id?' => require_any_role [qw/useradmin superadm
 
     if (param 'delete')
     {
-        if(process(sub {$group->delete}))
+        if(process(sub { $doc->group_delete($group_id) }))
         {   return forwardHome({ success =>
                 "The group has been deleted successfully" }, 'group' );
         }
     }
 
-    my $params = {
-        page => defined $id && !$id ? 'group/0' : 'group'
-    };
+    my %params = (permissions => \@permissions);
+    my @breadcrumbs = Crumb('/group' => 'groups');
 
-    if (defined $id)
-    {
-        # id will be 0 for new group
-        $params->{group}       = $group;
-        $params->{permissions} = \@permissions;
-        my $group_name = $id ? $group->name : 'new group';
-        my $group_id   = $id ? $group->id : 0;
-        $params->{breadcrumbs} = [
-            Crumb( '/group' => 'groups' ) =>
-            Crumb( "/group/$group_id" => $group_name )
-        ];
+    if(!defined $group_id)
+    {   $params{page}   = 'group';
+        $params{groups} = $site->all_groups;
     }
-    else {
-        $params->{groups}      = $site->groups;
-        $params->{layout}      = $layout;
-        $params->{breadcrumbs} = [Crumb( '/group' => 'groups' )];
+    elsif($group_id==0)    # id will be 0 for new group
+    {   $params{page}   = 'group/0';
+        push @breadcrumbs, Crumb('/group/0' => 'new group');
     }
-    template 'group' => $params;
+    else
+    {   $params{page}   = 'group';
+        $params{group}  = my $group = $doc->group($group_id);
+        push @breadcrumbs, Crumb("/group/$group_id" => $group->name);
+    }
+
+    $params{breadcrumbs} = \@breadcrumbs;
+
+    template 'group' => \%params;
 };
 
 get '/table/?' => require_role superadmin => sub {
 
     template 'tables' => {
         page        => 'table',
-        instances   => [rset('Instance')->all],
-        breadcrumbs => [ Crumb( '/table' => 'tables' ) ],
+        instances   => $site->document->all_sheets,
+        breadcrumbs => [ Crumb('/table' => 'tables') ],
     };
 };
 
@@ -739,8 +736,8 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
         layout_edit => $sheet->layout,
         groups      => $site->groups,
         breadcrumbs => [
-            Crumb( '/table' => 'tables' ) =>
-            Crumb( "/table/$table_id" => $table_name ),
+            Crumb('/table' => 'tables') =>
+            Crumb("/table/$table_id" => $table_name),
         ],
     }
 };
@@ -757,7 +754,7 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
                 view_limits  => [ body_parameters->get_all('view_limits') ],
                 groups       => [ body_parameters->get_all('groups') ],
                 permissions  => [ body_parameters->get_all('permission') ],
-                current_user => logged_in_user,
+                current_user => $user,
             )}
         )
         {
@@ -773,8 +770,8 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
         permissions => $users->permissions,
         user_fields => $users->user_fields,
         breadcrumbs => [
-            Crumb( '/user' => 'users' ),
-            Crumb( '/user/upload' => "user upload" ),
+            Crumb('/user' => 'users'),
+            Crumb('/user/upload' => "user upload"),
         ],
         # XXX Horrible hack - see single user edit route
         edituser    => +{ view_limits_with_blank => [ undef ] },
@@ -924,8 +921,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             if logged_in_user->id eq $delete_id;
 
         my $victim = $::linkspace->users->user($delete_id);
-
-        if($victim && process( sub { $victim->retire } ))
+        if(process( sub { $::$victim->retire } ))
         {   $login_change->("User ID $delete_id deleted");
             my $mailer = $::linkspace->mailer;
 
@@ -958,12 +954,12 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
 
     my $register_requests;
     my $page        = 'user';
-    my @breadcrumbs = Crumb( '/user' => 'users' );
+    my @breadcrumbs = Crumb('/user' => 'users');
 
     my $route_id = route_parameters->get('id');
     if($route_id)
     {   push @users, $users->user($route_id) if !@users;
-        push @breadcrumbs, Crumb( "/user/$route_id" => "edit user $route_id" );
+        push @breadcrumbs, Crumb("/user/$route_id" => "edit user $route_id");
     }
     elsif(!defined $route_id)
     {   @users             = $users->all;
@@ -972,7 +968,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     else # route_id==0
     {   # Horrible hack to get a limit view drop-down to display
         push @users, +{ view_limits_with_blank => [ undef ] } if !@users;
-        push @breadcrumbs, Crumb( "/user/0" => "new user" );
+        push @breadcrumbs, Crumb("/user/0" => "new user");
         $page = 'user/0';
     }
 
@@ -1005,7 +1001,7 @@ get '/file/?' => require_login sub {
 
     template 'files' => {
         files       => $site->document->independent_files,
-        breadcrumbs => [ Crumb( "/file" => 'files' ) ],
+        breadcrumbs => [ Crumb("/file" => 'files') ],
     };
 };
 
@@ -1126,8 +1122,8 @@ get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
     }
 
     my $first_crumb = $action eq 'purge'
-      ? Crumb( $layout, '/purge' => 'deleted records' )
-      : Crumb( $layout, '/data'  => 'records' );
+      ? Crumb($sheet, '/purge' => 'deleted records')
+      : Crumb($sheet, '/data'  => 'records');
 
     my $output = template 'record' => {
         page           => 'record',
@@ -1137,7 +1133,7 @@ get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
         has_rag_column => $row->has_rag_column,
         is_history     => $action eq 'history',
         breadcrumbs    => [
-            Crumb($layout),
+            Crumb($sheet),
             $first_crumb,
             Crumb("/record/$current_id" => "record id $current_id"),
         ]
@@ -1185,7 +1181,7 @@ any ['get', 'post'] => '/audit/?' => require_role audit => sub {
         filtering   => $filter,
         audit_types => $audit->audit_types,
         page        => 'audit',
-        breadcrumbs => [Crumb( "/audit" => 'audit logs' )],
+        breadcrumbs => [Crumb("/audit" => 'audit logs')],
     };
 };
 
@@ -1284,7 +1280,7 @@ prefix '/:layout_name' => sub {
             dashboard       => $dashboard,
             dashboards_json => $::db->resultset('Dashboard')->dashboards_json(%params),
             page            => 'index',
-            breadcrumbs     => [ Crumb($layout) ],
+            breadcrumbs     => [ Crumb($sheet) ],
         };
 
         if (my $download = param('download'))
@@ -1346,15 +1342,12 @@ prefix '/:layout_name' => sub {
             $fromdt->set(hour => 0, minute => 0, second => 0);
         }
 
-        my $user    = logged_in_user;
-        my $view    = current_view($user, $layout);
-
         my $records = GADS::Records->new(
             user                => $user,
             layout              => $layout,
-            view                => $view,
+            view                => current_view(),
             search              => session('search'),
-            view_limit_extra_id => current_view_limit_extra_id($user, $layout),
+            view_limit_extra_id => current_view_limit_extra_id(),
         );
 
         header "Cache-Control" => "max-age=0, must-revalidate, private";
@@ -1371,47 +1364,39 @@ prefix '/:layout_name' => sub {
 
     get '/data_timeline/:time' => require_login sub {
 
-        my $layout = var('layout') or pass;
-
         # Time variable is used to prevent caching by browser
-
-        my $fromdt  = DateTime->from_epoch( epoch => int (param('from') / 1000) );
-        my $todt    = DateTime->from_epoch( epoch => int (param('to')   / 1000) );
-
-        my $view    = current_view($user, $layout);
+        my $fromdt = DateTime->from_epoch( epoch => int (param('from')/1000) );
+        my $todt   = DateTime->from_epoch( epoch => int (param('to')  /1000) );
 
         my $records = GADS::Records->new(
             from                => $fromdt,
             to                  => $todt,
             exclusive           => param('exclusive'),
-            user                => $user,
-            layout              => $layout,
-            view                => $view,
+            view                => current_view(),
             search              => session('search'),
             rewind              => session('rewind'),
-            view_limit_extra_id => current_view_limit_extra_id($user, $layout),
+            view_limit_extra_id => current_view_limit_extra_id(),
         );
 
         header "Cache-Control" => "max-age=0, must-revalidate, private";
         content_type 'application/json';
 
-        my $tl_options = session('persistent')->{tl_options}->{$layout->instance_id} || {};
-        my $timeline = $records->data_timeline(%{$tl_options});
+        my $tl_options = session('persistent')->{tl_options}{$sheet->id} || {};
+        my $timeline = $records->data_timeline(%$tl_options);
         encode_json($timeline->{items});
     };
 
     post '/data_timeline' => require_login sub {
 
-        my $layout = var('layout') or pass;
-
+        my $view               = current_view();
         my $tl_options         = session('persistent')->{tl_options}{$sheet->id} ||= {};
-        $tl_options->{from}    = int(param('from') / 1000) if param('from');
-        $tl_options->{to}      = int(param('to') / 1000) if param('to');
-        my $view               = current_view(logged_in_user, $layout);
+        $tl_options->{from}    = int(param('from') /1000) if param('from');
+        $tl_options->{to}      = int(param('to')   /1000) if param('to');
+
         $tl_options->{view_id} = $view && $view->id;
         # Note the current time so that we can decide later if it's relevant to
         # load these settings
-        $tl_options->{now}  = DateTime->now->epoch;
+        $tl_options->{now}     = DateTime->now->epoch;
 
         # XXX Application session settings do not seem to be updated without
         # calling template (even calling _update_persistent does not help)
@@ -1420,8 +1405,8 @@ prefix '/:layout_name' => sub {
 
     get '/data_graph/:id/:time' => require_login sub {
 
-        my $id      = param 'id';
-        my $gdata = _data_graph($id);
+        my $graph_id = is_valid_id(param 'id');
+        my $gdata    = _data_graph($graph_id);
 
         header "Cache-Control" => "max-age=0, must-revalidate, private";
         content_type 'application/json';
@@ -1446,8 +1431,8 @@ prefix '/:layout_name' => sub {
                 search              => session('search'),
                 layout              => $layout,
                 rewind              => session('rewind'),
-                view                => current_view($user, $layout),
-                view_limit_extra_id => current_view_limit_extra_id($user, $layout),
+                view                => current_view(),
+                view_limit_extra_id => current_view_limit_extra_id(),
             );
 
             my @delete_ids = body_parameters->get_all('delete_id');
@@ -1463,7 +1448,7 @@ prefix '/:layout_name' => sub {
                 $count++ if process sub { $record->delete_current };
             }
             return forwardHome(
-                { success => "$count records successfully deleted" }, $layout->identifier.'/data' );
+                { success => "$count records successfully deleted" }, $sheet->identifier.'/data' );
         }
 
         app->execute_hook( 'plugin.data.before_request', user => $user )
@@ -1485,7 +1470,7 @@ prefix '/:layout_name' => sub {
         }
 
         # Search submission or clearing a search?
-        if (defined(param('search_text')) || defined(param('clear_search')))
+        if(defined(param('search_text')) || defined(param 'clear_search'))
         {
             error __"Not possible to conduct a search when viewing data on a previous date"
                 if session('rewind');
@@ -1498,8 +1483,7 @@ prefix '/:layout_name' => sub {
             {
                 my $records = GADS::Records->new(
                     search              => $search,
-                    layout              => $layout,
-                    view_limit_extra_id => current_view_limit_extra_id($user, $layout),
+                    view_limit_extra_id => current_view_limit_extra_id(),
                 );
                 my $results = $records->current_ids;
 
@@ -1527,13 +1511,13 @@ prefix '/:layout_name' => sub {
         # Deal with any alert requests
         if (param 'modal_alert')
         {
-            if(my $view = $sheet->views->view(param('view_id')))
+            if(my $view = $sheet->views->view(param 'view_id'))
             {   if(process(sub {
                     $view->create_alert(frequency => param('frequency'));
                 }))
                 {
                     return forwardHome({ success =>
-                        "The alert has been saved successfully" }, $layout->identifier.'/data' );
+                        "The alert has been saved successfully" }, $sheet->identifier.'/data' );
                 }
             }
         }
@@ -1541,16 +1525,16 @@ prefix '/:layout_name' => sub {
         if ($new_view_id)
         {
             session('persistent')->{view}{$sheet->id} = $new_view_id;
+
             # Save to database for next login.
             # Check that it's valid first, otherwise database will bork
-            my $view = current_view($user, $layout);
+            my $view = current_view();
+
             # When a new view is selected, unset sort, otherwise it's
             # not possible to remove a sort once it's been clicked
             session 'sort' => undef;
-            # Also reset page number to 1
-            session 'page' => undef;
-            # And remove any search to avoid confusion
-            session search => '';
+            session 'page' => undef; # Also reset page number to 1
+            session search => '';    # And remove any search to avoid confusion
         }
 
         if(my $rows = param('rows'))
@@ -1570,24 +1554,21 @@ prefix '/:layout_name' => sub {
         {   $viewtype = session('persistent')->{viewtype}{$sheet->id} || 'table';
         }
 
-        my $view       = current_view($user, $layout);
+        my $view       = current_view();
 
-        my $params = {
-            layout => var('layout'),
-        }; # Variables for the template
+        my $params = { };
 
         if ($viewtype eq 'graph')
         {
             $params->{page}     = 'data_graph';
             $params->{viewtype} = 'graph';
-            if (my $png = param('png'))
+            if (my $png = param 'png')
             {
                 my $gdata = _data_graph($png);
                 my $json  = $gdata->as_json;
                 my $graph = GADS::Graph->new(
                     id     => $png,
                     layout => $layout,
-                    schema => schema
                 );
                 my $options_in = $graph->as_json;
                 $params->{graph_id} = $png;
@@ -1662,9 +1643,9 @@ prefix '/:layout_name' => sub {
                 # No "to" - will take appropriate number from today
                 from                => DateTime->now, # Default
                 rewind              => session('rewind'),
-                view_limit_extra_id => current_view_limit_extra_id($user, $layout),
+                view_limit_extra_id => current_view_limit_extra_id(),
             );
-            my $tl_options = session('persistent')->{tl_options}->{$layout->instance_id} ||= {};
+            my $tl_options = session('persistent')->{tl_options}{$sheet_id} ||= {};
             if (param 'modal_timeline')
             {
                 $tl_options->{label}   = param('tl_label');
@@ -1774,7 +1755,7 @@ prefix '/:layout_name' => sub {
                 schema              => schema,
                 rewind              => session('rewind'),
                 additional_filters  => \@additional,
-                view_limit_extra_id => current_view_limit_extra_id($user, $layout),
+                view_limit_extra_id => current_view_limit_extra_id(),
             );
             # If this is a filter from a group view, then disable the group for
             # this rendering
@@ -1792,7 +1773,7 @@ prefix '/:layout_name' => sub {
                 my $sortcol  = $1;
                 my $sorttype = $2;
                 # Check user has access
-                forwardHome({ danger => "Invalid column ID for sort" }, $layout->identifier.'/data')
+                forwardHome({ danger => "Invalid column ID for sort" }, $sheet->identifier.'/data')
                     unless $layout->column($sortcol) && $layout->column($sortcol)->user_can('read');
                 my $existing = $records->sort_first;
                 my $type;
@@ -1803,11 +1784,11 @@ prefix '/:layout_name' => sub {
 
             if (param 'modal_sendemail')
             {
-                forwardHome({ danger => "There are no records in this view and therefore nobody to email"}, $layout->identifier.'/data')
+                forwardHome({ danger => "There are no records in this view and therefore nobody to email"}, $sheet->identifier.'/data')
                     unless $records->results;
 
                 return forwardHome(
-                    { danger => 'You do not have permission to send messages' }, $layout->identifier.'/data' )
+                    { danger => 'You do not have permission to send messages' }, $sheet->identifier.'/data' )
                     unless $sheet->user_can("message");
 
                 if(process( sub {
@@ -1819,13 +1800,13 @@ prefix '/:layout_name' => sub {
                 ) }))
                 {
                     return forwardHome(
-                        { success => "The message has been sent successfully" }, $layout->identifier.'/data' );
+                        { success => "The message has been sent successfully" }, $sheet->identifier.'/data' );
                 }
             }
 
             if (defined param('download'))
             {
-                forwardHome({ danger => "There are no records to download in this view"}, $layout->identifier.'/data')
+                forwardHome({ danger => "There are no records to download in this view"}, $sheet->identifier.'/data')
                     unless $records->count;
 
                 # Return CSV as a streaming response, otherwise a long delay whilst
@@ -1904,10 +1885,11 @@ prefix '/:layout_name' => sub {
                 query_parameters => query_parameters,
             ), @columns ];
             $params->{is_group}             = $records->is_group,
-            $params->{has_rag_column}       = grep $_->type eq 'rag', @columns;
+            $params->{has_rag_column}       = $records->has_rag_column;
             $params->{viewtype}             = 'table';
             $params->{page}                 = 'data_table';
             $params->{search_limit_reached} = $records->search_limit_reached;
+
             if (@additional)
             {
                 # Should be moved into presentation layer
@@ -1930,20 +1912,18 @@ prefix '/:layout_name' => sub {
             });
         }
 
-        my $views      = $sheet->views;
-        $params->{user_views}               = $views->user_views;
-        $params->{views_limit_extra}        = $views->views_limit_extra;
+        my $views     = $sheet->views;
+        $params->{user_views}        = $views->user_views($user);
+        $params->{views_limit_extra} = $views->views_limit_extra
+             if $user->user_can('view_limit_extra');
 
-        $params->{current_view_limit_extra}
-           =  current_view_limit_extra($user, $layout)
-           || $layout->default_view_limit_extra;
-
-        $params->{alerts}                   = Layout::View::Alert->for_user;
-        $params->{views_other_user}         = session('views_other_user_id') && rset('User')->find(session('views_other_user_id')),
+        $params->{current_view_limit_extra} = current_view_limit_extra();
+        $params->{alerts}            = Layout::View::Alert->for_user;
+        $params->{views_other_user}  = $users->user(session 'views_other_user_id');
 
         $params->{breadcrumbs}              = [
-            Crumb($layout) =>
-            Crumb( $layout, '/data' => 'records' )
+            Crumb($sheet) =>
+            Crumb($sheet, '/data' => 'records')
         ];
 
         template 'data' => $params;
@@ -1953,11 +1933,10 @@ prefix '/:layout_name' => sub {
     any ['get', 'post'] => '/tree:any?/:layout_id/?' => require_login sub {
         # Random number can be used after "tree" to prevent caching
 
-        my $layout      = var('layout') or pass;
-        my ($layout_id) = splat;
+        my ($layout_id) = splat;  #XXX?
         $layout_id = route_parameters->get('layout_id');
 
-        my $tree = $layout->column($layout_id)
+        my $tree = $sheet->layout->column($layout_id)
             or error __x"Invalid tree ID {id}", id => $layout_id;
 
         if (param 'data')
@@ -1982,17 +1961,13 @@ prefix '/:layout_name' => sub {
 
     any ['get', 'post'] => '/purge/?' => require_login sub {
 
-        my $layout = var('layout') or pass;
-
-        my $user        = logged_in_user;
-
-        forwardHome({ danger => "You do not have permission to manage deleted records"}, '')
-            unless $sheet->user_can("purge");
+        $sheet->user_can("purge")
+            or forwardHome({ danger => "You do not have permission to manage deleted records"}, '');
 
         if (param('purge') || param('restore'))
         {
             my @current_ids = body_parameters->get_all('record_selected')
-                or forwardHome({ danger => "Please select some records before clicking an action" }, $layout->identifier.'/purge');
+                or forwardHome({ danger => "Please select some records before clicking an action" }, $sheet->identifier.'/purge');
 
             my $records = GADS::Records->new(
                 limit_current_ids   => \@current_ids,
@@ -2005,14 +1980,14 @@ prefix '/:layout_name' => sub {
             {
                 my $record;
                 $record->purge_current while $record = $records->single;
-                forwardHome({ success => "Records have now been purged" }, $layout->identifier.'/purge');
+                forwardHome({ success => "Records have now been purged" }, $sheet->identifier.'/purge');
             }
 
             if (param 'restore')
             {
                 my $record;
                 $record->restore while $record = $records->single;
-                forwardHome({ success => "Records have now been restored" }, $layout->identifier.'/purge');
+                forwardHome({ success => "Records have now been restored" }, $sheet->identifier.'/purge');
             }
         }
 
@@ -2028,31 +2003,25 @@ prefix '/:layout_name' => sub {
         };
 
         $params->{breadcrumbs} = [
-            Crumb($layout) =>
-            Crumb( $layout, '/data' => 'records' ) =>
-            Crumb( $layout, '/purge' => 'purge records' )
+            Crumb($sheet) =>
+            Crumb($sheet, '/data' => 'records') =>
+            Crumb($sheet, '/purge' => 'purge records')
         ];
 
         template 'purge' => $params;
     };
 
     any ['get', 'post'] => '/graph/:id' => require_login sub {
-
-        my $layout = var('layout') or pass;
-
-        my $user        = logged_in_user;
+        my $graph_id = is_valid_id(param 'id');
 
         my $params = {
             layout => $layout,
             page   => 'graph',
         };
 
-        my $id = param 'id';
-
         my $graph = GADS::Graph->new(
-            id           => $id,
+            id           => $graph_id,
             layout       => $layout,
-            schema       => schema,
             current_user => $user,
         );
 
@@ -2061,7 +2030,7 @@ prefix '/:layout_name' => sub {
             if (process( sub { $graph->delete }))
             {
                 return forwardHome(
-                    { success => "The graph has been deleted successfully" }, $layout->identifier.'/graphs' );
+                    { success => "The graph has been deleted successfully" }, $sheet->identifier.'/graphs' );
             }
         }
 
@@ -2072,11 +2041,12 @@ prefix '/:layout_name' => sub {
                 foreach (qw/title description type set_x_axis x_axis_grouping y_axis
                     y_axis_label y_axis_stack group_by stackseries metric_group_id as_percent
                     is_shared group_id trend from to x_axis_range/);
+
             if(process( sub { $graph->write }))
             {
-                my $action = param('id') ? 'updated' : 'created';
+                my $action = $graph_id ? 'updated' : 'created';
                 return forwardHome(
-                    { success => "Graph has been $action successfully" }, $layout->identifier.'/graphs' );
+                    { success => "Graph has been $action successfully" }, $sheet->identifier.'/graphs' );
             }
         }
 
@@ -2088,8 +2058,8 @@ prefix '/:layout_name' => sub {
         my $graph_name = $id ? $graph->title : "add a graph";
         my $graph_id   = $id ? $graph->id : 0;
         $params->{breadcrumbs}   = [
-            Crumb($layout) => Crumb( $layout, '/data' => 'records' )
-                => Crumb( $layout, '/graphs' => 'graphs' ) => Crumb( $layout, "/graph/$graph_id" => $graph_name )
+            Crumb($sheet) => Crumb($sheet, '/data' => 'records')
+                => Crumb($sheet, '/graphs' => 'graphs') => Crumb($sheet, "/graph/$graph_id" => $graph_name)
         ],
 
         template 'graph' => $params;
@@ -2097,70 +2067,49 @@ prefix '/:layout_name' => sub {
 
     get '/metrics/?' => require_login sub {
 
-        my $layout = var('layout') or pass;
+        $sheet->user_can("layout")
+            or forwardHome({ danger => "You do not have permission to manage metrics" }, '');
 
-        my $user        = logged_in_user;
-
-        forwardHome({ danger => "You do not have permission to manage metrics" }, '')
-            unless $sheet->user_can("layout");
-
-        my $metrics = GADS::MetricGroups->new(
-            instance_id => $layout->instance_id,
-        )->all;
-
-        my $params = {
-            layout      => $layout,
+        template 'metrics' => {
+            layout      => $sheet,
             page        => 'metric',
-            metrics     => $metrics,
+            metrics     => $sheet->metrics->all_groups,
             breadcrumbs => [
-                Crumb( $layout ) =>
-                Crumb( $layout, '/data' => 'records' ) =>
-                Crumb( $layout, '/graphs' => 'graphs' ) =>
-                Crumb( $layout, '/metrics' => 'metrics' )
+                Crumb($sheet),
+                Crumb($sheet, '/data'    => 'records'),
+                Crumb($sheet, '/graphs'  => 'graphs' ),
+                Crumb($sheet, '/metrics' => 'metrics'),
             ],
         };
 
-        template 'metrics' => $params;
     };
 
     any ['get', 'post'] => '/metric/:id' => require_login sub {
+        my $mg_id     = is_valid_id(param 'id');
+        my $metric_id = is_valid_id(param 'metric_id');
 
-        my $layout = var('layout') or pass;
+        $sheet->user_can("layout")
+            or forwardHome({ danger => "You do not have permission to manage metrics" }, '');
 
-        my $user        = logged_in_user;
-
-        forwardHome({ danger => "You do not have permission to manage metrics" }, '')
-            unless $sheet->user_can("layout");
-
-        my $params = {
-            layout => $layout,
-            page   => 'metric',
-        };
-
-        my $id = param 'id';
-
-        my $metricgroup = GADS::MetricGroup->new(
-            schema      => schema,
-            id          => $id,
-            instance_id => $layout->instance_id,
-        );
+        my $metrics     = $sheet->metrics;
+        my $metricgroup = $metrics->group($mg_id);
 
         if (param 'delete_all')
         {
             if (process( sub { $metricgroup->delete }))
             {
                 return forwardHome(
-                    { success => "The metric has been deleted successfully" }, $layout->identifier.'/metrics' );
+                    { success => "The metric has been deleted successfully" }, $sheet->identifier.'/metrics' );
             }
         }
 
         # Delete an individual item from a group
         if (param 'delete_metric')
         {
-            if (process( sub { $metricgroup->delete_metric(param 'metric_id') }))
+            if (process( sub { $metricgroup->delete_metric($metric_id) }))
             {
                 return forwardHome(
-                    { success => "The metric has been deleted successfully" }, $layout->identifier."/metric/$id" );
+                    { success => "The metric has been deleted successfully" }, $sheet->identifier."/metric/$mg_id" );
             }
         }
 
@@ -2169,41 +2118,55 @@ prefix '/:layout_name' => sub {
             $metricgroup->name(param 'name');
             if(process( sub { $metricgroup->write }))
             {
-                my $action = param('id') ? 'updated' : 'created';
+                my $action = $mg_id ? 'updated' : 'created';
                 return forwardHome(
-                    { success => "Metric has been $action successfully" }, $layout->identifier.'/metrics' );
+                    { success => "Metric has been $action successfully" }, $sheet->identifier.'/metrics' );
             }
         }
 
         # Update/create an individual item in a group
         if (param 'update_metric')
-        {
-            my $metric = GADS::Metric->new(
-                id                    => param('metric_id') || undef,
-                metric_group_id       => $id,
+        {   my @data = (
                 x_axis_value          => param('x_axis_value'),
                 y_axis_grouping_value => param('y_axis_grouping_value'),
                 target                => param('target'),
-                schema                => schema,
             );
-            if(process( sub { $metric->write }))
+
+            my $action;
+            if(process( sub {
+               if($metric_id)
+               {   $metricgroup->metric_update($metric_id => @data);
+                   $action    = 'updated';
+               }
+               else
+               {   $metric_id = $metricgroup->metric_create(@data);
+                   $action    = 'created';
+               }
+             }))
             {
-                my $action = param('id') ? 'updated' : 'created';
                 return forwardHome(
-                    { success => "Metric has been $action successfully" }, $layout->identifier."/metric/$id" );
+                    { success => "Metric has been $action successfully" }, $sheet->identifier."/metric/$mg_id" );
             }
         }
 
-        $params->{metricgroup} = $metricgroup;
 
-        my $metric_name = $id ? $metricgroup->name : "add a metric";
-        my $metric_id   = $id ? $metricgroup->id : 0;
-        $params->{breadcrumbs} = [Crumb($layout) => Crumb( $layout, '/data' => 'records' )
-                => Crumb( $layout, '/graphs' => 'graphs' )
-                => Crumb( $layout, '/metrics' => 'metrics' ) => Crumb( $layout, "/metric/$metric_id" => $metric_name )
-        ],
+        my @breadcrumbs = (
+            Crumb($sheet),
+            Crumb($sheet, '/data' => 'records'),
+            Crumb($sheet, '/graphs' => 'graphs'),
+            Crumb($sheet, '/metrics' => 'metrics'),
+        );
 
-        template 'metric' => $params;
+        push @breadcrumbs, $mg_id
+          ? Crumb($sheet, "/metric/$mg_id" => $metricgroup->name)
+          : Crumb($sheet, "/metric/0"      => 'add a metric');
+
+        template 'metric' => {
+            page        => 'metric',
+            layout      => $layout,
+            metricgroup => $metricgroup,
+            breadcrumbs => \@breadcrumbs,
+        };
     };
 
     any ['get', 'post'] => '/topic/:id' => require_login sub {
@@ -2238,7 +2201,7 @@ prefix '/:layout_name' => sub {
             {
                 my $action = param('id') ? 'updated' : 'created';
                 return forwardHome(
-                    { success => "Topic has been $action successfully" }, $layout->identifier.'/topics' );
+                    { success => "Topic has been $action successfully" }, $sheet->identifier.'/topics' );
             }
         }
 
@@ -2247,7 +2210,7 @@ prefix '/:layout_name' => sub {
             if (process(sub {$topic->delete}))
             {
                 return forwardHome(
-                    { success => "The topic has been deleted successfully" }, $layout->identifier.'/topics' );
+                    { success => "The topic has been deleted successfully" }, $sheet->identifier.'/topics' );
             }
         }
 
@@ -2256,7 +2219,7 @@ prefix '/:layout_name' => sub {
         template 'topic' => {
             topic       => $topic,
             topics      => [schema->resultset('Topic')->search({ instance_id => $instance_id })->all],
-            breadcrumbs => [Crumb($layout) => Crumb( $layout, '/topics' => 'topics' ) => Crumb( $layout, "/topic/$topic_id" => $topic_name )],
+            breadcrumbs => [Crumb($sheet) => Crumb($sheet, '/topics' => 'topics') => Crumb($sheet, "/topic/$topic_id" => $topic_name)],
             page        => !$id ? 'topic/0' : 'topics',
         }
     };
@@ -2275,7 +2238,7 @@ prefix '/:layout_name' => sub {
         template 'topics' => {
             layout      => $layout,
             topics      => [schema->resultset('Topic')->search({ instance_id => $instance_id })->all],
-            breadcrumbs => [Crumb($layout) => Crumb( $layout, '/topics' => 'topics' )],
+            breadcrumbs => [Crumb($sheet) => Crumb($sheet, '/topics' => 'topics')],
             page        => 'topics',
         };
     };
@@ -2283,13 +2246,17 @@ prefix '/:layout_name' => sub {
     any ['get', 'post'] => '/view/:id' => require_login sub {
 
         $sheet->user_can("view_create")
-            or return forwardHome( { danger => 'You do not have permission to edit views' }, $layout->identifier.'/data' );
+            or return forwardHome( { danger => 'You do not have permission to edit views' }, $sheet->identifier.'/data' );
 
-        my $view_id = param('id');
+        my $view_id = param 'id';
         $view_id =~ /^[0-9]+$/
             or error __x"Invalid view ID: {id}", id => $view_id;
 
-        $view_id = param('clone') if param('clone') && !request->is_post;
+        my $is_new   = defined $view_id && $view_id==0;
+        my $clone_id = param 'clone';
+        my $is_clone = request->is_post ? 0 : !!$clone_id;
+        $view_id = $clone_id if $is_clone;
+
         my (@ucolumns, $view_values);
 
         my $view = $sheet->views->view($view_id);
@@ -2309,13 +2276,14 @@ prefix '/:layout_name' => sub {
             #XXX other_user_id => session('views_other_user_id'),
             #XXX not needed anymore?
 
+            my $name = param('name');
             if(process sub{ $view->update(
                 sheet      => $sheet,
                 column_ids => param('column'),
                 global     => $global,
                 is_admin   => param('is_admin') ? 1 : 0,
                 group_id   => param('group_id'),
-                name       => param('name'),
+                name       => $name,
                 sortfields => [ body_parameters->get_all('sortfield') ],
                 sorttypes  => [ body_parameters->get_all('sorttype')  ],
                 groups     => [ body_parameters->get_all('groupfield') ],
@@ -2330,7 +2298,7 @@ prefix '/:layout_name' => sub {
                 session 'sort' => undef;
 
                 return forwardHome(
-                    { success => "The view has been updated successfully" }, $layout->identifier.'/data' );
+                    { success => "The view has been updated successfully" }, $sheet->identifier.'/data' );
             }
         }
         elsif (param 'delete')
@@ -2338,33 +2306,34 @@ prefix '/:layout_name' => sub {
             if(process( sub { $view->delete($sheet) }))
             {   session('persistent')->{view}{$sheet->id} = undef;
                 return forwardHome(
-                    { success => "The view has been deleted successfully" }, $layout->identifier.'/data' );
+                    { success => "The view has been deleted successfully" }, $sheet->identifier.'/data' );
             }
         }
 
         my $page
-            = param('clone') ? 'view/clone'
-            : defined param('id') && !param('id') ? 'view/0'
-            :                  'view';
+            = $is_clone ? 'view/clone'
+            : $is_new   ? 'view/0'
+            :             'view';
 
         my @breadcrumbs = (
-           Crumb($layout),
-           Crumb($layout, '/data' => 'records'),
+           Crumb($sheet),
+           Crumb($sheet, '/data' => 'records'),
         );
-        push @breadcrumbs, Crumb($layout, "/view/0?clone=$view_id" => 'clone view "'.$view->name.'"' )
-            if param('clone');
+        push @breadcrumbs,
+           Crumb($sheet, "/view/0?clone=$view_id" => 'clone view "$name"')
+           if $is_clone;
 
-        push @breadcrumbs, Crumb($layout, "/view/$view_id" => 'edit view "'.$view->name.'"' )
-            if $view_id && !param('clone');
+        push @breadcrumbs, Crumb($sheet, "/view/$view_id" => 'edit view "$name"')
+            if $view_id && ! $is_clone
 
-        push @breadcrumbs, Crumb($layout, "/view/0" => 'new view' )
+        push @breadcrumbs, Crumb($sheet, "/view/0" => 'new view')
             if !$view_id && defined $view_id;
 
         my $output = template 'view' => {
             layout      => $layout,
             sort_types  => $view->sort_types,
             view_edit   => $view, # TT does not like variable "view"
-            clone       => param('clone'),
+            clone       => $clone_id,  #XXX or $is_clone
             page        => $page,
             breadcrumbs => \@breadcrumbs,
         };
@@ -2373,38 +2342,37 @@ prefix '/:layout_name' => sub {
     };
 
     any ['get', 'post'] => '/layout/?:id?' => require_login sub {
-
-        my $layout = var('layout') or pass;
-
-        my $user        = logged_in_user;
+        my $col_id = is_valid_id(param 'id');
 
         $sheet->user_can('layout')
             or forwardHome({ danger => "You do not have permission to manage fields"}, '')
 
         my $params = {
-            page        => defined param('id') && !param('id') ? 'layout/0' : 'layout',
-            all_columns => $layout->columns,
+            page => defined $col_id && $col_id==0 ? 'layout/0' : 'layout',
+            all_columns => $sheet->layout->columns,
         };
 
-        if (defined param('id'))
+        if($col_id)
         {
             # Get all layouts of all instances for field linking
             $params->{instance_layouts} = var('instances')->all;
             $params->{instances_object} = var('instances'); # For autocur. Don't conflict with other instances var
         }
 
-        my $breadcrumbs = [Crumb($layout) => Crumb( $layout, '/layout' => 'fields' )];
-        if (param('id') || param('submit') || param('update_perms'))
-        {
+        my @breadcrumbs = (
+            Crumb($sheet),
+            Crumb($sheet, '/layout' => 'fields');
+        );
 
+        if($col_id || param('submit') || param('update_perms'))
+        {
             my $column;
-            if (my $id = param('id'))
-            {
-                $column = $layout->column($id)
-                    or error __x"Column ID {id} not found", id => $id;
+            if($col_id)
+            {   $column = $layout->column($col_id)
+                    or error __x"Column ID {id} not found", id => $col_id;
             }
-            else {
-                my $class = param('type');
+            else
+            {   my $class = param('type');
                 first {$class eq $_} GADS::Column::types
                     or error __x"Invalid column type {class}", class => $class;
                 $class = "GADS::Column::".camelize($class);
@@ -2423,7 +2391,7 @@ prefix '/:layout_name' => sub {
                 if (process( sub { $column->delete }))
                 {
                     return forwardHome(
-                        { success => "The item has been deleted successfully" }, $layout->identifier.'/layout' );
+                        { success => "The item has been deleted successfully" }, $sheet->identifier.'/layout' );
                 }
             }
 
@@ -2442,7 +2410,7 @@ prefix '/:layout_name' => sub {
                     foreach (qw/name name_short description helptext optional isunique set_can_child
                         multivalue remember link_parent_id topic_id width aggregate group_display/);
                 $column->type(param 'type')
-                    unless param('id'); # Can't change type as it would require DBIC resultsets to be removed and re-added
+                    unless $col_id; # Can't change type as it would require DBIC resultsets to be removed and re-added
 
                 $column->$_(param $_)
                     foreach @{$column->option_names};
@@ -2504,20 +2472,20 @@ prefix '/:layout_name' => sub {
                 my $no_cache_update = $column->type eq 'rag' ? param('no_cache_update_rag') : param('no_cache_update_calc');
                 if (process( sub { $column->write(no_alerts => $no_alerts, no_cache_update => $no_cache_update) }))
                 {
-                    my $msg = param('id')
+                    my $msg = $col_id
                         ? qq(Your field has been updated successfully)
                         : qq(Your field has been created successfully);
 
-                    return forwardHome( { success => $msg }, $layout->identifier.'/layout' );
+                    return forwardHome( { success => $msg }, $sheet->identifier.'/layout' );
                 }
             }
             $params->{column} = $column;
-            push @$breadcrumbs, Crumb( $layout, "/layout/".$column->id => 'edit field "'.$column->name.'"' );
+            push @breadcrumbs, Crumb($sheet, "/layout/".$column->id => 'edit field "'.$column->name.'"');
         }
         elsif (defined param('id'))
         {
             $params->{column} = 0; # New
-            push @$breadcrumbs, Crumb( $layout, "/layout/0" => 'new field' );
+            push @breadcrumbs, Crumb($sheet, "/layout/0" => 'new field');
         }
         $params->{groups}             = $site->groups;
         $params->{permissions}        = [ GADS::Type::Permissions->all ];
@@ -2531,11 +2499,11 @@ prefix '/:layout_name' => sub {
             if (process( sub { $layout->position(@position) }))
             {
                 return forwardHome(
-                    { success => "The ordering has been saved successfully" }, $layout->identifier.'/layout' );
+                    { success => "The ordering has been saved successfully" }, $sheet->identifier.'/layout' );
             }
         }
 
-        $params->{breadcrumbs} = $breadcrumbs;
+        $params->{breadcrumbs} = \@breadcrumbs;
         template 'layout' => $params;
     };
 
@@ -2579,7 +2547,7 @@ prefix '/:layout_name' => sub {
 
             if(!$failed)
             {   return forwardHome(
-                    { success => 'Record has been successfully approved' }, $layout->identifier.'/approval' );
+                    { success => 'Record has been successfully approved' }, $sheet->identifier.'/approval' );
             }
         }
 
@@ -2599,21 +2567,17 @@ prefix '/:layout_name' => sub {
 
             $page  = 'edit';
             $params->{breadcrumbs} = [
-                Crumb($layout),
-                Crumb( $layout, '/approval' => 'approve records' ),
-                Crumb( $layout, "/approval/$id" => "approve record $id" )
+                Crumb($sheet),
+                Crumb($sheet, '/approval' => 'approve records'),
+                Crumb($sheet, "/approval/$id" => "approve record $id")
              ];
         }
         else
         {   $page  = 'approval';
-            my $approval = GADS::Approval->new(
-                user   => $user,
-                layout => $layout
-            );
-            $params->{records}     = $approval->records;
+            $params->{records}     = $sheet->data->appoval->records;
             $params->{breadcrumbs} = [
-                Crumb($layout),
-                Crumb( $layout, '/approval' => 'approve records' ),
+                Crumb($sheet),
+                Crumb($sheet, '/approval' => 'approve records'),
             ];
         }
 
@@ -2652,17 +2616,17 @@ prefix '/:layout_name' => sub {
             if ($result)
             {
                 return forwardHome(
-                    { success => 'Record has been linked successfully' }, $layout->identifier.'/data' );
+                    { success => 'Record has been linked successfully' }, $sheet->identifier.'/data' );
             }
         }
 
-        my $breadcrumbs = [Crumb($layout)];
+        my $breadcrumbs = [Crumb($sheet)];
         if ($id)
         {
-            push @$breadcrumbs, Crumb( $layout, "/link/$id" => "edit linked record $id" );
+            push @$breadcrumbs, Crumb($sheet, "/link/$id" => "edit linked record $id");
         }
         else {
-            push @$breadcrumbs, Crumb( $layout, '/link/' => 'add linked record' );
+            push @$breadcrumbs, Crumb($sheet, '/link/' => 'add linked record');
         }
         template 'link' => {
             breadcrumbs => $breadcrumbs,
@@ -2727,7 +2691,7 @@ prefix '/:layout_name' => sub {
         }
         else {
             return forwardHome(
-                { success => 'Submission has been completed successfully' }, $layout->identifier.'/data' );
+                { success => 'Submission has been completed successfully' }, $sheet->identifier.'/data' );
         }
     };
 
@@ -2735,12 +2699,11 @@ prefix '/:layout_name' => sub {
 
         my $layout = var('layout') or pass;
 
-        my $user   = logged_in_user;
-        my $view   = current_view($user, $layout);
+        my $view   = current_view();
         my $type   = param 'type';
 
         $sheet->user_can("bulk_update")
-            or forwardHome({ danger => "You do not have permission to perform bulk operations"}, $layout->identifier.'/data');
+            or forwardHome({ danger => "You do not have permission to perform bulk operations"}, $sheet->identifier.'/data');
 
         $type eq 'update' || $type eq 'clone'
             or error __x"Invalid bulk type: {type}", type => $type;
@@ -2749,7 +2712,6 @@ prefix '/:layout_name' => sub {
         my $record = GADS::Record->new(
             user   => $user,
             layout => $layout,
-            schema => schema,
         );
         $record->initialise;
 
@@ -2758,13 +2720,13 @@ prefix '/:layout_name' => sub {
             view                 => $view,
             search               => session('search'),
             columns              => $layout->column_ids, # Need all columns to be able to write updated records
-            schema               => schema,
-            user                 => $user,
-            layout               => $layout,
-            view_limit_extra_id  => current_view_limit_extra_id($user, $layout),
+            view_limit_extra_id  => current_view_limit_extra_id(),
         );
-        $params{limit_current_ids} = [query_parameters->get_all('id')]
-            if query_parameters->get_all('id');
+
+        my @limit_current_ids = query_parameters->get_all('id');
+        $params{limit_current_ids} = \@limit_current_ids;
+            if @limit_current_ids;
+
         my $records = GADS::Records->new(%params);
 
         if (param 'submit')
@@ -2778,7 +2740,7 @@ prefix '/:layout_name' => sub {
                 report WARNING => __x"Field \"{name}\" contained a submitted value but was not checked to be included", name => $col->name
                     if join('', @newv) && !$included;
                 next unless body_parameters->get('bulk_inc_'.$col->id); # Is it ticked to be included?
-                my $datum = $record->fields->{$col->id};
+                my $datum = $record->field($col);
                 my $success = process( sub { $datum->set_value(\@newv, bulk => 1) } );
                 push @updated, $col
                     if $success;
@@ -2819,7 +2781,7 @@ prefix '/:layout_name' => sub {
                     my $msg = __xn"{_count} record was {type}d successfully", "{_count} records were {type}d successfully",
                         $success, type => $type;
                     return forwardHome(
-                        { success => $msg->toString }, $layout->identifier.'/data' );
+                        { success => $msg->toString }, $sheet->identifier.'/data' );
                 }
                 else # Failures, back round the buoy
                 {
@@ -2887,7 +2849,7 @@ prefix '/:layout_name' => sub {
             record_presentation => $record->presentation($sheet, edit => 1, new => 1, bulk => $type),
             bulk_type           => $type,
             page                => 'bulk',
-            breadcrumbs         => [Crumb($layout), Crumb( $layout, "/data" => 'records' ), Crumb( $layout, "/bulk/$type" => "bulk $type records" )],
+            breadcrumbs         => [Crumb($sheet), Crumb($sheet, "/data" => 'records'), Crumb($sheet, "/bulk/$type" => "bulk $type records")],
         };
     };
 
@@ -2911,7 +2873,7 @@ prefix '/:layout_name' => sub {
         template 'import' => {
             imports     => [rset('Import')->search({},{ order_by => { -desc => 'me.completed' } })->all],
             page        => 'import',
-            breadcrumbs => [Crumb($layout) => Crumb( $layout, "/data" => 'records' ) => Crumb( $layout, "/import" => 'imports' )],
+            breadcrumbs => [Crumb($sheet) => Crumb($sheet, "/data" => 'records') => Crumb($sheet, "/import" => 'imports')],
         };
     };
 
@@ -2935,8 +2897,8 @@ prefix '/:layout_name' => sub {
             import_id   => param('import_id'),
             rows        => $rows,
             page        => 'import',
-            breadcrumbs => [Crumb($layout) => Crumb( $layout, "/data" => 'records' )
-                => Crumb( $layout, "/import" => 'imports' ), Crumb( $layout, "/import/rows/$import_id" => "import ID $import_id" ) ],
+            breadcrumbs => [Crumb($sheet) => Crumb($sheet, "/data" => 'records')
+                => Crumb($sheet, "/import" => 'imports'), Crumb($sheet, "/import/rows/$import_id" => "import ID $import_id") ],
         };
     };
 
@@ -2965,7 +2927,7 @@ prefix '/:layout_name' => sub {
                 if (process sub { $import->process })
                 {
                     return forwardHome(
-                        { success => "The file import process has been started and can be monitored using the Import Status below" }, $layout->identifier.'/import' );
+                        { success => "The file import process has been started and can be monitored using the Import Status below" }, $sheet->identifier.'/import' );
                 }
             }
             else {
@@ -2976,8 +2938,8 @@ prefix '/:layout_name' => sub {
         template 'import/data' => {
             layout      => var('layout'),
             page        => 'import',
-            breadcrumbs => [Crumb($layout) => Crumb( $layout, "/data" => 'records' )
-                => Crumb( $layout, "/import" => 'imports' ), Crumb( $layout, "/import/data" => 'new import' ) ],
+            breadcrumbs => [Crumb($sheet) => Crumb($sheet, "/data" => 'records')
+                => Crumb($sheet, "/import" => 'imports'), Crumb($sheet, "/import/data" => 'new import') ],
         };
     };
 
@@ -2991,7 +2953,7 @@ prefix '/:layout_name' => sub {
             if (process( sub { $user->set_graphs($layout, [body_parameters->get_all('graphs')]) }))
             {
                 return forwardHome(
-                    { success => "The selected graphs have been updated" }, $layout->identifier.'/data' );
+                    { success => "The selected graphs have been updated" }, $sheet->identifier.'/data' );
             }
         }
 
@@ -3003,7 +2965,7 @@ prefix '/:layout_name' => sub {
         template 'graphs' => {
             graphs      => [ $graphs->all ],
             page        => 'graphs',
-            breadcrumbs => [Crumb($layout) => Crumb( $layout, '/data' => 'records' ) => Crumb( $layout, '/graph' => 'graphs' )],
+            breadcrumbs => [Crumb($sheet) => Crumb($sheet, '/data' => 'records') => Crumb($sheet, '/graph' => 'graphs')],
         };
     };
 
@@ -3059,41 +3021,19 @@ __HTML
 }
 
 sub current_view {
-    my ($user, $layout) = @_;
-
-    $layout or return undef;
-
-    my $views      = GADS::Views->new(
-        user        => $user,
-        schema      => schema,
-        layout      => $layout,
-        instance_id => $layout->instance_id,
-    );
-    # If an invalid view is stuck in the session, then this can result in the
-    # user in a continuous loop unable to open any other views
-    my $view =
-       try { $views->view(session('persistent')->{view}->{$layout->instance_id}) };
-    $@->reportAll(is_fatal => 0); # XXX results in double reporting
-    return $view || $views->default || undef; # Can still be undef
+    my $view_id = session('persistent')->{view}{$sheet->id};
+    $sheet->views->view($view_id) || $sheet->views->view_default;
 };
 
-sub current_view_limit_extra
-{   my ($user, $layout) = @_;
-    my $extra_id = session('persistent')->{view_limit_extra}->{$layout->instance_id};
-    $extra_id ||= $layout->default_view_limit_extra_id;
-    if ($extra_id)
-    {
-        # Check it's valid
-        my $extra = schema->resultset('View')->find($extra_id);
-        return $extra
-            if $extra && $extra->instance_id == $layout->instance_id;
-    }
-    return undef;
+sub current_view_limit_extra()
+{   my $extra_id = session('persistent')->{view_limit_extra}{$sheet->id}
+       ||= $sheet->default_view_limit_extra_id;
+
+    $sheet->view($extra_id);  # includes check existence
 }
 
-sub current_view_limit_extra_id
-{   my ($user, $layout) = @_;
-    my $view = current_view_limit_extra($user, $layout);
+sub current_view_limit_extra_id()
+{   my $view  = current_view_limit_extra();
     $view ? $view->id : undef;
 }
 
@@ -3169,24 +3109,17 @@ sub _page_as_mech
 
 sub _data_graph
 {   my $id = shift;
-    my $user    = logged_in_user;
-    my $layout  = var 'layout';
-    my $view    = current_view($user, $layout);
 
     my $records = GADS::RecordsGraph->new(
-        user                => $user,
         search              => session('search'),
-        view_limit_extra_id => current_view_limit_extra_id($user, $layout),
+        view_limit_extra_id => current_view_limit_extra_id(),
         rewind              => session('rewind'),
-        layout              => $layout,
-        schema              => schema,
     );
 
     GADS::Graph::Data->new(
         id      => $id,
         records => $records,
-        schema  => schema,
-        view    => $view,
+        view    => current_view(),
     );
 }
 
@@ -3228,7 +3161,7 @@ sub _process_edit
         if (process( sub { $record->delete_user_drafts($sheet) }))
         {
             return forwardHome(
-                { success => 'Draft has been deleted successfully' }, $layout->identifier.'/data' );
+                { success => 'Draft has been deleted successfully' }, $sheet->identifier.'/data' );
         }
     }
 
@@ -3248,17 +3181,18 @@ sub _process_edit
 
     my $child = param('child') || $record->parent_id;
 
-    my $modal = param('modal') && int param('modal');
-    my $oi = param('oi') && int param('oi');
+    my $modal = is_valid_id(param 'modal');
+    my $oi    = is_valid_id(param 'oi');
 
     $record->initialise unless $id;
 
-    if (param('submit') || param('draft') || $modal || defined(param 'validate'))
+    my $validate_only = defined(param 'validate');
+    if(param('submit') || param('draft') || $modal || $validate_only)
     {
         my $failed;
 
-        error __"You do not have permission to create a child record"
-            if $child && !$id && !$sheet->user_can('create_child');
+        !$child || $id || $sheet->user_can('create_child')
+            or error __"You do not have permission to create a child record";
 
         $record->parent_id($child);
 
@@ -3285,7 +3219,7 @@ sub _process_edit
 
             # No need to do anything if the file's just been uploaded
             my $datum = $record->field($col);
-            if (defined(param 'validate'))
+            if($do_validate)
             {
                 try { $datum->set_value($newv) };
                 if (my $e = $@->wasFatal)
@@ -3300,7 +3234,7 @@ sub _process_edit
         # Call this now, to write and blank out any non-displayed values,
         $record->set_blank_dependents;
 
-        if (defined(param 'validate'))
+        if($validate_only)
         {
             try { $record->write(dry_run => 1) };
             if (my $e = $@->died) # XXX This should be ->wasFatal() but it returns the wrong message
@@ -3324,35 +3258,34 @@ sub _process_edit
             if (process sub { $record->write(draft => 1, submission_token => param('submission_token')) })
             {
                 return forwardHome(
-                    { success => 'Draft has been saved successfully'}, $layout->identifier.'/data' );
+                    { success => 'Draft has been saved successfully'}, $sheet->identifier.'/data' );
             }
 
-            return forwardHome(undef, $layout->identifier.'/data')
+            return forwardHome(undef, $sheet->identifier.'/data')
                 if $record->already_submitted_error;
         }
         elsif (!$failed)
         {
             if (process( sub { $record->write(submission_token => param('submission_token')) }))
-            {
-                my $forward = !$id && $layout->forward_record_after_create ? 'record/'.$record->current_id : $layout->identifier.'/data';
-                return forwardHome(
-                    { success => 'Submission has been completed successfully for record ID '.$record->current_id }, $forward );
+            {   my $current_id = $record->current_id;
+                my $forward = !$id && $layout->forward_record_after_create
+                  ? "record/$current_id"
+                  : $sheet->identifier.'/data';
+
+                return forwardHome({ success =>
+                    "Submission has been completed successfully for record ID $current_id" }, $forward );
             }
 
-            return forwardHome(undef, $layout->identifier.'/data')
+            return forwardHome(undef, $sheet->identifier.'/data')
                 if $record->already_submitted_error;
         }
     }
     elsif($id) {
         # Do nothing, record already loaded
     }
-    elsif (my $from = param('from'))
-    {
-        my $toclone = GADS::Record->new(
-            layout               => $layout,
-            curcommon_all_fields => 1,
-        );
-        $toclone->find_current_id($from);
+    elsif(my $from = is_valid_id(param 'from'))
+    {   my $toclone = $sheet->data->row(current_id => $from,
+           curcommon_all_fields => 1);
         $record = $toclone->clone;
     }
     else {
@@ -3360,24 +3293,22 @@ sub _process_edit
     }
 
     # Clear all fields which we may write but not read.
-    foreach my $col ($sheet->layout->search_columns(user_can_write => 1))
-    {
-        $col->user_can('read')
-            or $record->field($col)->set_value("");
-    }
+    $record->field($_)->set_value("")
+        for grep ! $_->user_can('read'),
+               $sheet->layout->search_columns(user_can_write => 1);
 
     my $child_rec = $child && $sheet->user_can('create_child')
-        ? int(param 'child')
+        ? is_valid_id(param 'child')
         : $record->parent_id;
 
     notice __"Values entered on this page will have their own value in the child "
-            ."record. All other values will be inherited from the parent."
-            if $child_rec;
+      . "record. All other values will be inherited from the parent."
+        if $child_rec;
 
-    my @breadcrumbs = ( Crumb($layout), Crumb( $layout, '/data' => 'records' );
+    my @breadcrumbs = (Crumb($sheet), Crumb($sheet, '/data' => 'records'));
     push @breadcrumbs, $id
-      ? Crumb( "/edit/$id" => "edit record $id" )
-      : Crumb( $layout, '/edit/' => 'new record' );
+      ? Crumb("/edit/$id" => "edit record $id")
+      : Crumb($sheet, '/edit/' => 'new record');
 
     my %params = (
         record              => $record,
@@ -3391,7 +3322,8 @@ sub _process_edit
         record_presentation => $record->presentation($sheet, edit => 1, new => !$id, child => $child),
     );
 
-    $params{modal_field_ids} = encode_json $layout->column($modal)->curval_field_ids
+    $params{modal_field_ids} = encode_json $sheet->layout->column($modal)
+        ->curval_field_ids
         if $modal;
 
     my $options = $modal ? { layout => undef } : {};

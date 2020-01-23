@@ -290,7 +290,6 @@ lib/GADS/Timeline.pm
 lib/GADS/Type/Permission.pm
 lib/GADS/Type/Permissions.pm
 lib/GADS/Users.pm
-lib/GADS/View.pm
 lib/Linkspace/Audit.pm
 lib/Linkspace/DB.pm
 lib/Linkspace/DBICProfiler.pm
@@ -311,6 +310,7 @@ lib/Linkspace/User.pm
 lib/Linkspace/User/Person.pm
 lib/Linkspace/User/System.pm
 lib/Linkspace/Util.pm
+lib/Linkspace/View.pm
 LICENSE
 Makefile.PL
 MANIFEST			This list of files

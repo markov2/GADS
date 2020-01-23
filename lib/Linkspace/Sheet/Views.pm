@@ -1,0 +1,139 @@
+=pod
+GADS - Globally Accessible Data Store
+Copyright (C) 2014 Ctrl O Ltd
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+=cut
+
+package Linkspace::Sheet::Views;
+
+use Log::Report 'linkspace';
+use Moo;
+use MooX::Types::MooseLike::Base qw/ArrayRef HashRef Int Maybe Bool/;
+
+has sheet => (
+    is       => 'ro',
+    required => 1,
+    weakref  => 1,
+);
+
+has all_views => (
+    is      => 'lazy',
+    isa     => ArrayRef,
+    builder => sub {
+        my $self  = shift;
+        my $views = $::db->search(View => { instance_id => $self->sheet->id });
+        [ map $self->view($_->id), $views->all ];
+    },
+);
+
+
+sub user_views(;$)
+{   my ($self, $victim) = @_;
+    $victim ||= $::session->user;
+
+    my (@admins, @shared, @personal);
+    foreach my $view ($self->all_views)
+    {   my $set
+          = $view->has_access_via_global($victim) ? \@shared
+          : $user->is_admin ? \@admins
+          :                   \@personal;
+        push @$set, $view;
+    }
+
+      +{ admin => \@admins, shared => \@shared, personal => \@personal };
+}
+
+sub user_views_all(;$)
+{   my $self = shift
+    my $all  = $self->user_views(@_);
+    [ @{$all->{shared}}, @{$all->{personal}}, @{$all->{admin}} ];
+}
+
+sub views_limit_extra() { [ grep $_->is_limit_extra, $_[0]->all_views ] }
+sub view_default()      { $_[0]->user_views_all->[0] }
+
+sub view_delete($)
+{   my ($self, $which) = @_;
+    my $view = $self->view($which) or return;
+
+    #XXX more to ::View
+    my %view_ref = ( view_id => $view_id );
+    $::db->delete($_ => \%view_ref)
+        for qw/Filter ViewLimit ViewLayout Sort AlertCache Alert/;
+    $view->delete;
+}
+
+sub purge
+{   my $self = shift;
+    $self->view_delete($_) for @{$self->all_views};
+}
+
+=head2 my $view = $views->view($view_id, %options);
+=cut
+
+sub view($)
+{   my ($self, $view_id, %args) = @_;
+    defined $view_id or return;
+
+    my $view  = first { $_->id == $view_id } @{$self->all_views}
+        or return;
+
+    my $user  = $::session->user;
+
+    return $view
+        if $user->is_admin;
+
+#XXX too many restrictions?
+    return $view
+        if ! $view->global
+        && ! $view->is_limit_extra
+        && ! $self->sheet->user_can('layout')
+        && $view->owner->id == $user->id;
+
+    return $view
+        if $view->global
+        && $view->group_id
+        && $user->in_group($view->group_id);
+
+    undef;
+}
+
+=head2 my $view_id = $views->view_create(%insert);
+=cut
+
+sub view_create
+{   my ($self, %insert) = @_;
+    $::db->create(View => \%insert);
+}
+
+#------------------------------
+=head1 METHODS: ViewLimits
+Relate view restrictions to users.
+
+=head2 my @views = $views->limits_for_user($user);
+
+=head2 my @views = $views->limits_for_user;
+
+=cut
+
+#XXX move to ::Person?  Used only once
+sub limits_for_user(;$)
+{   my $self = shift;
+    my $user = shift || $::session->user;
+
+    $::db->search(ViewLimit => { 'me.user_id' => $user->id })->all;
+}
+
+1;
