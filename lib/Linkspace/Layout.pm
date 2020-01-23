@@ -122,11 +122,15 @@ has _columns_name_shorthash => (
     isa     => HashRef,
 );
 
+#XXX should get created dynamically
+has datum_tables => (
+    is      => 'ro',
+    default => sub { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] },
+)
+
 sub _build__user_permissions_columns
 {   my $self = shift;
-    $self->user or return {};
-
-    my $user_id  = $self->user->id;
+    my $user_id = $::session->user->id;
 
     +{
         $user_id => $self->_get_user_permissions($user_id),
@@ -175,8 +179,7 @@ sub _build__user_permissions_overall
 
     # First all the column permissions
     if(my $h = $user->sheet_permissions($self))
-    {
-        $overall{$_} = 1 for keys %$h;
+    {   $overall{$_} = 1 for keys %$h;
     }
     else
     {   my $perms = $self->_user_permissions_columns->{$user_id};

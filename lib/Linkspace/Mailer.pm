@@ -124,12 +124,12 @@ sub message
 }
 
 sub send_welcome($)
-{   my ($self, $args) = @_;
+{   my ($self, %args) = @_;
 
     my $site = $::session->site;
     my $body = $site->email_welcome_text;
 
-    my $url  = $::session->request->base . "resetpw/$args->{code}";
+    my $url  = $::session->request->base . "resetpw/$args{code}";
     $body    =~ s/\Q[URL]/$url/;
     $body    =~ s/\Q[NAME]/$site->name/e;
 
@@ -145,7 +145,7 @@ sub send_welcome($)
         subject => $site->email_welcome_subject,
         text    => $body,
         html    => $html,
-        emails  => [ $args->{email} ],
+        emails  => [ $args{email} ],
     );
 }
 

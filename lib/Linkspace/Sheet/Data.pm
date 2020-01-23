@@ -18,11 +18,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Sheet::Data;
 
+use Moo;
+use MooX::Types::MooseLike::Base qw(:all);
+use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
+
+with 'GADS::RecordsJoin', 'GADS::Role::Presentation::Records';
+
+use Linkspace::Sheet::Approval;
+
 use Data::Dumper qw/Dumper/;
 use DateTime;
 use DateTime::Format::Strptime qw( );
 use DBIx::Class::Helper::ResultSet::Util qw(correlate);
-use GADS::Config;
 use GADS::Graph::Data;
 use GADS::Record;
 use GADS::Timeline;
@@ -32,11 +39,7 @@ use Log::Report 'linkspace';
 use POSIX qw(ceil);
 use Scalar::Util qw(looks_like_number);
 use Text::CSV::Encoded;
-use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
-use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
 
-with 'GADS::RecordsJoin', 'GADS::Role::Presentation::Records';
 
 # Preferably this is passed in to prevent extra
 # DB reads, but loads it if it isn't
@@ -2753,6 +2756,16 @@ sub _build_group_results
 
     return \@all;
 }
+
+=head2 my $approval = $data->approval;
+Returns an L<Linkspace::Sheet::Approval> object, which contains logic about
+approving changes.
+=cut
+
+has approval => (
+    is      => 'lazy',
+    builder => sub { Linkspace::Sheet::Approval->new(sheet => $_[0]->sheet) },
+);
 
 1;
 

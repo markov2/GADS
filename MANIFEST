@@ -163,7 +163,6 @@ lib/GADS.pm
 lib/GADS/Alert.pm
 lib/GADS/AlertSend.pm
 lib/GADS/API.pm
-lib/GADS/Approval.pm
 lib/GADS/Column.pm
 lib/GADS/Column/Autocur.pm
 lib/GADS/Column/Calc.pm
@@ -301,6 +300,7 @@ lib/Linkspace/Session.pm
 lib/Linkspace/Session/Dancer2.pm
 lib/Linkspace/Session/System.pm
 lib/Linkspace/Sheet.pm
+lib/Linkspace/Sheet/Approval.pm
 lib/Linkspace/Sheet/Data.pm
 lib/Linkspace/Sheet/Page.pm
 lib/Linkspace/Sheet/Layout.pm

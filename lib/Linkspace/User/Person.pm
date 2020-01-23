@@ -34,8 +34,7 @@ sub from_record
     bless $data, $class;
 }
 
-=head2 $user->retire(%options)
-Option C<send_reject_email>.
+=head2 $user->retire(%options);
 =cut
 
 sub retire(%)
@@ -44,10 +43,6 @@ sub retire(%)
     if ($self->account_request)
     {   # Properly delete if account request - no record needed
         $self->delete;
-
-        $::linkspace->mailer->send_user_rejected($user)
-            if $args{send_reject_email};
-
         return;
     }
 
@@ -62,8 +57,7 @@ sub retire(%)
     });
 
     $guard->commit;
-
-    $::linkspace->mailer->send_user_deleted($self);
+    return;
 }
 
 =head2 my $msg = $user->update_relations(%options);
@@ -417,9 +411,22 @@ sub has_draft
 sub password_reset()
 {   my $self = shift;
     my $reset_code = Session::Token->new(length => 32)->get;
-    $self->update({ resetpw => $reset_code });
+    $self->update({ resetpw => $reset_code, failcount => 0 });
     $self->resetpw($reset_code);
     $reset_code;
+}
+
+=head2 my $fail_count = $user->login_failed;
+=cut
+
+sub login_failed()
+{   my $self = shift;
+    my $newcount = $self->failcount + 1;
+    $self->update({
+        failcount => $newcount,
+        lastfail  => DateTime->now,
+    });
+    $newcount;
 }
 
 =head2 my $text = $user->summary(%options);

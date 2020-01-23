@@ -247,7 +247,7 @@ sub user_update
     if (lc $username ne lc $old_name)
     {
         $self->search_active({ username => $username })->count
-            and error __x"Email address {username} already exists as an active user", username => $username;
+            and error __x"Email address {email} already exists as an active user", email => $email;
 
         $::session->audit("Username $old_name (id $victim_id) changed to $username",
             type => 'login_change');
@@ -257,7 +257,7 @@ sub user_update
     $victim = $self->user($victim_id);   # upgrade
     $victim->update_relations(@relations);
 
-    my $msg = __x"User updated: ID {id}, username: {username}",
+    my $msg = __x"User updated: id={id}, username={username}",
         id => $victim_id, username => $username;
     $::session->audit($msg, type => 'login_change');
 
@@ -430,10 +430,11 @@ sub upload
             $title_id or push @errors, [ $row, qq(Title "$name" not found) ];
         }
 
+        my $email  = $cell->('email');
         my %insert = (
             firstname     => $cell->('forename') || '',
             surname       => $cell->('surname')  || '',
-            email         => $cell->('email')    || '',
+            email         => $cell->('email'),
             freetext1     => $cell->($freetext1) || '',
             freetext2     => $cell->($freetext2) || '',
             title         => $title_id,
@@ -444,10 +445,9 @@ sub upload
         );
 
         my $user      = $self->user_create(\%insert);
-        $insert{code} = $user->resetpw;
         $nr_users++;
 
-        push @welcome_emails, \%insert;
+        push @welcome_emails, [ email => $email, code => $user->resetpw ];
     }
 
     if (@errors)
@@ -460,7 +460,7 @@ sub upload
 
     $guard->commit;
 
-    $::linkspace->mailer->send_welcome($_)
+    $::linkspace->mailer->send_welcome(@$_)
         for @welcome_emails;
 
     $nr_users;

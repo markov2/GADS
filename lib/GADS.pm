@@ -140,15 +140,11 @@ hook before => sub {
         my $username = $user->username;
         my $method   = request->method;
         my $path     = request->path;
-        my $descr    = qq(User "$username" made "$method" request to "$path");
-
         my $query    = request->query_string;
+        my $descr    = qq(User "$username" made "$method" request to "$path");
         $descr      .= qq( with query "$query") if $query;
         $::session->audit($descr, url => $path, method => $method);
     }
-
-    my $instances = $user && GADS::Instances->new(schema => schema, user => $user);
-    var 'instances' => $instances;
 
     # The following use logged_in_user so as not to apply for API requests
     if (logged_in_user)
@@ -185,22 +181,18 @@ hook before => sub {
         # used as hashrefs themselves, so prevent trying to access non-existent hash.
         my $persistent = session 'persistent';
 
-        if (my $instance_id = param('instance'))
-        {
-            session 'search' => undef;
-        }
-        elsif (!$persistent->{instance_id})
-        {
-            $persistent->{instance_id} = config->{gads}->{default_instance};
-        }
+        # Sheet can be addressed by id, short_name, long_name or even table$id
+        my $sheet_ref
+            = route_parameters->get('layout_name')
+           || param('instance')
+           || $persistent->{instance_id}
+           || $::linkspace->setting(gads => 'default_instance');
 
-        if (my $layout_name = route_parameters->get('layout_name'))
-        {
-            if (my $layout = var('instances')->layout_by_shortname($layout_name, no_errors => 1))
-            {
-                var 'layout' => $layout;
-                session('persistent')->{instance_id} = $layout->instance_id;
-            }
+        $sheet = $site->sheet($sheet_ref);
+
+        if($sheet->id != ($persistent->{instance_id} || 0))
+        {   session 'search' => undef;
+            $persistent->{instance_id} = $sheet->id;
         }
     }
 };
@@ -212,17 +204,15 @@ hook after => sub {
 hook before_template => sub {
     my $tokens = shift;
 
-    my $user   = logged_in_user;
-
     my $base = $tokens->{base} || request->base;
-    $tokens->{url}->{css}  = "${base}css";
-    $tokens->{url}->{js}   = "${base}js";
-    $tokens->{url}->{page} = $base;
-    $tokens->{url}->{page} =~ s!.*/!!; # Remove trailing slash   XXX no
-    $tokens->{scheme}    ||= request->scheme; # May already be set for phantomjs requests
-    $tokens->{hostlocal}   = config->{gads}->{hostlocal};
-
-    $tokens->{header} = config->{gads}->{header};
+    $tokens->{url} =
+      { css  => "${base}css",
+        js   => "${base}js",
+        page => $base =~ s!.*/!!r, # Remove trailing slash   XXX no
+      };
+    $tokens->{scheme}  ||= request->scheme; # May already be set for phantomjs requests
+    $tokens->{hostlocal} = config->{gads}->{hostlocal};
+    $tokens->{header}    = config->{gads}->{header};
 
     # Possible for $layout to be undef if user has no access
     if($sheet &&
@@ -244,7 +234,7 @@ hook before_template => sub {
         $tokens->{user}          = $user;
         $tokens->{search}        = session 'search';
         # Somehow this sets the instance_id session if no persistent session exists
-        $tokens->{instance_id}   = session('persistent')->{instance_id}
+        $tokens->{instance_id}   = $sheet->id;
             if session 'persistent';
 
         if($sheet)
@@ -256,7 +246,7 @@ hook before_template => sub {
         $tokens->{show_link} = rset('Current')->next ? 1 : 0; #XXX?
         $tokens->{v}         = current_view($user, $layout);  # View is reserved TT word
     }
-    $tokens->{messages}      = session('messages');
+    $tokens->{messages}      = session 'messages';
     $tokens->{site}          = $site;
     $tokens->{config}        = GADS::Config->instance;
 
@@ -274,7 +264,7 @@ hook before_template => sub {
         notice __x"You are currently viewing, editing and creating views as {name}",
             name => $other->value if $other;
     }
-    session 'messages' => [];
+    session messages => [];
 };
 
 hook after_template_render => sub {
@@ -303,11 +293,8 @@ sub _forward_last_table
 
 get '/' => require_login sub {
 
-    my $user    = logged_in_user;
-
     if (my $dashboard_id = query_parameters->get('did'))
-    {
-        session('persistent')->{dashboard}->{0} = $dashboard_id;
+    {   session('persistent')->{dashboard}->{0} = $dashboard_id;
     }
 
     my $dashboard_id = session('persistent')->{dashboard}->{0};
@@ -368,8 +355,7 @@ get '/aup_text' => require_login sub {
 any ['get', 'post'] => '/user_status' => require_login sub {
 
     if (param 'accepted')
-    {
-        session 'status_accepted' => 1;
+    {   session status_accepted => 1;
         _forward_last_table();
     }
 
@@ -437,7 +423,8 @@ any ['get', 'post'] => '/login' => sub {
         {
             if(process( sub {
                  my $resetpw = $user->password_reset;
-                 $::linkspace->mailer->send_welcome({email => $email, code => $resetpw}) }))
+                 $::linkspace->mailer->send_welcome(email => $email, code => $resetpw);
+            }))
             {
                 # Show same message as normal request
                 return forwardHome(
@@ -480,19 +467,18 @@ any ['get', 'post'] => '/login' => sub {
         {   $login_change->("New user account request for $email");
             my @to => map $_->email, $users->useradmins;
             $::linkspace->mailer->send_account_requested($victim, \@to);
-            return forwardHome({ success => "Your account request has been received successfully" });
+            return forwardHome({ success =>
+                "Your account request has been received successfully" });
         }
     }
     elsif(param('signin'))
     {
         my $username  = param 'username';
-        my $lastfail  = DateTime->now->subtract(minutes => 15);
+        my $victim    = $site->users->user(username => $username);
 
-        my $fail      = $users->user_rs->search({
-            username  => $username,
-            failcount => { '>=' => 5 },
-            lastfail  => { '>' => $::db->format_datetime($lastfail) },
-        })->count;
+        my $fail      = $victim->failcount >= 5
+            && $victim->lastfail > DateTime->now->subtract(minutes => 15);
+
         $fail and assert "Reached fail limit for user $username";
 
         my ($success, $realm) = !$fail && authenticate_user(
@@ -522,21 +508,12 @@ any ['get', 'post'] => '/login' => sub {
             _forward_last_table();
         }
         else
-        {   $::session->audit("Login failure using username $username",
-                type => 'login_failure'
-            );
+        {   $::session->audit("Login failure using username $username", type => 'login_failure');
 
-            my ($user) = $users->user_rs->search({
-                username        => $username,
-                account_request => 0,
-            })->all;
-            if ($user)
-            {
-                $user->update({
-                    failcount => $user->failcount + 1,
-                    lastfail  => DateTime->now,
-                });
-                trace "Fail count for $username is now ".$user->failcount;
+            my $victim = $site->users->user(username => $username);
+            if($victim && ! $victim->account_requested)
+            {   my $fail_count = $victim->login_failed;
+                trace "Fail count for $username is now $fail_count";
                 report {to => 'syslog'},
                     INFO => __x"debug_login set - failed username \"{username}\", password: \"{password}\"",
                     username => $user->username, password => params->{password}
@@ -575,20 +552,16 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
         my $new_password = _random_pw();
         if (user_password password => param('oldpassword'), new_password => $new_password)
         {
-            $::session->audit('New password set for user',
-                type => 'login change',
-            );
+            $::session->audit('New password set for user', type => 'login change');
 
             # Don't log elsewhere
             return forwardHome({ success =>
                  qq(Your password has been changed to: $new_password)},
                  'myaccount', user_only => 1 );
         }
-        else {
-            return forwardHome({ danger =>
-                "The existing password entered is incorrect"},
-                'myaccount' );
-        }
+
+        return forwardHome({ danger =>
+            "The existing password entered is incorrect"}, 'myaccount');
     }
 
     if (param 'submit')
@@ -815,7 +788,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     my %all_permissions = map { $_->id => $_->name } @{$users->permissions};
     my $login_change    = sub { $::session->audit(@_, type => 'login_change') };
 
-    my $users;
+    my @show_users;
 
     if (param 'sendemail')
     {   my $org_id = param 'email_organisation';
@@ -837,6 +810,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     # if the user has pressed enter, in which case ignore it
     if (param('submit') && !param('neworganisation') && !param('newdepartment') && !param('newtitle') && !param('newteam'))
     {
+        my $account_request = param 'account_request';
         my %values = (
             firstname             => param('firstname'),
             surname               => param('surname'),
@@ -847,30 +821,28 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             organisation          => is_valid_id(param 'organisation'),
             department_id         => is_valid_id(param 'department_id'),
             team_id               => is_valid_id(param 'team_id'),
-            account_request       => param('account_request'),
+            account_request       => $account_request,
             account_request_notes => param('account_request_notes'),
             view_limits_ids       => [ body_parameters->get_all('view_limits') ],
             group_ids             => [ body_parameters->get_all('groups') ],
             permissions           => [ body_parameters->get_all('permission') ],
         );
 
-        if (!param('account_request') && $id) # Original username to update (hidden field)
-        {   if(process sub { $site->users->user_update($id => %values) })
+        my $victim;
+        if($id && ! $account_request)
+        {   # Original username to update (hidden field)  XXX???
+            if(process sub { $victim = $users->user_update($id => %values) })
             {
                 return forwardHome(
                     { success => "User has been updated successfully" }, 'user' );
             }
         }
-        else
-        {   if(process(sub {
-                 my $user      = $site->users->user_create(%values);
-                 $values{code} = $user->resetpw;
-                 $::linkspace->mailer->send_welcome(\%values);
-            }))
-            {
-                return forwardHome(
-                    { success => "User has been created successfully" }, 'user' );
-            }
+        elsif(process(sub { $victim = $users->user_create(%values) }))
+        {   $::linkspace->mailer
+                ->send_welcome(email => $victim->email, code => $victim->resetpw);
+
+            return forwardHome(
+                { success => "User has been created successfully" }, 'user' );
         }
 
         # In case of failure, pass back to form
@@ -878,13 +850,12 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             body_parameters->get_all('view_limits');
 
         $values{view_limits_with_blank} = \@view_limits_with_blank;
-        $users = [ \%values ];
+        push @show_users, \%values;
     }
 
-    my $register_requests;
     if (param('neworganisation') || param('newtitle') || param('newdepartment') || param('newteam'))
     {
-        if (my $org = param 'neworganisation')
+        if(my $org = param 'neworganisation')
         {
             if (process( sub { $site->create(Organisation => {name => $org}) }))
             {
@@ -893,7 +864,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             }
         }
 
-        if (my $dep = param 'newdepartment')
+        if(my $dep = param 'newdepartment')
         {
             if (process( sub { $site->create(Department => { name => $dep }) }))
             {
@@ -903,7 +874,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             }
         }
 
-        if (my $team = param 'newteam')
+        if(my $team = param 'newteam')
         {
             if (process( sub { $site->create(Team => { name => $team }) }))
             {
@@ -913,7 +884,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             }
         }
 
-        if (my $title = param 'newtitle')
+        if(my $title = param 'newtitle')
         {
             if (process( sub { $site->create(Title => { name => $title }) }))
             {
@@ -927,14 +898,11 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         # DPAE to use a user object
         my $groups      = param('groups');
         my @groups      = ref $groups ? @$groups : ($groups || ());
-        my %groups      = map { $_ => 1 } @groups;
-        my $view_limits_with_blank = [ map {
-            +{
-                view_id => $_
-            }
-        } body_parameters->get_all('view_limits') ];
+        my %groups      = map +($_ => 1) @groups;
+        my $view_limits_with_blank = [ map +{ view_id => $_ },
+            body_parameters->get_all('view_limits') ];
 
-        $users = [{
+        push @show_users, +{
             firstname              => param('firstname'),
             surname                => param('surname'),
             email                  => param('email'),
@@ -946,17 +914,25 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             team_id                => { id => param('team_id') },
             view_limits_with_blank => $view_limits_with_blank,
             groups                 => \%groups,
-        }];
+        };
     }
-    elsif (my $delete_id = param('delete'))
+
+    if (my $delete_id = param('delete'))
     {
         return forwardHome(
             { danger => "Cannot delete current logged-in User" } )
             if logged_in_user->id eq $delete_id;
-        my $user = $::db->resultset('User')->find($delete_id);
-        if (process( sub { $user->retire(send_reject_email => 1) }))
-        {
-            $login_change->("User ID $delete_id deleted");
+
+        my $victim = $::linkspace->users->user($delete_id);
+
+        if($victim && process( sub { $victim->retire } ))
+        {   $login_change->("User ID $delete_id deleted");
+            my $mailer = $::linkspace->mailer;
+
+            if($self->account_request)
+                 { $mailer->send_user_rejected($victim) }
+            else { $mailer->send_user_deleted($victim)  }
+
             return forwardHome(
                 { success => "User has been deleted successfully" }, 'user' );
         }
@@ -965,46 +941,44 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     if (defined param 'download')
     {
         my $csv = $users->csv;
-        my $now = DateTime->now();
         my $header;
-        if ($header = config->{gads}->{header})
-        {
-            $csv       = "$header\n$csv" if $header;
-            $header    = "-$header" if $header;
+        if(my $head = $::linkspace->setting(gads => 'header'))
+        {   $csv       = "$head\n$csv";
+            $header    = "-$head";
         }
         # XXX Is this correct? We can't send native utf-8 without getting the error
         # "Strings with code points over 0xFF may not be mapped into in-memory file handles".
         # So, encode the string (e.g. "\x{100}"  becomes "\xc4\x80) and then send it,
         # telling the browser it's utf-8
         utf8::encode($csv);
+
+        my $now = DateTime->now;
         return send_file( \$csv, content_type => 'text/csv; charset="utf-8"', filename => "$now$header.csv" );
     }
 
-    my $route_id = route_parameters->get('id');
+    my $register_requests;
+    my $page        = 'user';
+    my @breadcrumbs = Crumb( '/user' => 'users' );
 
-    if ($route_id)
-    {
-        $users = [ rset('User')->find($route_id) ] if !$users;
+    my $route_id = route_parameters->get('id');
+    if($route_id)
+    {   push @users, $users->user($route_id) if !@users;
+        push @breadcrumbs, Crumb( "/user/$route_id" => "edit user $route_id" );
     }
-    elsif (!defined $route_id) {
-        $users             = $users->all;
+    elsif(!defined $route_id)
+    {   @users             = $users->all;
         $register_requests = $users->register_requests;
     }
-    else {
-        # Horrible hack to get a limit view drop-down to display
-        $users = [
-            +{
-                view_limits_with_blank => [ undef ],
-            }
-        ] if !$users; # Only if not already submitted
+    else # route_id==0
+    {   # Horrible hack to get a limit view drop-down to display
+        push @users, +{ view_limits_with_blank => [ undef ] } if !@users;
+        push @breadcrumbs, Crumb( "/user/0" => "new user" );
+        $page = 'user/0';
     }
 
-    my $breadcrumbs = [Crumb( '/user' => 'users' )];
-    push @$breadcrumbs, Crumb( "/user/$route_id" => "edit user $route_id" ) if $route_id;
-    push @$breadcrumbs, Crumb( "/user/$route_id" => "new user" ) if defined $route_id && !$route_id;
     my $output = template 'user' => {
         edit              => $route_id,
-        users             => $users,
+        users             => \@users,
         groups            => $site->groups,
         register_requests => $register_requests,
         titles            => $users->titles,
@@ -1012,69 +986,64 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         departments       => $users->departments,
         teams             => $users->teams,
         permissions       => $users->permissions,
-        page              => defined $route_id && !$route_id ? 'user/0' : 'user',
-        breadcrumbs       => $breadcrumbs,
+        page              => $page,
+        breadcrumbs       => \@breadcrumbs,
     };
     $output;
 };
 
 get '/helptext/:id?' => require_login sub {
-    my $id     = param 'id';
-    my $user   = logged_in_user;
-    my $layout = var('instances')->all->[0];
-    my $column = $layout->column($id);
+    my $col_id = param 'id';
+    my $column = $site->document->column($col_id);
     template 'helptext.tt', { column => $column }, { layout => undef };
 };
 
 get '/file/?' => require_login sub {
 
-    $::session->user->is_admin
+    $user->is_admin
         or forwardHome({ danger => "You do not have permission to manage files"}, '');
 
-    my @files = $::db->search(Fileval => {
-        is_independent => 1,
-    },{
-        order_by => 'me.id',
-    })->all;
-
     template 'files' => {
-        files       => \@files,
+        files       => $site->document->independent_files,
         breadcrumbs => [ Crumb( "/file" => 'files' ) ],
     };
 };
 
 get '/file/:id' => require_login sub {
-    my $id = is_valid_id(param 'id');
+    my $set_id = is_valid_id(param 'id');
 
     # Need to get file details first, to be able to populate
     # column details of applicable.
-    my $fileval = $::db->get_record(Fileval => $id)
-        or error __x"File ID {id} cannot be found", id => $id;
+    my $file_set = $site->document->file_set($set_id)
+        or error __x"File set {id} cannot be found", id => $set_id;
 
     # In theory can be more than one, but not in practice (yet)
-    my ($file_rs) = $fileval->files;
+    my ($file_rs) = $file_set->files;
 
-    my $file = GADS::Datum::File->new(ids => $id);
+    my $file = GADS::Datum::File->new(ids => $set_id);
     # Get appropriate column, if applicable (could be unattached document)
     # This will control access to the file
     if ($file_rs && $file_rs->layout_id)
-    {
-        my $layout = var('instances')->layout($file_rs->layout->instance_id);
-        $file->column($layout->column($file_rs->layout_id));
+    {   my $column  = $site->document->column($file_rs->layout_id);
+        $file->column($column);
     }
-    elsif (!$fileval->is_independent)
+    elsif(!$file_set->is_independent)
     {   # If the file has been uploaded via a record edit and it hasn't been
         # attached to a record yet (or the record edit was cancelled) then do
         # not allow access
-        my $user_id = $fileval->edit_user_id;
-        error __"Access to this file is not allowed"
-            unless $user_id && $user_id == $::session->user->id;
+        my $owner_id = $file_set->edit_user_id;
+        $owner_id && $owner_id == $user->id
+            or error __x"Access to file {id} is not allowed", id => $file_id;
     }
 
     # Call content from the Datum::File object, which will ensure the user has
     # access to this file. The other parameters are taken straight from the
     # database resultset
-    send_file( \($file->content), content_type => $fileval->mimetype, filename => $fileval->name );
+    send_file(
+        \($file->content),
+        content_type => $file_set->mimetype,
+        filename     => $file_set->name,
+    );
 };
 
 post '/file/?' => require_login sub {
@@ -1084,112 +1053,94 @@ post '/file/?' => require_login sub {
 
     if (my $upload = upload('file'))
     {
-        my $file;
-        if (process( sub { $file = rset('Fileval')->create({
+        my %insert = (
             name           => $upload->filename,
             mimetype       => $upload->type,
             content        => $upload->content,
             is_independent => $is_independent,
-            edit_user_id   => $is_independent ? undef : logged_in_user->id,
-        }) } ))
+        );
+
+        my $file_id;
+        if(process( sub { $file_id = $site->document->file_create(%insert) }))
         {
-            if ($ajax)
-            {
-                return encode_json({
-                    id       => $file->id,
+            if($ajax)
+            {   return encode_json({
+                    id       => $file_id,
                     filename => $upload->filename,
-                    url      => "/file/".$file->id,
+                    url      => "/file/$file_id",
                     is_ok    => 1,
                 });
             }
-            else {
-                my $msg = __x"File has been uploaded as ID {id}", id => $file->id;
+            else
+            {   my $msg = __x"File has been uploaded as ID {id}", id => $file_id;
                 return forwardHome( { success => "$msg" }, 'file' );
             }
         }
-        elsif ($ajax) {
-            return encode_json({
-                is_ok => 0,
-                error => $@,
-            });
+        elsif($ajax)
+        {   return encode_json({ is_ok => 0, error => $@ });
         }
     }
-    elsif ($ajax) {
-        return encode_json({
-            is_ok => 0,
-            error => "No file was submitted",
-        });
+    elsif($ajax)
+    {   return encode_json({ is_ok => 0, error => "No file was submitted" });
     }
-    else {
-        error __"No file submitted";
+    else
+    {   error __"No file submitted";
     }
 
 };
 
 get '/record_body/:id' => require_login sub {
-
-    my $id = param('id');
-
-    my $user   = logged_in_user;
-    my $record = GADS::Record->new(
-        user   => $user,
-        schema => schema,
-        rewind => session('rewind'),
+    my $pointer_id = is_valid_id(param 'id');
+    my $row  = $site->document->row(
+        pointer_id => $pointer_id,
+        rewind     => session('rewind'),
     );
 
-    $record->find_current_id($id);
-    my $layout = $record->layout;
-    var 'layout' => $layout;
-    my @columns = @{$record->columns_view};
     template 'record_body' => {
         is_modal       => 1, # Assume modal if loaded via this route
-        record         => $record->presentation($sheet),
-        has_rag_column => !!(first { $_->type eq 'rag' } @columns),
-        all_columns    => \@columns,
+        record         => $row->presentation($sheet),
+        has_rag_column => $row->has_rag_column,
+        all_columns    => $row->columns_view,
     }, { layout => undef };
 };
 
 get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
-
     my ($action, $id) = splat;
+    my $doc = $sheet->document;
 
-    my $user   = logged_in_user;
+    my $id_type
+      = $action eq 'history'      ? 'record_id'
+      : $action eq 'purge'        ? 'deleted_currentid'
+      : $action eq 'purgehistory' ? 'deleted_recordid'
+      :                             'current_id';
 
-    my $record = GADS::Record->new(
-        user   => $user,
-        schema => schema,
-        rewind => session('rewind'),
-    );
+    my $row = $doc->row($id_type => $id, rewind => session('rewind'));
+    my $current_id = $row->current_id;
 
-      $action eq 'history'
-    ? $record->find_record_id($id)
-    : $action eq 'purge'
-    ? $record->find_deleted_currentid($id)
-    : $action eq 'purgehistory'
-    ? $record->find_deleted_recordid($id)
-    : $record->find_current_id($id);
-
-    if (defined param('pdf'))
-    {
-        my $pdf = $record->pdf->content;
-        return send_file(\$pdf, content_type => 'application/pdf', filename => "Record-".$record->current_id.".pdf" );
+    if(defined param('pdf'))
+    {   return send_file(
+            \($row->pdf->content),
+            content_type => 'application/pdf',
+            filename     => "Record-$current_id.pdf"
+        );
     }
 
-    my $layout = $record->layout;
-    var 'layout' => $layout;
-
-    my @versions    = $record->versions;
-    my @columns     = @{$record->columns_view};
-    my @first_crumb = $action eq 'purge' ? ( $layout, "/purge" => 'deleted records' ) : ( $layout, "/data" => 'records' );
+    my $first_crumb = $action eq 'purge'
+      ? Crumb( $layout, '/purge' => 'deleted records' )
+      : Crumb( $layout, '/data'  => 'records' );
 
     my $output = template 'record' => {
-        record         => $record->presentation($sheet),
-        versions       => \@versions,
-        all_columns    => \@columns,
-        has_rag_column => !!(grep { $_->type eq 'rag' } @columns),
         page           => 'record',
+        record         => $row->presentation($sheet),
+        versions       => [ $row->versions ],
+        all_columns    => $row->columns_view,
+        has_rag_column => $row->has_rag_column,
         is_history     => $action eq 'history',
-        breadcrumbs    => [Crumb($layout) => Crumb(@first_crumb) => Crumb( "/record/".$record->current_id => 'record id ' . $record->current_id )]
+        breadcrumbs    => [
+            Crumb($layout),
+            $first_crumb,
+            Crumb("/record/$current_id" => "record id $current_id"),
+        ]
     };
     $output;
 };
@@ -1250,9 +1201,8 @@ any ['get', 'post'] => '/resetpw/:code' => sub {
 
     # Strange things happen if running this code when already logged in.
     # Log the existing user out first
-    if (logged_in_user)
-    {
-        app->destroy_session;
+    if(logged_in_user)
+    {   app->destroy_session;
         _update_csrf_token();
     }
 
@@ -1264,7 +1214,8 @@ any ['get', 'post'] => '/resetpw/:code' => sub {
         if (param 'execute_reset')
         {
             app->destroy_session;
-            my $user   = $site->users->search_active(username => $username)->next;
+
+            my $user   = $site->users->user(username => $username);
             # Now we know this user is genuine, reset any failure that would
             # otherwise prevent them logging in
             $user->update({ failcount => 0 });
@@ -1276,20 +1227,18 @@ any ['get', 'post'] => '/resetpw/:code' => sub {
             user_password code => param('code'), new_password => $new_password;
             _update_csrf_token();
         }
-        my $output  = template 'login' => {
+
+        return template login => {
             site_name  => $site->name || 'Linkspace',
             reset_code => 1,
             password   => $new_password,
             page       => 'login',
         };
-        return $output;
     }
-    else {
-        return forwardHome(
-            { danger => qq(The password reset code is not valid. Please request a new one
-                using the "Reset Password" link) }, 'login'
-        );
-    }
+
+    return forwardHome({ danger =>
+         qq(The password reset code is not valid. Please request a new one using the "Reset Password" link)}, 'login'
+    );
 };
 
 get '/invalidsite' => sub {
@@ -1301,16 +1250,14 @@ get '/invalidsite' => sub {
 prefix '/:layout_name' => sub {
 
     get '/?' => require_login sub {
-        my $layout = var('layout') or pass;
 
-        my $user    = logged_in_user;
-
-        if (my $dashboard_id = query_parameters->get('did'))
-        {
-            session('persistent')->{dashboard}->{$layout->instance_id} = $dashboard_id;
+        my $dashboard_id;
+        if ($dashboard_id = query_parameters->get('did'))
+        {   session('persistent')->{dashboard}{$sheet->id} = $dashboard_id;
         }
-
-        my $dashboard_id = session('persistent')->{dashboard}->{$layout->instance_id};
+        else
+        {   $dashboard_id = session('persistent')->{dashboard}{$sheet->id};
+        }
 
         my %params = (
             id     => $dashboard_id,
@@ -1319,7 +1266,7 @@ prefix '/:layout_name' => sub {
             site   => $site,
         );
 
-        my $dashboard = schema->resultset('Dashboard')->dashboard(%params);
+        my $dashboard = $::db->resultset('Dashboard')->dashboard(%params);
 
         # If the shared dashboard is blank for this table then show the site
         # dashboard by default
@@ -1329,15 +1276,15 @@ prefix '/:layout_name' => sub {
                 user   => $user,
                 site   => $site,
             );
-            $dashboard = schema->resultset('Dashboard')->dashboard(%params);
+            $dashboard = $::db->resultset('Dashboard')->dashboard(%params);
         }
 
         my $params = {
             readonly        => $dashboard->is_shared && !$sheet->user_can('layout'),
             dashboard       => $dashboard,
-            dashboards_json => schema->resultset('Dashboard')->dashboards_json(%params),
+            dashboards_json => $::db->resultset('Dashboard')->dashboards_json(%params),
             page            => 'index',
-            breadcrumbs     => [Crumb($layout)],
+            breadcrumbs     => [ Crumb($layout) ],
         };
 
         if (my $download = param('download'))
@@ -1368,13 +1315,11 @@ prefix '/:layout_name' => sub {
         # Attempt to find period requested. Sometimes the duration is
         # slightly less than expected, hence the multiple tests
         my $diff     = $todt->subtract_datetime($fromdt);
-        my $dt_view  = ($diff->months >= 11 || $diff->years)
-                     ? 'year'
-                     : ($diff->weeks > 1 || $diff->months)
-                     ? 'month'
-                     : ($diff->days >= 6 || $diff->weeks)
-                     ? 'week'
-                     : 'day'; # Default to month
+        my $dt_view
+           = ($diff->months >= 11 || $diff->years)  ? 'year'
+           : ($diff->weeks > 1    || $diff->months) ? 'month'
+           : ($diff->days >= 6    || $diff->weeks)  ? 'week'
+           :                                          'day'; # Default to month
 
         # Attempt to remember day viewed. This is difficult, due to the
         # timezone issues described below. XXX How to fix?
@@ -1407,7 +1352,6 @@ prefix '/:layout_name' => sub {
         my $records = GADS::Records->new(
             user                => $user,
             layout              => $layout,
-            schema              => schema,
             view                => $view,
             search              => session('search'),
             view_limit_extra_id => current_view_limit_extra_id($user, $layout),
@@ -1431,10 +1375,9 @@ prefix '/:layout_name' => sub {
 
         # Time variable is used to prevent caching by browser
 
-        my $fromdt  = DateTime->from_epoch( epoch => int ( param('from') / 1000 ) );
-        my $todt    = DateTime->from_epoch( epoch => int ( param('to') / 1000 ) );
+        my $fromdt  = DateTime->from_epoch( epoch => int (param('from') / 1000) );
+        my $todt    = DateTime->from_epoch( epoch => int (param('to')   / 1000) );
 
-        my $user    = logged_in_user;
         my $view    = current_view($user, $layout);
 
         my $records = GADS::Records->new(
@@ -1443,7 +1386,6 @@ prefix '/:layout_name' => sub {
             exclusive           => param('exclusive'),
             user                => $user,
             layout              => $layout,
-            schema              => schema,
             view                => $view,
             search              => session('search'),
             rewind              => session('rewind'),
@@ -1462,7 +1404,7 @@ prefix '/:layout_name' => sub {
 
         my $layout = var('layout') or pass;
 
-        my $tl_options         = session('persistent')->{tl_options}->{$layout->instance_id} ||= {};
+        my $tl_options         = session('persistent')->{tl_options}{$sheet->id} ||= {};
         $tl_options->{from}    = int(param('from') / 1000) if param('from');
         $tl_options->{to}      = int(param('to') / 1000) if param('to');
         my $view               = current_view(logged_in_user, $layout);
@@ -1492,10 +1434,6 @@ prefix '/:layout_name' => sub {
     };
 
     any ['get', 'post'] => '/data' => require_login sub {
-
-        my $layout = var('layout') or pass;
-
-        my $user   = logged_in_user;
 
         # Check for bulk delete
         if (param 'modal_delete')
@@ -1534,13 +1472,12 @@ prefix '/:layout_name' => sub {
         # Check for rewind configuration
         if (param('modal_rewind') || param('modal_rewind_reset'))
         {
-            if (param('modal_rewind_reset') || !param('rewind_date'))
-            {
-                session rewind => undef;
+            if(param('modal_rewind_reset') || !param('rewind_date'))
+            {   session rewind => undef;
             }
             else
             {   my $input = param('rewind_date');
-                $input   .= ' ' . (param('rewind_time') ? param('rewind_time') : '23:59:59');
+                          . ' ' . (param'rewind_time') || '23:59:59');
                 my $dt    = $::session->user->local2dt($input)
                     or error __x"Invalid date or time: {datetime}", datetime => $input;
                 session rewind => $dt;
@@ -1561,8 +1498,6 @@ prefix '/:layout_name' => sub {
             {
                 my $records = GADS::Records->new(
                     search              => $search,
-                    schema              => schema,
-                    user                => $user,
                     layout              => $layout,
                     view_limit_extra_id => current_view_limit_extra_id($user, $layout),
                 );
@@ -1577,7 +1512,7 @@ prefix '/:layout_name' => sub {
         # Setting a new view limit extra
         if (my $extra = $sheet->user_can('view_limit_extra') && param('extra'))
         {
-            session('persistent')->{view_limit_extra}->{$layout->instance_id} = $extra;
+            session('persistent')->{view_limit_extra}{$sheet->id} = $extra;
         }
 
         my $new_view_id = param('view');
@@ -1593,15 +1528,13 @@ prefix '/:layout_name' => sub {
         if (param 'modal_alert')
         {
             if(my $view = $sheet->views->view(param('view_id')))
-            {   $view->create_alert(
-                    frequency => param('frequency'),
-                );
-            );
-
-            if (process(sub { $alert->write }))
-            {
-                return forwardHome(
-                    { success => "The alert has been saved successfully" }, $layout->identifier.'/data' );
+            {   if(process(sub {
+                    $view->create_alert(frequency => param('frequency'));
+                }))
+                {
+                    return forwardHome({ success =>
+                        "The alert has been saved successfully" }, $layout->identifier.'/data' );
+                }
             }
         }
 
@@ -1634,7 +1567,7 @@ prefix '/:layout_name' => sub {
                 if $viewtype =~ /^(graph|table|calendar|timeline|globe)$/;
         }
         else
-        {   $viewtype = session('persistent')->{viewtype}{$sheet->id} ||'table';
+        {   $viewtype = session('persistent')->{viewtype}{$sheet->id} || 'table';
         }
 
         my $view       = current_view($user, $layout);
@@ -2607,55 +2540,45 @@ prefix '/:layout_name' => sub {
     };
 
     any ['get', 'post'] => '/approval/?:id?' => require_login sub {
+        my $record_id  = is_valid_id(param 'id');
+        my $current_id = is_valid_id(param 'current_id');
+        my $doc = $site->document;
+        my $row;
 
-        my $layout = var('layout') or pass;
-        my $id   = param 'id';
-        my $user = logged_in_user;
+        if($record_id)
+        {   # If we're viewing or approving an individual record, first
+            # see if it's a new record or edit of existing. This affects
+            # permissions.
 
-        # If we're viewing or approving an individual record, first
-        # see if it's a new record or edit of existing. This affects
-        # permissions
-        my $approval_of_new = $id
-            ? GADS::Record->new(
-                user               => $user,
-                layout             => $layout,
-                schema             => schema,
-                include_approval   => 1,
-                record_id          => $id,
-            )->approval_of_new
-            : 0;
+            $row = $doc->row(record_id => $record_id,
+                sheet            => $sheet,
+                include_approval => 1,
+            );
+        }
+
+        my $approval_of_new = $row ? $row->approval_of_new : 0;
 
         if (param 'submit')
         {
-            # Get latest record for this approval
-            my $record = GADS::Record->new(
-                user           => $user,
-                layout         => $layout,
-                schema         => schema,
-                approval_id    => $id,
-                doing_approval => 1,
-            );
-            # See if the record exists as a "normal" entry. In the case
-            # of an approval for a new record, this will not be the case,
-            # so catch the resulting exception, and create a new record,
-            # but set the current ID.
-            unless (try { $record->find_current_id(param 'current_id') })
-            {
-                $record->current_id(param 'current_id');
-                $record->initialise;
-            }
+            my $cur = $sheet->row(current_id => $current_id) ||
+                $sheet->data->row_create(
+                    current_id     => $current_id,
+                    approval_id    => $record_id,
+                    init_no_value  => 0,           #XXX
+                    doing_approval => 1,
+                );
+
             my $failed;
-            foreach my $col ($record->edit_columns(new => $approval_of_new, approval => 1))
-            {
-                my $newv = param($col->field);
-                if ($col->userinput && defined $newv) # Not calculated fields
-                {
-                    $failed = !process( sub { $record->fields->{$col->id}->set_value($newv) } ) || $failed;
-                }
+            foreach my $col ($cur->edit_columns(new => $approval_of_new, approval => 1))
+            {   my $newv = param($col->field) or next;
+                $col->userinput or next; # Not calculated fields
+
+                $failed++
+                    if !process( sub { $cur->field($col)->set_value($newv) });
             }
-            if (!$failed && process( sub { $record->write }))
-            {
-                return forwardHome(
+
+            if(!$failed)
+            {   return forwardHome(
                     { success => 'Record has been successfully approved' }, $layout->identifier.'/approval' );
             }
         }
@@ -2665,45 +2588,33 @@ prefix '/:layout_name' => sub {
             page => 'approval',
         };
 
-        if ($id)
-        {
-            # Get the record of values needing approval
-            my $record = GADS::Record->new(
-                user             => $user,
-                init_no_value    => 0,
-                layout           => $layout,
-                include_approval => 1,
-                schema           => schema,
-            );
-            $record->find_record_id($id);
-            $params->{record} = $record;
-            $params->{record_presentation} = $record->presentation($sheet, edit => 1, new => $approval_of_new, approval => 1);
+        if($row)
+        {   # Get the record of values needing approval
+            $params->{record} = $row;
+            $params->{record_presentation} = $row->presentation($sheet, edit => 1, new => $approval_of_new, approval => 1);
 
             # Get existing values for comparison
-            unless ($approval_of_new)
-            {
-                my $existing = GADS::Record->new(
-                    user            => $user,
-                    layout          => $layout,
-                    schema          => schema,
-                );
-                $existing->find_current_id($record->current_id);
-                $params->{existing} = $existing;
-            }
+            $params->{existing} = $sheet->row(current_id => $record->current_id)
+                unless $approval_of_new;
+
             $page  = 'edit';
-            $params->{breadcrumbs} = [Crumb($layout) =>
-                Crumb( $layout, '/approval' => 'approve records' ), Crumb( $layout, "/approval/$id" => "approve record $id" ) ];
+            $params->{breadcrumbs} = [
+                Crumb($layout),
+                Crumb( $layout, '/approval' => 'approve records' ),
+                Crumb( $layout, "/approval/$id" => "approve record $id" )
+             ];
         }
-        else {
-            $page  = 'approval';
+        else
+        {   $page  = 'approval';
             my $approval = GADS::Approval->new(
-                schema => schema,
                 user   => $user,
                 layout => $layout
             );
-            $params->{records} = $approval->records;
-            $params->{breadcrumbs} = [Crumb($layout) =>
-                Crumb( $layout, '/approval' => 'approve records' ) ];
+            $params->{records}     = $approval->records;
+            $params->{breadcrumbs} = [
+                Crumb($layout),
+                Crumb( $layout, '/approval' => 'approve records' ),
+            ];
         }
 
         template $page => $params;

@@ -16,17 +16,17 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Documents;
+package Linkspace::Document;
 use Moo ();
 
 use Log::Report  'linkspace';
 use Scalar::Util qw(weaken);
 use List::Util   qw(first);
 
-use Linkspace::Document ();
+use Linkspace::Sheet ();
 
 =head1 NAME
-Linkspace::Documents - manages sheets for one site
+Linkspace::Document - manages sheets for one site
 
 =head1 SYNOPSIS
 
@@ -38,7 +38,7 @@ Linkspace::Documents - manages sheets for one site
 =head1 METHODS: Constructors
 M
 
-=head2 my $doc = Linkspace::Documents->new(%options);
+=head2 my $doc = Linkspace::Document->new(%options);
 Required is C<site>.
 =cut
 
@@ -61,9 +61,9 @@ has all_sheets => (
    isa     => ArrayRef,
    builder => sub
    {   my $self   = shift;
-       my @sheets = map Linkspace::Document->from_record($_,
+       my @sheets = map Linkspace::Sheet->from_record($_,
            document => $self,
-       ), $self->site->resultset('Instance')->all;
+       ), $::db->resultset('Instance')->all;
 
        [ sort { fc($a->name) cmp fc($b->name) } @sheets ];
    }
@@ -95,8 +95,10 @@ has _sheet_index => (
 
 sub sheet($)
 {   my ($self, $which) = @_;
+    $which or return;
+
     return $which
-        if blessed $which && $which->isa('Linkspace::Document');
+        if blessed $which && $which->isa('Linkspace::Sheet');
 
     $self->_sheet_index->{$which};
 }
@@ -198,7 +200,7 @@ has _column_index => (
 
 sub column_by_info_id($) { $_[0]->_column_info_index->{$_[1]} }
 
-
+#---------------
 =head1 METHODS: Layout management
 
 =head2 my $layout = $doc->layout_for_sheet($sheet);
@@ -211,6 +213,34 @@ sub layout_for_sheet($)
     my $sheet_id = $sheet->id;
     my @cols = grep $_->instance_id == $sheet_id, @{$self->_column_info};
     Linkspace::Layout->for_sheet($sheet, columns => \@cols);
+}
+
+#---------------
+=head1 METHODS: Files
+
+=head2 my \@files = $doc->independent_files;
+=cut
+
+sub independent_files($;$)
+{   my ($self, $search, $attrs) = @_;
+    [ $::db->search(Fileval => { is_independent => 1 }, { order_by => 'me.id' })->all ];
+}
+
+=head2 my $file_set = $doc->file_set($id);
+=cut
+
+sub file_set($)
+{   my ($self, $set_id) = @_;
+    $::db->get_record(Fileval => $set_id);
+}
+
+=head2 $doc->file_create(%insert);
+=cut
+
+sub file_create(%)
+{   my ($self, %insert) = @_;
+    $insert{edit_user_id} = $insert{is_independent} ? undef : $::session->user->id;
+    $::db->create(Fileval => \%insert);
 }
 
 1;

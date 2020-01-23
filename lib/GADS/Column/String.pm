@@ -49,14 +49,10 @@ has '+has_multivalue_plus' => (
 after 'build_values' => sub {
     my ($self, $original) = @_;
     $self->string_storage(1);
+    $self->textbox(1) if $original->{textbox};
 
-    if ($original->{textbox})
-    {
-        $self->textbox(1);
-    }
-    if (my $force_regex = $original->{force_regex})
-    {
-        $self->force_regex($force_regex);
+    if(my $force_regex = $original->{force_regex})
+    {   $self->force_regex($force_regex);
     }
 };
 
@@ -75,16 +71,12 @@ sub write_special
 
 sub cleanup
 {   my ($class, $schema, $id) = @_;
-    $schema->resultset('String')->search({ layout_id => $id })->delete
+    $::db->delete(String => { layout_id => $id });
 }
 
 sub resultset_for_values
 {   my $self = shift;
-    return $self->schema->resultset('String')->search({
-        layout_id => $self->id,
-    },{
-        group_by => 'me.value',
-    });
+    $::db->search(String => { layout_id => $self->id }, { group_by => 'me.value' });
 }
 
 before import_hash => sub {
@@ -92,6 +84,7 @@ before import_hash => sub {
     my $report = $options{report_only} && $self->id;
     notice __x"Update: textbox from {old} to {new}", old => $self->textbox, new => $values->{textbox}
         if $report && $self->textbox != $values->{textbox};
+
     $self->textbox($values->{textbox});
     notice __x"Update: force_regex from {old} to {new}", old => $self->force_regex, new => $values->{force_regex}
         if $report && ($self->force_regex || '') ne ($values->{force_regex} || '');
@@ -104,13 +97,13 @@ around export_hash => sub {
     my $hash = $orig->(@_);
     $hash->{textbox}     = $self->textbox;
     $hash->{force_regex} = $self->force_regex;
-    return $hash;
+    $hash;
 };
 
 sub import_value
 {   my ($self, $value) = @_;
 
-    $self->schema->resultset('String')->create({
+    $::db->create(String => {
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},

@@ -51,6 +51,10 @@ has linked_record => (
     is => 'lazy',
 );
 
+sub has_rag_column()
+{   !! first { $_->type eq 'rag' } @{$self->columns_view};
+}
+
 sub _sibling_record(%) {
     my ($self, %sibling) = @_;
     $sibling{user}   //= $self->user;
@@ -566,27 +570,6 @@ sub find_unique
     pop @{$records->results};
 }
 
-sub clear
-{   my $self = shift;
-    $self->clear_record;
-    $self->clear_current_id;
-    $self->clear_record_id;
-    $self->clear_linked_id;
-    $self->clear_parent_id;
-    $self->clear_parent;
-    $self->clear_child_record_ids;
-    $self->clear_approval_of_new;
-    $self->clear_fields;
-    $self->clear_createdby;
-    $self->clear_created;
-    $self->clear_set_record_created,
-    $self->clear_set_record_created_user,
-    $self->clear_is_historic;
-    $self->clear_new_entry;
-    $self->clear_layout;
-    $self->clear_id_count;
-}
-
 # XXX This whole section is getting messy and duplicating a lot of code from
 # GADS::Records. Ideally this needs to share the same code.
 sub _find
@@ -599,15 +582,17 @@ sub _find
     error __"You do not have access to this deleted record"
         if $find{deleted} && !$self->layout->user_can("purge");
 
+    my $is_draft = !! $find{draftuser_id};
+    my $record_id = $find{record_id};
+
     my $records = GADS::Records->new(
         curcommon_all_fields => $self->curcommon_all_fields,
-        user                 => $self->user,
         layout               => $self->layout,
         columns              => $self->columns,
         rewind               => $self->rewind,
         is_deleted           => $find{deleted},
-        is_draft             => $find{draftuser_id} || $find{include_draft} ? 1 : 0,
-        no_view_limits       => !!$find{draftuser_id},
+        is_draft             => $is_dragt || $find{include_draft} ? 1 : 0,
+        no_view_limits       => $is_draft,
         include_approval     => $self->include_approval,
         include_children     => 1,
         view_limit_extra_id  => undef, # Remove any default extra view
@@ -630,11 +615,11 @@ sub _find
 
 
         my $root_table;
-        if (my $record_id = $find{record_id})
+        if($record_id)
         {
             unshift @prefetches, (
                 {
-                    'current' => [
+                    current => [
                         'deletedby',
                         $records->linked_hash(prefetch => 1, limit => $limit, page => $page),
                     ],
@@ -673,16 +658,29 @@ sub _find
         local $GADS::Schema::Result::Record::REWIND = $records->rewind_formatted
             if $records->rewind;
 
-        # Don't specify linked for fetching columns, we will get whataver is needed linked or not linked
+        # Don't specify linked for fetching columns, we will get whatever is needed linked or not linked
         my @columns_fetch = $records->columns_fetch(search => 1, limit => $limit, page => $page); # Still need search in case of view limit
         my $has_linked = $records->has_linked(prefetch => 1, limit => $limit, page => $page);
-        my $base = $find{record_id} ? 'me' : $has_linked ? 'record_single_2' : 'record_single';
-        push @columns_fetch, {id => "$base.id"};
-        push @columns_fetch, $find{record_id} ? {deleted => "current.deleted"} : {deleted => "me.deleted"};
-        push @columns_fetch, $find{record_id} ? {linked_id => "current.linked_id"} : {linked_id => "me.linked_id"};
-        push @columns_fetch, $find{record_id} ? {draftuser_id => "current.draftuser_id"} : {draftuser_id => "me.draftuser_id"};
-        push @columns_fetch, {current_id => "$base.current_id"};
-        push @columns_fetch, {created => "$base.created"};
+
+        if($record_id)
+        {   push @columns_fetch,
+              { id           => "me.id" },
+              { deleted      => "current.deleted" },
+              { linked_id    => "current.linked_id" },
+              { draftuser_id => "current.draftuser_id" },
+              { current_id   => "me.current_id" },
+              { created      => "me.created" };
+        }
+        else
+        {   my $base = $has_linked ? 'record_single_2' : 'record_single';
+            push @columns_fetch,
+              { id           => "$base.id" },
+              { deleted      => "me.deleted" },
+              { linked_id    => "me.linked_id" },
+              { draftuser_id => "me.draftuser_id" },
+              { current_id   => "$base.current_id" },
+              { created      => "$base.created" };
+        }
 
         push @columns_fetch, "deletedby.$_"
             for @GADS::Column::Person::person_properties;
