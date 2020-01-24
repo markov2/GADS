@@ -16,14 +16,39 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Enum;
-
-use Log::Report 'linkspace';
+package Linkspace::Column::Enum;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 
-extends 'GADS::Column';
+extends 'Linkspace::Column';
+
+use Log::Report 'linkspace';
+
+###
+### META
+###
+
+__PACKAGE__->register_type;
+
+sub can_multivalue { 1 }
+sub fixedvals      { 1 }
+sub has_filter_typeahead { 1 }
+sub retrieve_fields      { [ qw/id value deleted/] }
+
+###
+### Instance
+###
+
+sub sprefix        { 'value' }
+sub tjoin          { +{ $_[0]->field => 'value' } }
+sub value_field_as_index { 'id' }
+
+sub cleanup
+{   my ($class, $id) = @_;
+    # Rely on tree cleanup instead. If we have our own here, then
+    # it may error for tree types if the rows reference parents.
+}
 
 has enumvals => (
     is      => 'rw',
@@ -89,7 +114,7 @@ sub id_as_string
 
 sub string_as_id
 {   my ($self, $value) = @_;
-    my $rs = $self->schema->resultset('Enumval')->search({
+    my $rs = $::db->search(Enumval => {
         layout_id => $self->id,
         deleted   => 0,
         value     => $value,
@@ -104,14 +129,8 @@ sub string_as_id
 # Indexed list of enumvals
 has _enumvals_index => (
     is      => 'rw',
-    isa     => HashRef,
     lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        my %enumvals = map {$_->{id} => $_} @{$self->enumvals};
-        \%enumvals;
-    },
+    builder => sub { +{ map +($_->{id} => $_), @{$_[0]->enumvals} } },
 );
 
 has ordering => (
@@ -122,33 +141,10 @@ has ordering => (
     }
 );
 
-sub value_field_as_index
-{   return 'id';
-}
-
-has '+can_multivalue' => (
-    default => 1,
-);
-
-has '+has_filter_typeahead' => (
-    default => 1,
-);
-
-has '+fixedvals' => (
-    default => 1,
-);
-
-sub _build_sprefix { 'value' };
-
 after build_values => sub {
     my ($self, $original) = @_;
     $self->ordering($original->{ordering});
 };
-
-sub _build_retrieve_fields
-{   my $self = shift;
-    [qw/id value deleted/];
-}
 
 sub write_special
 {   my ($self, %options) = @_;
@@ -194,11 +190,6 @@ sub write_special
     return ();
 };
 
-sub tjoin
-{   my $self = shift;
-    +{$self->field => 'value'};
-}
-
 sub validate
 {   my ($self, $value, %options) = @_;
     return 1 if !$value;
@@ -213,12 +204,6 @@ sub validate
 
 # Any value is valid for a search, as it can include begins_with etc
 sub validate_search {1};
-
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    # Rely on tree cleanup instead. If we have our own here, then
-    # it may error for tree types if the rows reference parents.
-};
 
 sub enumval
 {   my ($self, $id) = @_;
@@ -363,12 +348,12 @@ before import_hash => sub {
                 }
             }
             # Add any remaining new ones
-            $_->{source_id} = delete $_->{id} foreach @new;
+            $_->{source_id} = delete $_->{id} for @new;
             push @to_write, @new;
         }
     }
-    else {
-        $_->{source_id} = delete $_->{id} foreach @new;
+    else
+    {   $_->{source_id} = delete $_->{id} for @new;
         @to_write = @new;
     }
     $self->enumvals(\@to_write);
@@ -387,7 +372,7 @@ around export_hash => sub {
 sub import_value
 {   my ($self, $value) = @_;
 
-    $self->schema->resultset('Enum')->create({
+    $::db->create(Enum => {
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},

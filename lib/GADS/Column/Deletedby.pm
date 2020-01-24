@@ -16,43 +16,32 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Deletedby;
+package Linkspace::Column::Deletedby;
 
-use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column::Person';
+extends 'Linkspace::Column::Person';
 
-has '+value_field' => (
-    default => 'deletedby',
-);
+use Log::Report 'linkspace';
 
-sub _build_table
-{   my $self = shift;
-    'Current';
-}
+###
+### META
+###
 
-sub _build_sprefix
-{   my $self = shift;
-    'current';
-}
+__PACKAGE__->register_type;
 
-has '+internal' => (
-    default => 1,
-);
+sub hidden      { 1 }
+sub internal    { 1 }
+sub table       { 'Current' }
+sub userinput   { 0 }
+sub value_field { 'deletedby' }
 
-has '+userinput' => (
-    default => 0,
-);
+###
+### Instance
+###
 
-has '+hidden' => (
-    default => 1,
-);
-
-sub tjoin
-{   my $self = shift;
-    'createdby';
-}
+sub sprefix     { 'current' }
+sub tjoin       { 'deletedby' }
 
 1;

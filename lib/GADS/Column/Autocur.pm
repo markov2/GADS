@@ -16,41 +16,34 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Autocur;
-
-use GADS::Config;
-use GADS::Records;
+package Linkspace::Column::Autocur;
 use Log::Report 'linkspace';
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column::Curcommon';
+extends 'Linkspace::Column::Curcommon';
 
-has '+option_names' => (
-    default => sub { [qw/override_permissions/] },
-);
+###
+### META
+###
 
-has '+multivalue' => (
-    coerce => sub { 1 },
-);
+__PACKAGE__->register_type;
 
-has '+userinput' => (
-    default => 0,
-);
+sub userinput      { 0 }
+sub value_to_write { 0 }
+sub value_field    { 'id' }
+sub option_names   { shift->SUPER::option_names(@_, qw/override_permissions/ ) }
 
-has '+no_value_to_write' => (
-    default => 1,
-);
+###
+### Instance
+###
 
-has '+value_field' => (
-    default => 'id',
-);
+sub sprefix        { 'current' };
 
-# Dummy function so that value_selector() can be called from a curcommon class
+### Curcommon types
+
 sub value_selector { '' }
-
-sub _build_sprefix { 'current' };
 
 sub _build_refers_to_instance_id
 {   my $self = shift;
@@ -61,30 +54,17 @@ sub _build_refers_to_instance_id
 has related_field => (
     is      => 'ro',
     lazy    => 1,
-    clearer => 1,
     builder => sub {
         my $self = shift;
         # Under normal circumstances we will have a full layout with columns
         # built. If not, fall back to retrieving from database. The latter is
         # needed when initialising the schema in GADS::DB::setup()
         $self->layout->column($self->related_field_id)
-            || $self->schema->resultset('Layout')->find($self->related_field_id);
+        || $::db->get_record(Layout => $self->related_field_id);
     }
 );
 
-has related_field_id => (
-    is      => 'rw',
-    isa     => Maybe[Int], # undef when importing and ID not known at creation
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        $self->_rset && $self->_rset->get_column('related_field');
-    },
-    trigger => sub {
-        my ($self, $value) = @_;
-        $self->clear_related_field;
-    },
-);
+sub related_field_id() { $sheet->layout->get_column('related_field') }
 
 sub _build_related_field_id
 {   my $self = shift;
@@ -96,21 +76,13 @@ sub _build_related_field_id
 # column object can be easily generated with an ID value
 has refers_from_field => (
     is => 'lazy',
+    builder => sub { "field".$_[0]->related_field->id },
 );
-
-sub _build_refers_from_field
-{   my $self = shift;
-    "field".$self->related_field->id;
-}
 
 has refers_from_value_field => (
-    is => 'lazy',
+    is      => 'lazy',
+    default => sub { 'value' },
 );
-
-sub _build_refers_from_value_field
-{   my $self = shift;
-    "value";
-}
 
 sub make_join
 {   my ($self, @joins) = @_;
@@ -161,7 +133,6 @@ sub filter_view_is_ready
 has view => (
     is      => 'ro',
     lazy    => 1,
-    clearer => 1,
     builder => sub {},
 );
 
@@ -170,17 +141,14 @@ sub fetch_multivalues
 
     my @values = $self->multivalue_rs($record_ids)->all;
     my $records = GADS::Records->new(
-        user                 => $self->override_permissions ? undef : $self->layout->user,
         layout               => $self->layout_parent,
-        schema               => $self->schema,
         columns              => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
-        limit_current_ids    => [map { $_->{record}->{current_id} } @values],
+        limit_current_ids    => [ map $_->{record}{current_id}, @values ],
         include_children     => 1, # Ensure all autocur records are shown even if they have the same text content
     );
     my %retrieved;
-    while (my $record = $records->single)
-    {
-        $retrieved{$record->current_id} = $record;
+    while (my $record = $records->next)
+    {   $retrieved{$record->current_id} = $record;
     }
 
     # It shouldn't happen under normal circumstances, but there is a chance
@@ -209,11 +177,9 @@ sub multivalue_rs
     # returned
     my @record_ids = grep defined $_, @$record_ids;
     my $subquery = $::db->search(Current => {
-            'record_later.id' => undef,
+        'record_later.id' => undef,
     },{
-        join => {
-            record_single => 'record_later',
-        },
+        join => { record_single => 'record_later' },
     })->get_column('record_single.id')->as_query;
 
     $self->schema->resultset('Curval')->search({
@@ -251,20 +217,18 @@ around import_after_all => sub {
 };
 
 sub how_to_link_to_record {
-	my ($self, $schema) = @_;
+	my ($self) = @_;
     my $related_field_id = $self->related_field->id; # "compile"-time
 
-    my $subquery = $schema->resultset('Current')->search({
+    my $subquery = $::db->search(Current => (
         'record_later.id' => undef,
     },{
-        join => {
-            record_single => 'record_later'
-        },
+        join => { record_single => 'record_later' },
     })->get_column('record_single.id')->as_query;
 
     my $linker = sub { 
         my ($other, $me) = ($_[0]->{foreign_alias}, $_[0]->{self_alias});
-        
+
         return {
             "$other.value"     => { -ident => "$me.current_id" },
             "$other.layout_id" => $related_field_id, 

@@ -1444,17 +1444,10 @@ sub order_by
             my @cols_main = $column->sort_columns;
             my @cols_link = $column->link_parent ? $column->link_parent->sort_columns : ();
             foreach my $col_sort (@cols_main)
-            {
-                if ($column_parent)
-                {   $self->add_join($column_parent, sort => 1);
-                    $self->add_join($col_sort, sort => 1, parent => $column_parent);
-                }
-                else
-                {   $self->add_join($column->sort_parent, sort => 1)
-                        if $column->sort_parent;
-                    $self->add_join($col_sort, sort => 1, parent => $column->sort_parent);
-                }
-                my $s_table = $self->table_name($col_sort, sort => 1, %options, parent => $column_parent || $column->sort_parent);
+            {   my $parent = $column_parent || $column->sort_parent;
+                $self->add_join($parent, sort => 1) if $parent;
+                $self->add_join($col_sort, sort => 1, parent => $parent);
+                my $s_table = $self->table_name($col_sort, sort => 1, %options, parent => $parent);
                 my $sort_name;
                 if ($column->link_parent) # Original column, not the sub-column ($col_sort)
                 {
@@ -1462,7 +1455,7 @@ sub order_by
                     $self->add_join($col_link, sort => 1);
                     my $main = "$s_table.".$column->sort_field;
                     my $link = $self->table_name($col_link, sort => 1, linked => 1, %options).".".$col_link->sort_field;
-                    $sort_name = $self->schema->resultset('Current')->helper_concat(
+                    $sort_name = $::db->resultset('Current')->helper_concat(
                          { -ident => $main },
                          { -ident => $link },
                     );
@@ -1556,7 +1549,7 @@ sub _search_construct
                 as_hash => {%$filter, previous_values => 0}
             );
 
-            my $view = $sheet->views->new_view(
+            my $view = $sheet->views->view_create(
                 filter      => $encoded,
             );
 
@@ -1702,8 +1695,8 @@ sub _search_construct
             error __x"Invalid operator {operator} for date range", operator => $operator;
         }
     }
-    else {
-        push @conditions, {
+    else
+    {   push @conditions, {
             type     => $filter_operator,
             operator => $operator,
             s_field  => $filter->{value_field} || $column->value_field,
@@ -2707,17 +2700,17 @@ sub _build_group_results
     # prefetch joins should only have been added above, and if they are
     # multi-value fields should be added as independent sub-queries
     my $select = {
-        select => [@select_fields],
-        join     => [
+        select => \@select_fields,
+        join   => [
             $self->linked_hash(group => 1, prefetch => 1, search => 0, retain_join_order => 1, sort => 0, aggregate => $options{aggregate}, drcol => $drcol),
             {
-                'record_single' => [
+                record_single => [
                     'record_later',
                     $self->jpfetch(group => 1, prefetch => 1, search => 0, linked => 0, retain_join_order => 1, sort => 0, aggregate => $options{aggregate}, drcol => $drcol),
                 ],
             },
         ],
-        group_by => [@g],
+        group_by => \@g,
     };
 
     local $GADS::Schema::Result::Record::REWIND = $self->rewind_formatted
@@ -2736,7 +2729,6 @@ sub _build_group_results
     foreach my $rec ($result->all)
     {
         push @all, GADS::Record->new(
-            schema                  => $self->schema,
             record                  => $rec,
             # is_group affects what key is used by GADS::Record for the result
             # (e.g. _sum). This is a bit messy and should be defined better. We

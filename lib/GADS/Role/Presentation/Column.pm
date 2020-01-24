@@ -1,4 +1,4 @@
-package GADS::Role::Presentation::Column;
+package Linkspace::Role::Presentation::Column;
 
 use Moo::Role;
 use JSON qw(encode_json);
@@ -6,10 +6,11 @@ use URI::Escape qw/uri_escape_utf8/;
 
 sub presentation {
     my ($self, %options) = @_;
+    my $qp = $options{query_parameters};  #XXX handling should move to GADS.pm
 
     # data-values='[{"id": "23", "value": "Foo", "checked": true}, {"id": "24", "value": "Bar", "checked": true}]'
 
-    my ($has_filter, @queries, @filter_values, $filter_text);
+    my ($has_filter, @filter_values, $filter_text, @queries);
     foreach my $filter (@{$options{filters}})
     {
         if ($filter->{id} == $self->id)
@@ -17,31 +18,30 @@ sub presentation {
             $has_filter = 1;
             if ($self->fixedvals)
             {
-                @filter_values = map {
-                    +{
-                        id      => $_,
-                        value   => $self->id_as_string($_),
-                        checked => \1,
-                    }
-                } @{$filter->{value}};
+                push @filter_values, map +{
+                    id      => $_,
+                    value   => $self->id_as_string($_),
+                    checked => \1,
+                }, @{$filter->{value}};
             }
-            else {
-                $filter_text = $filter->{value}->[0];
+            else
+            {   $filter_text = $filter->{value}->[0];
             }
         }
-        else {
+        else
+        {
             push @queries, "field$filter->{id}=".uri_escape_utf8($_)
-                foreach @{$filter->{value}};
+                for @{$filter->{value}};
         }
     }
-    foreach my $key (grep { $_ !~ /^field/ } keys %{$options{query_parameters}})
-    {
-        push @queries, "$key=$_"
-            foreach $options{query_parameters}->get_all($key);
+
+    foreach my $key (grep !/^field/, keys %$qp)
+    {   push @queries, "$key=$_" for $qp->get_all($key);
     }
+
     my $url_filter_remove = join '&', @queries;
 
-    my $return = {
+    my %val = (
         id                  => $self->id,
         type                => $self->type,
         name                => $self->name,
@@ -59,7 +59,7 @@ sub presentation {
         filter_text         => $filter_text,
         has_filter_search   => 1,
         fixedvals           => $self->fixedvals,
-    };
+    );
 
     # XXX Reference to self when this is used within edit.tt. Ideally this
     # wouldn't be needed and all parameters that are needed would be passed as
@@ -67,35 +67,27 @@ sub presentation {
     $return->{column} = $self
         if $options{edit};
 
+    my $sorter;
     if (my $sort = $options{sort})
-    {
-        if ($sort->{id} == $self->id)
-        {
-            if ($sort->{type} eq 'asc')
-            {
-                $return->{sort} = {
-                    symbol  => '&udarr;',
-                    text    => 'descending', # Text to change the sort
-                    current => '&darr;',
-                    link    => $self->id.'desc',
-                    aria    => 'ascending', # Current sort
-                };
-            }
-            else {
-                $return->{sort} = {
-                    symbol  => '&udarr;',
-                    text    => 'ascending',
-                    current => '&uarr;',
-                    link    => $self->id.'asc',
-                    aria    => 'descending',
-                };
-            }
-        }
-        else {
-            $return->{sort} = {
-                symbol => '&darr;',
-                text   => 'ascending',
-                link   => $self->id.'asc',
+    {    $return{sort}
+           = $sort->{id} != $self->id ? +{
+                symbol  => '&darr;',
+                text    => 'ascending',
+                link    => $self->id.'asc',
+             }
+           : $sort->{type} eq 'asc'  ? +{
+                symbol  => '&udarr;',
+                text    => 'descending', # Text to change the sort
+                current => '&darr;',
+                link    => $self->id.'desc',
+                aria    => 'ascending', # Current sort
+             }
+           : +{
+                symbol  => '&udarr;',
+                text    => 'ascending',
+                current => '&uarr;',
+                link    => $self->id.'asc',
+                aria    => 'descending',
             };
         }
     }

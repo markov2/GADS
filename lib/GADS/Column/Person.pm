@@ -16,16 +16,48 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Person;
-extends 'GADS::Column';
+package Linkspace::Column::Person;
+# Extended by ::CreatedBy ::Deletedby
 
-use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+extends 'Linkspace::Column';
 
-our @person_properties = qw/
+use Log::Report 'linkspace';
+
+my @option_names      = qw/default_to_login/;
+
+my @person_properties = qw/
    id email username firstname surname freetext1 freetext2
    organisation department_id team_id title value/;
+
+###
+### META
+###
+
+__PACKAGE__->register_type;
+
+sub has_filter_typeahead { 1 }
+sub fixedvals            { 1 }
+sub option_names         { shift->SUPER::option_names(@_, @options_names) }
+sub retrieve_fields      { \@person_properties }
+
+### Specific to Person
+
+sub person_properties    { @person_properties }
+
+
+###
+### Instance
+###
+
+sub sprefix { 'value' }
+sub tjoin   { +{ $_[0]->field => 'value' } }
+
+sub cleanup
+{   my ($class, $id) = @_;
+    $::db->delete(Person => { layout_id => $id });
+}
 
 # Convert based on whether ID or full name provided
 sub value_field_as_index
@@ -40,19 +72,6 @@ sub value_field_as_index
     $type;
 }
 
-has '+has_filter_typeahead' => (
-    default => 1,
-);
-
-has '+fixedvals' => (
-    default => 1,
-);
-
-has '+option_names' => (
-    default => sub { [ 'default_to_login' ] },
-);
-
-sub _build_retrieve_fields { \@person_properties }
 
 has default_to_login => (
     is      => 'rw',
@@ -66,14 +85,12 @@ has default_to_login => (
     trigger => sub { $_[0]->reset_options },
 );
 
-sub _build_sprefix { 'value' };
 
 sub people { $_[0]->site->users->all }
 
 sub id_as_string
 {   my ($self, $id) = @_;
-    my $person = $::session->site->users->get_user(id => $id)
-        or return '';
+    my $person = $self->site->users->user($user_id) or return '';
     $person->value;
 }
 
@@ -85,25 +102,13 @@ after build_values => sub {
     }
 };
 
-sub tjoin
-{   my $self = shift;
-    +{ $self->field => 'value' };
-}
-
 sub random   #XXX still in use?
 {   my $self = shift;
     my @people = $self->people;
     $people[rand @people]->value;
 }
 
-sub resultset_for_values
-{   $::session->site->users->search_active;
-}
-
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    $::db->delete(Person => { layout_id => $id });
-}
+sub resultset_for_values { $self->site->users->search_active }
 
 sub import_value
 {   my ($self, $value) = @_;

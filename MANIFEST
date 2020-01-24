@@ -218,6 +218,7 @@ lib/GADS/Record.pm
 lib/GADS/RecordsGraph.pm
 lib/GADS/RecordsJoin.pm
 lib/GADS/Role/Presentation/Column.pm
+lib/GADS/Role/Presentation/Column/Rag.pm
 lib/GADS/Role/Presentation/Datum.pm
 lib/GADS/Role/Presentation/Datum/Curcommon.pm
 lib/GADS/Role/Presentation/Datum/File.pm

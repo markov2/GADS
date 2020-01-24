@@ -16,50 +16,42 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Daterange;
+package Linkspace::Column::Daterange;
 
-use Log::Report 'linkspace';
-
-use Linkspace::Util qw(iso2datetime);
-
-use DateTime;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+extends 'Linkspace::Column';
 
-extends 'GADS::Column';
+use DateTime;
+use Log::Report 'linkspace';
+use Linkspace::Util qw(iso2datetime);
 
-has '+return_type' => (
-    builder => sub { 'daterange' },
-);
+my @options_names = qw/show_datepicker/;
 
-has '+addable' => (
-    default => 1,
-);
+###
+### META
+###
 
-has '+can_multivalue' => (
-    default => 1,
-);
+sub addable        { 1 }
+sub can_multivalue { 1 }
+sub has_multivalue_plus { 1 }
+sub option_names   { shift->SUPER::option_names(@_, @option_names) }
+sub retrieve_fields{ [ qw/from to/ ] }
+sub return_type    { 'daterange' }
+sub sort_field     { 'from' }
 
-has '+has_multivalue_plus' => (
-    default => 1,
-);
+###
+### Instance
+###
 
-has '+option_names' => (
-    default => sub { [qw/show_datepicker/] },
-);
-
-sub _build_retrieve_fields
-{   my $self = shift;
-    [qw/from to/];
+sub cleanup
+{   my ($class, $id) = @_;
+    $::db->delete(Daterange => { layout_id => $id });
 }
 
 # Still counts as string storage for search (value field is string)
 has '+string_storage' => (
-    default => sub {shift->return_type eq 'string'},
-);
-
-has '+sort_field' => (
-    default => 'from',
+    default => sub { shift->return_type eq 'string'},
 );
 
 has show_datepicker => (
@@ -155,15 +147,10 @@ sub split
     };
 }
 
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    $schema->resultset('Daterange')->search({ layout_id => $id })->delete;
-}
-
 sub import_value
 {   my ($self, $value) = @_;
 
-    $self->schema->resultset('Daterange')->create({
+    $::db->create(Daterange => {
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},

@@ -16,32 +16,46 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::File;
+package Linkspace::Column::File;
 
 use Log::Report 'linkspace';
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column';
+extends 'Linkspace::Column';
+
+###
+### META
+###
+
+sub can_multivalue  { 1 }
+sub retrieve_fields { [ qw/name mimetype id/ ] }
+
+###
+### Instance
+###
+
+sub sprefix { 'value' }
+sub tjoin   { +{ $_[0]->field => 'value' } }
+
+sub cleanup
+{   my ($class, $id)  = @_;
+    my %layout_ref = ( layout_id => $id );
+    $::db->delete(File       => \%layout_ref);
+    $::db->delete(FileOption => \%layout_ref);
+};
+
+# Convert based on whether ID or name provided
+sub value_field_as_index
+{   my ($self, $value) = @_;
+    !$value || $value =~ /^[0-9]+$/ ? 'id' : $self->value_field
+}
 
 has filesize => (
     is      => 'rw',
     isa     => Maybe[Int],
 );
-
-has '+can_multivalue' => (
-    default => 1,
-);
-
-sub _build_sprefix { 'value' };
-
-# Convert based on whether ID or name provided
-sub value_field_as_index
-{   my ($self, $value) = @_;
-    return 'id' if !$value || $value =~ /^[0-9]+$/;
-    return $self->value_field;
-}
 
 after build_values => sub {
     my ($self, $original) = @_;
@@ -55,21 +69,17 @@ after build_values => sub {
     }
 };
 
-sub _build_retrieve_fields
-{   my $self = shift;
-    [qw/name mimetype id/];
-}
-
 sub validate
 {   my ($self, $value, %options) = @_;
     return 1 if !$value;
 
-    if ($value !~ /^[0-9]+$/ || !$self->schema->resultset('Fileval')->find($value))
+    if($value !~ /^[0-9]+$/ || ! $::db->get_record(Fileval => $value))
     {
         return 0 unless $options{fatal};
         error __x"'{int}' is not a valid file ID for '{col}'",
             int => $value, col => $self->name;
     }
+
     1;
 }
 
@@ -78,41 +88,23 @@ sub validate_search {1};
 
 sub write_special
 {   my ($self, %options) = @_;
-
     my $id   = $options{id};
-
-    my $foption = {
-        filesize => $self->filesize,
-    };
-    my ($file_option) = $self->schema->resultset('FileOption')->search({
-        layout_id => $id,
-    })->all;
-    if ($file_option)
-    {
-        $file_option->update($foption);
+    my %data = (filesize => $self->filesize);
+    
+    if(my $file_option = $::db->get_record(FileOption => { layout_id => $id }))
+    {   $file_option->update(\%data);
     }
-    else {
-        $foption->{layout_id} = $id;
-        $self->schema->resultset('FileOption')->create($foption);
+    else
+    {   $data{layout_id} = $id;
+        $::db->create(FileOption => \%data);
     }
 
     return ();
 };
 
-sub tjoin
-{   my $self = shift;
-    +{$self->field => 'value'};
-}
-
-sub cleanup
-{   my ($class, $schema, $id)  = @_;
-    $schema->resultset('File')->search({ layout_id => $id })->delete;
-    $schema->resultset('FileOption')->search({ layout_id => $id })->delete;
-};
-
 sub resultset_for_values
 {   my $self = shift;
-    return $self->schema->resultset('Fileval')->search({
+    $::db->search(Fileval => {
         'files.layout_id' => $self->id,
     }, {
         join => 'files',

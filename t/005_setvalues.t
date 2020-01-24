@@ -250,10 +250,9 @@ foreach my $multivalue (0..1)
                         my $filter_value = $values->{$type}->{filter_value} || $values->{$type}->{new};
                         is( $datum->filter_value, $filter_value, "Filter value correct for $type" );
                         # Then create datum as it would be for grouped value and check again
-                        my $datum_filter = $datum->column->class->new(
+                        my $datum_filter = $datum->column->datum_class->new(
                             init_value       => [$filter_value],
                             column           => $datum->column,
-                            schema           => $datum->column->schema,
                             layout           => $datum->column->layout, # Only needed for code datums
                         );
                         is( $datum_filter->filter_value, $filter_value, "Filter value correct for $type (grouped datum)" );
@@ -357,7 +356,7 @@ foreach my $c (keys %$values)
     next if !$column->userinput;
     # First check that an empty string replacing the null
     # value counts as not changed
-    my $class  = $column->class;
+    my $class  = $column->datum_class;
     my $datum = $class->new(
         set_value       => undef,
         column          => $column,

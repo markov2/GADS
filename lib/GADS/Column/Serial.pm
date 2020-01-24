@@ -16,49 +16,35 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Serial;
+package Linkspace::Column::Serial;
 
-use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column';
+extends 'Linkspace::Column';
 
-has '+numeric' => (
-    default => 1,
-);
+use Log::Report 'linkspace';
 
-has '+addable' => (
-    default => 1,
-);
+###
+### META
+###
 
-has '+internal' => (
-    default => 1,
-);
+__PACKAGE__->register_type;
 
-has '+userinput' => (
-    default => 0,
-);
+sub addable     { 1 }
+sub internal    { 1 }
+sub numeric     { 1 }
+sub return_type { 'integer' }
+sub table       { 'Current' }
+sub userinput   { 0 }
+sub value_field { 'serial' }
 
-has '+return_type' => (
-    builder => sub { 'integer' },
-);
+###
+### Instance
+###
 
-sub _build_sprefix
-{   my $self = shift;
-    'current';
-}
-
-sub _build_table
-{   my $self = shift;
-    'Current';
-}
-
-has '+value_field' => (
-    default => 'serial',
-);
-
-sub tjoin {}
+sub sprefix     { 'current' }
+sub tjoin       {}
 
 1;
 

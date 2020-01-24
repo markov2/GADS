@@ -16,42 +16,33 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Createddate;
+package Linkspace::Column::Createddate;
 
 use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column::Date';
+extends 'Linkspace::Column::Date';
 
-has '+value_field' => (
-    default => 'created',
-);
+###
+### META
+###
 
-sub _build_table
-{   my $self = shift;
-    'Record';
-}
+__PACKAGE__->register_type;
 
-sub _build_sprefix
-{   my $self = shift;
-    'record';
-}
+sub internal     { 1 }
+sub table        { 'Record' }
+sub tjoin        {}
+sub userinput    { 0 }
+sub value_field  { 'created' }
 
-has '+internal' => (
-    default => 1,
-);
+sub include_time { 1 }
 
-has '+userinput' => (
-    default => 0,
-);
+###
+### Instance
+###
 
-has include_time => (
-    is      => 'ro',
-    default => 1,
-);
-
-sub tjoin {};
+sub sprefix      { 'record' }
 
 1;
 

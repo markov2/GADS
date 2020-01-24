@@ -16,14 +16,28 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Code;
+# Shared by ::Calc and ::Rag
+package Linkspace::Column::Code;
 
-use DateTime;
-use Date::Holidays::GB qw/ is_gb_holiday gb_holidays /;
-use GADS::AlertSend;
-use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+
+extends 'Linkspace::Column';
+
+use Log::Report 'linkspace';
+use DateTime;
+use Date::Holidays::GB qw/is_gb_holiday gb_holidays/;
+
+###
+### META
+###
+
+sub has_cache { 1 }
+sub userinput { 0 }
+
+###
+### Instance
+###
 
 use Inline 'Lua' => q{
     function lua_run(string, vars, working_days_diff, working_days_add)
@@ -114,18 +128,14 @@ use Inline 'Lua' => q{
     end
 };
 
-extends 'GADS::Column';
-
 has _rset_code => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 has code => (
     is      => 'rw',
     isa     => Str,
     lazy    => 1,
-    clearer => 1,
     builder => sub {
         my $self = shift;
         my $code = $self->_rset_code && $self->_rset_code->code;
@@ -133,21 +143,8 @@ has code => (
     },
 );
 
-sub clear
-{   my $self = shift;
-    $self->clear_code;
-}
-
 has write_cache => (
     is      => 'rw',
-    default => 1,
-);
-
-has '+userinput' => (
-    default => 0,
-);
-
-has '+has_cache' => (
     default => 1,
 );
 
@@ -158,9 +155,7 @@ sub params
 
 sub param_columns
 {   my ($self, %options) = @_;
-    grep {
-        $_
-    } map {
+    grep $_, map {
         my $col = $self->layout->column_by_name_short($_)
             or $options{is_fatal} && error __x"Unknown short column name \"{name}\" in calculation", name => $_;
         $col->instance_id == $self->instance_id
@@ -184,10 +179,8 @@ sub update_cached
     my $layout = $self->layout;
 
     my $records = GADS::Records->new(
-        user                 => $self->user,
         layout               => $layout,
-        schema               => $self->schema,
-        columns              => [@{$self->depends_on},$self->id],
+        columns              => [ @{$self->depends_on}, $self->id ],
         view_limit_extra_id  => undef,
         curcommon_all_fields => 1, # Code might contain curcommon fields not in normal display
         include_children     => 1, # Update all child records regardless
@@ -207,7 +200,6 @@ sub update_cached
     # Send any alerts
     my $alert_send = GADS::AlertSend->new(
         layout      => $self->layout,
-        user        => $self->user,
         current_ids => \@changed,
         columns     => [$self->id],
     );
@@ -224,14 +216,11 @@ sub _parse_code
 {   my ($self, $code) = @_;
     !$code || $code =~ /^\s*function\s+evaluate\s*\(([A-Za-z0-9_,\s]+)\)(.*?)end\s*$/s
         or error "Invalid code definition: must contain function evaluate(...)";
-    my @params;
-    @params   = split /[,\s]+/, $1
-        if $1;
-    my $run_code = $2;
+
     +{
-        code   => $run_code,
-        params => [@params],
-    };
+        code   => $2,
+        params => [ $1 ? (split /[,\s]+/, $1) : () ],
+     };
 }
 
 # XXX These functions can raise exceptions - further investigation needed as to
@@ -334,7 +323,7 @@ sub eval
     my $ret = $return->{return};
     if ($self->multivalue && ref $ret eq 'ARRAY')
     {
-        $ret = [ map { "$_" } @$ret ];
+        $ret = [ map "$_", @$ret ];
     }
     elsif (defined $ret) {
         $ret = "$ret" if defined $ret;
@@ -376,26 +365,18 @@ sub write_special
         $return_options{no_alerts} = 1 if $new;
 
         # Stop duplicates
-        my %depends_on = map { $_->id => 1 } grep { !$_->internal } $self->param_columns(is_fatal => $options{override} ? 0 : 1);
-        my @depends_on = keys %depends_on;
+        my %depends_on = map +($_->id => 1), grep !$_->internal,
+            $self->param_columns(is_fatal => $options{override} ? 0 : 1);
 
-        $self->schema->resultset('LayoutDepend')->search({
-            layout_id => $id
-        })->delete;
-        foreach (@depends_on)
-        {
-            $self->schema->resultset('LayoutDepend')->create({
-                layout_id  => $id,
-                depends_on => $_,
-            });
-        }
-        $self->clear_depends_on;
+        $::db->delete(LayoutDepend => { layout_id => $id });
 
+        $::db->create(LayoutDepend => { layout_id => $id, depends_on => $_ })
+            for keys %depends_on;
     }
-    else {
-        $return_options{no_cache_update} = 1;
+    else
+    {   $return_options{no_cache_update} = 1;
     }
-    return %return_options;
+    %return_options;
 };
 
 # We don't really want to do this within a transaction as it can take a

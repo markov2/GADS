@@ -16,54 +16,41 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Createdby;
+package Linkspace::Column::Createdby;
 
-use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column::Person';
+extends 'Linkspace::Column::Person';
 
-has '+value_field' => (
-    default => 'value',
-);
+use Log::Report 'linkspace';
 
-sub _build_table
-{   my $self = shift;
-    'Createdby';
-}
+###
+### META
+###
 
-sub _build_sprefix
-{   my $self = shift;
-    'createdby';
-}
+__PACKAGE__->register_type;
 
-has '+internal' => (
-    default => 1,
-);
+sub internal  { 1 }
+sub userinput { 0 }
 
-has '+userinput' => (
-    default => 0,
-);
+###
+### Instance
+###
 
-sub tjoin
-{   my $self = shift;
-    'createdby';
-}
+sub sprefix() { 'createdby' }
+sub tjoin     { 'createdby' }
 
 # Different to normal function, this will fetch users when passed a list of IDs
 sub fetch_multivalues
-{   my ($self, $user_ids) = @_;
+{   my ($self, $victim_ids) = @_;
+    $victim_ids && @$victim_ids or return +{ };
 
-    my %user_ids = map +($_ => 1), grep $_, @$user_ids; # De-duplicate
+    my %victim_ids = map +($_ => 1), grep $_, @$victim_ids;
+    my $users      = $::session->site->users;
+    my @victims    = grep defined, map $users->user($_), keys %victim_ids;
 
-    my $m_rs = $self->schema->resultset('User')->search({
-        'me.id' => [ keys %user_ids ],
-    },
-    { result_class => 'HASH' },
-    );
-
-    +{ map +($_->{id} => $_), $m_rs->all };
+    +{ map +($_->id => $_), @victims };
 }
 
 1;

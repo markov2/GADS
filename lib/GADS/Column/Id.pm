@@ -16,39 +16,31 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Id;
+package Linkspace::Column::Id;
 
 use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column::Intgr';
+extends 'Linkspace::Column::Intgr';
 
-has '+internal' => (
-    default => 1,
-);
+###
+### META
+###
 
-has '+userinput' => (
-    default => 0,
-);
+__PACKAGE__->register_type;
 
-sub _build_sprefix
-{   my $self = shift;
-    'current';
-}
+sub internal    { 1 }
+sub table       { 'Current' }
+sub userinput   { 0 }
+sub value_field { 'id' }
 
-sub _build_table
-{   my $self = shift;
-    'Current';
-}
+###
+### Instance
+###
 
-has '+value_field' => (
-    default => 'id',
-);
-
-sub cleanup {}
-
-sub tjoin {}
+sub sprefix     { 'current' }
+sub tjoin       {}
 
 1;
 

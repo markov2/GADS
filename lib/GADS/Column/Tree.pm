@@ -16,44 +16,48 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Tree;
-
-use JSON qw(decode_json encode_json);
-use Log::Report 'linkspace';
-use String::CamelCase qw(camelize);
-use Tree::DAG_Node;
+package Linkspace::Column::Tree;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+extends 'Linkspace::Column';
 
-extends 'GADS::Column';
+use JSON qw(decode_json encode_json);
+use Log::Report 'linkspace';
+use Tree::DAG_Node;
+
+###
+### META
+###
+
+__PACKAGE__->register_type;
+
+sub can_multivalue { 1 }
+sub has_filter_typeahead { 1 }
+sub fixedvals      { 1 }
+sub retrieve_fields{ [ qw/id value/ ] }
+sub table          { 'Enum' }
+
+###
+### Instance
+###
+
+sub sprefix { 'value' }
+sub tjoin   { +{ $_[0]->field => 'value' } }
+sub value_field_as_index { 'id' }
 
 sub DESTROY
 {   my $self = shift;
     $self->_root->delete_tree if $self->_has_tree;
 }
 
-sub value_field_as_index
-{   return 'id';
-}
+sub cleanup
+{   my ($class, $id) = @_;
+    my %layout_ref = (layout_id => $id);
+    $::db->update(Enumval => \%layout_ref, {parent => undef});  #XXX
 
-has '+has_filter_typeahead' => (
-    default => 1,
-);
-
-has '+fixedvals' => (
-    default => 1,
-);
-
-has '+can_multivalue' => (
-    default => 1,
-);
-
-sub _build_sprefix { 'value' };
-
-sub _build_retrieve_fields
-{   my $self = shift;
-    [qw/id value/];
+    $::db->delete(Enum    => \%layout_ref);
+    $::db->delete(Enumval => \%layout_ref);
 }
 
 has end_node_only => (
@@ -124,7 +128,7 @@ sub id_as_string
 
 sub string_as_id
 {   my ($self, $value) = @_;
-    my $rs = $self->schema->resultset('Enumval')->search({
+    my $rs = $::db->search(Enumval => {
         layout_id => $self->id,
         deleted   => 0,
         value     => $value,
@@ -134,11 +138,6 @@ sub string_as_id
     error __x"Value {value} not found in field {name}", value => $value, name => $self->name
         if $rs->count == 0;
     return $rs->next->id;
-}
-
-sub tjoin
-{   my $self = shift;
-    +{$self->field => 'value'};
 }
 
 # The whole tree, constructed here so that it only
@@ -162,11 +161,6 @@ after build_values => sub {
     $self->end_node_only($original->{end_node_only});
 };
 
-sub _build_table
-{   my $self = shift;
-    'Enum';
-}
-
 sub write_special
 {   my ($self, %options) = @_;
     my $rset = $options{rset};
@@ -175,27 +169,6 @@ sub write_special
     });
     return ();
 };
-
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    $schema->resultset('Enum')->search({ layout_id => $id })->delete;
-    $schema->resultset('Enumval')->search({ layout_id => $id })->update({parent => undef});
-    $schema->resultset('Enumval')->search({ layout_id => $id })->delete;
-}
-
-after 'delete' => sub {
-    my $self = shift;
-    $self->clear;
-};
-
-sub clear
-{   my $self = shift;
-    $self->_clear_nodes;
-    $self->clear_enumvals;
-    $self->_clear_enumvals_index;
-    $self->_root->delete_tree if $self->_has_tree;
-    $self->_clear_tree;
-}
 
 sub validate
 {   my ($self, $value, %options) = @_;
@@ -245,6 +218,7 @@ sub _build__tree
         # in use and needed for things like code evaluation. However, don't add
         # it in the tree with a parent, just have it "loose"
         my $parent = !$enumval->{deleted} && $enumval->{parent}; # && $enum->parent->id;
+
         my $node = Tree::DAG_Node->new();
         $node->name($enumval->{id});
         $tree->{$enumval->{id}} = {
@@ -264,14 +238,13 @@ sub _build__tree
     $root->name("Root");
 
     foreach my $n (@order)
-    {
-        my $node = $tree->{$n};
+    {   my $node = $tree->{$n};
         if (my $parent = $node->{parent})
         {
             $tree->{$parent}->{node}->add_daughter($node->{node});
         }
-        else {
-            $root->add_daughter($node->{node});
+        else
+        {   $root->add_daughter($node->{node});
         }
     }
 
@@ -285,7 +258,7 @@ sub _build__tree
 sub json
 {   my ($self, @selected) = @_;
 
-    my %selected = map { $_ => 1 } @selected;
+    my %selected = map +($_ => 1), @selected;
 
     my $stash = {
         tree => {
@@ -332,11 +305,9 @@ sub _delete_unused_nodes
 
     # Get all ones currently in database. This will be different to
     # the ones currently in _enumvals_index
-    my @all_nodes = $self->schema->resultset('Enumval')->search({
-        layout_id => $self->id,
-    },{
-        result_class => 'HASH',
-    })->all;
+    my @all_nodes = $::db->search(Enumval => { layout_id => $self->id },
+       { result_class => 'HASH' }
+    )->all;
 
     my @top = grep !$_->{parent}, @all_nodes;
 
@@ -427,11 +398,7 @@ sub update
     my $new_tree = {};
 
     # Do any updates
-    foreach my $t (@$tree)
-    {
-        $self->_update($t, $new_tree, %params);
-    }
-
+    $self->_update($_, $new_tree, %params) for @$tree;
     $self->_set__enumvals_index($new_tree);
     $self->_delete_unused_nodes;
     $self->clear;
@@ -492,7 +459,7 @@ sub resultset_for_values
 {   my $self = shift;
     if ($self->end_node_only)
     {
-        $self->schema->resultset('Enumval')->search({
+        $::db->search(Enumval => {
             'me.layout_id' => $self->id,
             'me.deleted'   => 0,
             'enumvals.id'  => undef,
@@ -500,8 +467,8 @@ sub resultset_for_values
             join => 'enumvals',
         });
     }
-    else {
-        $self->schema->resultset('Enumval')->search({
+    else
+    {   $::db->search(Enumval => {
             layout_id => $self->id,
             deleted   => 0,
         });
@@ -580,9 +547,9 @@ sub _import_branch
         }
     }
     # Add any remaining new ones
-    delete $_->{id} foreach @new;
-    push @to_write, @new;
-    return @to_write;
+    delete $_->{id} for @new;
+
+    (@to_write, @new);
 }
 
 sub import_after_write
@@ -595,11 +562,10 @@ sub import_after_write
     # changed. Simple changes are handled automatically, more complicated ones
     # will require manual intervention
     if (my @old = @{$self->json})
-    {
-        @to_write = $self->_import_branch(\@old, \@new, %options);
+    {   @to_write = $self->_import_branch(\@old, \@new, %options);
     }
-    else {
-        sub _to_source {
+    else
+    {   sub _to_source {
             foreach (@_)
             {
                 $_->{source_id} = delete $_->{id};
@@ -628,13 +594,13 @@ around export_hash => sub {
     my $hash = $orig->(@_);
     $hash->{end_node_only} = $self->end_node_only;
     $hash->{tree}          = $self->json; # Not actually JSON
-    return $hash;
+    $hash;
 };
 
 sub import_value
 {   my ($self, $value) = @_;
 
-    $self->schema->resultset('Enum')->create({
+    $::db->create(Enum => {     #XXX?
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},

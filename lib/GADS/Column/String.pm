@@ -16,13 +16,32 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::String;
+package Linkspace::Column::String;
 
 use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column';
+extends 'Linkspace::Column';
+
+###
+### META
+###
+
+__PACKAGE__->register_type;
+
+sub can_multivalue      { 1 }
+sub has_multivalue_plus { 1 }
+
+
+###
+### Instance
+###
+
+sub cleanup
+{   my ($class, $schema, $id) = @_;
+    $::db->delete(String => { layout_id => $id });
+}
 
 has textbox => (
     is      => 'rw',
@@ -36,14 +55,6 @@ has force_regex => (
     is      => 'rw',
     isa     => Maybe[Str],
     lazy    => 1,
-);
-
-has '+can_multivalue' => (
-    default => 1,
-);
-
-has '+has_multivalue_plus' => (
-    default => 1,
 );
 
 after 'build_values' => sub {
@@ -67,11 +78,6 @@ sub write_special
     });
 
     return ();
-};
-
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    $::db->delete(String => { layout_id => $id });
 }
 
 sub resultset_for_values
@@ -114,14 +120,12 @@ sub import_value
 
 sub field_values($;$%)
 {   my ($self, $datum) = @_;
-    my @values = @{$datum->values};
+    my $values = $datum->values;
 
     # No values, but still need to write null value
-    @values or return +{ value => undef, value_index => undef };
-
     map +{ value => $_, 
-           (defined ? (value_index => (lc substr $_, 0, 128)) : ())
-         }, @values;
+           value_index => defined ? (lc substr $_, 0, 128) : '',
+         }, @$values ? @$values : (undef);
 }
 
 1;

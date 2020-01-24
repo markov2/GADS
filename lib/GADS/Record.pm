@@ -545,7 +545,7 @@ sub find_unique
             id          => $column->id,
             type        => $column->type,
             value       => $value,
-            value_field => $column->value_field_as_index($value), # May need to use value ID instead of string as search
+            value_field => $column->value_field_as_index($value),
             operator    => 'equal',
         }]
     });
@@ -683,7 +683,7 @@ sub _find
         }
 
         push @columns_fetch, "deletedby.$_"
-            for @GADS::Column::Person::person_properties;
+            for Linkspace::Column::Person->person_properties;
 
         # If fetch a draft, then make sure it's not a draft curval that's part of
         # another draft record
@@ -1869,7 +1869,8 @@ has _records_to_write_after => (
 sub _field_write
 {   my ($self, $column, $datum, %options) = @_;
 
-    return if $column->no_value_to_write;
+    $column->value_to_write
+        or return;
 
     if ($column->userinput)
     {

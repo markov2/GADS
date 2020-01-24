@@ -16,20 +16,28 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Curval;
-
-use GADS::Config;
-use GADS::Records;
-use Log::Report 'linkspace';
+package Linkspace::Column::Curval;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column::Curcommon';
+extends 'Linkspace::Column::Curcommon';
 
-has '+option_names' => (
-    default => sub { [qw/override_permissions value_selector show_add delete_not_used/] },
-);
+use Log::Report 'linkspace';
+
+my @option_name = qw/override_permissions value_selector show_add delete_not_used/;
+
+###
+### META
+###
+
+__PACKAGE__->register_type;
+
+sub option_names { shift->SUPER::option_names(@_, @option_names) }
+
+###
+### Instance
+###
 
 has value_selector => (
     is      => 'rw',
@@ -88,19 +96,12 @@ has '+filter' => (
     },
 );
 
-after clear => sub {
-    my $self = shift;
-    $self->clear_has_subvals;
-    $self->clear_subvals_input_required;
-    $self->clear_data_filter_fields;
-};
-
 # Used to see whether we can filter yet using any filters defined for the
 # curval field. If the filter contains values of the parent record, then that
 # parent record needs to be set first
 sub filter_view_is_ready
 {   my $self = shift;
-    return !!$self->view;
+    !!$self->view;
 }
 
 has view => (
@@ -114,7 +115,6 @@ sub _build_view
         instance_id => $self->refers_to_instance_id,
         filter      => $self->filter,
         layout      => $self->layout_parent,
-        schema      => $self->schema,
         user        => undef,
     );
     # Replace any "special" $short_name values with their actual value from the
@@ -129,41 +129,28 @@ sub _build_view
 has has_subvals => (
     is      => 'lazy',
     isa     => Bool,
-    clearer => 1,
-);
-
-sub _build_has_subvals
-{   my $self = shift;
-    !! @{$self->filter->columns_in_subs};
+    builder => sub { !! @{$_[0]->filter->columns_in_subs} },
 }
 
 # The fields that we need input by the user for this filtered set of values
 has subvals_input_required => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_subvals_input_required
 {   my $self = shift;
     my @cols = @{$self->filter->columns_in_subs};
+
     foreach my $col (@cols)
-    {
+    {   my @disp_col_ids = map $disp->display_field_id,
+           $::db->search(DisplayField => { layout_id => $col->id })->all;
+
         push @cols, $self->layout->column($_)
-            foreach @{$col->depends_on};
-        foreach my $disp ($self->schema->resultset('DisplayField')->search({
-            layout_id => $col->id
-        })->all)
-        {
-            push @cols, $self->layout->column($disp->display_field_id)
-        }
+            for @{$col->depends_on}, @disp_col_ids;
     }
-    # Calc values do not need written to by user
-    @cols = grep { $_->userinput } @cols;
-    # Remove duplicates
-    my %needed;
-    $needed{$_->id} = $_ foreach @cols;
-    @cols = values %needed;
-    return \@cols;
+
+    my %needed = map +($_->id => $_), @cols;
+    [ grep $_->userinput, values %needed ];
 }
 
 # The string/array that will be used in the edit page to specify the array of
@@ -171,34 +158,31 @@ sub _build_subvals_input_required
 has data_filter_fields => (
     is      => 'lazy',
     isa     => Str,
-    clearer => 1,
 );
 
 sub _build_data_filter_fields
-{   my $self = shift;
-    my @fields = @{$self->subvals_input_required};
-    grep { $_->instance_id != $self->instance_id } @fields
+{   my $self   = shift;
+    my $fields = $self->subvals_input_required;
+    grep $_->instance_id != $self->instance_id, @$fields
         and warning "The filter refers to values of fields that are not in this table";
-    '[' . (join ', ', map { '"'.$_->field.'"' } @fields) . ']';
+    '[' . (join ', ', map '"'.$_->field.'"', @$fields) . ']';
 }
 
 sub _build_refers_to_instance_id
 {   my $self = shift;
-    if (@{$self->curval_field_ids})
-    {
-        # Pick a random field from the selected display fields to work out the
-        # parent layout
-        my $random_id = $self->curval_field_ids->[0];
-        my $random = $self->layout->column($random_id);
-        return $random->instance_id if $random;
-    }
-    return undef;
+    my $fields_ids = $self->curval_field_ids;
+    @$fields_ids or return undef;
+
+    # Pick a random field from the selected display fields to work out the
+    # parent layout
+    my $random = $self->layout->column($field_ids->[0]);
+    $random ? $random->instance_id : undef;
 }
 
 sub make_join
 {   my ($self, @joins) = @_;
-    return $self->field
-        if !@joins;
+    @joins or return $self->field;
+
     +{
         $self->field => {
             value => {
@@ -209,19 +193,12 @@ sub make_join
 }
 
 has autocurs => (
-    is  => 'lazy',
-    isa => ArrayRef,
+    is      => 'lazy',
+    builder => sub
+    {   my $id = $_[0]->id;
+        [ $::db->search(Layout => { type => 'autocur', related_field => $id })->all ];
+    },
 );
-
-sub _build_autocurs
-{   my $self = shift;
-    [
-        $self->schema->resultset('Layout')->search({
-            type          => 'autocur',
-            related_field => $self->id,
-        })->all
-    ];
-}
 
 sub write_special
 {   my ($self, %options) = @_;
@@ -261,7 +238,8 @@ sub validate
         return 0 if !$fatal;
         error __x"Value for {column} must be an integer", column => $self->name;
     }
-    if (!$self->schema->resultset('Current')->search({ instance_id => $self->refers_to_instance_id, id => $value })->next)
+
+    if (! $::db->get_record(Current => { instance_id => $self->refers_to_instance_id, id => $value }))
     {
         return 0 if !$fatal;
         error __x"{id} is not a valid record ID for {column}", id => $value, column => $self->name;
@@ -274,7 +252,7 @@ sub fetch_multivalues
 
     # Order by record_id so that all values for one record are grouped together
     # (enabling later code to work)
-    my @values = $self->schema->resultset('Curval')->search({
+    my @values = $::db->seach(Curval => {
         'me.record_id'      => $record_ids,
         'me.layout_id'      => $self->id,
     },{
@@ -285,9 +263,8 @@ sub fetch_multivalues
     my $records = GADS::Records->new(
         user                 => $self->override_permissions ? undef : $self->layout->user,
         layout               => $self->layout_parent,
-        schema               => $self->schema,
         columns              => $self->curval_field_ids,
-        limit_current_ids    => [map { $_->{value} } @values],
+        limit_current_ids    => [ map $_->{value}, @values ],
         is_draft             => $options{is_draft},
         columns              => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
     );
@@ -304,15 +281,14 @@ sub fetch_multivalues
         };
     }
 
-    my @return; my @single; my $last_record_id;
+    my (@return, @single, $last_record_id);
     foreach my $v (@values)
     {
         if ($last_record_id && $last_record_id != $v->{record_id})
-        {
-            @single = sort { $a->{order} && $b->{order} ? $a->{order} <=> $b->{order} : 0 } @single;
-            push @return, @single;
+        {   push @return, sort { $a->{order} && $b->{order} ? $a->{order} <=> $b->{order} : 0 } @single;
             @single = ();
         }
+
         push @single, {
             layout_id => $self->id,
             record_id => $v->{record_id},
@@ -323,15 +299,14 @@ sub fetch_multivalues
     };
     # Use previously stored order to sort records - records can be part of
     # multiple values
-    @single = sort { $a->{order} && $b->{order} ? $a->{order} <=> $b->{order} : 0 } @single;
-    push @return, @single;
+    push @return, sort { $a->{order} && $b->{order} ? $a->{order} <=> $b->{order} : 0 } @single;
 
-    return @return;
+    @return;
 }
 
 sub multivalue_rs
 {   my ($self, $record_ids) = @_;
-    $self->schema->resultset('Curval')->search({
+    $::db->search(Curval => {
         'me.record_id'      => $record_ids,
         'me.layout_id'      => $self->id,
     });
@@ -345,7 +320,7 @@ sub random
 sub import_value
 {   my ($self, $value) = @_;
 
-    $self->schema->resultset('Curval')->create({
+    $::db->create(Curval => {
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},
@@ -427,9 +402,8 @@ sub field_values($$%)
         $datum->ids_deleted(\@ids_deleted);
     }
 
-    @values or @values = (undef);
-    map +{ value => $_ }, @values;
+    map +{ value => $_ },
+        @values ? @values : (undef);
 }
-
 
 1;

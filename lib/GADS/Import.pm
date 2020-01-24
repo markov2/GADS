@@ -327,7 +327,7 @@ has _import_status_rs => (
 
 sub _build__import_status_rs
 {   my $self = shift;
-    $self->schema->resultset('Import')->create({
+    $::db->create(Import => {
         user_id => $::session->user->id,
         type    => 'data',
         started => DateTime->now,

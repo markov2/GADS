@@ -16,7 +16,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Date;
+package Linkspace::Column::Date;
+# Extended by ::Createddate
 
 use Log::Report 'linkspace';
 
@@ -26,32 +27,34 @@ use GADS::View;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column';
+extends 'Linkspace::Column';
 
-has '+return_type' => (
-    builder => sub { 'date' },
-);
+my @option_names = qw/show_datepicker default_today/);
 
-has '+addable' => (
-    default => 1,
-);
+###
+### META
+###
 
-has '+can_multivalue' => (
-    default => 1,
-);
+__PACKAGE__->register_type;
 
-has '+has_multivalue_plus' => (
-    default => 1,
-);
+sub addable        { 1 }
+sub can_multivalue { 1 }
+sub has_multivalue_plus { 0 }
+sub option_names   { shift->SUPER::option_names(@_, @option_names_ }
+sub return_type    { 'date' }
 
-has '+option_names' => (
-    default => sub { [qw/show_datepicker default_today/] },
-);
+### only for dates
 
-has include_time => (
-    is      => 'ro',
-    default => 0,
-);
+sub include_time   { 0 }
+
+###
+### Instance
+###
+
+sub cleanup
+{   my ($class, $id) = @_;
+    $::db->delete(Date => { layout_id => $id });
+}
 
 has show_datepicker => (
     is      => 'rw',
@@ -104,15 +107,10 @@ sub validate_search
     $self->validate(@_);
 }
 
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    $schema->resultset('Date')->search({ layout_id => $id })->delete;
-}
-
 sub import_value
 {   my ($self, $value) = @_;
 
-    $self->schema->resultset('Date')->create({
+    $::db->create(Date => {
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},
@@ -122,11 +120,10 @@ sub import_value
 
 sub field_values($;$%)
 {   my ($self, $datum) = @_;
-    my @values = @{$datum->values};
+    my $values = $datum->values;
 
-      @values
-    ? map +{ value => $_ }, @values
-    : +{ value => undef };  #No values, but still need to write null value
+    map +{ value => $_ },
+        @$values ? @$values : (undef); # No values, but still need to write null value
 }
 
 1;

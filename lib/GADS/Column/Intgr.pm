@@ -16,29 +16,37 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Intgr;
+package Linkspace::Column::Intgr;
+# Extended by ::Id
 
-use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Column';
+extends 'Linkspace::Column';
 
-has '+numeric' => (
-    default => 1,
-);
+use Log::Report 'linkspace';
 
-has '+addable' => (
-    default => 1,
-);
+my @option_names = qw/show_calculator/;
 
-has '+return_type' => (
-    builder => sub { 'integer' },
-);
+###
+### META
+###
 
-has '+option_names' => (
-    default => sub { [qw/show_calculator/] },
-);
+__PACKAGE__->register_type;
+
+sub numeric      { 1 }
+sub addable      { 1 }
+sub return_type  { 'integer' }
+sub option_names { shift->SUPER::option_names, @option_names }
+
+###
+### Instance
+###
+
+sub cleanup
+{   my ($class, $id) = @_;
+    $::db->delete(Intgr => { layout_id => $id });
+}
 
 has show_calculator => (
     is      => 'rw',
@@ -68,15 +76,10 @@ sub validate
     1;
 }
 
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    $schema->resultset('Intgr')->search({ layout_id => $id })->delete;
-}
-
 sub import_value
 {   my ($self, $value) = @_;
 
-    $self->schema->resultset('Intgr')->create({
+    $::db->create(Intgr => {
         record_id    => $value->{record_id},
         layout_id    => $self->id,
         child_unique => $value->{child_unique},

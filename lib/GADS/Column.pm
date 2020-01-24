@@ -20,7 +20,6 @@ package GADS::Column;
 
 use Log::Report 'linkspace';
 
-use GADS::Filter;
 use GADS::Groups;
 use GADS::Type::Permission;
 use GADS::View;
@@ -55,20 +54,71 @@ use namespace::clean; # Otherwise Enum clashes with MooseLike
 
 with 'GADS::Role::Presentation::Column';
 
-sub types
-{ qw(date daterange string intgr person tree enum file rag
-    calc curval autocur id createddate createdby serial deletedby)
+###
+### META information about the column implementations.
+#   These are class constants, very rarely flexible. It would be nicer
+#   to make a ::Meta object, however: in that case the programmer must
+#   be aware which methods are in meta...
+
+my (%type2class, %class2type);
+
+sub register_type(%)
+{   my ($class, %args) = @_;
+    my $type = $args{type} || lc(ref $class =~ s/.*::///r);
+    $type2class{$type}   = $class;
+    $class2type{$class}  = $type;
 }
 
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
+sub type2class($)  { $type2class->{$_[1]} }
+sub types()        { keys %type2class }
+sub all_column_classes() { values %type2class }
+sub type()         { $class2type{ref $_[0] || $_[0]} }
 
-# Needed for update of cached columns
-has user => (
-    is => 'rw',
-);
+#XXX some of these should have been named is_*()
+sub addable        { 0 }   # support sensible addition/subtraction
+sub can_multivalue { 0 }   #XXX same as multivalue?
+sub fixedvals      { 0 }
+sub has_cache      { 0 }   #XXX autodetect with $obj->can(write_cache)?
+sub has_filter_typeahead { 0 } # has typeahead when inputting filter values
+sub has_multivalue_plus  { 0 }
+sub hidden         { 0 }   #XXX?
+sub internal       { 0 }
+sub is_curcommon   { $_[0]->isa('Linkspace::Column::Curcommon') }
+sub multivalue     { 0 }
+sub numeric        { 0 }
+sub option_names   { shift; [ @_ ] };
+sub retrieve_fields{ [ $_[0]->value_field ] }
+sub return_type    { 'string' }
+sub sort_field()   { $_[0]->value_field }
+sub userinput      { 1 }
+sub value_field    { 'value' }
+sub value_to_write { 1 }   #XXX only in Autocur, may be removed
+sub variable_join  { 0 }   # joins can be different on the config
+
+# Whether the sort columns when added should be added with a parent, and
+# if so what is the parent.  Default no, undef in case used in arrays.
+sub sort_parent   { undef }
+
+###
+### Instance
+###
+
+sub sprefix        { $_[0]->field }
+sub tjoin          { $_[0]->field }
+sub filter_value_to_text { $_[1] }
+sub value_field_as_index { $_[0]->value_field }
+
+# Cleanup specialist column data when a column is deleted
+sub cleanup        {}
+
+# Used when searching for a value's index value as opposed to
+# string value (e.g. enums)
+sub sort_columns   { $_[0] }
+
+### helpers
+sub site           { $::session->site }
+sub returns_date   { $_[0]->return_type =~ /date/ }
+sub field          { "field".($_[0]->id) }
 
 # All permissions for this column
 has permissions => (
@@ -76,34 +126,17 @@ has permissions => (
     isa => HashRef,
 );
 
-has user_permission_override => (
-    is      => 'rw',
-    isa     => Bool,
-    default => 0,
-);
-
-# Needed for update of cached columns
-has layout => (
-    is       => 'ro',
-    weak_ref => 1,
-);
-
-has instance_id => (
-    is  => 'lazy',
-    isa => Int,
-);
-
 has from_id => (
     is      => 'rw',
     trigger => sub {
-        my ($self, $value) = @_;
+        my ($self, $col_id) = @_;
         # Column needs to be built from its sub-class, otherwise methods only
         # relavent to that type will not be available
         ref $self eq __PACKAGE__
             and panic "from_id cannot be called on raw GADS::Column object";
 
         my $col = $::db->search(Layout => {
-            'me.id'          => $value,
+            'me.id'          => $col_id,
             'me.instance_id' => $self->sheet->id,
         },{
             order_by => ['me.position', 'enumvals.id'],
@@ -126,24 +159,6 @@ has id => (
     isa => Int,
 );
 
-has internal => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-has hidden => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-# Used to force a database ID on creation (used in layout import)
-has set_id => (
-    is  => 'rw',
-    isa => Maybe[Int],
-);
-
 has name => (
     is  => 'rw',
     isa => Str,
@@ -154,86 +169,11 @@ has name_short => (
     isa => Maybe[Str],
 );
 
-has type => (
-    is  => 'rw',
-    isa => sub {
-        grep { $_[0] eq $_ } GADS::Column::types
-            or error __x"Invalid field type {type}", type => $_[0];
-    },
-);
-
-# e.g. calc type can return date or integer
-has return_type => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { 'string' },
-);
-
-#XXX make extensible
-sub returns_date { $_[0]->return_type =~ /date/ }
-
-has table => (
-    is  => 'lazy',
-    isa => Str,
-);
-
-sub _build_table
-{   my $self = shift;
-    camelize $self->type;
-}
-
-has fixedvals => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-has can_multivalue => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-# Whether the field has a cache (i.e. evaluated code values)
-has has_cache => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-# Whether the joins for this column type can be different depending on the
-# columns configuration.
-has variable_join => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-has is_curcommon => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-has has_multivalue_plus => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-has multivalue => (
-    is      => 'rw',
-    isa     => Bool,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    default => 0,
-);
-
 has options => (
     is        => 'rwp',
     isa       => HashRef,
     lazy      => 1,
     builder   => 1,
-    clearer   => 1,
     predicate => 1,
 );
 
@@ -250,17 +190,10 @@ sub _build_options
 {   my $self = shift;
     my $options = {};
     foreach my $option_name (@{$self->option_names})
-    {
-        $options->{$option_name} = $self->$option_name;
+    {   $options->{$option_name} = $self->$option_name;
     }
     $options;
 }
-
-has option_names => (
-    is      => 'ro',
-    isa     => ArrayRef,
-    default => sub { [] },
-);
 
 has ordering => (
     is  => 'rw',
@@ -271,16 +204,6 @@ has position => (
     is  => 'rw',
     isa => Maybe[Int],
 );
-
-has sprefix => (
-    is  => 'lazy',
-    isa => Str,
-);
-
-sub _build_sprefix
-{   my $self = shift;
-    $self->field;
-}
 
 has remember => (
     is      => 'rw',
@@ -310,7 +233,6 @@ has can_child => (
     is      => 'lazy',
     isa     => Bool,
     coerce  => sub { $_[0] ? 1 : 0 },
-    clearer => 1,
 );
 
 sub _build_can_child
@@ -321,7 +243,7 @@ sub _build_can_child
         # child, so that we build based on the true values of the child record.
         # Therefore return true if this is a code value which depends on a
         # child column
-        return 1 if $self->schema->resultset('LayoutDepend')->search({
+        return 1 if $::db->search(LayoutDepend => {
             layout_id => $self->id,
             'depend_on.can_child' => 1,
         },{
@@ -334,10 +256,7 @@ sub _build_can_child
 has filter => (
     is      => 'rw',
     lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        GADS::Filter->new;
-    },
+    builder => sub { GADS::Filter->new },
 );
 
 has display_condition => (
@@ -375,8 +294,8 @@ has display_fields => (
                 value    => $_->{regex},
             }, @{$self->set_display_fields};
         }
-        else {
-            foreach my $cond ($self->schema->resultset('DisplayField')->search({
+        else
+        {   foreach my $cond ($::db->search(DisplayField =>{
                 layout_id => $self->id
             })->all)
             {
@@ -407,7 +326,7 @@ sub display_fields_as_text
 
 sub display_fields_summary
 {   my $self = shift;
-    if (my @display = $self->schema->resultset('DisplayField')->search({ layout_id => $self->id })->all)
+    if (my @display = $::db->search(DisplayField => { layout_id => $self->id })->all)
     {
         my $conds = join '; ', map { $_->display_field->name." ".$_->operator." ".$_->regex } @display;
         my $type = $self->display_condition eq 'AND'
@@ -418,32 +337,6 @@ sub display_fields_summary
         return [$type, $conds];
     }
 }
-
-has userinput => (
-    is      => 'rw',
-    isa     => Bool,
-    default => 1,
-);
-
-has no_value_to_write => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-has numeric => (
-    is   => 'rw',
-    isa  => Bool,
-    lazy => 1,
-);
-
-# Whether this type can have some sort of sensible addition/subtraction
-# operation performed on it
-has addable => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
 
 # Whether the data is stored as a string. If so, we need to check for both
 # empty string and null values to test if empty
@@ -534,14 +427,9 @@ sub _build_has_display_field
 }
 
 has display_field_col_ids => (
-    is  => 'lazy',
-    isa => ArrayRef,
+    is      => 'lazy',
+    builder => sub { [ map $_->column_id, @{$_[0]->display_fields->filters} ] },
 );
-
-sub _build_display_field_col_ids
-{   my $self = shift;
-    [ map { $_->{column_id} } @{$self->display_fields->filters} ];
-}
 
 sub display_fields_b64
 {   my $self = shift;
@@ -577,100 +465,28 @@ has suffix => (
     },
 );
 
-has field => (
-    is      => 'rw',
-    isa     => Str,
-    lazy    => 1,
-    builder => sub { "field".$_[0]->id },
-);
-
-has value_field => (
-    is      => 'rw',
-    isa     => Str,
-    lazy    => 1,
-    default => 'value',
-    clearer => 1,
-);
-
-has retrieve_fields => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
-
-sub _build_retrieve_fields
-{   my $self = shift;
-    [$self->value_field];
-}
-
-has sort_field => (
-    is => 'lazy',
-);
-
-sub _build_sort_field
-{   shift->value_field;
-}
-
-# Used when searching for a value's index value as opposed to string value
-# (e.g. enums)
-sub value_field_as_index
-{   my $self = shift;
-    return $self->value_field;
-}
-
 # Used to provide a blank template for row insertion (to blank existing
 # values). Only used in calc at time of writing
 has blank_row => (
     is      => 'ro',
     lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        +{
-            $self->value_field => undef,
-        };
-    },
+    builder => sub { +{ $_[0]->value_field => undef } },
 );
 
-has class => (
-    is      => 'ro',
-    isa     => Str,
-    lazy    => 1,
-    builder => sub {
-        my %classes = (
-            id          => 'GADS::Datum::ID',
-            serial      => 'GADS::Datum::Serial',
-            createddate => 'GADS::Datum::Date',
-            createdby   => 'GADS::Datum::Person',
-            deletedby   => 'GADS::Datum::Person',
-            date        => 'GADS::Datum::Date',
-            daterange   => 'GADS::Datum::Daterange',
-            string      => 'GADS::Datum::String',
-            intgr       => 'GADS::Datum::Integer',
-            person      => 'GADS::Datum::Person',
-            tree        => 'GADS::Datum::Tree',
-            enum        => 'GADS::Datum::Enum',
-            file        => 'GADS::Datum::File',
-            rag         => 'GADS::Datum::Rag',
-            calc        => 'GADS::Datum::Calc',
-            curval      => 'GADS::Datum::Curval',
-            autocur     => 'GADS::Datum::Autocur',
-        );
-        $classes{$_[0]->type};
-    },
-);
+=head2 my $class = $column->datum_class;
+=cut
+
+sub datum_class() { ref $_[0] =~ s/^Linkspace::Column/Linkspace::Datum/r }
 
 # Which fields this column depends on
 has depends_on => (
-    is      => 'rw',
+    is      => 'lazy',
     isa     => ArrayRef,
-    lazy    => 1,
-    clearer => 1,
     builder => sub {
         my $self = shift;
         return [] if $self->userinput;
-        my @depends = $self->schema->resultset('LayoutDepend')->search({
-            layout_id => $self->id,
-        })->all;
-        [ map {$_->get_column('depends_on')} @depends ];
+        my @depends = $::db->(LayoutDepend => { layout_id => $self->id })->all;
+        [ map $_->get_column('depends_on'), @depends ];
     },
 );
 
@@ -682,33 +498,11 @@ sub dependencies
 # Which columns depend on this field
 has depended_by => (
     is      => 'lazy',
-    isa     => ArrayRef,
-);
-
-sub _build_depended_by
-{   my $self = shift;
-    my @depended = $self->schema->resultset('LayoutDepend')->search({
-        depends_on => $self->id,
-    })->all;
-    [ map {$_->get_column('layout_id')} @depended ];
-}
-
-has hascache => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    builder => sub {
-        my @cached = qw(rag calc person daterange);
-        my $type   = $_[0]->type;
-        grep( /^$type$/, @cached ) ? 1 : 0;
+    builder => sub
+    {   my $self = shift;
+        my $depend = $::db->search(LayoutDepend => { depends_on => $self->id });
+        [ map $_->get_column('layout_id'), $depend->all ];
     },
-);
-
-# Whether this column type has a typeahead when inputting filter values
-has has_filter_typeahead => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
 );
 
 has dateformat => (
@@ -720,18 +514,6 @@ has dateformat => (
         $self->layout->config->dateformat;
     },
 );
-
-has _rset => (
-    is      => 'rwp',
-    lazy    => 1,
-    builder => 1,
-);
-
-sub _build__rset
-{   my $self = shift;
-    $self->id or return;
-    $self->schema->resultset('Layout')->find($self->id);
-}
 
 sub parse_date
 {   my ($self, $value) = @_;
@@ -746,9 +528,7 @@ sub parse_date
 
 sub _build_permissions
 {   my $self = shift;
-    my @all = $self->schema->resultset('LayoutGroup')->search({
-        layout_id => $self->id,
-    });
+    my @all = $::db->search(LayoutGroup => layout_id => $self->id });
     my %perms;
     foreach my $p (@all)
     {
@@ -841,36 +621,6 @@ sub build_values
 
 }
 
-# Overriden for most columns
-sub tjoin
-{   my $self = shift;
-    return $self->field;
-}
-
-# Overridden where required
-sub filter_value_to_text
-{   my ($self, $value) = @_;
-    return $value;
-}
-
-# Overridden where required
-sub sort_columns
-{   my $self = shift;
-    ($self);
-}
-
-# Whether the sort columns when added should be added with a parent, and
-# if so what is the paremt
-sub sort_parent
-{   my $self = shift;
-    return undef; # default no, undef in case used in arrays
-}
-
-# Overridden in child classes. This function is used
-# to cleanup specialist column data when a column
-# is deleted
-sub cleanup {}
-
 # ID for the filter
 has filter_id => (
     is      => 'rw',
@@ -915,78 +665,61 @@ sub fetch_multivalues
 sub delete
 {   my $self = shift;
 
-    my $guard = $self->schema->txn_scope_guard;
+    my $guard = $::db->begin_work;
 
     # First see if any views are conditional on this field
-    if (my @deps = $self->schema->resultset('DisplayField')->search({
-            display_field_id => $self->id
-        })->all
-    )
+    if(my @deps = $::db->search(DisplayField => { display_field_id => $self->id })->all)
     {
-        my $dep   = join ', ', map $_->layout->name, @deps;
+        my @names = map $_->layout->name, @deps;
         error __x"The following fields are conditional on this field: {dep}.
-            Please remove these conditions before deletion.", dep => $dep;
+            Please remove these conditions before deletion.", dep => \@names;
     }
 
     # Next see if any calculated fields are dependent on this
-    if (@{$self->depended_by})
+    if(@{$self->depended_by})
     {
-        my @depsn = map { $self->layout->column($_)->name } @{$self->depended_by};
-        my $dep   = join ', ', @depsn;
+        my @deps = map $self->layout->column($_)->name, @{$self->depended_by};
+
         error __x"The following fields contain this field in their formula: {dep}.
-            Please remove these before deletion.", dep => $dep;
+            Please remove these before deletion.", dep => \@deps;
     }
 
     # Now see if any Curval fields depend on this field
-    if (my @parents = $self->schema->resultset('CurvalField')->search({
-            child_id => $self->id
-        })->all
-    )
+    if(my @parents = $::db->search(CurvalField => { child_id => $self->id })->all)
     {
-        my @pn = map { $_->parent->name." (".$_->parent->instance->name.")" } @parents;
-        my $p  = join ', ', @pn;
+        my @pn = map $_->parent->name." (".$_->parent->instance->name.")", @parents;
         error __x"The following fields in another table refer to this field: {p}.
-            Please remove these references before deletion of this field.", p => $p;
+            Please remove these references before deletion of this field.", p => \@pn;
     }
 
     # Now see if any linked fields depend on this one
-    if (my @linked = $self->schema->resultset('Layout')->search({
-            link_parent => $self->id
-        })->all
-    )
+    if (my @linked = $::db->search(Layout => { link_parent => $self->id })->all)
     {
-        my @ln = map { $_->name." (".$_->instance->name.")"; } @linked;
-        my $l  = join ', ', @ln;
+        my @ln = map $_->name." (".$_->sheet->name.")", @linked;
         error __x"The following fields in another table are linked to this field: {l}.
-            Please remove these links before deletion of this field.", l => $l;
+            Please remove these links before deletion of this field.", l => \@ln;
     }
 
-    if (my @graphs = $self->schema->resultset('Graph')->search(
-            [
-                { x_axis => $self->id   },
-                { y_axis => $self->id   },
+    if(my @graphs = $::db->search(Graph => [
+                { x_axis   => $self->id },
+                { y_axis   => $self->id },
                 { group_by => $self->id },
             ]
-        )->all
-    )
+        )->all)
     {
-        my $g = join ', ', map $_->title, @graphs;
         error __x"The following graphs references this field: {graph}. Please update them before deletion."
-            , graph => $g;
+            , graph => [ map $_->title, @graphs ]; 
     }
 
     # Remove this column from any filters defined on views
-    foreach my $filter ($self->schema->resultset('Filter')->search({
-        layout_id      => $self->id,
-    })->all)
+    foreach my $filter ($::db->search(Filter => { layout_id => $self->id })->all)
     {
         my $filtered = _filter_remove_colid($self, $filter->view->filter);
         $filter->view->update({ filter => $filtered });
-    };
+    }
+
     # Same again for fields with filter
-    foreach my $col ($self->schema->resultset('Layout')->search({
-        filter => { '!=' => '{}' },
-    })->all)
+    foreach my $col ($::db->search(Layout => { filter => { '!=' => '{}' }})->all)
     {
         $col->filter or next;
         my $filtered = _filter_remove_colid($self, $col->filter);
@@ -996,24 +729,20 @@ sub delete
     # Clean up any specialist data for all column types. The column's
     # type may have changed during its life, but the data may not
     # have been removed on change, so we have to check all classes.
-    foreach my $type (grep { $_ ne 'serial' } $self->types)
+    foreach my $type (grep $_ ne 'serial', $self->types)
     {
         my $class = "GADS::Column::".camelize $type;
-        $class->cleanup($self->schema, $self->id);
+        $class->cleanup($self->id);
     }
 
-    $self->schema->resultset('ViewLayout')->search({ layout_id => $self->id })->delete;
-    $self->schema->resultset('Filter')->search({ layout_id => $self->id })->delete;
-    $self->schema->resultset('AlertCache')->search({ layout_id => $self->id })->delete;
-    $self->schema->resultset('AlertSend')->search({ layout_id => $self->id })->delete;
-    $self->schema->resultset('Sort')->search({ layout_id => $self->id })->delete;
-    $self->schema->resultset('Sort')->search({ parent_id => $self->id })->delete;
-    $self->schema->resultset('LayoutDepend')->search({ layout_id => $self->id })->delete;
-    $self->schema->resultset('LayoutGroup')->search({ layout_id => $self->id })->delete;
-    $self->schema->resultset('DisplayField')->search({ layout_id => $self->id })->delete;
+    my %layout_ref = (layout_id => $self->id);
+    $::db->delete($_ => \%layout_ref)
+        qw/AlertCache AlertSend DisplayField Filter LayoutDepend
+           LayoutGroup Sort ViewLayout/;
 
-    $self->schema->resultset('Instance')->search({ sort_layout_id => $self->id })->update({sort_layout_id => undef});;
-    $self->schema->resultset('Layout')->find($self->id)->delete;
+    $::db->delete(Sort => { parent_id => $self->id });
+    $::db->update(Instance => { sort_layout_id => $self->id }, {sort_layout_id => undef});
+    $::db->delete(Layout => $self->id);
 
     $guard->commit;
 }
@@ -1035,6 +764,7 @@ sub write
     my $newitem;
     $newitem->{name} = $self->name
         or error __"Please enter a name for item";
+
     $newitem->{type} = $self->type
         or error __"Please select a type for the item";
 
@@ -1046,7 +776,7 @@ sub write
         # Check short name is unique
         my $search = {
             'me.name_short'    => $self->name_short,
-            'instance.site_id' => $self->schema->site_id,
+            'instance.site_id' => $site->id,
         };
 
         if ($self->id)
@@ -1054,7 +784,7 @@ sub write
             $search->{'me.id'} = { '!=' => $self->id };
         }
 
-        my $exists = $self->schema->resultset('Layout')->search($search, { join => 'instance' })->next;
+        my $exists = $::db->get_record(Layout => $search, { join => 'instance' });
         $exists and error __x"Short name {short} must be unique but already exists for field \"{name}\"",
             short => $self->name_short, name => $exists->name;
     }
@@ -1238,18 +968,18 @@ sub _write_permissions
     {
         my @new_permissions = @{$permissions{$group_id}};
 
-        my @existing_permissions = $self->schema->resultset('LayoutGroup')->search({
+        my @existing_permissions = $::db->search(LayoutGroup =>{
             layout_id  => $id,
             group_id   => $group_id,
         })->get_column('permission')->all;
 
         my $lc = List::Compare->new(\@new_permissions, \@existing_permissions);
 
-        my @removed_permissions = $lc->get_complement();
-        my @added_permissions   = $lc->get_unique();
+        my @removed_permissions = $lc->get_complement;
+        my @added_permissions   = $lc->get_unique;
 
         # Has a read permission been removed from this group?
-        my $read_removed = grep { $_ eq 'read' } @removed_permissions;
+        my $read_removed = grep $_ eq 'read', @removed_permissions;
 
         # Delete any permissions no longer needed
         if ($options{report_only} && @removed_permissions)
@@ -1257,22 +987,22 @@ sub _write_permissions
             notice __x"Removing the following permissions from {column} for group ID {group}: {perms}",
                 column => $self->name, group => $group_id, perms => join(', ', @removed_permissions);
         }
-        else {
-            $self->schema->resultset('LayoutGroup')->search({
+        else
+        {   $::db->delete(LayoutGroup => {
                 layout_id  => $id,
                 group_id   => $group_id,
-                permission => \@removed_permissions
-            })->delete;
+                permission => \@removed_permissions,
+            });
         }
 
         # Add any new permissions
         if ($options{report_only} && @added_permissions)
         {
             notice __x"Adding the following permissions to {column} for group ID {group}: {perms}",
-                column => $self->name, group => $group_id, perms => join(', ', @added_permissions);
+                column => $self->name, group => $group_id, perms => \@added_permissions;
         }
-        else {
-            $self->schema->resultset('LayoutGroup')->create({
+        else
+        {   $::db->create(LayoutGroup => {
                 layout_id  => $id,
                 group_id   => $group_id,
                 permission => $_,
@@ -1296,7 +1026,7 @@ sub _write_permissions
             }
 
             # Then the filters
-            my @filters = $self->schema->resultset('Filter')->search({
+            my @filters = $::db->search(Filter => {
                 layout_id      => $id,
                 'view.user_id' => { '!=' => undef },
             }, {
@@ -1374,36 +1104,26 @@ sub values_beginning_with
     my $resultset = $self->resultset_for_values;
     my @value;
     my $value_field = 'me.'.$self->value_field;
+
     $match_string =~ s/([_%])/\\$1/g;
     my $search = $match_string
-        ? {
-            $value_field => {
-                -like => "${match_string}%",
-            },
-        } : {};
+        ? { $value_field => { -like => "${match_string}%" } }
+        : {};
+
     if ($resultset) {
-        my $match_result = $resultset->search($search,
-            {
-                rows => 10,
-            },
-        );
-        if ($options{with_id} && $self->fixedvals)
+        my $match_result = $resultset->search($search, { rows => 10 });
+        if($options{with_id} && $self->fixedvals)
         {
-            @value = map {
-                {
-                    id   => $_->get_column('id'),
-                    name => $_->get_column($self->value_field),
-                }
-            } $match_result->search({}, {
-                columns => ['id', $value_field],
-            })->all;
+            @value = map +{
+               id   => $_->get_column('id'),
+               name => $_->get_column($self->value_field),
+            }, $match_result->search({}, {
+                  columns => ['id', $value_field],
+               })->all;
         }
         else {
-            @value = $match_result->search({},{
-                select => {
-                    max => $value_field,
-                    -as => $value_field,
-                },
+        {   @value = $match_result->search({}, {
+                select => { max => $value_field, -as => $value_field },
             })->get_column($value_field)->all;
         }
     }

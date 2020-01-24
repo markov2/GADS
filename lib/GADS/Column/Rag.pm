@@ -16,67 +16,60 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Column::Rag;
+package Linkspace::Column::Rag;
+
+use Moo;
+extends 'Linkspace::Column::Code';
+with 'Linkspace::Role::Presentation::Column::Rag';
 
 use Log::Report 'linkspace';
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
-extends 'GADS::Column::Code';
-
-with 'GADS::Role::Presentation::Column::Rag';
-
-has '+type' => (
-    default => 'rag',
+my @filter_values = (
+    [ b_red    => 'Red'    ],
+    [ c_amber  => 'Amber'  ],
+    [ c_yellow => 'Yellow' ],
+    [ a_grey   => 'Grey'   ],
+    [ d_green  => 'Green'  ],
+    [ e_purple => 'Purple' ],
 );
+
+my %rag_id2string = map @$_, @filter_values;
+
+###
+### META
+###
+
+__PACKAGE__->register_type;
+
+sub table     { 'Ragval' }
+sub fixedvals { 1 }
+
+### for Rag presentation only
+
+sub _filter_values { @filter_values }
+
+###
+### Instance
+###
+
+sub cleanup
+{   my ($class, $id) = @_;
+    $::db->delete(Rag    => { layout_id => $id });
+    $::db->delete(Ragval => { layout_id => $id });
+}
 
 sub _build__rset_code
 {   my $self = shift;
     $self->_rset or return;
     my ($code) = $self->_rset->rags;
-    if (!$code)
-    {
-        $code = $self->schema->resultset('Rag')->new({});
-    }
-    return $code;
+
+    $code || $::db->resultset('Rag')->new({});
 }
-
-has unique_key => (
-    is      => 'ro',
-    default => 'ragval_ux_record_layout',
-);
-
-has '+table' => (
-    default => 'Ragval',
-);
-
-has '+fixedvals' => (
-    default => 1,
-);
 
 sub id_as_string
 {   my ($self, $id) = @_;
     $id or return '';
-    $id eq 'b_red'
-        ? 'Red'
-        : $id eq 'c_amber'
-        ? 'Amber'
-        : 'c_yellow'
-        ? 'Yellow'
-        : 'd_green'
-        ? 'Green'
-        : 'a_grey'
-        ? 'Grey'
-        : 'e_purple'
-        ? 'Purple'
-        : panic("Unknown RAG ID $id");
-}
-
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    $schema->resultset('Rag')->search({ layout_id => $id })->delete;
-    $schema->resultset('Ragval')->search({ layout_id => $id })->delete;
+    $rag_id2string{$id} or panic("Unknown RAG ID $id");
 }
 
 # Returns whether an update is needed
@@ -88,15 +81,14 @@ sub write_code
     $rset->layout_id($layout_id);
     $rset->code($self->code);
     $rset->insert_or_update;
-    return $need_update;
+    $need_update;
 }
 
 before import_hash => sub {
     my ($self, $values, %options) = @_;
     my $report = $options{report_only} && $self->id;
-    notice __x"Update: RAG code has changed for {name}",
-        name => $self->name
-            if $report && $self->code ne $values->{code};
+    notice __x"Update: RAG code has changed for {name}", name => $self->name
+        if $report && $self->code ne $values->{code};
     $self->code($values->{code});
 };
 
@@ -109,4 +101,3 @@ around export_hash => sub {
 };
 
 1;
-
