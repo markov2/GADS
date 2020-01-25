@@ -24,23 +24,23 @@ use GADS::Groups;
 use GADS::Type::Permission;
 use GADS::View;
 
-use GADS::Column::Autocur;
-use GADS::Column::Calc;
-use GADS::Column::Createdby;
-use GADS::Column::Createddate;
-use GADS::Column::Curval;
-use GADS::Column::Date;
-use GADS::Column::Daterange;
-use GADS::Column::Deletedby;
-use GADS::Column::Enum;
-use GADS::Column::File;
-use GADS::Column::Id;
-use GADS::Column::Intgr;
-use GADS::Column::Person;
-use GADS::Column::Rag;
-use GADS::Column::Serial;
-use GADS::Column::String;
-use GADS::Column::Tree;
+use Linkspace::Column::Autocur;
+use Linkspace::Column::Calc;
+use Linkspace::Column::Createdby;
+use Linkspace::Column::Createddate;
+use Linkspace::Column::Curval;
+use Linkspace::Column::Date;
+use Linkspace::Column::Daterange;
+use Linkspace::Column::Deletedby;
+use Linkspace::Column::Enum;
+use Linkspace::Column::File;
+use Linkspace::Column::Id;
+use Linkspace::Column::Intgr;
+use Linkspace::Column::Person;
+use Linkspace::Column::Rag;
+use Linkspace::Column::Serial;
+use Linkspace::Column::String;
+use Linkspace::Column::Tree;
 
 use MIME::Base64 /encode_base64/;
 use JSON qw(decode_json encode_json);
@@ -52,7 +52,7 @@ use List::Compare ();
 
 use namespace::clean; # Otherwise Enum clashes with MooseLike
 
-with 'GADS::Role::Presentation::Column';
+with 'Linkspace::Role::Presentation::Column';
 
 ###
 ### META information about the column implementations.
@@ -69,10 +69,16 @@ sub register_type(%)
     $class2type{$class}  = $type;
 }
 
-sub type2class($)  { $type2class->{$_[1]} }
+sub type2class($)  { $type2class{$_[1]} }
 sub types()        { keys %type2class }
 sub all_column_classes() { values %type2class }
 sub type()         { $class2type{ref $_[0] || $_[0]} }
+
+sub attributes_for($)
+{   my ($thing, $type) = @_;
+    my $class = $type2class{$type} or panic;
+    @generic_attributes, @{$class->option_names};
+}
 
 #XXX some of these should have been named is_*()
 sub addable        { 0 }   # support sensible addition/subtraction
@@ -662,7 +668,7 @@ sub fetch_multivalues
     }, \%select)->all;
 }
 
-sub delete
+sub column_delete
 {   my $self = shift;
 
     my $guard = $::db->begin_work;
@@ -677,25 +683,21 @@ sub delete
 
     # Next see if any calculated fields are dependent on this
     if(@{$self->depended_by})
-    {
-        my @deps = map $self->layout->column($_)->name, @{$self->depended_by};
-
+    {   my @deps = map $self->layout->column($_)->name, @{$self->depended_by};
         error __x"The following fields contain this field in their formula: {dep}.
             Please remove these before deletion.", dep => \@deps;
     }
 
     # Now see if any Curval fields depend on this field
     if(my @parents = $::db->search(CurvalField => { child_id => $self->id })->all)
-    {
-        my @pn = map $_->parent->name." (".$_->parent->instance->name.")", @parents;
+    {   my @pn = map $_->parent->name." (".$_->parent->instance->name.")", @parents;
         error __x"The following fields in another table refer to this field: {p}.
             Please remove these references before deletion of this field.", p => \@pn;
     }
 
     # Now see if any linked fields depend on this one
-    if (my @linked = $::db->search(Layout => { link_parent => $self->id })->all)
-    {
-        my @ln = map $_->name." (".$_->sheet->name.")", @linked;
+    if(my @linked = $::db->search(Layout => { link_parent => $self->id })->all)
+    {   my @ln = map $_->name." (".$_->sheet->name.")", @linked;
         error __x"The following fields in another table are linked to this field: {l}.
             Please remove these links before deletion of this field.", l => \@ln;
     }

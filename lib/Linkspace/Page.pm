@@ -565,7 +565,7 @@ sub _build__search_all_fields
     # Only search limited view if configured for user
     push @basic_search, $self->_view_limits_search;
 
-    my $date_column = GADS::Column::Date->new(
+    my $date_column = Linkspace::Column::Date->new(
         layout => $self->layout,
     );
     my %found;
@@ -588,60 +588,42 @@ sub _build__search_all_fields
         # Need to get correct "value" number for search, in case it's been incremented through view_limits
         my $s           = $field->{sub} ? $self->value_next_join(search => 1).".$value_field" : "$plural.$value_field";
 
-        my $joins       = $field->{type} eq 'current_id' # Include joins for limited views
-                        ? {
-                              'record_single' => [
-                                  'record_later',
-                                  $self->jpfetch(search => 1),
-                              ]
-                          }
-                        : $field->{sub}
-                        ? {
-                              'record_single' => [
-                                  'record_later',
-                                  $self->jpfetch(search => 1),
-                                  {
-                                      $plural => ['value', 'layout']
-                                  },
-                              ]
-                          } 
-                        : {
-                              'record_single' => [
-                                  'record_later',
-                                  $self->jpfetch(search => 1),
-                                  {
-                                      $plural => 'layout'
-                                  },
-                              ]
-                          };
+        my @joins  = (
+            'record_later',
+            $self->jpfetch(search => 1),
+        );
+
+        push @joins,
+          = $field->{type} eq 'current_id' ? () # Include joins for limited views
+          : $field->{sub}  ? +{ $plural => ['value', 'layout'] }
+          :                  +{ $plural => 'layout' };
 
         my @search = @basic_search;
         push @search,
-            $field->{type} eq 'current_id'
+             $field->{type} eq 'current_id'
             ? { 'me.id' => $search_local }
             : $field->{index_field} # string with additional index field
             ? ( { $field->{index_field} => $search_index }, { $s => $search_local } )
             : { $s => $search_local };
-        if ($field->{type} eq 'current_id')
-        {
-            push @search, { 'me.instance_id' => $self->layout->instance_id };
+
+        if($field->{type} eq 'current_id')
+        {   push @search, { 'me.instance_id' => $self->layout->instance_id };
         }
-        else {
-            push @search, { 'layout.id' => \@columns_can_view };
+        else
+        {   push @search, { 'layout.id' => \@columns_can_view };
             push @search, $self->record_later_search(search => 1);
         }
-        my @currents = $self->schema->resultset('Current')->search({ -and => \@search},{
-            join => $joins,
+        my @currents = $::db->search(Current => { -and => \@search } , {
+            join => { record_single => \@joins },
         })->all;
 
         foreach my $current (@currents)
         {
-            if ($current->instance_id != $self->layout->instance_id)
+            if ($current->instance_id != $sheet->id)
             {
-                # instance ID different from current, therefore must be curval field result
-                my @search = @basic_search;
-                push @search, "curvals.value" => $current->id;
-                my $found = $self->schema->resultset('Current')->search({ -and => \@search},{
+                # sheet different from current, therefore must be curval field result
+                my @search = ( @basic_search, "curvals.value" => $current->id);
+                my $found = $::db->search(Current => { -and => \@search }, {
                     join => {
                         record_single => [
                             'record_later',
@@ -651,7 +633,7 @@ sub _build__search_all_fields
                     },
                 });
                 $found{$_} = 1
-                    foreach $found->get_column('id')->all;
+                    for $found->get_column('id')->all;
             }
             else {
                 $found{$current->id} = 1;

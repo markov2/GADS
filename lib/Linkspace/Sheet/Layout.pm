@@ -18,12 +18,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Sheet::Layout;
 
-use Log::Report 'linkspace';
-
-use GADS::Column;
-
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+use Log::Report 'linkspace';
+
+use Linkspace::Column ();
 
 has forget_history => (
     is      => 'ro',
@@ -52,11 +51,7 @@ has default_view_limit_extra => (
 has api_index_layout => (
     is      => 'ro',
     lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        $self->column($self->api_index_layout_id);
-    },
-    clearer => 1,
+    builder => sub { $_[0]->column($self->api_index_layout_id) },
 );
 
 has api_index_layout_id => (
@@ -67,7 +62,6 @@ has api_index_layout_id => (
 has columns => (
     is      => 'rw',
     lazy    => 1,
-    clearer => 1,
     builder => '_build_columns',
 );
 
@@ -128,7 +122,6 @@ sub _get_user_permissions
 has _user_permissions_overall => (
     is      => 'lazy',
     isa     => HashRef,
-    clearer => 1,
 );
 
 sub _build__user_permissions_overall
@@ -174,7 +167,6 @@ sub user_can_column
 has columns_index => (
     is      => 'rw',
     lazy    => 1,
-    clearer => 1,
     builder => sub {
         my $self = shift;
         +{ map +($_->{id} => $_) @{$self->columns} };
@@ -327,7 +319,6 @@ sub _build_columns
 has all_ids => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 sub _build_all_ids
@@ -337,7 +328,6 @@ sub _build_all_ids
 
 has has_globe => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_has_globe
@@ -348,7 +338,6 @@ sub _build_has_globe
 has has_children => (
     is      => 'lazy',
     isa     => Bool,
-    clearer => 1,
 );
 
 sub _build_has_children
@@ -358,7 +347,6 @@ sub _build_has_children
 
 has has_topics => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_has_topics
@@ -563,7 +551,6 @@ has referred_by => (
 has global_view_summary => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 sub _build_global_view_summary
@@ -652,7 +639,7 @@ sub import_hash
 
 sub import_after_all
 {   my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->instance_id;
+    my $report  = $options{report_only} && $self->instance_id;
     my $mapping = $options{mapping};
 
     if ($values->{sort_layout_id})
@@ -671,7 +658,7 @@ sub purge
     my $guard = $::db->begin_work;
     GADS::Graphs->new(layout => $self, current_user => $self->user)->purge;
     GADS::MetricGroups->new(instance_id => $self->instance_id)->purge;
-    GADS::Views->new(instance_id => $self->instance_id, user => undef, layout => $self)->purge;
+    GADS::Views->new(instance_id => $self->instance_id, user => undef)->purge;
 
     $_->delete for reverse
         $self->search_columns(order_dependencies => 1, include_hidden => 1);
@@ -680,8 +667,7 @@ sub purge
 
     $::db->resultset('UserLastrecord')->delete;   # empty table
 
-    #XXX join with delete?
-    $::db->search(Record        => \%ref_sheet, {join => 'current' })->delete;
+    $::db->delete(Record        => \%ref_sheet, { join => 'current' });
     $::db->delete(Current       => \%ref_sheet);
     $::db->delete(InstanceGroup => \%ref_sheet);
 

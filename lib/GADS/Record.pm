@@ -23,8 +23,6 @@ package GADS::Record;
 use CtrlO::PDF;
 use DateTime;
 use DateTime::Format::Strptime qw( );
-use GADS::AlertSend;
-use GADS::Datum::Tree;
 use Linkspace::Layout;
 use Log::Report 'linkspace';
 use JSON qw(encode_json);
@@ -33,6 +31,9 @@ use Scope::Guard qw(guard);
 use Session::Token;
 use URI::Escape;
 use Scalar::Util  qw(blessed);
+
+use GADS::AlertSend;
+use GADS::Datum::Tree;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -1018,7 +1019,7 @@ sub values_by_shortname
             : $datum;
 
         # Retain and provide recurse-prevention information. See further
-        # comments in GADS::Column::Curcommon
+        # comments in Linspace::Column::Curcommon
         my $already_seen_code = $params{already_seen_code};
         $already_seen_code->{$col->id} = $params{level};
         $d->already_seen_code($already_seen_code);

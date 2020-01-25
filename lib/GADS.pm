@@ -24,19 +24,6 @@ use Data::Dumper;
 use DateTime;
 use File::Temp qw/ tempfile /;
 use GADS::Alert;
-use GADS::Column;
-use GADS::Column::Autocur;
-use GADS::Column::Calc;
-use GADS::Column::Curval;
-use GADS::Column::Date;
-use GADS::Column::Daterange;
-use GADS::Column::Enum;
-use GADS::Column::File;
-use GADS::Column::Intgr;
-use GADS::Column::Person;
-use GADS::Column::Rag;
-use GADS::Column::String;
-use GADS::Column::Tree;
 use GADS::Config;
 use GADS::Globe;
 use GADS::Graph;
@@ -2353,8 +2340,7 @@ prefix '/:layout_name' => sub {
         };
 
         if($col_id)
-        {
-            # Get all layouts of all instances for field linking
+        {   # Get all layouts of all instances for field linking
             $params->{instance_layouts} = var('instances')->all;
             $params->{instances_object} = var('instances'); # For autocur. Don't conflict with other instances var
         }
@@ -2371,23 +2357,12 @@ prefix '/:layout_name' => sub {
             {   $column = $layout->column($col_id)
                     or error __x"Column ID {id} not found", id => $col_id;
             }
-            else
-            {   my $class = param('type');
-                first {$class eq $_} GADS::Column::types
-                    or error __x"Invalid column type {class}", class => $class;
-                $class = "GADS::Column::".camelize($class);
-                $column = $class->new(
-                    user   => $user,
-                    layout => $layout
-                );
-            }
 
-            if (param 'delete')
-            {
-                # Provide plenty of logging in case of repercussions of deletion
+            if(param 'delete')
+            {   # Provide plenty of logging in case of repercussions of deletion
                 my $colname = $column->name;
                 trace __x"Starting deletion of column {name}", name => $colname;
-                $::session->audit(qq(User "$username" deleted field "$colname"));
+                $::session->audit("User '$username' deleted field '$colname'");
                 if (process( sub { $column->delete }))
                 {
                     return forwardHome(
@@ -2399,21 +2374,16 @@ prefix '/:layout_name' => sub {
             {
                 my %permissions;
 
-                foreach (keys %{ params() }) {
-                    my ($name, $group_id) = m/^permission_(.*?)_(\d+)$/ or next;
-                    push @{ $permissions{$group_id} ||= [] }, $name;
-                }
+                m/^permission_(.*?)_(\d+)$/ && push @{$permissions{$2}}, $1
+                    for keys %{ params() };
 
-                $column->set_permissions(\%permissions);
+                my $type = param 'type';
+                my %data =
+                  ( permissions => \%permissions,
+                  );
 
-                $column->$_(param $_)
-                    foreach (qw/name name_short description helptext optional isunique set_can_child
-                        multivalue remember link_parent_id topic_id width aggregate group_display/);
-                $column->type(param 'type')
-                    unless $col_id; # Can't change type as it would require DBIC resultsets to be removed and re-added
-
-                $column->$_(param $_)
-                    foreach @{$column->option_names};
+                $data{$_} = param $_
+                    for Linkspace::Column->attributes_for($type);
 
                 $column->display_fields(param 'display_fields');
                 # Set the layout in the GADS::Filter object, in case the write
@@ -2424,59 +2394,59 @@ prefix '/:layout_name' => sub {
 
                 my $no_alerts;
                 if ($column->type eq "file")
-                {   $column->filesize(param('filesize') || undef);
+                {   $data{filesize}      = param 'filesize';
                 }
                 elsif ($column->type eq "rag")
-                {
-                    $column->code(param 'code_rag');
-                    $no_alerts = param('no_alerts_rag');
+                {   $data{code}          = param 'code_rag';
+                    $data{no_alerts}     = param 'no_alerts_rag';
                 }
                 elsif ($column->type eq "enum")
-                {
-                    my $params = params;
-                    $column->enumvals({
-                        enumvals    => [body_parameters->get_all('enumval')],
-                        enumval_ids => [body_parameters->get_all('enumval_id')],
-                    });
-                    $column->ordering(param('ordering') || undef);
+                {   $data{enumvals}      = [ body_parameters->get_all('enumval') ];
+                    $data{enumval_ids}   = [ body_parameters->get_all('enumval_id') ];
+                    $data{ordering}      = param 'ordering';
                 }
                 elsif ($column->type eq "calc")
-                {
-                    $column->code(param 'code_calc');
-                    $column->return_type(param 'return_type');
-                    $no_alerts = param('no_alerts_calc');
+                {   $data{code}          = param 'code_calc';
+                    $data{return_type}   = param 'return_type';
+                    $data{no_alerts}     = param 'no_alerts_calc';
                 }
                 elsif ($column->type eq "tree")
-                {
-                    $column->end_node_only(param 'end_node_only');
+                {   $data{end_node_only} = param 'end_node_only');
                 }
                 elsif ($column->type eq "string")
-                {
-                    $column->textbox(param 'textbox');
-                    $column->force_regex(param 'force_regex');
+                {   $data{textbox}       = param 'textbox';
+                    $data{force_regex}   = param 'force_regex');
                 }
-                elsif ($column->type eq "curval")
-                {
-                    $column->refers_to_instance_id(param 'refers_to_instance_id');
-                    $column->filter->as_json(param 'filter');
+                elsif ($type eq "curval")
+                {   $data{refers_to_instance_id} = param 'refers_to_instance_id');
+                    $data{filter}        = { json => param 'filter' }; 
                     my @curval_field_ids = body_parameters->get_all('curval_field_ids');
-                    $column->curval_field_ids([@curval_field_ids]);
+                    $data{curval_field_ids} = \@curval_field_ids;
                 }
-                elsif ($column->type eq "autocur")
+                elsif ($type eq "autocur")
                 {
                     my @curval_field_ids = body_parameters->get_all('autocur_field_ids');
-                    $column->curval_field_ids([@curval_field_ids]);
-                    $column->related_field_id(param 'related_field_id');
+                    $data{curval_field_ids} = \@curval_field_ids;
+                    $data{related_field_id} = param 'related_field_id';
                 }
 
-                my $no_cache_update = $column->type eq 'rag' ? param('no_cache_update_rag') : param('no_cache_update_calc');
-                if (process( sub { $column->write(no_alerts => $no_alerts, no_cache_update => $no_cache_update) }))
-                {
-                    my $msg = $col_id
-                        ? qq(Your field has been updated successfully)
-                        : qq(Your field has been created successfully);
+                $data{no_cache_update}   = $type eq 'rag'
+                  ? param 'no_cache_update_rag'
+                  : param 'no_cache_update_calc';
 
-                    return forwardHome( { success => $msg }, $sheet->identifier.'/layout' );
+                my $msg;
+                if(process( sub {
+                   if($colums)
+                   {   $layout->column_update($column, %data);
+                       $msg    = 'Your field has been updated successfully.';
+                   }
+                   else
+                   {   $column = $layout->column_create(%data);
+                       $msg    = 'Your field has been created successfully.';
+                   }
+                })
+                {
+                    return forwardHome( {success => $msg}, $sheet->identifier.'/layout');
                 }
             }
             $params->{column} = $column;
@@ -2491,7 +2461,7 @@ prefix '/:layout_name' => sub {
         $params->{permissions}        = [ GADS::Type::Permissions->all ];
         $params->{permission_mapping} = GADS::Type::Permissions->permission_mapping;
         $params->{permission_inputs}  = GADS::Type::Permissions->permission_inputs;
-        $params->{topics}             = [schema->resultset('Topic')->search({ instance_id => $layout->instance_id })->all];
+        $params->{topics}             = [ $::db->search(Topic => { instance_id => $sheet->id })->all ];
 
         if (param 'saveposition')
         {
