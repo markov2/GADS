@@ -2363,7 +2363,7 @@ prefix '/:layout_name' => sub {
                 my $colname = $column->name;
                 trace __x"Starting deletion of column {name}", name => $colname;
                 $::session->audit("User '$username' deleted field '$colname'");
-                if (process( sub { $column->delete }))
+                if (process( sub { $layout->column_delete }))
                 {
                     return forwardHome(
                         { success => "The item has been deleted successfully" }, $sheet->identifier.'/layout' );

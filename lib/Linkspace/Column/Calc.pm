@@ -73,6 +73,16 @@ has decimal_places => (
 );
 
 ###
+### Class
+###
+
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(Calc    => { layout_id => $col_id });
+    $::db->delete(Calcval => { layout_id => $col_id });
+}
+
+###
 ### Instance
 ###
 
@@ -93,12 +103,6 @@ has '+blank_row' => (
 has '+string_storage' => (
     default => sub { $_{0]->value_field eq 'value_text' },
 );
-
-sub cleanup
-{   my ($class, $id) = @_;
-    $::db->delete(Calc    => { layout_id => $id });
-    $::db->delete(Calcval => { layout_id => $id });
-}
 
 # Returns whether an update is needed
 sub write_code

@@ -18,144 +18,114 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Graphs;
 
-use GADS::Graph;
-use Log::Report 'linkspace';
-use Scalar::Util qw/blessed/;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-has schema => (
+use GADS::Graph;
+use Log::Report 'linkspace';
+use Scalar::Util qw/blessed/;
+
+my @graph_types = qw(bar line donut scatter pie);
+
+has sheet => (
     is       => 'ro',
     required => 1,
 );
 
-has current_user => (
-    is => 'rw',
+has all_graphs => (
+    is      => 'lazy',
 );
 
-has layout => (
-    is => 'rw',
-);
-
-has all => (
-    is      => 'rw',
-    builder => '_all',
-    lazy    => 1,
-);
-
-sub _all
-{   my $self = shift;
-
-    my @graphs; my @user_graphs;
+sub _build_all_graphs()
+{   my $self     = shift;
+    my $user_id  = $::session->user;
+    my $sheet_id = $self->sheet->id;
 
     # First create a hash of all the graphs the user has selected
     my %user_selected = map +($_->id => 1),
         $::db->search(Graph => {
-            'user_graphs.user_id' => $self->current_user->id,
-            instance_id           => $self->layout->instance_id,
+            'user_graphs.user_id' => $user_id,
+            instance_id           => $sheet_id,
         },{
             join => 'user_graphs',
         })->all;
 
     # Now get all graphs, and use the previous hash to see
     # if the user has this graph selected
-    my @all_graphs = $::db->search(Graph => {
+    my @all_graph_ids = $::db->search(Graph => {
     {
-        instance_id => $self->layout->instance_id,
+        instance_id => $sheet_id,
         -or         => [
             {
                 'me.is_shared' => 1,
                 'me.group_id'  => undef,
             },
             {
-                'me.is_shared'        => 1,
-                'user_groups.user_id' => $self->current_user->id,
+                'me.is_shared' => 1,
+                'user_groups.user_id' => $user_id,
             },
             {
-                'me.user_id' => $self->current_user->id,
+                'me.user_id'   => $user_id,
             },
         ],
     },{
-        join => {
-            group => 'user_groups',
-        },
-        collapse => 1,
-        order_by => 'me.title',
+        join       => { group => 'user_groups' },
+        collapse   => 1,
+        order_by   => 'me.title',
         result_set => 'HASH',
-    })->all;
+    })->get_column('id')->all;
 
-    foreach my $grs (@all_graphs)
-    {
-        my $graph = GADS::Graph->new(
-            schema       => $self->schema,
-            layout       => $self->layout,
-            current_user => $self->current_user,
-            selected     => $user_selected{$grs->{id}},
-            set_values   => $grs,
-        );
-        push @graphs, $graph;
-    }
+    #XXX merging 'selected' in here is bad for caching.
+    my @graphs = map $self->graph($_, selected => $user_selected{$_}),
+        @all_graph_ids;
 
     \@graphs;
 }
 
 has all_shared => (
-    is => 'lazy',
-    isa => ArrayRef,
+    is      => 'lazy',
+    builder => sub { [ grep $_->is_shared, @{$self->all_graphs} ] },
 );
-
-sub _build_all_shared
-{   my $self = shift;
-    [ grep $_->is_shared, @{$self->all} ];
-}
 
 has all_personal => (
-    is => 'lazy',
-    isa => ArrayRef,
+    is      => 'lazy',
+    builder => sub { [ grep !$_->is_shared, @{$self->all_groups} ] },
 );
-
-sub _build_all_personal
-{   my $self = shift;
-    [ grep !$_->is_shared, @{$self->all} ];
-}
 
 has all_all_users => (
     is => 'lazy',
 );
 
+#XXX should maybe be merged in all_graphs when user->is_admin
 sub _build_all_all_users
 {   my $self = shift;
 
-    my @all_graphs = $::db->search(Graph => {
-        instance_id => $self->layout->instance_id,
-    }, {
-        result_class => 'HASH',
-    })->all;
+    my @all_graph_ids = $::db->search(Graph => { instance_id => $self->sheet->id })
+        ->get_column('id')->all;
 
-    my @graphs;
-    foreach my $grs (@all_graphs)
-    {
-        my $graph = GADS::Graph->new(
-            schema       => $self->schema,
-            layout       => $self->layout,
-            set_values   => $grs,
-        );
-        push @graphs, $graph;
-    }
-
-    \@graphs;
+    [ map $self->graph($_), @all_graph_ids ];
 }
 
 sub purge
 {   my $self = shift;
-    foreach my $graph (@{$self->all})
-    {
-        $graph->delete;
-    }
+    $_->graph_delete for @{$self->all_graphs};
 }
 
-sub types
-{ qw(bar line donut scatter pie) }
+sub types { @graph_types }
+
+sub graphs_using_column($)
+{   my ($self, $column) = @_;
+    $column or return;
+
+    my $col_id    = $column->id;
+    my @graph_ids = $::db->search(Graph => [
+        { x_axis   => $col_id },
+        { y_axis   => $col_id },
+        { group_by => $col_id },
+    ])->get_column('id')->all;
+
+   [ map $self->graph($_), @graph_ids ];
+}
 
 1;
 

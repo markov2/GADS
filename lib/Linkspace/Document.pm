@@ -49,7 +49,7 @@ has site => (
     weak_ref => 1,
 );
 
-
+#-------------------------
 =head1 METHODS: Sheet management
 
 =head2 my @all = $doc->all_sheets;
@@ -177,29 +177,37 @@ you were viewing one sheet (with a certain layout), you could only access
 those columns.  However: cross sheet references are sometimes required.
 =cut
 
-has _column_info => (
-    is  => 'lazy',
-    isa => ArrayRef, 
-    builder => sub { Linkspace::Sheet::Layout->load_columns($_[0]) },
-);
-
-has _column_info_index => (
-    is  => 'lazy',
-    isa => HashRef,
-    builder => sub {  +{ map +($_->id => $_), $_[0]->_column_info } },
-);
-
+# We do often need many of the columns, so get the info for all of them
+# (within the site) at once.  Probably less than 100.
 has _column_index => (
-    is  => 'ro',
-    isa => HashRef,
-    default => +{},
+    is      => 'lazy',
+    builder => sub
+    {   my $self = shift;
+        my $doc_cols = Linkspace::Sheet::Layout->load_columns($self);
+        +{ map +($_->id => $_), @doc_cols }
+    },
 );
 
-
-=head2 my $col_info = $doc->column_info_by_id($id);
+=head2 my $column = $doc->column($id);
 =cut
 
-sub column_by_info_id($) { $_[0]->_column_info_index->{$_[1]} }
+sub column($)
+{   my ($self, $id) = @_;
+    my $column = $self->_column_index->{$id};
+    $column->isa('Linkspace::Column')   # upgrade does not change pointer
+        or Linkspace::Column->from_record($column, document => $self);
+    $column;
+}
+
+=head2 \@columns = $doc->columns(@ids);
+
+=head2 \@columns = $doc->columns(\@ids);
+=cut
+
+sub columns
+{   my $self  = shift;
+    [ map $self->column($_), ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_ ];
+}
 
 =head2 \@cols = $doc->columns_for_sheet($sheet);
 
@@ -209,8 +217,15 @@ sub column_by_info_id($) { $_[0]->_column_info_index->{$_[1]} }
 sub columns_for_sheet($)
 {   my ($self, $which) = @_;
     my $sheet_id = blessed $sheet ? $which->id : $which;
+    $self->columns(grep $_->instance_id == $sheet_id, @{$self->_column_index});
+}
 
-    [ grep $_->instance_id == $sheet_id, @{$self->_column_info} ];
+=head2 \@cols = $doc->columns_with_filters;
+=cut
+
+sub columns_with_filters()
+{   my $self = shift;
+    $self->columns(grep $_->filter ne '{}' && $_->filter ne ''} @{$self->_column_index});
 }
 
 #---------------
@@ -249,6 +264,21 @@ sub file_create(%)
 Manage table "Current", which contains pointers to records.
 =cut
 
+sub columns_refering_to($)
+{   my ($self, $dest) = @_;
+    my @ref_ids = $::db->search(CurvalField => { child_id => $dest->id })
+        ->get_column('id')->all;
+    $self->columns(@ref_ids);
+}
+
+sub columns_link_child_of($)
+{   my ($self, $parent) = @_;
+    my $pid   = $parent->id;
+    my $index = $self->_column_index;
+    my @childs = grep { ($_->link_parent || 0) == $pid } values %$index;
+    $self->columns(@childs);
+}
+
 #--------------
 =head1 METHODS: Find rows
 Rows (records) are referenced by many different id's.
@@ -268,6 +298,24 @@ sub row($$%)
       'deleted_currentid'
       'deleted_recordid'
       'current_id';
+}
+
+#--------------
+=head1 METHODS: Find Other
+
+=head2 $doc->column_unuse($column);
+Remove a column wherever it is used.
+=cut
+
+sub column_unuse($)
+{   my ($self, $column) = @_;
+
+    $_->filter_remove_column($column)
+       for @{$self->columns_with_filters};
+
+    $_->column_unuse($column)
+       for @{$self->all_sheets};
+
 }
 
 1;

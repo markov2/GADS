@@ -48,13 +48,17 @@ sub return_type    { 'date' }
 sub include_time   { 0 }
 
 ###
-### Instance
+### Class
 ###
 
-sub cleanup
-{   my ($class, $id) = @_;
-    $::db->delete(Date => { layout_id => $id });
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(Date => { layout_id => $col_id });
 }
+
+###
+### Instance
+###
 
 has show_datepicker => (
     is      => 'rw',

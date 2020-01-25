@@ -558,4 +558,16 @@ Options: C<page> (starting from 1), C<rows> max to return, C<from> DateTime.
 =cut
 
 sub search(%) { ... }
+
+=head2 $view->filters_remove_column($column);
+=cut
+
+sub filters_remove_column($)
+{   my ($self, $column) = @_;
+...
+#   $_->remove_column($column) for $self->filters;
+}
+
+
+
 1;

@@ -16,6 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
+### Used by Columns and Views
 package GADS::Filter;
 
 use Data::Compare qw/Compare/;
@@ -268,6 +269,30 @@ sub parse_date_filter
     if ($op2 && $op2 eq '+' && $v2) { $now->add(seconds => $v2) }
     if ($op2 && $op2 eq '-' && $v2) { $now->subtract(seconds => $v2) }
     $now;
+}
+
+sub from_json # may get undef or '{}': empty filter
+sub json()    # returns the json version
+{   ...
+    return '{}' if @{$self->rules}==0;
+}
+
+=head2 my $new = $filter->remove_column($column);
+=cut
+
+sub _remove_column_id($$)
+{   my ($h, $col_id) = @_;
+    return () if $h->{id}==$col_id;
+    my $rules = delete $h->{rules};
+    my @new_rules = map _remove_column($_, $col_id), @$rules;
+    $h->{rules} = \@new_rules if @new_rules;
+    $h;
+}
+
+sub remove_column($)
+{   my ($self, $column) = @_;
+    $column or return $self;
+    (ref $self)->from_hash(_remove_column_id $self, $column_id);
 }
 
 1;

@@ -49,14 +49,18 @@ sub fixedvals { 1 }
 sub _filter_values { @filter_values }
 
 ###
-### Instance
+### Class
 ###
 
-sub cleanup
-{   my ($class, $id) = @_;
-    $::db->delete(Rag    => { layout_id => $id });
-    $::db->delete(Ragval => { layout_id => $id });
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(Rag    => { layout_id => $col_id });
+    $::db->delete(Ragval => { layout_id => $col_id });
 }
+
+###
+### Instance
+###
 
 sub _build__rset_code
 {   my $self = shift;

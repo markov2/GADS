@@ -37,18 +37,22 @@ sub has_filter_typeahead { 1 }
 sub retrieve_fields      { [ qw/id value deleted/] }
 
 ###
+### Class
+###
+
+sub remove($)
+{   my $col_id = $_[1]->id;
+    # Rely on tree cleanup instead. If we have our own here, then
+    # it may error for tree types if the rows reference parents.
+}
+
+###
 ### Instance
 ###
 
 sub sprefix        { 'value' }
 sub tjoin          { +{ $_[0]->field => 'value' } }
 sub value_field_as_index { 'id' }
-
-sub cleanup
-{   my ($class, $id) = @_;
-    # Rely on tree cleanup instead. If we have our own here, then
-    # it may error for tree types if the rows reference parents.
-}
 
 has enumvals => (
     is      => 'rw',

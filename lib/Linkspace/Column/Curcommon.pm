@@ -39,6 +39,16 @@ sub sort_parent    { shift }   # me!
 sub variable_join  { 1 }
 
 ###
+### Class
+###
+
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(Curval      => { layout_id => $col_id });
+    $::db->delete(CurvalField => { parent_id => $col_id });
+}
+
+###
 ### Instance
 ###
 
@@ -46,12 +56,6 @@ sub tjoin
 {   my ($self, %options) = @_;
     $self->make_join(map $_->tjoin,
         grep !$_->internal, @{$self->curval_fields_retrieve(%options)});
-}
-
-sub cleanup
-{   my ($class, $id) = @_;
-    $::db->delete(Curval      => { layout_id => $id });
-    $::db->delete(CurvalField => { parent_id => $id });
 }
 
 has override_permissions => (
@@ -90,10 +94,9 @@ has curval_field_ids => (
     is      => 'rw',
     isa     => ArrayRef,
     lazy    => 1,
-    clearer => 1,
     builder => sub {
         my $self = shift;
-        my @curval_field_ids = $self->schema->resultset('CurvalField')->search({
+        my @curval_field_ids = $::db->search(CurvalField => {
             parent_id => $self->id,
         }, {
             join     => 'child',

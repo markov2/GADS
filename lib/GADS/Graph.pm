@@ -24,19 +24,6 @@ use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
-has layout => (
-    is => 'rw',
-);
-
-has current_user => (
-    is => 'ro',
-);
-
 # Internal DBIC object of graph
 has _graph => (
     is      => 'rw',

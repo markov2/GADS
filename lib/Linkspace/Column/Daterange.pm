@@ -41,13 +41,17 @@ sub return_type    { 'daterange' }
 sub sort_field     { 'from' }
 
 ###
-### Instance
+### Class
 ###
 
-sub cleanup
-{   my ($class, $id) = @_;
-    $::db->delete(Daterange => { layout_id => $id });
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(Daterange => { layout_id => $col_id });
 }
+
+###
+### Instance
+###
 
 # Still counts as string storage for search (value field is string)
 has '+string_storage' => (

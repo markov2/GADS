@@ -106,7 +106,6 @@ sub filter_view_is_ready
 
 has view => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_view

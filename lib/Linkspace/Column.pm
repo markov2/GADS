@@ -70,8 +70,8 @@ sub register_type(%)
 }
 
 sub type2class($)  { $type2class{$_[1]} }
-sub types()        { keys %type2class }
-sub all_column_classes() { values %type2class }
+sub types()        { [ keys %type2class ] }
+sub all_column_classes() { [ values %type2class ] }
 sub type()         { $class2type{ref $_[0] || $_[0]} }
 
 sub attributes_for($)
@@ -114,9 +114,6 @@ sub tjoin          { $_[0]->field }
 sub filter_value_to_text { $_[1] }
 sub value_field_as_index { $_[0]->value_field }
 
-# Cleanup specialist column data when a column is deleted
-sub cleanup        {}
-
 # Used when searching for a value's index value as opposed to
 # string value (e.g. enums)
 sub sort_columns   { $_[0] }
@@ -125,6 +122,14 @@ sub sort_columns   { $_[0] }
 sub site           { $::session->site }
 sub returns_date   { $_[0]->return_type =~ /date/ }
 sub field          { "field".($_[0]->id) }
+
+has layout => (
+    is       => 'ro',
+    required => 1,
+    weakref  => 1,
+);
+
+sub sheet { $_[0]->layout->sheet }
 
 # All permissions for this column
 has permissions => (
@@ -174,6 +179,8 @@ has name_short => (
     is  => 'rw',
     isa => Maybe[Str],
 );
+
+sub name_long() { $_[0]->name . ' (' . $_[0]->sheet->name . ')' }
 
 has options => (
     is        => 'rwp',
@@ -284,7 +291,6 @@ has set_display_fields => (
 has display_fields => (
     is      => 'rw',
     lazy    => 1,
-    clearer => 1,
     coerce  => sub {
         my $val = shift;
         ref $val eq 'GADS::Filter' ? $val : GADS::Filter->new(as_json => $val);
@@ -301,9 +307,7 @@ has display_fields => (
             }, @{$self->set_display_fields};
         }
         else
-        {   foreach my $cond ($::db->search(DisplayField =>{
-                layout_id => $self->id
-            })->all)
+        {   foreach my $cond ($::db->search(DisplayField =>{ layout_id => $self->id})->all)
             {
                 push @rules, {
                     id       => $cond->display_field_id,
@@ -668,86 +672,46 @@ sub fetch_multivalues
     }, \%select)->all;
 }
 
-sub column_delete
+=head2 my $filter = $column->filter_rules
+Inconvient name-collision with the table field, which should have been named
+'filter_json'.
+=cut
+
+sub filter_rules(;$)
 {   my $self = shift;
+    @_==1 or return Linkspace::Filter->from_json($self->filter);
 
-    my $guard = $::db->begin_work;
+    # Via filter object, to ensure validation
+    my $set    = shift;
+    my $filter = blessed $set && $set->isa('Linkspace::Filter') ? $set
+       :  Linkspace::Filter->from_json($set);
 
-    # First see if any views are conditional on this field
-    if(my @deps = $::db->search(DisplayField => { display_field_id => $self->id })->all)
-    {
-        my @names = map $_->layout->name, @deps;
-        error __x"The following fields are conditional on this field: {dep}.
-            Please remove these conditions before deletion.", dep => \@names;
-    }
-
-    # Next see if any calculated fields are dependent on this
-    if(@{$self->depended_by})
-    {   my @deps = map $self->layout->column($_)->name, @{$self->depended_by};
-        error __x"The following fields contain this field in their formula: {dep}.
-            Please remove these before deletion.", dep => \@deps;
-    }
-
-    # Now see if any Curval fields depend on this field
-    if(my @parents = $::db->search(CurvalField => { child_id => $self->id })->all)
-    {   my @pn = map $_->parent->name." (".$_->parent->instance->name.")", @parents;
-        error __x"The following fields in another table refer to this field: {p}.
-            Please remove these references before deletion of this field.", p => \@pn;
-    }
-
-    # Now see if any linked fields depend on this one
-    if(my @linked = $::db->search(Layout => { link_parent => $self->id })->all)
-    {   my @ln = map $_->name." (".$_->sheet->name.")", @linked;
-        error __x"The following fields in another table are linked to this field: {l}.
-            Please remove these links before deletion of this field.", l => \@ln;
-    }
-
-    if(my @graphs = $::db->search(Graph => [
-                { x_axis   => $self->id },
-                { y_axis   => $self->id },
-                { group_by => $self->id },
-            ]
-        )->all)
-    {
-        error __x"The following graphs references this field: {graph}. Please update them before deletion."
-            , graph => [ map $_->title, @graphs ]; 
-    }
-
-    # Remove this column from any filters defined on views
-    foreach my $filter ($::db->search(Filter => { layout_id => $self->id })->all)
-    {
-        my $filtered = _filter_remove_colid($self, $filter->view->filter);
-        $filter->view->update({ filter => $filtered });
-    }
-
-    # Same again for fields with filter
-    foreach my $col ($::db->search(Layout => { filter => { '!=' => '{}' }})->all)
-    {
-        $col->filter or next;
-        my $filtered = _filter_remove_colid($self, $col->filter);
-        $col->update({ filter => $filtered });
-    };
-
-    # Clean up any specialist data for all column types. The column's
-    # type may have changed during its life, but the data may not
-    # have been removed on change, so we have to check all classes.
-    foreach my $type (grep $_ ne 'serial', $self->types)
-    {
-        my $class = "GADS::Column::".camelize $type;
-        $class->cleanup($self->id);
-    }
-
-    my %layout_ref = (layout_id => $self->id);
-    $::db->delete($_ => \%layout_ref)
-        qw/AlertCache AlertSend DisplayField Filter LayoutDepend
-           LayoutGroup Sort ViewLayout/;
-
-    $::db->delete(Sort => { parent_id => $self->id });
-    $::db->update(Instance => { sort_layout_id => $self->id }, {sort_layout_id => undef});
-    $::db->delete(Layout => $self->id);
-
-    $guard->commit;
+    my $json   = $filter->json;
+    $self->update({filter => $json});
+    $self->filter($json);
+    $filter;
 }
+
+=head2 my $filter = $column->filter_remove_column($column);
+=cut
+
+sub filter_remove_column($)
+{   my ($self, $column) = @_;
+    $self->filter_rules($self->filter_rules->remove_column($column));
+}
+
+=head2 $column->remove_history;
+Clean up any specialist data for all column types. The column's type may have
+changed during its life, but the data may not have been removed on changed,
+so we have to check all classes.
+=cut
+
+sub remove_history()
+{   my $self = shift;
+    $_->remove($self) for ${$self->all_column_classes};
+}
+
+sub remove($) { }   # remove all refs to a columns
 
 sub write_special { () } # Overridden in children
 sub after_write_special {} # Overridden in children
@@ -953,11 +917,8 @@ sub _write_permissions
     $search->{group_id} = { '!=' => [ '-and', @groups ] }
         if @groups;
         
-    my @removed = $self->schema->resultset('LayoutGroup')->search($search,{
-        select   => {
-            max => 'group_id',
-            -as => 'group_id',
-        },
+    my @removed = $::db->search(LayoutGroup => $search,{
+        select   => { max => 'group_id', -as => 'group_id' },
         as       => 'group_id',
         group_by => 'group_id',
     })->get_column('group_id')->all;
@@ -1013,7 +974,7 @@ sub _write_permissions
 
         if ($read_removed && !$options{report_only}) {
             # First the sorts
-            my @sorts = $self->schema->resultset('Sort')->search({
+            my @sorts = $::db->search(Sort => {
                 layout_id      => $id,
                 'view.user_id' => { '!=' => undef },
             }, {
@@ -1058,9 +1019,11 @@ sub _write_permissions
                 });
 
                 # And the JSON filter itself
-                my $filtered = _filter_remove_colid($self, $filter->view->filter);
+                my $view = $filter->view; #XXX
+                $view->filter_remove_column($column);
+				my $filtered = _filter_remove_colid($self, $filter->view->filter);
 
-                $filter->view->update({ filter => $filtered });
+				$filter->view->update({ filter => $filtered });
             }
         }
     }

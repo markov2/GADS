@@ -46,6 +46,14 @@ sub retrieve_fields      { \@person_properties }
 
 sub person_properties    { @person_properties }
 
+###
+### Class
+###
+
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(Person => { layout_id => $col_id });
+}
 
 ###
 ### Instance
@@ -53,11 +61,6 @@ sub person_properties    { @person_properties }
 
 sub sprefix { 'value' }
 sub tjoin   { +{ $_[0]->field => 'value' } }
-
-sub cleanup
-{   my ($class, $id) = @_;
-    $::db->delete(Person => { layout_id => $id });
-}
 
 # Convert based on whether ID or full name provided
 sub value_field_as_index

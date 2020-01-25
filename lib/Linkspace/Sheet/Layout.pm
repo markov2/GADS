@@ -857,5 +857,64 @@ sub search_columns
     @columns;
 }
 
+sub column_unuse($)
+{   my ($self, $column) = @_;
+
+    my $col_ref = {layout_id => $column->id};
+    $::db->delete($_ => $col_ref)
+        for qw/DisplayField LayoutDepend LayoutGroup/;
+    $self;
+}
+
+sub column_delete($)
+{   my ($self, $column) = @_;
+    my $doc   = $self->document;
+
+    # First see if any views are conditional on this field
+    my $disps = $column->display_fields;
+....
+    if(@$disps)
+    {   my @names = map $_->layout->name, @disps;   #XXX???
+        error __x"The following fields are conditional on this field: {dep}.
+            Please remove these conditions before deletion.", dep => \@names;
+    }
+
+    my $depending = $doc->columns($column->depended_by);
+    if(@$depending)
+    {   error __x"The following fields contain this field in their formula: {dep}.
+            Please remove these before deletion.",
+            dep => [ map $_->name_long, @$depending ];
+    }
+
+    my $parents = $doc->columns_refering_to($column);
+    if(@$parents)
+    {   error __x"The following fields in another table refer to this field: {p}.
+            Please remove these references before deletion of this field.", 
+            p => [ map $_->parent->name_long, @$parents ];
+    }
+
+    # Now see if any linked fields depend on this one
+    my $childs = $doc->columns_link_child_of($column);
+    if(@$childs)
+    {   error __x"The following fields in another table are linked to this field: {l}.
+            Please remove these links before deletion of this field.",
+            l => [ map $_->name_long, @$childs ];
+    }
+
+    my $graphs = $sheet->graphs->graphs_using_column($column);
+    if(@$graphs)
+    {
+        error __x"The following graphs references this field: {graph}. Please update them before deletion.",
+            graph => [ map $_->title, @$graphs ]; 
+    }
+
+    my $guard = $::db->begin_work;
+    $doc->column_unuse($column);
+    $column->remove_history;
+    $::db->delete(Layout => $column->id);    # Finally!
+
+    $guard->commit;
+}
+
 1;
 

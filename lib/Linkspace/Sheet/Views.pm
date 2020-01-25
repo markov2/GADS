@@ -136,4 +136,26 @@ sub limits_for_user(;$)
     $::db->search(ViewLimit => { 'me.user_id' => $user->id })->all;
 }
 
+#------------------------------
+=head1 METHODS: Other
+
+=head2 $views->column_unuse($column);
+Remove all uses for the column in this sheet (and managing objects);
+=cut
+
+sub column_unuse($)
+{   my ($self, $column) = @_;
+    my $col_id  = $column->id;
+
+    $_->filters_remove_column($column)
+        for @{$self->all_views};
+
+    my $col_ref = { layout_id => $col_id };
+    $::db->delete($_ => $col_ref)
+        for qw/AlertCache AlertSend Filter Sort ViewLayout/;
+
+    $::db->delete(Sort => { parent_id => $col_id });
+    $self;
+}
+
 1;

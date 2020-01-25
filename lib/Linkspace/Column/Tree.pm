@@ -39,6 +39,18 @@ sub retrieve_fields{ [ qw/id value/ ] }
 sub table          { 'Enum' }
 
 ###
+### Class
+###
+
+sub remove($)
+{   my $col_id = $_[1]->id;
+    my %col_ref = (layout_id => $_[0]->id);
+    $::db->update(Enumval => \%col_ref, {parent => undef});  #XXX???
+    $::db->delete(Enum    => \%col_ref);
+    $::db->delete(Enumval => \%col_ref);
+}
+
+###
 ### Instance
 ###
 
@@ -49,15 +61,6 @@ sub value_field_as_index { 'id' }
 sub DESTROY
 {   my $self = shift;
     $self->_root->delete_tree if $self->_has_tree;
-}
-
-sub cleanup
-{   my ($class, $id) = @_;
-    my %layout_ref = (layout_id => $id);
-    $::db->update(Enumval => \%layout_ref, {parent => undef});  #XXX
-
-    $::db->delete(Enum    => \%layout_ref);
-    $::db->delete(Enumval => \%layout_ref);
 }
 
 has end_node_only => (

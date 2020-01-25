@@ -33,18 +33,21 @@ sub can_multivalue  { 1 }
 sub retrieve_fields { [ qw/name mimetype id/ ] }
 
 ###
+### Class
+###
+
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(File       => { layout_id => $col_id});
+    $::db->delete(FileOption => { layout_id => $col_id});
+}
+
+###
 ### Instance
 ###
 
 sub sprefix { 'value' }
 sub tjoin   { +{ $_[0]->field => 'value' } }
-
-sub cleanup
-{   my ($class, $id)  = @_;
-    my %layout_ref = ( layout_id => $id );
-    $::db->delete(File       => \%layout_ref);
-    $::db->delete(FileOption => \%layout_ref);
-};
 
 # Convert based on whether ID or name provided
 sub value_field_as_index

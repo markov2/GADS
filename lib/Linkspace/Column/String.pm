@@ -33,15 +33,18 @@ __PACKAGE__->register_type;
 sub can_multivalue      { 1 }
 sub has_multivalue_plus { 1 }
 
+###
+### Class
+###
+
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(String => { layout_id => $col_id });
+}
 
 ###
 ### Instance
 ###
-
-sub cleanup
-{   my ($class, $schema, $id) = @_;
-    $::db->delete(String => { layout_id => $id });
-}
 
 has textbox => (
     is      => 'rw',

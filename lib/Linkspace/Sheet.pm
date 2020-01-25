@@ -105,8 +105,6 @@ has document => (
 #--------------------
 =head1 METHODS: the Sheet itself
 
-=cut
-
 =head2 $sheet->sheet_delete;
 Remove the sheet.
 =cut
@@ -118,8 +116,8 @@ sub sheet_delete($)
 
     my $guard    = $::db->begin_work;
 
-    $_->delete
-       for $self->layout->columns(only_internal => 1, include_hidden => 1);
+    $layout->column_delete($_)
+       for $layout->columns(only_internal => 1, include_hidden => 1);
 
     $::db->delete(InstanceGroup => { instance_id => $sheet_id });
 
@@ -344,5 +342,21 @@ sub get_page($)
 
 sub metric_group {...}
 sub metric_group_create { $metric_group->import_hash($mg) }
+
+#----------------------
+=head1 METHODS: Other
+
+=head2 $sheet->column_unuse($column);
+Remove all uses for the column in this sheet (and managing objects);
+=cut
+
+sub column_unuse($)
+{   my ($self, $column) = @_;
+    my $col_id = $column->id;
+    $::db->update(Instance => { sort_layout_id => $col_id }, {sort_layout_id => undef});
+
+    $self->layout->column_unuse($column);
+    $self->views->column_unuse($column);
+}
 
 1;

@@ -40,13 +40,17 @@ sub return_type  { 'integer' }
 sub option_names { shift->SUPER::option_names, @option_names }
 
 ###
-### Instance
+### Class
 ###
 
-sub cleanup
-{   my ($class, $id) = @_;
-    $::db->delete(Intgr => { layout_id => $id });
+sub remove($)
+{   my $col_id = $_[1]->id;
+    $::db->delete(Intgr => { layout_id => $col_id });
 }
+
+###
+### Instance
+###
 
 has show_calculator => (
     is      => 'rw',

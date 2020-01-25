@@ -40,6 +40,10 @@ sub userinput   { 0 }
 sub value_field { 'serial' }
 
 ###
+### Class
+###
+
+###
 ### Instance
 ###
 
