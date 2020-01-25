@@ -672,14 +672,15 @@ sub fetch_multivalues
     }, \%select)->all;
 }
 
-=head2 my $filter = $column->filter_rules
+=head2 my $filter = $column->filter_rules;
 Inconvient name-collision with the table field, which should have been named
 'filter_json'.
 =cut
 
 sub filter_rules(;$)
 {   my $self = shift;
-    @_==1 or return Linkspace::Filter->from_json($self->filter);
+    @_==1 or return Linkspace::Filter->from_json($self->filter,
+        layout => $self->layout);
 
     # Via filter object, to ensure validation
     my $set    = shift;

@@ -16,11 +16,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-### Used by Columns and Views
-package GADS::Filter;
+package Linkspace::Filter;
 
-use Data::Compare qw/Compare/;
-use GADS::Config;
 use Encode;
 use JSON qw(decode_json encode_json);
 use Log::Report 'linkspace';
@@ -29,93 +26,53 @@ use MIME::Base64;
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 
-has as_json => (
-    is      => 'rw',
-    isa     => sub {
-        decode_json_utf8($_[0]); # Will die on error
-    },
-    lazy    => 1,
-    clearer => 1,
-    coerce  => sub {
-        # Ensure consistent format
-        my $json = shift || '{}';
-        my $hash = decode_json_utf8($json);
-        decode("utf8", encode_json($hash));
-    },
-    builder => sub {
-        my $self = shift;
-        $self->_set_has_value(1);
-        encode_json($self->as_hash);
-    },
-    predicate => 1,
-    trigger => sub {
-        my ($self, $new) = @_;
-        # Need to compare as structures, as stringified JSON could be in different orders
-        $self->_set_changed(1) if $self->has_value && !Compare($self->as_hash, decode_json_utf8($new), { ignore_hash_keys => ['column_id'] });
-        $self->clear_as_hash;
-        # Force the hash to build with the new value, which will effectively
-        # allow it to hold the old value, if we make any further changse (which
-        # is then used to see if a change as happened)
-        $self->as_hash;
-        $self->_clear_lazy;
-        $self->_set_has_value(1);
-    },
+=head1 NAME
+
+Linkspace::Filter - Generic filter object
+
+=head1 DESCRIPTION
+Used by Columns, Views, and DisplayFields.
+
+=head1 METHODS: Constructors
+
+=head2 my $filter = $class->new(%options);
+May have C<data>, defaults to empty.  Requires a C<layout>, to resolve
+column names.
+=cut
+
+has data => (    # private
+    is      => 'ro',
+    default => sub { +{} },
 );
 
-has as_hash => (
-    is      => 'rw',
-    isa     => HashRef,
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        $self->_set_has_value(1);
-        return {} if !$self->has_as_json;
-        decode_json_utf8($self->as_json);
-    },
-    trigger => sub {
-        my ($self, $new) = @_;
-        $self->_set_changed(1) if $self->has_value && !Compare(decode_json_utf8($self->as_json), $new, { ignore_hash_keys => ['column_id'] });
-        $self->clear_as_json;
-        # Force the JSON to build with the new value, which will effectively
-        # allow it to hold the old value, if we make any further changes (which
-        # is then used to see if a change as happened)
-        $self->as_json;
-        $self->_clear_lazy;
-        $self->_set_has_value(1);
-    },
+has layout => (  # private
+    id      => 'ro',
+    required => 1,
 );
 
-has has_value => (
-    is  => 'rwp',
-    isa => Bool,
-);
+sub _decode_json_utf8($) { decode_json(encode "utf8", $_[0]) }
 
-has layout => (
-    is       => 'rw',
-    # Make a weak ref so that when this object is created, it doesn't require
-    # the reference to the layout to be destroyed to destroy this filter
-    weak_ref => 1,
-);
+=head2 my $filter = $class->from_json($json, %options);
+=cut
 
-# Takes a JSON string that has wide characters, decodes it into utf8 bytes
-# first, and then decodes the JSON. decode_json() expects utf8 binary
-# characters, otherwise it borks. This module saves to the database and uses
-# JSON as unicode, not utf8.
-sub decode_json_utf8
-{   decode_json(encode("utf8", shift)) }
+sub from_json($@)
+{   my $class = shift;
+    my $data  = _decode_json_utf8(shift || '{}');
+    $class->new(data => $data, @_);
+}
 
+sub from_hash($@)
+{   my ($class, $data) = (shift, shift);
+    $class->new(data => $data, @_);
+}
+
+sub has_value { !! $_[0]->data }
+ 
 sub base64
 {   my $self = shift;
-    # First make sure we have the hash version
-    $self->as_hash;
-    # Then clear the JSON version so that we can rebuild it
-    $self->clear_as_json;
-    # Next update the filters
+
     foreach my $filter (@{$self->filters})
-    {
-        $self->layout or panic "layout has not been set in filter";
-        my $col = $self->layout->column($filter->{column_id})
+    {   my $col = $layout->column($filter->{column_id})
             or next; # Ignore invalid - possibly since deleted
 
         if ($col->has_filter_typeahead)
@@ -137,56 +94,35 @@ has column_ids => (
 );
 
 # All the filters in a flat structure
+sub _filter_tables($);
 has filters => (
     is      => 'lazy',
-    isa     => ArrayRef,
-);
-
-sub _build_filters
-{   my $self = shift;
-    my $cols_in_filter = [];
-    $self->_filter_tables($self->as_hash, $cols_in_filter);
-    $cols_in_filter;
+    builder => sub { [ _filter_tables $_[0] ] },
 }
 
-# Recursively find all tables in a nested filter
 sub _filter_tables
-{   my ($self, $filter, $tables) = @_;
-
+{   my ($self, $filter) = @_;
     if (my $rules = $filter->{rules})
-    {
-        # Filter has other nested filters
-        foreach my $rule (@$rules)
-        {   $self->_filter_tables($rule, $tables);
-        }
+    {   return map _filter_tables $_, @$rules;
     }
-    elsif(my $id = $filter->{id})
+
+    if(my $id = $filter->{id})
     {   # XXX column_id should not really be stored in the hash, as it is
         # temporary but may be written out with the JSON later for permanent
-        # use
-        $filter->{column_id} = $id =~ /^([0-9])+_([0-9]+)$/ ? $2 : $filter->{id};
-
-        # If we have a layout, remove any invalid columns
-        delete $filter->{$_} for keys %$filter
-            if $self->layout && !$self->layout->column($filter->{column_id});
- 
-        # Keep as reference so can be updated by other functions
-        push @$tables, $filter;
+        # use.
+        $filter->{column_id} ||= $id =~ /^([0-9])+_([0-9]+)$/ ? $2 : $id;
+        return $filter;
     }
+
+    ();
 }
 
 # The IDs of the columns that will be subbed into the filter
-has columns_in_subs => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
-
-sub _build_columns_in_subs
+sub columns_in_subs($)
 {   my $self = shift;
 
-    my @colnames = grep defined,
-         map { $_->{value} && $_->{value} =~ /^\$([_0-9a-z]+)$/i && $1 }
-             @{$self->filters};
+    my @colnames = map { $_->{value} && $_->{value} =~ /^\$([_0-9a-z]+)$/i ? $1 : ()}
+        @{$self->filters};
 
     [ grep defined, map $layout->column_by_name_short($_), @colnames ];
 }
@@ -197,7 +133,8 @@ sub sub_values
     my $filter = $self->as_hash;
     # columns_in_subs needs to be built now, otherwise it won't return the
     # correct result once the values have been subbed in below
-    my $columns_in_subs = $self->columns_in_subs;
+    my $columns_in_subs = $self->columns_in_subs($layout);
+
     if (!$layout->record && @$columns_in_subs)
     {
         # If we don't have a record (e.g. from typeahead search) and there
@@ -207,8 +144,7 @@ sub sub_values
     }
     else
     {   foreach (@{$filter->{rules}})
-        {
-            return 0 unless $self->_sub_filter_single($_, $layout);
+        {   return 0 unless $self->_sub_filter_single($_, $layout);
         }
     }
     $self->as_hash($filter);
@@ -220,8 +156,8 @@ sub _sub_filter_single
     my $record = $layout->record;
     if ($single->{rules})
     {
-        foreach (@{$single->{rules}})
-        {   return 0 unless $self->_sub_filter_single($_, $layout);
+        foreach my $rule (@{$single->{rules}})
+        {   return 0 unless $self->_sub_filter_single($rule, $layout);
         }
     }
     elsif ($single->{value} && $single->{value} =~ /^\$([_0-9a-z]+)$/i)
@@ -262,16 +198,14 @@ sub parse_date_filter
     my ($v1, $op1, $op2, $v2) = ($2, $3, $5, $6);
     if ($op1 && $op1 eq '+' && $v1) { $now->add(seconds => $v1) }
 
-#XXX?
-#    if ($op1 eq '-' && $v1) # Doesn't work, needs coding differently
-#    { $now->subtract(seconds => $v1) }
+#   if ($op1 eq '-' && $v1) # Doesn't work, needs coding differently  XXX
+#   { $now->subtract(seconds => $v1) }
 
     if ($op2 && $op2 eq '+' && $v2) { $now->add(seconds => $v2) }
     if ($op2 && $op2 eq '-' && $v2) { $now->subtract(seconds => $v2) }
     $now;
 }
 
-sub from_json # may get undef or '{}': empty filter
 sub json()    # returns the json version
 {   ...
     return '{}' if @{$self->rules}==0;
@@ -280,11 +214,12 @@ sub json()    # returns the json version
 =head2 my $new = $filter->remove_column($column);
 =cut
 
+sub _remove_column_id($$);
 sub _remove_column_id($$)
 {   my ($h, $col_id) = @_;
     return () if $h->{id}==$col_id;
     my $rules = delete $h->{rules};
-    my @new_rules = map _remove_column($_, $col_id), @$rules;
+    my @new_rules = map _remove_column_id($_, $col_id), @$rules;
     $h->{rules} = \@new_rules if @new_rules;
     $h;
 }

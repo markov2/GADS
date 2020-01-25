@@ -18,11 +18,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Graph;
 
+use Moo;
+use MooX::Types::MooseLike::Base qw(:all);
+
 use JSON qw(decode_json encode_json);
 use GADS::Graphs;
 use Log::Report 'linkspace';
-use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
+use Linkspace::Util qw(is_valid_id);
 
 # Internal DBIC object of graph
 has _graph => (
@@ -300,33 +302,40 @@ sub delete
 # Write (updated) values to the database
 sub write
 {   my $self = shift;
+    my $sheet = ...;
+    my $layout = $sheet->layout;
 
     error __"You do not have permission to write to this graph"
         if !$self->writable;
 
     my $newgraph;
-    $newgraph->{title}           = $self->title or error __"Please enter a title";
+    $newgraph->{title}           = $self->title
+        or error __"Please enter a title";
 
     $newgraph->{description}     = $self->description;
 
-    if ($newgraph->{y_axis} = $self->y_axis)
-    {
-        $self->layout->column_this_instance($self->y_axis)
-            or error __x"Invalid Y-axis {y_axis}", y_axis => $self->y_axis;
+    $newgraph->{y_axis} = my $y_axis = $self->y_axis;
+    $layout->contains_column($y_axis)
+        or error __x"Invalid Y-axis {y_axis}", y_axis => $y_axis;
+
+    $newgraph->{y_axis_stack} = my $y_axis_stack = $self->y_axis_stack
+        or error __"A valid value is required for Y-axis stacking";
+
+    $y_axis_stack eq 'count' || $y_axis_stack eq 'sum'
+        or error __x"{yas} is an invalid value for Y-axis", yas => $y_axis_stack;
+
+    if($y_axis_stack eq 'sum')
+    {   $y_axis or error __"Please select a Y-axis";
+        $layout->column($y_axis)->numeric
+            or error __"A field returning a numberic value must be used for the Y-axis when calculating the sum of values ";
     }
-
-    $newgraph->{y_axis_stack}    = $self->y_axis_stack or error __"A valid value is required for Y-axis stacking";
-    !defined $self->y_axis_stack || $self->y_axis_stack eq 'count' || $self->y_axis_stack eq 'sum'
-        or error __x"{yas} is an invalid value for Y-axis", yas => $self->y_axis_stack;
-
-    $newgraph->{y_axis_stack} eq 'sum' && !$newgraph->{y_axis}
-        and error __"Please select a Y-axis";
 
     $newgraph->{y_axis_label}    = $self->y_axis_label;
 
-    $newgraph->{x_axis}          = $self->x_axis;
-    !defined $self->x_axis || $self->layout->column($self->x_axis)
-        or error __x"Invalid X-axis value {x_axis}", x_axis => $self->x_axis;
+    $newgraph->{x_axis}          = my $x_axis = $self->x_axis;
+    ! defined $x_axis || $layout->column($x_axis)
+        or error __x"Invalid X-axis value {x_axis}", x_axis => $x_axis;
+
     $newgraph->{x_axis_link}     = $self->x_axis_link;
 
     !$newgraph->{trend} || $newgraph->{trend} eq 'aggregate' || $newgraph->{trend} eq 'individual'
@@ -339,19 +348,21 @@ sub write
     error __"An x-axis range must be selected when plotting historical trends"
         if !$newgraph->{x_axis_range} && $self->trend;
 
-    $newgraph->{x_axis_grouping} = $self->x_axis_grouping;
-    !defined $self->x_axis_grouping || grep { $self->x_axis_grouping eq $_ } qw/day month year/
-        or error __x"{xas} is an invalid value for X-axis grouping", xas => $self->x_axis_grouping;
+    $newgraph->{x_axis_grouping} = my $xgroup = $self->x_axis_grouping;
+    ! defined $xgroup || grep { $xgroup eq $_ } qw/day month year/
+        or error __x"{xas} is an invalid value for X-axis grouping", xas => $xgroup;
 
-    $newgraph->{group_by}        = $self->group_by;
-    !defined $self->group_by || $self->layout->column_this_instance($self->group_by)
-        or error __x"Invalid group by value {group_by}", group_by => $self->group_by;
+    $newgraph->{group_by}        = my $group_by = $self->group_by;
+    ! defined $group_by || $layout->contains_column($group_by)
+        or error __x"Invalid group by value {group_by}", group_by => $group_by;
 
-    $newgraph->{metric_group}    = $self->metric_group_id;
-    !defined $self->metric_group_id || $self->metric_group_id =~ /^[0-9]+$/
-        or error __x"Invalid metric group ID format {id}", id => $self->metric_group_id;
-    !defined $self->metric_group_id || $self->schema->resultset('MetricGroup')->find($self->metric_group_id)
-        or error __x"Invalid metric group ID {id}", id => $self->metric_group_id;
+    $newgraph->{metric_group}    = my $mg_id = $self->metric_group_id;
+    if($mg_id)
+    {   is_valid_id $mg_id
+            or error __x"Invalid metric group ID format {id}", id => $mg_id;
+        $sheet->metric_groups->metrics($mg->id)
+            or error __x"Unknown metric group ID {id}", id => $mg_id;
+    }
 
     $newgraph->{stackseries}     = $self->stackseries;
 
@@ -362,9 +373,8 @@ sub write
         if $self->is_shared && !$self->writable_shared;
 
     $newgraph->{is_shared}       = $self->is_shared;
-
     $newgraph->{group_id}        = $self->group_id || undef;
-    $newgraph->{user_id}         = $self->user_id || $self->current_user->id
+    $newgraph->{user_id}         = $self->user_id  || $::session->user
         unless $self->is_shared;
 
     $newgraph->{as_percent}      = $self->as_percent;
@@ -373,17 +383,15 @@ sub write
     grep { $self->type eq $_ } GADS::Graphs->types
         or error __x"Invalid graph type {type}", type => $self->type;
 
-    $newgraph->{instance_id}     = $self->layout->instance_id;
+    $newgraph->{instance_id}     = $sheet->id
 
-    error __"A field returning a numberic value must be used for the Y-axis when calculating the sum of values "
-        if $self->y_axis_stack eq 'sum' && !$self->layout->column($self->y_axis)->numeric;
 
     if (my $graph = $self->_graph)
     {
         $graph->update($newgraph);
     }
     else {
-        $self->_graph($self->schema->resultset('Graph')->create($newgraph));
+        $self->_graph($::db->create(Graph => $newgraph);
         $self->_set_id($self->_graph->id);
     }
 }

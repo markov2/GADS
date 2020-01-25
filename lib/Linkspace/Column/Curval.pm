@@ -25,7 +25,7 @@ extends 'Linkspace::Column::Curcommon';
 
 use Log::Report 'linkspace';
 
-my @option_name = qw/override_permissions value_selector show_add delete_not_used/;
+my @option_names = qw/override_permissions value_selector show_add delete_not_used/;
 
 ###
 ### META
@@ -82,20 +82,6 @@ has delete_not_used => (
     trigger => sub { $_[0]->reset_options },
 );
 
-has set_filter => (
-    is => 'rw',
-);
-
-has '+filter' => (
-    builder => sub {
-        my $self = shift;
-        GADS::Filter->new(
-            as_json => $self->set_filter,
-            layout  => $self->layout_parent,
-        )
-    },
-);
-
 # Used to see whether we can filter yet using any filters defined for the
 # curval field. If the filter contains values of the parent record, then that
 # parent record needs to be set first
@@ -128,7 +114,7 @@ sub _build_view
 has has_subvals => (
     is      => 'lazy',
     isa     => Bool,
-    builder => sub { !! @{$_[0]->filter->columns_in_subs} },
+    builder => sub { my $c = $_[0]->filter_rules->columns_in_subs; !!@$c },
 }
 
 # The fields that we need input by the user for this filtered set of values
@@ -138,13 +124,14 @@ has subvals_input_required => (
 
 sub _build_subvals_input_required
 {   my $self = shift;
-    my @cols = @{$self->filter->columns_in_subs};
+    my $layout = ...;
+    my $cols = $self->filter_rules->columns_in_subs;
 
-    foreach my $col (@cols)
-    {   my @disp_col_ids = map $disp->display_field_id,
-           $::db->search(DisplayField => { layout_id => $col->id })->all;
+    foreach my $col (@$cols)
+    {   my @disp_col_ids = map $_->display_field_id,
+            $::db->search(DisplayField => { layout_id => $col->id })->all;
 
-        push @cols, $self->layout->column($_)
+        push @cols, $layout->column($_)
             for @{$col->depends_on}, @disp_col_ids;
     }
 

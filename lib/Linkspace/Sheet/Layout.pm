@@ -294,65 +294,27 @@ sub load_columns($)
     [ $cols->all ];
 }
 
-# Instantiate new class. This builds a list of all
-# columns, so that it's cached for any later function
-sub _build_columns
-{   my $self = shift;
-
-    my @return;
-    foreach my $col (@{$self->cols_db})
-    {
-        my $class = "GADS::Column::".camelize $col->{type};
-        my $column = $class->new(
-            set_values               => $col,
-            internal                 => $col->{internal},
-            instance_id              => $col->{instance_id},
-        );
-        push @return, $column;
-    }
-
-    \@return;
-}
-
 # Array with all the IDs of the columns of this layout. This is used to save
 # having to fully build all columns if only the IDs are needed
-has all_ids => (
+has all_column_ids => (
     is      => 'lazy',
-    isa     => ArrayRef,
-);
-
-sub _build_all_ids
-{   my $self = shift;
-    [ map $_->{id}, grep { $_->{instance_id} == $self->instance_id } @{$self->cols_db} ]
+    [ map $_->id, @{$self->columns} ]
 }
 
 has has_globe => (
     is      => 'lazy',
-);
-
-sub _build_has_globe
-{   my $self = shift;
-    !! grep { $_->return_type eq "globe" } $self->all;
+    builder => sub { !! grep $_->return_type eq 'globe', @{$_[0]->all_columns} },
 }
 
 has has_children => (
     is      => 'lazy',
-    isa     => Bool,
+    builder => sub { !! grep $_->can_child, $_[0]->all_columns },
 );
-
-sub _build_has_children
-{   my $self = shift;
-    !! grep { $_->can_child } $self->all;
-}
 
 has has_topics => (
     is      => 'lazy',
+    builder => sub { !! $::db->search(Topic => { instance_id => $self->sheet->id })->next },
 );
-
-sub _build_has_topics
-{   my $self = shift;
-    !! $self->schema->resultset('Topic')->search({ instance_id => $self->instance_id })->next;
-}
 
 has col_ids_for_cache_update => (
     is  => 'lazy',
@@ -363,18 +325,19 @@ has col_ids_for_cache_update => (
 # calculated/rag fields, plus any fields that they depend on
 sub _build_col_ids_for_cache_update
 {   my $self = shift;
+    my $sheet_id = shift->sheet->id;
 
     # First all the "parent" fields (the calc/rag fields)
-    my %cols = map { $_ => 1 } $self->schema->resultset('LayoutDepend')->search({
-        instance_id => $self->instance_id,
+    my %cols = map +($_ => 1), $::db->search(LayoutDepend => {
+        instance_id => $sheet_id
     },{
         join     => 'layout',
         group_by => 'me.layout_id',
     })->get_column('layout_id')->all;
 
     # Then all the fields they depend on
-    $cols{$_} = 1 foreach $self->schema->resultset('LayoutDepend')->search({
-        instance_id => $self->instance_id,
+    $cols{$_} = 1 for $::db->search(LayoutDepend =>
+        instance_id => $sheet_id,
     },{
         join     => 'depend_on',
         group_by => 'me.depends_on',
@@ -383,7 +346,7 @@ sub _build_col_ids_for_cache_update
     # Finally ensure all the calc/rag fields are included. If they only use an
     # internal column, then they won't have been part of the layout_depend
     # table
-    $cols{$_->id} = 1 foreach $self->all(has_cache => 1);
+    $cols{$_->id} = 1 for grep $_->has_cache, $self->all_columns;
 
     return [ keys %cols ];
 }
@@ -419,19 +382,9 @@ sub columns_for_filter
 }
 
 has max_width => (
-    is  => 'lazy',
-    isa => Int,
+    is      => 'lazy',
+    builder => sub { max map $_->width, $_[0]->all_columns },
 );
-
-sub _build_max_width
-{   my $self = shift;
-    my $max;
-    foreach my $col ($self->all)
-    {
-        $max = $col->width if !$max || $max < $col->width;
-    }
-    return $max;
-}
 
 # Order the columns in the order that the calculated values depend
 # on other columns
@@ -452,13 +405,10 @@ sub _order_dependencies
 }
 
 sub position
-{   my ($self, @position) = @_;
-    my $count;
-    foreach my $id (@position)
-    {
-        $count++;
-        $self->schema->resultset('Layout')->find($id)->update({ position => $count });
-    }
+{   my ($self, @column_ids) = @_;
+    my $col_nr = 0;
+    $::db->update(Layout => $_, { position => ++$col_nr })
+        for @column_ids;
 }
 
 sub column
@@ -470,21 +420,16 @@ sub column
     $column;
 }
 
-# Whether the supplied column ID is a valid one for this instance
-sub column_this_instance
-{   my ($self, $id) = @_;
-    my $col = $self->columns_index->{$id}
-        or return;
-    $col->instance_id == $self->instance_id;
+sub contains_column($)
+{   my ($self, $column) = @_;
+    !! $self->columns_index->{$column_id}
 }
 
 sub _build__columns_namehash
 {   my $self = shift;
     my %columns;
     foreach (@{$self->columns})
-    {
-        next unless $_->instance_id == $self->instance_id;
-        error __x"Column {name} exists twice - unable to find unique column",
+    {   error __x"Column {name} exists twice - unable to find unique column",
             name => $_ if $columns{$_};
         $columns{$_->name} = $_;
     }
