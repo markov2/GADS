@@ -23,14 +23,9 @@ use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
 has id => (
-    is  => 'rwp',
-    isa => Int,
+    is       => 'ro',
+    required => 1,
 );
 
 has name => (
@@ -78,32 +73,9 @@ has columns => (
     isa => HashRef,
 );
 
-# Internal DBIC object of group
-has _rset => (
-    is      => 'rwp',
-    lazy    => 1,
-    builder => 1,
-);
-
-sub _build__rset
-{   my $self = shift;
-    my $rset;
-    if ($self->id)
-    {
-        $rset = $self->schema->resultset('Group')->find($self->id);
-    }
-    else {
-        $rset = $self->schema->resultset('Group')->create({ name => undef });
-        $self->_set_id($rset->id);
-    }
-    $rset;
-}
-
 sub _build_columns
 {   my $self = shift;
-    my @perms = $self->schema->resultset('LayoutGroup')->search({
-        group_id => $self->id,
-    })->all;
+    my @perms = $::db->search(LayoutGroup => { group_id => $self->id })->all;
     my %columns;
     foreach my $perm (@perms)
     {
@@ -121,7 +93,7 @@ sub from_id
 
     $id or return;
 
-    my $group = $self->schema->resultset('Group')->find($id)
+    my $group = $::db->get_record(Group => $id)
         or return;
 
     $self->_set__rset($group);
@@ -137,11 +109,11 @@ sub from_id
 sub delete
 {   my $self = shift;
 
-    my $schema = $self->schema;
-    $self->schema->resultset('LayoutGroup')->search({ group_id => $self->id })->delete;
-    $self->schema->resultset('InstanceGroup')->search({ group_id => $self->id })->delete;
-    $self->schema->resultset('UserGroup')->search({ group_id => $self->id })->delete;
-    $self->_rset->delete;
+    my $group_ref = { group_id => $self->id };
+    $::db->delete($_ => $group_ref)
+        for qw/LayoutGroup InstanceGroup UserGroup/;
+
+    $self->delete;
 }
 
 # Write (updated) values to the database

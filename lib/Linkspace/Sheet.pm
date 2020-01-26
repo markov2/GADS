@@ -83,9 +83,7 @@ changes to the record, it will return the original object.
 sub sheet_update($)
 {   my ($self, %changes) = @_;
     keys %changes or return $self;
-
-    #XXX validation?
-    $::db->update(Instance => $self, \%changes);
+    $self->update(\%changes);
 }
 
 #--------------------
@@ -115,18 +113,15 @@ sub sheet_delete($)
     my $layout   = $self->layout;
 
     my $guard    = $::db->begin_work;
-
-    $layout->column_delete($_)
-       for $layout->columns(only_internal => 1, include_hidden => 1);
-
-    $::db->delete(InstanceGroup => { instance_id => $sheet_id });
+    $self->users->sheet_unuse($self);
+    $self->layout->sheet_unuse($self);
 
     my $dash = $::db->search(Dashboard => { instance_id => $sheet_id });
     $::db->delete(Widget => { dashboard_id =>
        { -in => $dash->get_column('id')->as_query }});
+    $dash->dashboard_delete;
 
-    $dash->delete;
-    $::db->delete(Instance => $sheet_id);
+    $self->delete;
 
     $guard->commit;
 }
@@ -169,7 +164,14 @@ Each Sheet has a Layout which contains the Column descriptions.
 
 has layout => (
     is      => 'lazy',
-    builder => sub { $_[0]->document->layout_for_sheet($self) },
+    builder => sub
+    {   my $self = shift;
+        my $doc    = $self->document;
+        Linkspace::Layout->new(
+            sheet   => $self,
+            columns => $doc->columns_for_sheet($self),
+        ),
+    },
 );
 
 sub _layout_create($%)
@@ -180,7 +182,7 @@ sub _layout_create($%)
         for @{$instance_info->{permissions}};
 
     $layout->import_hash($sheet_info);
-    $layout_id
+    $layout_id;
 }
 
 #--------------------

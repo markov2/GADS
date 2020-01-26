@@ -103,12 +103,16 @@ sub update_relations(%)
 #-----------------------
 =head1 METHODS: Groups
 
-=head2 my @groups = $user->groups_viewable;
+=head2 \@groups = $user->groups_viewable;
 Groups that this user should be able to see for the purposes of things like
 creating shared graphs.
 =cut
 
-sub groups_viewable
+has groups_viewable => (
+    is      => 'lazy',
+);
+
+sub _builder_groups_viewable
 {   my $self = shift;
 
     return @{$::session->site->groups}
@@ -132,28 +136,28 @@ sub groups_viewable
     my %groups = map +($_->group_id => $_->group),
         $owner_groups->all, $self->user_groups;
 
-    values %groups;
+    [ values %groups ];
 }
 
-=head2 my @group = $user->groups;
-Returns group records, group records.
+=head2 \@group = $user->groups;
+Returns group records.
 =cut
 
-sub groups { map $_->group, $_[0]->user_groups }
+sub groups { [ map $_->group, $_[0]->user_groups ] }
 
 =head2 my $member_of = $user->in_group($group);
 
 =head2 my $member_of = $user->in_group($group_id);
 =cut
 
-has _has_group => (
-    is => 'lazy',
-    builder => sub { +{ map +($_->group_id => 1) $_[0]->user_groups } },
+has _in_group => (
+    is      => 'lazy',
+    builder => sub { +{ map +($_->group_id => 1), @{$_[0]->user_groups} },
 }
 
 sub in_group($)
 {   my $self = shift;
-    $self->_has_group->{blessed $_[0] ? shift->id : shift};
+    $self->_in_group->{blessed $_[0] ? shift->id : shift};
 }
 
 # $user->_set_group_ids(\@group_ids);
@@ -161,17 +165,17 @@ sub _set_group_ids
 {   my ($self, $group_ids) = @_;
     defined $group_ids or return;
 
-    my $has_group = $self->_has_group;
-    my $is_admin  = $self->is_admin;
+    my $in_group = $self->_in_group;
+    my $is_admin = $self->is_admin;
 
     foreach my $g (@$group_ids)
-    {   next if $is_admin || $has_group->{$g};
+    {   next if $is_admin || $in_group->{$g};
         $self->find_or_create_related(user_groups => { group_id => $g });
     }
 
     # Delete any groups that no longer exist
     my @has_group_ids = map $_->id,
-        grep $is_admin || $has_group->{$_->id},
+        grep $is_admin || $in_group->{$_->id},
             @{$::session->site->groups};
 
     #XXX this is too complex
@@ -221,12 +225,6 @@ sub _views_delete()
 
     $site->sheet($_->{instance_id})->views->view_delete($_->{view_id})
         for $views_rs->all;
-
-    #XXX should move to ::Views
-    $::db->delete($_ => { view_id => \@view_ids })
-        for qw/Filter ViewLayout Sort AlertCache Alert/;
-
-    $views_rs->delete;
 }
 
 #-----------------------
@@ -267,7 +265,7 @@ The user's permissions are heavily cached, to make it perform.
 =cut
 
 # Inherited
-sub is_admin { $_[0]->permissions->{superadmin} }
+sub is_admin { $_[0]->has_permission('superadmin') }
 
 
 =head2 \%h = $user->sheet_permissions($sheet);
@@ -275,12 +273,12 @@ Returns a HASH which shows the user permissions which were set explicitly
 for this sheet (layout instance).
 =cut
 
-sub sheet_permissions($)
-{   my ($self, $sheet) = @_;
+has _sheet_perms => (
+    is      => 'lazy',
+    builder => sub
+    {   my $self = shift;
 
-    my $perms = $self->{LUP_sheet_perms};
-    unless($perms)
-    {   my $rs = $::db->search(InstanceGroup =>
+        my $rs = $::db->search(InstanceGroup =>
             user_id => $self->id,
         },{
             select => [
@@ -289,31 +287,32 @@ sub sheet_permissions($)
             ],
             as       => [ qw/instance_id permission/ ],
             group_by => [ qw/permission instance_id/ ],
-            join     => { group => 'user_groups' },
+            join     => { group => 'user_groups' },     #XXX why?
             result_class => 'HASH',
         });
 
-        $perms = $self->{LUP_sheet_perms} = {};
+        my %perms;
         $perms->{$_->{instance_id}}{$_->{permission}} = 1
             for $rs->all;
+        \%perms;
     }
 
-    $perms->{$sheet->id};
 }
 
-=head2 \%h = $user->column_permissions($column);
-Columns are grouped into Layouts, which model Sheets.
+sub sheet_permissions($) { $_[0]->_sheet_perms->{$_[1]->id} }
+
+=head2 \%perm = $user->column_permissions($column);
+Returns the permissions this user has for the columns.
 =cut
 
 has _col_perms = (
     is      => 'lazy',
     builder => sub {
-        #XXX Why is instance_id in here?
         my $rs = $::db->search(LayoutGroup => {
             user_id => $self->id,
         }, {
             select => [
-                { max => 'layout.instance_id' },
+                { max => 'layout.instance_id' },   #XXX Why?
                 { max => 'me.layout_id' },
                 { max => 'me.permission' },
             ],
@@ -334,8 +333,14 @@ has _col_perms = (
 }
 
 sub column_permissions($)
-{   my ($self, $col) = @_;
-    $self->_col_perms->{$col->layout_id};
+{   my ($self, $column) = @_;
+    $self->_col_perms->{$column->id} || {};
+}
+
+sub can_access_column($$)
+{   my ($self, $column, $perm) = @_;
+       $self->_col_perm->{$column->id}{$perm}
+    || $self->_sheet_perms->{$column->sheet->id}{$perm};
 }
 
 =head2 my $has = $user->has_permission($perm);
@@ -346,9 +351,10 @@ has _permissions => (
     is      => 'lazy',
     builder => sub {
         my $self = shift;
-        my %all = map +($_->id => $_->name), $::db->resultset('Permission')->all;
+        my %all = map +($_->id => $_->name), @{$self->all_permissions};
+
          +{
-             map +($all{$_->permission_id} => 1), $self->user_permissions
+             map +($all{$_->permission_id} => 1), @{$self->user_permissions};
           };
     };
 }
@@ -359,7 +365,7 @@ sub _set_permissions
 {   my ($self, @permissions) = @_;
 
     my %want_perms = map +($_ => 1), @permissions;
-    my %perm2id  = map +($_->name => $_->id), $::db->search('Permission')->all;
+    my %perm2id  = map +($_->name => $_->id), @{$self->all_permissions};
 
     #XXX why limited to these three?
     foreach my $perm (qw/useradmin audit superadmin/)
@@ -479,5 +485,16 @@ sub summary(%)
     #XXX it is easy to make a nice table for this
     join $sep, map "$_->[0]: $_->[1]", @f;
 }
+
+#-----------------------
+=head1 Permissions
+
+=head2 \@perms = $users->all_permissions;
+=cut
+
+has all_permissions => (
+    is      => 'lazy',
+    builder => sub { [ $::db->resultset('Permission')->all ] },
+);
 
 1;

@@ -3,7 +3,7 @@
     [% MACRO permission_input(name, label, group, nested) BLOCK %]
         <div class="form-group">
             <input data-permission-class="[% name.replace('_','-') %]" type="checkbox" id="permission_[% name %]_[% group.id %]" 
-                name="permission_[% name %]_[% group.id %]" [% column.group_has(group.id, name) ? 'checked' : '' %]>
+                name="permission_[% name %]_[% group.id %]" [% column.group_can(group, name) ? 'checked' : '' %]>
             <label for="permission_[% name %]_[% group.id %]">[% label | html %]</label>
             [% nested %]
         </div>

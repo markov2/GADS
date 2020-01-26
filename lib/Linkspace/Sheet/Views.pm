@@ -68,10 +68,11 @@ sub view_delete($)
 {   my ($self, $which) = @_;
     my $view = $self->view($which) or return;
 
-    #XXX more to ::View
-    my %view_ref = ( view_id => $view_id );
-    $::db->delete($_ => \%view_ref)
+    #XXX move to ::View?
+    my $view_ref = { view_id => $view_id };
+    $::db->delete($_ => $view_ref)
         for qw/Filter ViewLimit ViewLayout Sort AlertCache Alert/;
+
     $view->delete;
 }
 

@@ -100,7 +100,7 @@ sub _build__records
 
     my @hits;
 
-    my $datum_tables = $sheet->layout->datum_tables;
+    my $meta_tables = Linkspace::Column->meta_tables;
     if($sheet->user_can('approve_new'))
     {
         my %search = (
@@ -112,7 +112,7 @@ sub _build__records
         );
     
         push @hits, $::db->search($_ => \%search, $options)->all
-            for @$datum_tables;
+            for @$meta_tables;
     }
 
     if($sheet->user_can('approve_existing'))
@@ -125,7 +125,7 @@ sub _build__records
         );
 
         push @hits, $::db->search($_ => \%search, $options)->all
-            for @$datum_tables;
+            for @$meta_tables;
     }
 
     my %records;

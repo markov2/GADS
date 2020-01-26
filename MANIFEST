@@ -182,7 +182,6 @@ lib/GADS/Datum/Serial.pm
 lib/GADS/Datum/String.pm
 lib/GADS/Datum/Tree.pm
 lib/GADS/DBIC.pm
-lib/GADS/Filter.pm
 lib/GADS/Globe.pm
 lib/GADS/Graph.pm
 lib/GADS/Graph/Data.pm
@@ -292,6 +291,7 @@ lib/Linkspace/Column/Tree.pm
 lib/Linkspace/DB.pm
 lib/Linkspace/DBICProfiler.pm
 lib/Linkspace/Document.pm
+lib/Linkspace/Filter.pm
 lib/Linkspace/Mailer.pm
 lib/Linkspace/Role/Presentation/Column.pm
 lib/Linkspace/Role/Presentation/Column/Rag.pm

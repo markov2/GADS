@@ -18,6 +18,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Column;
 
+use Moo;
+use MooX::Types::MooseLike::Base qw/:all/;
+
 use Log::Report 'linkspace';
 
 use GADS::Groups;
@@ -44,9 +47,6 @@ use Linkspace::Column::Tree;
 
 use MIME::Base64 /encode_base64/;
 use JSON qw(decode_json encode_json);
-use String::CamelCase qw(camelize);
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 
 use List::Compare ();
 
@@ -90,6 +90,7 @@ sub has_multivalue_plus  { 0 }
 sub hidden         { 0 }   #XXX?
 sub internal       { 0 }
 sub is_curcommon   { $_[0]->isa('Linkspace::Column::Curcommon') }
+sub meta_tables    { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] }
 sub multivalue     { 0 }
 sub numeric        { 0 }
 sub option_names   { shift; [ @_ ] };
@@ -106,6 +107,11 @@ sub variable_join  { 0 }   # joins can be different on the config
 sub sort_parent   { undef }
 
 ###
+### Class
+###
+
+
+###
 ### Instance
 ###
 
@@ -120,45 +126,26 @@ sub sort_columns   { $_[0] }
 
 ### helpers
 sub site           { $::session->site }
-sub returns_date   { $_[0]->return_type =~ /date/ }
+sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
 sub field          { "field".($_[0]->id) }
 
-has layout => (
-    is       => 'ro',
-    required => 1,
+has sheet  => (
+    is       => 'lazy',
     weakref  => 1,
+    builder  => sub
+    {   # dangling column needs it's sheet
+        $self->site->sheet($_[0]->instance_id);
+    }
 );
 
-sub sheet { $_[0]->layout->sheet }
-
-# All permissions for this column
-has permissions => (
-    is  => 'lazy',
-    isa => HashRef,
+has layout => (
+    is       => 'lazy',
+    weakref  => 1,
+    builder  => sub { $_[0]->sheet->layout },
 );
 
-has from_id => (
-    is      => 'rw',
-    trigger => sub {
-        my ($self, $col_id) = @_;
-        # Column needs to be built from its sub-class, otherwise methods only
-        # relavent to that type will not be available
-        ref $self eq __PACKAGE__
-            and panic "from_id cannot be called on raw GADS::Column object";
-
-        my $col = $::db->search(Layout => {
-            'me.id'          => $col_id,
-            'me.instance_id' => $self->sheet->id,
-        },{
-            order_by => ['me.position', 'enumvals.id'],
-            prefetch => [ qw/enumvals calcs rags file_options/ ],
-            result_class => 'HASH',
-        })->first;
-
-        $col or error __x"Field ID {id} not found", id => $value;
-        $self->set_values($col);
-    },
-);
+# $self->valide($value)
+sub validate   { 1 }   
 
 has set_values => (
     is      => 'rw',
@@ -232,14 +219,6 @@ has isunique => (
     lazy    => 1,
     default => 0,
     coerce  => sub { $_[0] ? 1 : 0 },
-);
-
-has set_can_child => (
-    is        => 'rw',
-    isa       => Bool,
-    predicate => 1,
-    coerce    => sub { $_[0] ? 1 : 0 },
-    trigger   => sub { shift->clear_can_child },
 );
 
 has can_child => (
@@ -462,17 +441,11 @@ has link_parent_id => (
     coerce => sub { $_[0] || undef }, # String from form submit
 );
 
-has suffix => (
-    is   => 'rw',
-    isa  => Str,
-    lazy => 1,
-    builder => sub {
-        $_[0]->return_type eq 'date' || $_[0]->return_type eq 'daterange'
-        ? '(\.from|\.to|\.value)?(\.year|\.month|\.day)?'
-        : $_[0]->type eq 'tree'
-        ? '(\.level[0-9]+)?'
-        : '';
-    },
+sub suffix($)
+{   my $self = shift;
+      $self->return_type eq 'date' || $self->return_type eq 'daterange'
+    ? '(\.from|\.to|\.value)?(\.year|\.month|\.day)?'
+    : $self->type eq 'tree' ? '(\.level[0-9]+)?' : '';
 );
 
 # Used to provide a blank template for row insertion (to blank existing
@@ -495,8 +468,9 @@ has depends_on => (
     builder => sub {
         my $self = shift;
         return [] if $self->userinput;
-        my @depends = $::db->(LayoutDepend => { layout_id => $self->id })->all;
-        [ map $_->get_column('depends_on'), @depends ];
+
+        my $depends = $::db->(LayoutDepend => { layout_id => $self->id });
+        [ $depends->get_column('depends_on')->all ];
     },
 );
 
@@ -536,57 +510,56 @@ sub parse_date
     $::session->user->local2dt($value);
 }
 
-sub _build_permissions
+#------------------------
+=head1 METHODS: Permissions / Groups
+=cut
+
+sub _access_groups() { $::db->search(LayoutGroup => { layout_id => $_[0]->id }) }
+
+# All permissions for this column
+has permissions => (    # private?
+    is      => 'lazy',
+    builder => sub
+    {   my $self = shift;
+        my %perms;
+        push @{$perms{$_->group_id}}, GADS::Type::Permission->new(short => $_->permission)
+            for $self->_access_groups;
+        \%perms;
+    },
+);
+
+sub permissions_by_group_export()
 {   my $self = shift;
-    my @all = $::db->search(LayoutGroup => layout_id => $self->id });
-    my %perms;
-    foreach my $p (@all)
-    {
-        $perms{$p->group_id} ||= [];
-        push @{$perms{$p->group_id}}, GADS::Type::Permission->new(
-            short => $p->permission
-        );
-    }
-    \%perms;
+    my %permissions;
+    push @{$permissions{$_->group_id}}, $_->permission
+        for $self->_access_groups;
+
+    \%permissions;
 }
 
-sub group_has
-{   my ($self, $group_id, $perm) = @_;
-    my $perms = $self->permissions->{$group_id}
-        or return 0;
-    (grep { $_->short eq $perm } @$perms) ? 1 : 0;
+
+sub group_can
+{   my ($self, $which, $perm) = @_;
+    my $group_id = blessed $which ? $which->id : $which;
+    my $perms = $self->permissions->{$group_id} || [];
+    first { $_->short eq $perm } @$perms;
 }
 
-# Return a human-readable summary of groups
 sub group_summary
 {   my $self = shift;
 
-    my %groups;
-
-    foreach my $perm ($self->schema->resultset('LayoutGroup')->search({ layout_id => $self->id })->all)
-    {
-        $groups{$perm->group->name} ||= [];
-        my $p = GADS::Type::Permission->new(short => $perm->permission);
+    my %perms;
+    foreach my $perm ($self->_access_groups)
+    {   my $p = GADS::Type::Permission->new(short => $perm->permission);
         push @{$groups{$perm->group->name}}, $p->medium;
     }
 
-    my $return =  '';
-
-    foreach my $group (keys %groups)
-    {
-        $return .= qq(Group "$group" has permissions: ).join(', ', @{$groups{$group}})."\n";
-    }
-
-    return $return;
+    local $" = ', ';
+    join "\n", map qq(Group "$_" has permissions: @{$groups{$_}}\n),
+        sort keys %groups;
 }
 
-sub _build_instance_id
-{   my $self = shift;
-    $self->layout
-        or panic "layout is not set - specify instance_id on creation instead?";
-    $self->layout->instance_id;
-}
-
+#-------------------
 sub build_values
 {   my ($self, $original) = @_;
 
@@ -685,7 +658,7 @@ sub filter_rules(;$)
     # Via filter object, to ensure validation
     my $set    = shift;
     my $filter = blessed $set && $set->isa('Linkspace::Filter') ? $set
-       :  Linkspace::Filter->from_json($set);
+      : Linkspace::Filter->from_json($set);
 
     my $json   = $filter->json;
     $self->update({filter => $json});
@@ -1051,11 +1024,6 @@ sub _filter_remove_colid_decoded
     $filter->{id} && $colid == $filter->{id} ? 0 : 1;
 }
 
-sub validate
-{   my ($self, $value) = @_;
-    1; # Overridden in child classes
-}
-
 sub validate_search
 {   shift->validate(@_);
 }
@@ -1098,8 +1066,9 @@ sub values_beginning_with
 
 # The regex that will match the column in a calc/rag code definition
 sub code_regex
-{   my $self  = shift;
-    my $name  = $self->name; my $suffix = $self->suffix;
+{   my $self   = shift;
+    my $name   = $self->name;
+    my $suffix = $self->suffix;
     qr/\[\^?\Q$name\E$suffix\Q]/i;
 }
 
@@ -1108,118 +1077,56 @@ sub additional_pdf_export {}
 sub import_hash
 {   my ($self, $values, %options) = @_;
     my $report = $options{report_only} && $self->id;
-    notice __x"Update: name from {old} to {new} for {name}",
-        old => $self->name, new => $values->{name}, name => $self->name
-            if $report && $self->name ne $values->{name};
-    $self->name($values->{name});
-    notice __x"Update: name_short from {old} to {new} for {name}",
-        old => $self->name_short, new => $values->{name_short}, name => $self->name
-            if $report && ($self->name_short || '') ne ($values->{name_short} || '');
-    $self->name_short($values->{name_short});
-    notice __x"Update: optional from {old} to {new} for {name}",
-        old => $self->optional, new => $values->{optional}, name => $self->name
-            if $report && $self->optional != $values->{optional};
-    $self->optional($values->{optional});
-    notice __x"Update: remember from {old} to {new} for {name}",
-        old => $self->remember, new => $values->{remember}, name => $self->name
-            if $report && $self->remember != $values->{remember};
-    $self->remember($values->{remember});
-    notice __x"Update: isunique from {old} to {new} for {name}",
-        old => $self->isunique, new => $values->{isunique}, name => $self->name
-            if $report && $self->isunique != $values->{isunique};
-    $self->isunique($values->{isunique});
-    notice __x"Update: can_child from {old} to {new} for {name}",
-        old => $self->can_child, new => $values->{can_child}, name => $self->name
-            if $report && $self->can_child != $values->{can_child};
-    $self->set_can_child($values->{can_child});
-    notice __x"Update: position from {old} to {new} for {name}",
-        old => $self->position, new => $values->{position}, name => $self->name
-            if $report && $self->position != $values->{position};
-    $self->position($values->{position});
-    notice __x"Update: description from {old} to {new} for {name}",
-        old => $self->description, new => $values->{description}, name => $self->name
-            if $report && $self->description ne $values->{description};
-    $self->description($values->{description});
-    notice __x"Update: aggregate from {old} to {new} for {name}",
-        old => $self->aggregate, new => $values->{aggregate}, name => $self->name
-            if $report && ($self->aggregate || '') ne ($values->{aggregate} || '');
-    $self->aggregate($values->{aggregate});
-    notice __x"Update: group_display from {old} to {new} for {name}",
-        old => $self->group_display, new => $values->{group_display}, name => $self->name
-            if $report && ($self->group_display || '') ne ($values->{group_display} || '');
-    $self->group_display($values->{group_display});
-    notice __x"Update: width from {old} to {new} for {name}",
-        old => $self->width, new => $values->{width}, name => $self->name
-            if $report && $self->width != $values->{width};
-    $self->width($values->{width});
-    notice __x"Update: helptext from {old} chars to {new} chars for {name}",
-        old => length($self->helptext), new => length($values->{helptext}), name => $self->name
-            if $report && $self->helptext ne $values->{helptext};
-    $self->helptext($values->{helptext});
-    notice __x"Update: multivalue from {old} to {new} for {name}",
-        old => $self->multivalue, new => $values->{multivalue}, name => $self->name
-            if $report && $self->multivalue != $values->{multivalue};
-    $self->multivalue($values->{multivalue});
+    my %update;
 
-    $self->filter(GADS::Filter->new(as_json => $values->{filter}));
-    notice __x"Update: filter from {old} to {new} for {name}",
-        old => $self->filter->as_json, new => $values->{filter}, name => $self->name
-            if $report && $self->filter->changed;
-    foreach my $option (@{$self->option_names})
-    {
-        notice __x"Update: {option} from {old} to {new} for {name}",
-            option => $option, old => $self->$option, new => $values->{$option}, name => $self->name
-                if $report && $self->$option ne $values->{$option};
-        $self->$option($values->{$option});
-    }
+    # validate/normalize json
+    $values->{filter} = Linkspace::Filter->from_json($values->{filter})->as_json;
+
+    my $take   = sub {
+        my $field = shift;
+        my $new   = $values->{field};
+        return if +($old // '') eq +($new // '');
+
+        notice __x"Update: {field} from '{old}' to '{new}' for {name}",
+            field => $field, old => $self->$field, new => $new, name => $name
+            if $report;
+
+        $update{$field} = $new;
+    };
+
+    $take->($_) for
+        @simple_import_attributes,
+        ${$self->option_names};
 }
+
+my @simple_import_attributes = 
+   qw/name name_short optional remember isunique can_child position description
+      aggregate width filter helptext multivalue group_display/;
+
+my @simple_export_attributes =
+   qw/id type topic_id display_condition/
 
 sub export_hash
 {   my $self = shift;
-    my $permissions;
-    foreach my $perm ($self->schema->resultset('LayoutGroup')->search({ layout_id => $self->id })->all)
-    {
-        $permissions->{$perm->group_id} ||= [];
-        push @{$permissions->{$perm->group_id}}, $perm->permission;
-    }
-    my $return = {
-        id                => $self->id,
-        type              => $self->type,
-        name              => $self->name,
-        name_short        => $self->name_short,
-        topic_id          => $self->topic_id,
-        optional          => $self->optional,
-        remember          => $self->remember,
-        isunique          => $self->isunique,
-        can_child         => $self->can_child,
-        position          => $self->position,
-        description       => $self->description,
-        width             => $self->width,
-        helptext          => $self->helptext,
-        display_condition => $self->display_condition,
+
+    my @display_fields = map +{           #XXX move to filter->export_hash()
+        id       => $filter->{column_id},
+        value    => $filter->{value},
+        operator => $filter->{operator},
+    }, @{$self->display_fields->filters};
+
+    my %export = (
+        display_fields    => \@display_fields,
         link_parent       => $self->link_parent && $self->link_parent->id,
-        multivalue        => $self->multivalue,
-        filter            => $self->filter->as_json,
-        aggregate         => $self->aggregate,
-        group_display     => $self->group_display,
-        permissions       => $permissions,
+        permissions       => $self->permissions_by_group_export,
     };
 
-    my @display_fields;
-    foreach my $filter (@{$self->display_fields->filters})
-    {
-        push @display_fields, {
-            id       => $filter->{column_id},
-            value    => $filter->{value},
-            operator => $filter->{operator},
-        };
-    }
-    $return->{display_fields} = \@display_fields;
-    foreach my $option (@{$self->option_names})
-    {
-        $return->{$option} = $self->$option;
-    }
-    return $return;
+    $export{$_} = $self->$_ for
+        @simple_import_attributes,
+        @simple_export_attributes,
+        @{$self->option_names};
+
+    \%export;
 }
 
 # Subroutine to run after a column write has taken place for an import

@@ -448,10 +448,10 @@ any ['get', 'post'] => '/login' => sub {
         }
         else
         {   $login_change->("New user account request for $email");
-            my @to = map $_->email, $users->useradmins;
-            $::linkspace->mailer->send_account_requested($victim, \@to);
+            my $to = $users->useradmins_emails;
+            $::linkspace->mailer->send_account_requested($victim, $to);
             return forwardHome({ success =>
-                "Your account request has been received successfully" });
+                "Your account request has been received successfully." });
         }
     }
     elsif(param('signin'))
@@ -461,7 +461,6 @@ any ['get', 'post'] => '/login' => sub {
         my $password    = param 'password';
 
         my $victim    = $site->users->user(username => $username);
-
         my $fail      = $victim->failcount >= 5
             && $victim->lastfail > DateTime->now->subtract(minutes => 15);
 
@@ -776,13 +775,11 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
 
     if (param 'sendemail')
     {   my $org_id = param 'email_organisation';
-        my @emails = map $_->email,
-         ( $org_id ? @{$users->all_in_org($org_id)} : @{$users->all} );
-
+        my $to     = $org_id ? $users->users_in_org($org_id) : $users->all_users;
         if(process( sub { $::linkspace->mailer->message(
             subject => param('email_subject'),
             text    => param('email_text'),
-            emails  => \@emails,
+            emails  => [ map $_->email, @$to ],
         ) }))
         {
             return forwardHome(
@@ -939,18 +936,18 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         return send_file( \$csv, content_type => 'text/csv; charset="utf-8"', filename => "$now$header.csv" );
     }
 
-    my $register_requests;
+    my $account_requestors;
     my $page        = 'user';
     my @breadcrumbs = Crumb('/user' => 'users');
 
-    my $route_id = route_parameters->get('id');
+    my $route_id    = route_parameters->get('id');
     if($route_id)
     {   push @users, $users->user($route_id) if !@users;
         push @breadcrumbs, Crumb("/user/$route_id" => "edit user $route_id");
     }
     elsif(!defined $route_id)
-    {   @users             = $users->all;
-        $register_requests = $users->register_requests;
+    {   @users      = $users->all;
+        $account_requestors = $users->account_requestors;
     }
     else # route_id==0
     {   # Horrible hack to get a limit view drop-down to display
@@ -960,16 +957,16 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     }
 
     my $output = template 'user' => {
+        page              => $page,
         edit              => $route_id,
         users             => \@users,
         groups            => $site->groups,
-        register_requests => $register_requests,
+        register_requests => $account_requestors,
         titles            => $users->titles,
         organisations     => $users->organisations,
         departments       => $users->departments,
         teams             => $users->teams,
         permissions       => $users->permissions,
-        page              => $page,
         breadcrumbs       => \@breadcrumbs,
     };
     $output;
@@ -1034,7 +1031,7 @@ post '/file/?' => require_login sub {
     my $ajax           = defined param('ajax');
     my $is_independent = defined param('is_independent') ? 1 : 0;
 
-    if (my $upload = upload('file'))
+    if (my $upload     = upload('file'))
     {
         my %insert = (
             name           => $upload->filename,

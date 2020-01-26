@@ -65,60 +65,6 @@ has columns => (
     builder => '_build_columns',
 );
 
-has _columns_namehash => (
-    is      => 'lazy',
-    isa     => HashRef,
-);
-
-has _columns_name_shorthash => (
-    is      => 'lazy',
-    isa     => HashRef,
-);
-
-#XXX should get created dynamically
-has datum_tables => (
-    is      => 'ro',
-    default => sub { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] },
-)
-
-sub _build__user_permissions_columns
-{   my $self = shift;
-    my $user_id = $::session->user->id;
-
-    +{
-        $user_id => $self->_get_user_permissions($user_id),
-    };
-}
-
-sub _get_user_permissions
-{   my ($self, $user_id) = @_;
-    my $user_perms = $::db->search(User => {
-        'me.id'              => $user_id,
-    },
-    {
-        prefetch => {
-            user_groups => {
-                group => { layout_groups => 'layout' },
-            }
-        },
-        result_class => 'HASH',
-    });
-
-    my $return;
-    if ($user_perms) # Might not be any at all
-    {
-        foreach my $group (@{$user_perms->{user_groups}}) # For each group the user has
-        {
-            foreach my $layout_group (@{$group->{group}->{layout_groups}}) # For each column in that group
-            {
-                # Push the actual permission onto an array
-                $return->{$layout_group->{layout_id}}->{$layout_group->{permission}} = 1;
-            }
-        }
-    }
-    return $return;
-}
-
 has _user_permissions_overall => (
     is      => 'lazy',
     isa     => HashRef,
@@ -164,15 +110,6 @@ sub user_can_column
     $user_cache->{$column_id}{$permission};
 }
 
-has columns_index => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        +{ map +($_->{id} => $_) @{$self->columns} };
-    },
-);
-
 has set_groups => (
     is        => 'rw',
     isa       => ArrayRef,
@@ -184,99 +121,74 @@ has set_groups => (
 =head2 my $layout_id = $class->layout_create(%insert);
 =cut
 
-sub layout_create(%)
-{    my ($class, %insert) = @_;
-     $insert{instance_id} = delete $insert{sheet_id};
-
-     my $layout_id = $self->create(\%insert)->id;
-     $class->_create_internal_columns($layout_id);
-}
-
-sub write
-{   my $self = shift;
-    $rset->update({
-        name           => $self->name,
-        name_short     => $self->name_short,
-        homepage_text  => $self->homepage_text,
-        homepage_text2 => $self->homepage_text2,
-        sort_type      => $self->sort_type,
-        sort_layout_id => $self->sort_layout_id,
-    });
-
-    $sheet->set_permissions($self->set_groups);
-        if $self->has_set_groups;
-
-    $self;
-}
-
-### $class->_create_internal_columns($layout_id);
-#   Create the initial Columns for a new sheet.
-
+# initial Columns for a new sheet.
 my @internal_columns = (
-    {
-        name        => 'ID',
+    {   name        => 'ID',
         type        => 'id',
         name_short  => '_id',
         isunique    => 1,
     },
-    {
-        name        => 'Last edited time',
+    {   name        => 'Last edited time',
         type        => 'createddate',
         name_short  => '_version_datetime',
         isunique    => 0,
     },
-    {
-        name        => 'Last edited by',
+    {   name        => 'Last edited by',
         type        => 'createdby',
         name_short  => '_version_user',
         isunique    => 0,
     },
-    {
-        name        => 'Created by',
+    {   name        => 'Created by',
         type        => 'createdby',
         name_short  => '_created_user',
         isunique    => 0,
     },
-    {
-        name        => 'Deleted by',
+    {   name        => 'Deleted by',
         type        => 'deletedby',
         name_short  => '_deleted_by',
         isunique    => 0,
     },
-    {
-        name        => 'Created time',
+    {   name        => 'Created time',
         type        => 'createddate',
         name_short  => '_created',
         isunique    => 0,
     },
-    {
-        name        => 'Serial',
+    {   name        => 'Serial',
         type        => 'serial',
         name_short  => '_serial',
         isunique    => 1,
     },
 );
 
-sub create_for_sheet($)
-{   my ($class, $sheet) = @_;
-    my $sheet_id = $sheet->id;
+sub layout_create(%)
+{    my ($class, %insert) = @_;
+     my $sheet_id = delete $insert{sheet_id};
 
-	my $guard = $::db->begin_work;
+     foreach my $col (@internal_columns)
+     {   $::db->create(Layout => {
+             %$col,
+             can_child   => 0,
+             internal    => 1,
+             instance_id => $sheet_id,
+         });
+     }
+}
 
-    foreach my $col (@internal_columns)
-    {   $::db->create(Layout => {
-            %$col,
-            can_child   => 0,
-            internal    => 1,
-            instance_id => $sheet_id,
-        });
-    }
+sub layout_update($)
+{   my ($self, %update) = @_;
 
-	$guard->commit;
+    my $permissions = delete $update{permissions};
+
+    $self->set_permissions($permissions)
+         if $self->groups;
+
+    $self;
 }
 
 =head2 my @cols = $class->load_columns;
-Initially load all column information for a certain site.
+Initially load all column information for a certain site.  For the whole
+site!  This is required because sheets do interlink.  For instance,  we
+need to be able to lookup columns names in Filters.
 =cut
 
 sub load_columns($)
@@ -292,13 +204,6 @@ sub load_columns($)
     });
 
     [ $cols->all ];
-}
-
-# Array with all the IDs of the columns of this layout. This is used to save
-# having to fully build all columns if only the IDs are needed
-has all_column_ids => (
-    is      => 'lazy',
-    [ map $_->id, @{$self->columns} ]
 }
 
 has has_globe => (
@@ -386,24 +291,6 @@ has max_width => (
     builder => sub { max map $_->width, $_[0]->all_columns },
 );
 
-# Order the columns in the order that the calculated values depend
-# on other columns
-sub _order_dependencies
-{   my ($self, @columns) = @_;
-
-    return unless @columns;
-
-    my %deps = map {
-        $_->id => $_->has_display_field ? $_->display_field_col_ids : $_->depends_on
-    } @columns;
-
-    my $source = Algorithm::Dependency::Source::HoA->new(\%deps);
-    my $dep = Algorithm::Dependency::Ordered->new(source => $source)
-        or die 'Failed to set up dependency algorithm';
-    my @order = @{$dep->schedule_all};
-    map { $self->columns_index->{$_} } @order;
-}
-
 sub position
 {   my ($self, @column_ids) = @_;
     my $col_nr = 0;
@@ -411,18 +298,9 @@ sub position
         for @column_ids;
 }
 
-sub column
-{   my ($self, $id, %options) = @_;
-    $id or return;
-    my $column = $self->columns_index->{$id}
-        or return; # Column does not exist
-    return if $options{permission} && !$column->user_can($options{permission});
-    $column;
-}
-
 sub contains_column($)
 {   my ($self, $column) = @_;
-    !! $self->columns_index->{$column_id}
+    !! $self->columns_index->{$column_id};
 }
 
 sub _build__columns_namehash
@@ -436,10 +314,7 @@ sub _build__columns_namehash
     \%columns;
 }
 
-sub column_by_name
-{   my ($self, $name) = @_;
-    $self->_columns_namehash->{$name};
-}
+sub column_by_name { $_->_columns_name->{$_[1]} }
 
 sub _build__columns_name_shorthash
 {   my $self = shift;
@@ -644,38 +519,40 @@ sub newest_field_id {
 Column definitions are shared between all Sheets in a Document: a
 Layout maintains is a subset of these definitions.
 
-=head2 \@cols = $layout->columns;
+=head2 \@cols = $layout->all_columns;
 =cut
 
-has columns => (
-    is    => 'lazy',
-    isa   => ArrayRef,
+# Sometimes, the structure is build downside-up: from column into
+# a sheet.
+has all_columns => (
+    is      => 'lazy',
+    builder => sub { $_[0]->document->columns_for_sheet($_[0]->sheet) },
+);
+
+=head2 my $column = $layout->column($which, %options);
+Find a column by short_name or id.  Local names have preference.
+You can check to have a certain permission in one go.
+=cut
+
+has _column_index => (
+    is      => 'lazy',
     builder => sub {
-        [ map Linkspace::Column->from_id($_), $_[0]->column_ids ]
+       my $columns = $_[0]->all_columns;
+       +{ map +($_->id => $_, $_->short_name => $_), @$columns };
     },
 );
 
-=head2 \@col_ids = $layout->column_ids;
-=cut
+sub column($)
+{   my ($self, $which) = (shift, shift);
+    return $which if blessed $which;
 
-has column_ids => (
-    is    => 'lazy',
-    isa   => ArrayRef,
-    builder => sub { $_[0]->document->columns_for_layout($_[0]) },
-}
+    # Local names have preferenx
+    my $column = $self->_column_index->{$which}
+        or return $self->document->column($which, @_);
 
-=head2 $col = $layout->column_by_id($id);
-=cut
-
-has _column_by_id => (
-    is      => 'lazy',
-    isa     => HashRef,
-    builder => sub {
-}
-
-sub column_by_id($)
-{   my ($self, $id) = @_;
-    $self->_column_by_id->{$id};
+    @_ or return $column;
+    my %args = @_;
+    ! $args{permission} || $column->user_can($args{permission}) ? $column : undef;
 }
 
 =head2 \@cols = $layout->columns(%options);
@@ -723,9 +600,9 @@ sub _order_dependencies
     map $self->column_by_id($_), @{$dep->schedule_all};
 }
 
-sub search_columns
+sub columns
 {   my ($self, %options) = @_;
-    return @
+    keys %options or return $self->all_columns;
 
     # Some parameters are a bit inconvenient
     $options{exclude_hidden} = ! delete $options{include_hidden}
@@ -761,7 +638,7 @@ sub search_columns
             1;
         };
 
-    my @columns  = grep $filter->($_), @{$self->columns};
+    my @columns  = grep $filter->($_), @{$self->all_columns};
 
     @columns = $self->_order_dependencies(@columns)
         if $options{order_dependencies};
@@ -802,6 +679,10 @@ sub search_columns
     @columns;
 }
 
+=head2 $layout->column_unuse($column);
+Remove all kinds of usage for this column, maybe to delete it later.
+=cut
+
 sub column_unuse($)
 {   my ($self, $column) = @_;
 
@@ -810,6 +691,10 @@ sub column_unuse($)
         for qw/DisplayField LayoutDepend LayoutGroup/;
     $self;
 }
+
+=head2 $layout->column_delete($column);
+Remove this column everywhere.
+=cut
 
 sub column_delete($)
 {   my ($self, $column) = @_;
@@ -859,6 +744,13 @@ sub column_delete($)
     $::db->delete(Layout => $column->id);    # Finally!
 
     $guard->commit;
+}
+
+sub sheet_unuse($)
+{   my ($self, $sheet) = @_;
+
+    $self->column_delete($_) for $self->all_columns;
+    # I have no substance
 }
 
 1;

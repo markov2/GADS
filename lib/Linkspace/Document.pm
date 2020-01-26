@@ -184,18 +184,29 @@ has _column_index => (
     builder => sub
     {   my $self = shift;
         my $doc_cols = Linkspace::Sheet::Layout->load_columns($self);
-        +{ map +($_->id => $_), @doc_cols }
+        +{ map +($_->id => $_, $_->short_name => $_), @doc_cols }
     },
 );
 
-=head2 my $column = $doc->column($id);
+=head2 my $column = $doc->column($which, %options);
+Find a column by short_name or id, over all sheets.  When different sheets
+define the same name, you get any.  You can check to have a certain user
+access C<permission> in one go.
 =cut
 
-sub column($)
-{   my ($self, $id) = @_;
+sub column($%)
+{   my ($self, $which) = @_;
     my $column = $self->_column_index->{$id};
     $column->isa('Linkspace::Column')   # upgrade does not change pointer
         or Linkspace::Column->from_record($column, document => $self);
+
+    @_ or return $column;
+    my %args = @_;
+    if(my $p = $args{permission})
+    {   $::session->user->can_access_colum($column, $args{permission})
+            or return undef;
+    }
+
     $column;
 }
 
@@ -301,7 +312,7 @@ sub row($$%)
 }
 
 #--------------
-=head1 METHODS: Find Other
+=head1 METHODS: Other
 
 =head2 $doc->column_unuse($column);
 Remove a column wherever it is used.

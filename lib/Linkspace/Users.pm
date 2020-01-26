@@ -30,6 +30,18 @@ use File::BOM          qw(open_bom);
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 
+=head1 NAME
+
+Linkspace::Users - Manage Users, Groups and their Permissions
+
+=head1 DESCRIPTION
+Each Site has one set of Users, Groups and Permissions.  Together, they
+implement tracibility and access restrictions.
+
+=head1 METHODS: Constructors
+
+=cut
+
 has site => (
     is       => 'ro',
     required => 1,
@@ -41,41 +53,51 @@ sub active_users($;$)
     $::db->resultset('User')->active_users($search, $attr);
 }
 
-has all => (
-    is  => 'lazy',
-    isa => ArrayRef,
+#-----------------
+=head1 METHODS: Users
+
+=head2 \@users = $users->all_users;
+Returns all active users.
+=cut
+
+has all_users => (
+    is      => 'lazy',
     builder => sub
-    {   [ $_[0]->active_users({}, {
+    {   my $self = shift;
+        my $all  = $self->active_users({}, {
             join     => { user_permissions => 'permission' },
             order_by => 'surname',
             collapse => 1
-        })->all ];
+        });
+        my $doc = $self->document;
+        [ map Linkspace::User->from_record($_, document => $doc), $all->all ];
     },
 );
 
-has useradmins => (
+=head2 \@emails = $users->useradmins_emails;
+Returns a list of the email addresses of the people who maintain the site's
+users.
+=cut
+
+has useradmins_emails => (
     is      => 'lazy',
     builder => sub
-    {   [ $_[0]->active_users( {
+    {   my $user_admins = $_[0]->active_users( {
             'permission.name' => 'useradmin',
         }, {
             join     => { user_permissions => 'permission' },
-            order_by => 'surname',
             collapse => 1,
-        })->all ];
+        });
+        [ $user_admins->get_column('email')->all ];
     },
 }
 
-has permissions => (
+has account_requestors => (
     is      => 'lazy',
-    isa     => ArrayRef,
-    builder => sub { [ $::db->search(Permission => {}, { order_by => 'order' })->all ] },
-);
-
-has register_requests => (
-    is      => 'lazy',
-    isa     => ArrayRef,
-    builder => sub { [ $::db->search(User => { account_request => 1 })->all ] },
+    builder => sub {
+        my $requestors = $::db->search(User => { account_request => 1 })
+        [ map $_[0]->user($_), $requestors->get_column('id')->all ];
+    },
 );
 
 #XXX All following fields are located in the site table, but are used for
@@ -107,14 +129,15 @@ sub _build_user_fields
 
 sub active_users
 {   my ($self, $search) = (shift, shift);
-    $search->{deleted} = undef;
+    $search->{deleted}         = undef;
     $search->{account_request} = 0;
     $::db->search(User => $search, @_);
 }
 
-sub all_in_org
+sub users_in_org
 {   my ($self, $org_id) = @_;
-    [ $self->active_users({ organisation => $org_id })->all ];
+    my $in_org = $self->active_users({ organisation => $org_id });
+    [ map $self->user($_), $in_org->get_column('id')->all ];
 }
 
 =head2 my $user = $users->user($id);
@@ -182,14 +205,14 @@ sub user_create
 
     my $site  = $self->site;
 
-    error __x"Please select a {name} for the user", name => $site->organisation_name
-        if !$insert{organisation} && $site->register_organisation_mandatory;
+    $insert{organisation} || ! $site->register_organisation_mandatory
+        or error __x"Please select a {name} for the user", name => $site->organisation_name;
 
-    error __x"Please select a {name} for the user", name => $site->team_name
-        if !$insert{team_id} && $site->register_team_mandatory;
+    $insert{team_id} || ! $site->register_team_mandatory
+        or error __x"Please select a {name} for the user", name => $site->team_name;
 
-    error __x"Please select a {name} for the user", name => $site->department_name
-        if !$insert{department_id} && $site->register_department_mandatory;
+    $insert{department_id} || !$site->register_department_mandatory
+        or error __x"Please select a {name} for the user", name => $site->department_name;
 
     my $guard = $::db->begin_work;
 
@@ -234,16 +257,16 @@ sub user_update
         view_limits_ids => delete $insert{view_limits_ids},
     );
 
-    my $guard = $::db->begin_work;
-    my $email       = $update{username} = $update{email};
+    my $guard    = $::db->begin_work;
+
+    my $email    = $update{username} = $update{email};
     $update{value} ||= _user_value \%update;
 
-    my $username  = $update{username} ||= $email;
-    my $old_name  = $victim->username;
+    my $username = $update{username} ||= $email;
+    my $old_name = $victim->username;
 
-    if (lc $username ne lc $old_name)
-    {
-        $self->search_active({ username => $username })->count
+    if(lc $username ne lc $old_name)
+    {   $self->search_active({ username => $username })->count
             and error __x"Email address {email} already exists as an active user", email => $email;
 
         $::session->audit("Username $old_name (id $victim_id) changed to $username",
@@ -251,7 +274,7 @@ sub user_update
     }
 
     $::db->update(User => $victim_id, \%update);
-    $victim = $self->user($victim_id);   # upgrade
+    $victim = $self->user($victim_id);       # reload upgraded user
     $victim->update_relations(@relations);
 
     my $msg = __x"User updated: id={id}, username={username}",
@@ -261,6 +284,21 @@ sub user_update
     $guard->commit;
     $victim;
 }
+
+=head $users->user_delete($user_id);
+=cut
+
+sub user_delete($)
+{   my ($self, $which) = @_;
+    my $victim_id = blessed $which ? $which->id : $which;
+
+    #XXX remove from groups?
+    $::db->update(User => $victim_id, { deleted => \'NOW' });
+}
+
+=head2 my $csv = $users->cvs;
+Create the byte contents for a CVS file.
+=cut
 
 sub csv
 {   my $self = shift;
@@ -279,7 +317,7 @@ sub csv
 
     $csv->combine(@columns)
         or error __x"An error occurred producing the CSV headings: {err}", err => $csv->error_input;
-    my $csvout = $csv->string."\n";
+    my @csvout = $csv->string;
 
     # All the data values
     my @users = $self->active_users({}, {
@@ -330,9 +368,10 @@ sub csv
         $csv->combine($id, @row)
             or error __x"An error occurred producing a line of CSV: {err}",
                 err => "".$csv->error_diag;
-        $csvout .= $csv->string."\n";
+        push @csvout .= $csv->string;
     }
-    $csvout;
+
+    join "\n", @csvout, '';
 }
 
 sub upload
@@ -463,6 +502,11 @@ sub upload
     $nr_users;
 }
 
+=head2 \@h = $users->match($string);
+Search users with contain the C<$string> in their name or username/email.  Returned
+are simple hashes with the user id and some formatted name.
+=cut
+
 sub match
 {   my ($self, $query) = @_;
     my $pattern = "%$query%";
@@ -473,13 +517,36 @@ sub match
         email     => { -like => $pattern },
         username  => { -like => $pattern },
     ]},{
-        columns => [qw/id firstname surname username/],
+        columns   => [qw/id firstname surname username/],
     });
 
     map +{
         id   => $_->id,
         name => $_->surname.", ".$_->firstname." (".$_->username.")",
     }, $users->all;
+}
+
+#---------------------
+=head1 METHODS: Manage groups
+=cut
+
+#---------------------
+=head1 METHODS: Permissions
+=cut
+
+has all_permissions => (
+    is      => 'lazy',
+    builder => sub { [ $::db->search(Permission => {}, { order_by => 'order' })->all ] },
+);
+
+#---------------------
+=head1 METHODS: Other
+
+=cut
+
+sub sheet_unuse($)
+{    my ($self, $sheet) = @_;
+     $::db->delete(InstanceGroup => { instance_id => $sheet->id });
 }
 
 1;
