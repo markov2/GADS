@@ -12,14 +12,11 @@ sub dashboards_json
 {   my ($self, %params) = @_;
 
     $self->_all_user(%params);
-    return encode_json [
-        map {
-            +{
-                id   => $_->id,
-                url  => $_->url,
-                name => $_->name,
-            }
-        } $self->_all_user(%params)
+    encode_json [ map +{
+        id   => $_->id,
+        url  => $_->url,
+        name => $_->name,
+        }, $self->_all_user(%params)
     ];
 }
 

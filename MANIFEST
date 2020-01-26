@@ -304,7 +304,7 @@ lib/Linkspace/Sheet/Page.pm
 lib/Linkspace/Sheet/Layout.pm
 lib/Linkspace/Sheet/Views.pm
 lib/Linkspace/Site.pm
-lib/Linkspace/Users.pm
+lib/Linkspace/Site/Users.pm
 lib/Linkspace/User.pm
 lib/Linkspace/User/Person.pm
 lib/Linkspace/User/System.pm

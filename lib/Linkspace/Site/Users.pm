@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Users;
+package Linkspace::Site::Users;
 
 use Log::Report 'linkspace';
 
@@ -36,7 +36,7 @@ use Linkspace::Permission;
 
 =head1 NAME
 
-Linkspace::Users - Manage Users, Groups and their Permissions
+Linkspace::Site::Users - Manage Users, Groups and their Permissions
 
 =head1 DESCRIPTION
 Each Site has one set of Users, Groups and Permissions.  Together, they
@@ -596,6 +596,12 @@ sub permission_shorts { Linkspace::Permission->all_short }
 sub sheet_unuse($)
 {    my ($self, $sheet) = @_;
      $::db->delete(InstanceGroup => { instance_id => $sheet->id });
+}
+
+sub site_unuse($)
+{   my ($self, $site) = @_;
+    $::db->delete(Users  => { instance_id => $site->id });
+    $::db->delete(Groups => { instance_id => $site->id });
 }
 
 1;

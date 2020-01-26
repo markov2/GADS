@@ -17,6 +17,11 @@ always find eachother via the global $::linkspace.
 This object is the only which is permitted to process the user
 configuration.
 
+### New class Linkspace::DB
+
+Manage the (DBIx::Class) schema, and simplifies often used database
+queries **a lot**.  Globally available via $::db.
+
 ### New class Linkspace::Session
 
 Manage the processing: relates a site with a user.  Globally available
@@ -31,8 +36,9 @@ who is logged-in, a system user, or the test user.
 
 ### New class Linkspace::Site
 
-Manages a set of Documents (currently only one supported), the
-Users, and some global company related settings.
+Manages a set of Documents (currently only one supported) and
+and some global company related settings.  Management of User, Group
+and Permission is managed by Linkspace::Site::Users.
 
 ### New class Linkspace::Document
 
@@ -76,18 +82,13 @@ result in Pages of sheet data.
 
   GADS::Alert -> Linkspace::View::Alert
 
-### Class Linkspace::View::Filter (was GADS::Filter)
+### Class Linkspace::Filter (was GADS::Filter)
+Used by View, DisplayField, and Column objects.
 
 ### Class Linkspace::Page::Row (was GADS::Record)
 
 Each contain a list of Datums.  Each Datum relates to a Column in the
 Layout.
-
-### New class Linkspace::DB
-
-Manage the (DBIx::Class) schema, and simplifies often used database
-queries **a lot**.  Globally available via $::db.
-
 
 
 

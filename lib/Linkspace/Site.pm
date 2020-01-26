@@ -6,9 +6,8 @@ use strict;
 
 use Log::Report 'linkspace';
 
-use Linkspace::Users    ();
-use Linkspace::Document ();
-use Linkspace::Group    ();
+use Linkspace::Site::Users ();
+use Linkspace::Document ();    # only a single document, so no manager object
 
 use List::Util   qw(first);
 
@@ -17,7 +16,8 @@ Linkspace::Site - manages one Site (set of Documents with Users)
 
 =head1 SYNOPSIS
 
-  my $site = $::session->site;
+  my $site  = $::session->site;
+  my $users = $site->users;
 
 =head1 DESCRIPTION
 Manage a single "Site": a set of sheets with data, accessed by users.
@@ -90,60 +90,52 @@ click on the following link to retrieve your password:
 [URL]
 __WELCOME
 
-
-    my $rs = $class->create(\%insert);
-    $class->from_id($rs->id);
+    my $site_id = $::db->create(Site => \%insert)->id;
+    $class->from_id($site->id);
 }
 
-=head2 $class->site_delete(%which);
+=head2 $self->site_delete(%which);
 =cut
 
 sub site_delete($)
 {   my ($class, $site_id) = @_;
-    Linkspace::Users->site_delete($site_id);
-    $::db->delete(Groups => { instance_id => $site_id });
+    $self->users->site_unuse($site);
+    $self->document->site_unuse($site);
 }
 
 #-------------------------
 =head1 METHODS: Site Users
-The L<Linkspace::Users> class manages Users, Groups and Permissions
+The L<Linkspace::Site::Users> class manages Users, Groups and Permissions
 
 =head2 my $users = $site->users;
 =cut
 
 has users => (
     is      => 'lazy',
-    isa     => 'Linkspace::Users',
-    builder => sub { Linkspace::Users->new(site => $self) },
+    builder => sub { Linkspace::Site::Users->new(site => $self) },
 );
 
 sub groups { $_[0]->users }
 
 #-------------------------
-=head1 METHODS: Site sheets
+=head1 METHODS: Manage Documents
 
 =head2 my $document = $site->document;
 Returns the L<Linkspace::Document> object which manages the sheets for
 this site.
 =cut
 
-sub document()
-{   my $self = shift;
-    $self->{LS_sheets} ||= Linkspace::Document->new(site => $self);
-}
+has document => (
+    is      => 'lazy',
+    builder => sub { inkspace::Document->new(site => $_[0]) },
+);
 
+=head2 my $sheet = $site->sheet($which, %options);
 
-=head2 my $sheet = $site->sheet($name, %options);
-
-=head2 my $sheet = $site->sheet($id, %options);
-
-Returns the sheet with that (long or short) C<$name> or C<$id>.  Have
+Returns the sheet with that (long or short) name or id.  Have
 a look at L<Linkspace::Document> method C<sheet()> for the C<%options>.
 =cut
 
-sub sheet($%)
-{   my $self = shift;
-    $self->document->sheet(@_);
-}
+sub sheet($%) { shift->document->sheet(@_) }
 
 1;
