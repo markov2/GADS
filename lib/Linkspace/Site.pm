@@ -106,8 +106,7 @@ sub site_delete($)
 
 #-------------------------
 =head1 METHODS: Site Users
-There is a lot of action around user, so this is implemented in helper module
-L<Linkspace::Users>
+The L<Linkspace::Users> class manages Users, Groups and Permissions
 
 =head2 my $users = $site->users;
 =cut
@@ -118,40 +117,7 @@ has users => (
     builder => sub { Linkspace::Users->new(site => $self) },
 );
 
-=head2 my @groups = @{$site->groups};
-=cut
-
-has groups => (
-    is      => 'lazy',
-    builder => sub {
-        my $groups_rs = $::db->search(Group => {}, { order_by => 'me.name' });
-        [ map Linkspace::Group->from_record($_), $groups_rs->all ];
-    },
-}
-
-=head2 my $group = $site->group($id);
-
-=head2 my $group = $site->group_by_name($name);
-Returns a L<Linkspace::Group>.
-=cut
-
-sub group($)
-{   my ($self, $id) = @_;
-    first { $_->id == $id } $self->groups;
-}
-
-sub group_by_name($)
-{   my ($self, $name) = @_;
-    first { $_->name eq $name } $self->groups;
-}
-
-=head2 $site->group_create(%insert|\%insert);
-=cut
-
-sub group_create(%)
-{   my $self = shift;
-    Linkspace::Group->group_create(@_);
-}
+sub groups { $_[0]->users }
 
 #-------------------------
 =head1 METHODS: Site sheets

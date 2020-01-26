@@ -600,7 +600,7 @@ any ['get', 'post'] => '/system/?' => require_login sub {
 
     template system => {
         page        => 'system',
-        instance    => $site,
+        instance    => $sheet,
         breadcrumbs => [ Crumb('/system' => 'system-wide settings') ],
     };
 };
@@ -608,24 +608,22 @@ any ['get', 'post'] => '/system/?' => require_login sub {
 
 any ['get', 'post'] => '/group/?:id?' => require_any_role [qw/useradmin superadmin/] => sub {
     my $group_id = is_valid_id(param 'id');
-
-    my $doc = $site->document;
-    my @permissions = GADS::Type::Permissions->all;
+    my $groups   = $site->groups;
 
     if (param 'submit')
     {
-        my %data = (name => param 'name');
+        my %data = ( name => param 'name' );
         $data{$_} = param($_) ? 1 : 0
-            for map $_->short, @permissions;
+            for map "default_$_", @{$groups->permission_shorts};
 
         my $action;
         if(process(sub {
             if($group_id)
-            {   $doc->group_update($group_id => %data);
+            {   $groups->group_update($group_id => %data);
                 $action = 'updated';
             }
             else
-            {   $group_id = $doc->group_create(%data)->id;
+            {   $group_id = $groups->group_create(%data)->id;
                 $action = 'created';
             }
         }))
@@ -637,7 +635,7 @@ any ['get', 'post'] => '/group/?:id?' => require_any_role [qw/useradmin superadm
 
     if (param 'delete')
     {
-        if(process(sub { $doc->group_delete($group_id) }))
+        if(process(sub { $groups->group_delete($group_id) }))
         {   return forwardHome({ success =>
                 "The group has been deleted successfully" }, 'group' );
         }
@@ -720,7 +718,7 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
     template 'table' => {
         page        => $sheet_id ? 'table' : 'table/0',
         layout_edit => $sheet->layout,
-        groups      => $site->groups,
+        groups      => $site->groups->all_groups,
         breadcrumbs => [
             Crumb('/table' => 'tables') =>
             Crumb("/table/$table_id" => $table_name),
@@ -740,7 +738,6 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
                 view_limits  => [ body_parameters->get_all('view_limits') ],
                 groups       => [ body_parameters->get_all('groups') ],
                 permissions  => [ body_parameters->get_all('permission') ],
-                current_user => $user,
             )}
         )
         {
@@ -752,7 +749,7 @@ any ['get', 'post'] => '/user/upload' => require_any_role [qw/useradmin superadm
     my $users = $site->users;
 
     template 'user/upload' => {
-        groups      => $site->groups,
+        groups      => $site->groups->all_groups,
         permissions => $users->permissions,
         user_fields => $users->user_fields,
         breadcrumbs => [
@@ -960,7 +957,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         page              => $page,
         edit              => $route_id,
         users             => \@users,
-        groups            => $site->groups,
+        groups            => $site->groups->all_groups,
         register_requests => $account_requestors,
         titles            => $users->titles,
         organisations     => $users->organisations,
@@ -2454,7 +2451,7 @@ prefix '/:layout_name' => sub {
             $params->{column} = 0; # New
             push @breadcrumbs, Crumb($sheet, "/layout/0" => 'new field');
         }
-        $params->{groups}             = $site->groups;
+        $params->{groups}             = $site->groups->all_groups;
         $params->{permissions}        = [ GADS::Type::Permissions->all ];
         $params->{permission_mapping} = GADS::Type::Permissions->permission_mapping;
         $params->{permission_inputs}  = GADS::Type::Permissions->permission_inputs;

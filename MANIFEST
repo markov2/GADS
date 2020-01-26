@@ -265,8 +265,6 @@ lib/GADS/Schema/ResultSet/Current.pm
 lib/GADS/Schema/ResultSet/Oauthtoken.pm
 lib/GADS/Schema/ResultSet/User.pm
 lib/GADS/Timeline.pm
-lib/GADS/Type/Permission.pm
-lib/GADS/Type/Permissions.pm
 lib/Linkspace/Audit.pm
 lib/Linkspace/Column.pm
 lib/Linkspace/Column/Autocur.pm
@@ -293,6 +291,7 @@ lib/Linkspace/DBICProfiler.pm
 lib/Linkspace/Document.pm
 lib/Linkspace/Filter.pm
 lib/Linkspace/Mailer.pm
+lib/Linkspace/Permission.pm
 lib/Linkspace/Role/Presentation/Column.pm
 lib/Linkspace/Role/Presentation/Column/Rag.pm
 lib/Linkspace/Session.pm

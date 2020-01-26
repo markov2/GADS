@@ -20,53 +20,30 @@ package GADS::Group;
 
 use GADS::Type::Permissions;
 use Log::Report 'linkspace';
+
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
+extends 'GADS::Schema::Result::Group';
 
-has id => (
-    is       => 'ro',
-    required => 1,
-);
+=head1 INHERITED
+  id()
+  site_id()            groups are site-wide
 
-has name => (
-    is  => 'rw',
-    isa => Str,
-);
+  name()
+  default_read()
+  default_write_new()
+  default_write_existing()
+  default_approve_new()
+  default_approve_existing()
+  default_write_new_no_approval()
+  default_write_existing_no_approval()
+  layout_groups()      collect from LayoutGroup
+  user_groups()        collect from UserGroup
+  instance_groups()    collect from InstanceGroup
 
-has default_read => (
-    is  => 'rw',
-    isa => Bool,
-);
-
-has default_write_new => (
-    is  => 'rw',
-    isa => Bool,
-);
-
-has default_write_existing => (
-    is  => 'rw',
-    isa => Bool,
-);
-
-has default_approve_new => (
-    is  => 'rw',
-    isa => Bool,
-);
-
-has default_approve_existing => (
-    is  => 'rw',
-    isa => Bool,
-);
-
-has default_write_new_no_approval => (
-    is  => 'rw',
-    isa => Bool,
-);
-
-has default_write_existing_no_approval => (
-    is  => 'rw',
-    isa => Bool,
-);
+Do not use:
+  site()
+=cut
 
 has columns => (
     is  => 'lazy',
@@ -104,16 +81,6 @@ sub from_id
         $self->$name($group->$name);
     }
     $self->_set_id($id);
-}
-
-sub delete
-{   my $self = shift;
-
-    my $group_ref = { group_id => $self->id };
-    $::db->delete($_ => $group_ref)
-        for qw/LayoutGroup InstanceGroup UserGroup/;
-
-    $self->delete;
 }
 
 # Write (updated) values to the database

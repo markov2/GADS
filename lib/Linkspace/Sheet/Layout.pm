@@ -65,57 +65,13 @@ has columns => (
     builder => '_build_columns',
 );
 
-has _user_permissions_overall => (
-    is      => 'lazy',
-    isa     => HashRef,
-);
-
-sub _build__user_permissions_overall
-{   my $self = shift;
-    my $user_id = $::session->user->id;
-    my %overall;
-
-    # First all the column permissions
-    if(my $h = $user->sheet_permissions($self))
-    {   $overall{$_} = 1 for keys %$h;
-    }
-    else
-    {   my $perms = $self->_user_permissions_columns->{$user_id};
-        foreach my $col_id (@{$self->all_ids})
-        {
-            $overall{$_} = 1
-                for keys %{$perms->{$col_id}};
-        }
-    }
-
-    \%overall;
-}
-
-sub current_user_can_column
-{   my ($self, $column_id, $permission) = @_;
-    my $user = $self->user
-        or return;
-    my $user_id  = $user->id;
-    return $self->user_can_column($user_id, $column_id, $permission);
-}
-
-sub user_can_column
-{   my ($self, $user_id, $column_id, $permission) = @_;
-
-    my $user_permissions = $self->_user_permissions_columns;
-
-    my $user_cache = $user_permissions->{$user_id}
-        ||= $self->_get_user_permissions($user_id);
-
-    $user_cache->{$column_id}{$permission};
-}
-
 has set_groups => (
     is        => 'rw',
     isa       => ArrayRef,
     predicate => 1,
 );
 
+#------------------
 =head1 METHODS: Constructors
 
 =head2 my $layout_id = $class->layout_create(%insert);

@@ -30,6 +30,10 @@ use File::BOM          qw(open_bom);
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 
+use Linkspace::User;
+use Linkspace::Group;
+use Linkspace::Permission;
+
 =head1 NAME
 
 Linkspace::Users - Manage Users, Groups and their Permissions
@@ -528,7 +532,50 @@ sub match
 
 #---------------------
 =head1 METHODS: Manage groups
+
+=head2 my $gid = $class->group_create(%insert);
 =cut
+
+sub group_create(%)
+{   my ($class, %insert) = @_;
+    $insert{site_id} = $::session->site->id;
+    $::db->create(Group => \%insert);
+}
+
+=head2 $users->group_delete($group);
+=cut
+
+sub group_delete($)
+{   my ($self, $victim) = @_;
+
+    my $group_ref = { group_id => $victim->id };
+    $::db->delete($_ => $group_ref)
+        for qw/LayoutGroup InstanceGroup UserGroup/;
+
+    $victim->delete;
+}
+
+=head2 \@groups = $users->all_groups;
+=cut
+
+has all_groups => (
+    is      => 'lazy',
+    builder => sub
+    {   my $groups = $::db->search(Group => {}, { order_by => 'me.name' });
+        [ map Linkspace::Group->from_record($_), $groups_rs->all ];
+    },
+);
+
+=head2 my $group = $site->group($which);
+Returns a L<Linkspace::Group>.  Use C<id> or a C<name>.
+=cut
+
+has _group_index => (
+    is      => 'lazy',
+    builder => sub { +{ map +($_->id => $_, $_->name), $_[0]->all_groups } },
+}
+
+sub group($) { $_[0]->_group_index->{$_[1]} }
 
 #---------------------
 =head1 METHODS: Permissions
@@ -538,6 +585,8 @@ has all_permissions => (
     is      => 'lazy',
     builder => sub { [ $::db->search(Permission => {}, { order_by => 'order' })->all ] },
 );
+
+sub permission_shorts { Linkspace::Permission->all_short }
 
 #---------------------
 =head1 METHODS: Other
