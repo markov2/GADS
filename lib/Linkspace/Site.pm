@@ -1,6 +1,8 @@
 package Linkspace::Site;
 use parent 'GADS::Schema::Result::Site';
 
+use Moo;
+
 use warnings;
 use strict;
 
@@ -46,7 +48,7 @@ sub from_record($)
 sub from_id($%)
 {   my ($class, $id) = (shift, shift);
     my $record = $::db->get_record(Site => $id) or return;
-    $record ? $self->from_record($record) : undef;
+    $record ? $class->from_record($record) : undef;
 }
 
 =head2 my $site = Linkspace::Site->find($hostname, %options);
@@ -88,19 +90,19 @@ An account for [NAME] has been created for you. Please
 click on the following link to retrieve your password:
 
 [URL]
-__WELCOME
+__WELCOME_TEXT
 
     my $site_id = $::db->create(Site => \%insert)->id;
-    $class->from_id($site->id);
+    $class->from_id($site_id);
 }
 
-=head2 $self->site_delete(%which);
+=head2 $self->site_delete;
 =cut
 
-sub site_delete($)
-{   my ($class, $site_id) = @_;
-    $self->users->site_unuse($site);
-    $self->document->site_unuse($site);
+sub site_delete()
+{   my $self = @_;
+    $self->users->site_unuse($self);
+    $self->document->site_unuse($self);
 }
 
 #-------------------------
@@ -112,7 +114,7 @@ The L<Linkspace::Site::Users> class manages Users, Groups and Permissions
 
 has users => (
     is      => 'lazy',
-    builder => sub { Linkspace::Site::Users->new(site => $self) },
+    builder => sub { Linkspace::Site::Users->new(site => $_[0]) },
 );
 
 sub groups { $_[0]->users }

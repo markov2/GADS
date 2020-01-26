@@ -37,9 +37,6 @@ use GADS::MetricGroups;
 use GADS::Record;
 use GADS::Records;
 use GADS::RecordsGraph;
-use GADS::Type::Permissions;
-use GADS::View;
-use GADS::Views;
 use GADS::Helper::BreadCrumbs qw(Crumb);
 
 use Linkspace::Audit  ();
@@ -1899,7 +1896,7 @@ prefix '/:layout_name' => sub {
              if $user->user_can('view_limit_extra');
 
         $params->{current_view_limit_extra} = current_view_limit_extra();
-        $params->{alerts}            = Layout::View::Alert->for_user;
+        $params->{alerts}            = $sheet->views->alerts;
         $params->{views_other_user}  = $users->user(session 'views_other_user_id');
 
         $params->{breadcrumbs}              = [

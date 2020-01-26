@@ -154,9 +154,9 @@ sub send_victim_rejected($)
     my $site = $::session->site;
 
     $self->send(
-        subject => $site->email_reject_subject || "Account request rejected",
+        subject => $site->email_reject_subject || 'Account request rejected',
         emails  => [ $victim->email ],
-        text    => $site->email_reject_text || "Your account request has been rejected.";
+        text    => $site->email_reject_text || 'Your account request has been rejected.',
     );
 }
 
@@ -186,7 +186,7 @@ User notes: $notes
 __EMAIL
 
     $self->send(
-        subject => ''New account request',
+        subject => 'New account request',
         emails  => $to,
         text    => $text,
     );

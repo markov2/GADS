@@ -90,12 +90,10 @@ sub search
     $self->resultset($table)->search($cond, $attrs);
 }
 
-=head2 my $result = $db->get_record($table, $id);
+=head2 my $result = $db->get_record($table, $which);
 
 =head2 my $result = $db->get_record($table, %which);
-
-=head2 my $result = $db->get_record($table, \%which);
-Returns one result HASH.
+Returns one result HASH.  C<$which> can be an id, a reference to a search or a LIST for search.
 =cut
 
 sub get_record($$@)
@@ -103,7 +101,7 @@ sub get_record($$@)
     my $which
       = @_ > 1    ? +{ @_ }
       : ref $_[0] ? $_[0]
-      :             +{ id => $id };
+      :             +{ id => $_[0] };
 
     $self->resultset($table)->single($which);
 }

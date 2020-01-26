@@ -16,15 +16,14 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Alert;
-
-use GADS::Views;
-use List::MoreUtils qw/ uniq /;
-use Log::Report 'linkspace';
-use Scalar::Util qw(looks_like_number);
-
+package Linkspace::View::Alert;
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
+
+use List::MoreUtils qw/ uniq /;
+use Log::Report     'linkspace';
+use Scalar::Util     qw(looks_like_number);
+
 use namespace::clean;
 
 has id => (
@@ -64,8 +63,9 @@ has frequency => (
 );
 
 has view => (
-    is      => 'ro',
-    isa     => 'Linkspace::View',
+    is       => 'ro',
+    required => 1,
+    weakref  => 1
 );
 
 
@@ -79,8 +79,7 @@ as HASH as value.
 =cut
 
 sub for_user(;$)
-{   my $self = shift;
-    my $user = shift ||= $::session->user;
+{   my $user = shift ||= $::session->user;
 
     my $alerts = $::db->search(Alert => { user_id => $user->id }, {
         select => [ qw/id view_id frequency/ ]);
@@ -206,7 +205,7 @@ sub write
         user_id => $self->user->id,
     })->single;
 
-    my %this_view = (view_id => $view_id);
+    my $view_ref = {view_id => $view_id});
 
     if ($alert)
     {
@@ -214,10 +213,10 @@ sub write
         {   $alert->update({ frequency => $freq });
         }
         else
-        {   if($self->search(Alert => \%this_view)->count < 2)
+        {   if($self->search(Alert => $view_ref)->count < 2)
             {   # Have processed last alert for this view
                 $::db->delete(AlertSend  => { alert_id => $alert->id });
-                $::db->delete(AlertCache => \%this_view);
+                $::db->delete(AlertCache => $view_ref);
             }
             $alert->delete;
         }
@@ -225,7 +224,7 @@ sub write
     elsif(defined $self->frequency)
     {   # Check whether this view already has alerts. No need for another
         # cache if so, unless view contains CURUSER
-        my $exists = $::db->search(Alert => \%this_view)->count;
+        my $exists = $::db->search(Alert => $view_ref)->count;
 
         my $alert = $::db->create(Alert => {
             view_id   => $view_id,

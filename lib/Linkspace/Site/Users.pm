@@ -52,11 +52,6 @@ has site => (
     weakref  => 1,
 );
 
-sub active_users($;$)
-{   my ($self, $search, $attr) = @_;
-    $::db->resultset('User')->active_users($search, $attr);
-}
-
 #-----------------
 =head1 METHODS: Users
 
@@ -94,12 +89,12 @@ has useradmins_emails => (
         });
         [ $user_admins->get_column('email')->all ];
     },
-}
+);
 
 has account_requestors => (
     is      => 'lazy',
     builder => sub {
-        my $requestors = $::db->search(User => { account_request => 1 })
+        my $requestors = $::db->search(User => { account_request => 1 });
         [ map $_[0]->user($_), $requestors->get_column('id')->all ];
     },
 );
@@ -168,16 +163,16 @@ Returns a newly created user, a L<Linkspace::User::Person> object.
 sub _generic_user_validate($)
 {   my ($self, $data) = @_;
 
-    my $email = $data{email}
+    my $email = $data->{email}
         or error __"An email address must be specified for the user";
 
     email_valid $email
         or error __"Invalid email address";
 
-    length $data{firstname} <= 128
+    length $data->{firstname} <= 128
         or error __"Forename must be less than 128 characters";
         
-    length $data{surname} <= 128
+    length $data->{surname} <= 128
         or error __"Surname must be less than 128 characters";
 
     ! $data->{permissions} || $::session->user->is_admin
@@ -195,7 +190,7 @@ sub user_create
 {   my ($self, %insert) = @_;
     $self->_generic_user_validate(\%insert);
 
-    my $group_ids   = delete $insert{group_ids}
+    my $group_ids   = delete $insert{group_ids};
     my $perms       = delete $insert{permissions};
     my $view_limits_ids = delete $insert{view_limits_ids};
 
@@ -256,9 +251,9 @@ sub user_update
     my $victim_id = $victim->id;
 
     my @relations = (
-        group_ids       => delete $insert{group_ids},
-        permissions     => delete $insert{permissions},
-        view_limits_ids => delete $insert{view_limits_ids},
+        group_ids       => delete $update{group_ids},
+        permissions     => delete $update{permissions},
+        view_limits_ids => delete $update{view_limits_ids},
     );
 
     my $guard    = $::db->begin_work;
@@ -372,7 +367,7 @@ sub csv
         $csv->combine($id, @row)
             or error __x"An error occurred producing a line of CSV: {err}",
                 err => "".$csv->error_diag;
-        push @csvout .= $csv->string;
+        push @csvout, $csv->string;
     }
 
     join "\n", @csvout, '';
@@ -402,9 +397,9 @@ sub upload
     my $row = $csv->getline($fh);
 
     # Valid headings
-    my %user_fields = map +(lc $_ => 1) @{$self->user_fields};
+    my %user_fields = map +(lc $_ => 1), @{$self->user_fields};
 
-    my (%in_col, @invalid)
+    my (%in_col, @invalid);
     my $col_nr = 0;
     foreach my $cell (@$row)
     {
@@ -439,7 +434,6 @@ sub upload
     my %departments   = map { lc $_->name => $_->id } @{$site->departments};
     my %teams         = map { lc $_->name => $_->id } @{$site->teams};
 
-    my $nr_user = 0;
     my (@errors, @welcome_emails);
 
     my $guard = $::db->begin_work;
@@ -485,15 +479,14 @@ sub upload
         );
 
         my $user      = $self->user_create(\%insert);
-        $nr_users++;
-
         push @welcome_emails, [ email => $email, code => $user->resetpw ];
     }
 
     if (@errors)
     {   # Report processing errors without sending mails.
-
-        my @e = map (join ',', @{$_->[0]}) . " ($_->[1])", @errors;
+        $guard->rollback;
+        local $" = ',';
+        my @e = map "@{$_->[0]} ($_->[1])", @errors;
         error __x"The upload failed with errors on the following lines: {errors}",
             errors => join '; ', @e;
     }
@@ -503,7 +496,7 @@ sub upload
     $::linkspace->mailer->send_welcome(@$_)
         for @welcome_emails;
 
-    $nr_users;
+    scalar @welcome_emails;
 }
 
 =head2 \@h = $users->match($string);
@@ -562,7 +555,7 @@ has all_groups => (
     is      => 'lazy',
     builder => sub
     {   my $groups = $::db->search(Group => {}, { order_by => 'me.name' });
-        [ map Linkspace::Group->from_record($_), $groups_rs->all ];
+        [ map Linkspace::Group->from_record($_), $groups->all ];
     },
 );
 
@@ -573,7 +566,7 @@ Returns a L<Linkspace::Group>.  Use C<id> or a C<name>.
 has _group_index => (
     is      => 'lazy',
     builder => sub { +{ map +($_->id => $_, $_->name), $_[0]->all_groups } },
-}
+);
 
 sub group($) { $_[0]->_group_index->{$_[1]} }
 

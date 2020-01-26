@@ -5,10 +5,8 @@ use warnings;
 
 use JSON qw(encode_json);
 use Log::Report;
-use GADS::Group;
 use Linkspace::Layout;
 use GADS::Record;
-use GADS::Schema;
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 
@@ -23,19 +21,20 @@ sub clear_not_data
     # Need to first clear any autocur columns referring to this one. We'll
     # remember them, then put them back in after.
     # Find:
-    my @related = $self->schema->resultset('Layout')->search({
-        'me.instance_id'            => { '!=' => $self->layout->instance_id },
-        'related_field.instance_id' => $self->layout->instance_id,
+    my @related = $::db->search(Layout => {
+        'me.instance_id'            => { '!=' => $sheet->id },
+        'related_field.instance_id' => $sheet->id,
     },{
         join => 'related_field',
     })->all;
+
     # Remember:
     my %related;
     foreach my $related (@related)
     {
         $related{$related->id} = {
             related_to    => $related->related_field->name,
-            curval_fields => [ map { $_->child->name } $related->curval_fields_parents ],
+            curval_fields => [ map $_->child->name, $related->curval_fields_parents ],
         };
         # Clear:
         $related->update({ related_field => undef });
@@ -54,8 +53,8 @@ sub clear_not_data
         # Find autocur field
         my $related = $self->schema->resultset('Layout')->find($related_id);
         # Find curval it is related to
-        my $f = $self->schema->resultset('Layout')->search({
-            instance_id => $self->layout->instance_id,
+        my $f = $::db->search(Layout => {
+            instance_id => $sheet->id,
             name        => $related{$related_id}->{related_to},
         })->next;
         $related->update({ related_field => $f->id });

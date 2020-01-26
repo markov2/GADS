@@ -11,11 +11,11 @@ use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 use YAML             qw(LoadFile);
 
+use Linkspace::Util  qw(configure_util);
 use Linkspace::DB    ();
 use Linkspace::Site  ();
-use Linkspace::Util  qw(configure_util);
 use Linkspace::Session::System ();
-use Linkspace::Email ();
+use Linkspace::Mailer ();
 
 =head1 NAME
 Linkspace - the Linkspace application

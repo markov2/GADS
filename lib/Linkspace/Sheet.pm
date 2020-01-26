@@ -133,9 +133,9 @@ initial C<%settings>.
 
 sub sheet_create($%)
 {   my ($class, %insert) = @_;
+    my $document      = delete $insert{document};
     my $insert_layout = delete $insert{layout};
     my $insert_data   = delete $insert{data};
-    my $document      = delete $insert{document};
 
     my $guard = $::db->begin_work;
 
@@ -144,10 +144,10 @@ sub sheet_create($%)
     $_->{sheet_id} = $sheet_id
         for $insert_layout, $insert_data;
 
-    $insert_layout{columns} = $document->columns_for_sheet($sheet_id);
-	my $layout_id  = $self->_layout_create($insert_layout);
+    $insert_layout->{columns} = $document->columns_for_sheet($sheet_id);
+	my $layout_id  = $class->_layout_create($insert_layout);
 
-	my $data_id    = $self->_data_create($insert_data);
+	my $data_id    = $class->_data_create($insert_data);
 
     $guard->commit;
 
@@ -166,23 +166,16 @@ has layout => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        my $doc    = $self->document;
-        Linkspace::Layout->new(
+        Linkspace::Sheet::Layout->new(
             sheet   => $self,
-            columns => $doc->columns_for_sheet($self),
+            columns => $self->document->columns_for_sheet($self),
         ),
     },
 );
 
 sub _layout_create($%)
 {   my ($class, $insert, %args) = @_;
-    my $layout_id = Linkspace::Sheet::Layout->layout_create($insert);
-
-    $_->{group_id} = $group_mapping->{$_->{group_id}}
-        for @{$instance_info->{permissions}};
-
-    $layout->import_hash($sheet_info);
-    $layout_id;
+    Linkspace::Sheet::Layout->layout_create($insert);
 }
 
 #--------------------
@@ -198,7 +191,7 @@ sub blank_records(%)
 }
 
 #----------------------
-=head1 METHODS: permission management
+=head1 METHODS: Sheet permissions
 =cut
 
 my @sheet_permissions = qw/
@@ -217,18 +210,6 @@ my @sheet_permissions = qw/
 
 my %is_valid_permission = map +($_ => 1), @sheet_permissions;
 my %superadmin_rights   = map +($_ => 1), qw/layout view_create/;
-
-=head2 $sheet->set_allow_everything(1);
-
-=head2 my $overrule_permissions = $sheet->allow_everything;
-When set, permissions for do anything are overruled.
-=cut
-
-has allow_everything => (
-    is       => 'rw',
-    isa      => Bool,
-    default  => 0,
-);
 
 # The index contains a HASH of permissions per (user)group_id.
 has _permission_index => (
@@ -340,10 +321,9 @@ sub get_page($)
 #----------------------
 =head1 METHODS: MetricGroup administration
 
-=cut
-
 sub metric_group {...}
 sub metric_group_create { $metric_group->import_hash($mg) }
+=cut
 
 #----------------------
 =head1 METHODS: Other

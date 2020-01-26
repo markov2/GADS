@@ -17,16 +17,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
 package Linkspace::Document;
-use Moo ();
+use Moo;
+use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 
 use Log::Report  'linkspace';
 use Scalar::Util qw(blessed);
 use List::Util   qw(first);
 
 use Linkspace::Sheet ();
-use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 
 =head1 NAME
+
 Linkspace::Document - manages sheets for one site
 
 =head1 SYNOPSIS
@@ -37,7 +38,6 @@ Linkspace::Document - manages sheets for one site
 =head1 DESCRIPTION
 
 =head1 METHODS: Constructors
-M
 
 =head2 my $doc = Linkspace::Document->new(%options);
 Required is C<site>.
@@ -59,7 +59,6 @@ They are sorted by name (case insensitive).
 
 has all_sheets => (
    is      => 'lazy',
-   isa     => ArrayRef,
    builder => sub
    {   my $self   = shift;
        my @sheets = map Linkspace::Sheet->from_record($_,
@@ -69,14 +68,13 @@ has all_sheets => (
        $self->_sheet_indexes_update($_) for @sheets;
        [ sort { fc($a->name) cmp fc($b->name) } @sheets ];
    }
-}
-
+);
 
 =head2 my $sheet = $doc->sheet($which);
 Get a single sheet, C<$which> may be specified as name, short name or id.
 =cut
 
-sub _sheet_indexes_update($;$)
+sub _sheet_indexes_update($;@)
 {   my ($self, $sheet) = (shift, shift);
     my $to = @_ ? shift : $sheet;
 
@@ -93,7 +91,7 @@ has _sheet_index => (
     builder => sub
     {   my $self  = shift;
         my $index = {};
-        _sheet_index_update $index, $_, $_ for @{$self->all_sheets};
+        _sheet_indexes_update($_) for @{$self->all_sheets};
         $index;
     }
 );
@@ -135,12 +133,14 @@ sub sheet_update($%)
 {   my ($self, $which, %changes) = @_;
 
     my $sheet = $self->sheet($which) or return;
-    $changes && keys %$changes or return $sheet;
+    keys %changes or return $sheet;
 
     $self->_sheet_indexes_update($sheet => undef);
-    $sheet->sheet_update(%changes);
+    $sheet->update(%changes);
 
-    my $new = $doc->sheet($sheet->id);
+    my $new = Linkspace::Sheet->from_id($sheet->id,
+        document => $self->document
+    );
     $self->_sheet_indexes_update($new);
 
     $new;
@@ -184,7 +184,7 @@ has _column_index => (
     builder => sub
     {   my $self = shift;
         my $doc_cols = Linkspace::Sheet::Layout->load_columns($self);
-        +{ map +($_->id => $_, $_->short_name => $_), @doc_cols }
+        +{ map +($_->id => $_, $_->short_name => $_), @$doc_cols }
     },
 );
 
@@ -196,7 +196,7 @@ access C<permission> in one go.
 
 sub column($%)
 {   my ($self, $which) = @_;
-    my $column = $self->_column_index->{$id};
+    my $column = $self->_column_index->{$which};
     $column->isa('Linkspace::Column')   # upgrade does not change pointer
         or Linkspace::Column->from_record($column, document => $self);
 
@@ -220,14 +220,14 @@ sub columns
     [ map $self->column($_), ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_ ];
 }
 
-=head2 \@cols = $doc->columns_for_sheet($sheet);
-
-=head2 \@cols = $doc->columns_for_sheet($sheet_id);
+=head2 \@cols = $doc->columns_for_sheet($which);
+Returns all columns which are linked to a certain sheet.  Pass sheet by
+id or object.
 =cut
 
 sub columns_for_sheet($)
 {   my ($self, $which) = @_;
-    my $sheet_id = blessed $sheet ? $which->id : $which;
+    my $sheet_id = blessed $which ? $which->id : $which;
     $self->columns(grep $_->instance_id == $sheet_id, @{$self->_column_index});
 }
 
@@ -236,7 +236,8 @@ sub columns_for_sheet($)
 
 sub columns_with_filters()
 {   my $self = shift;
-    $self->columns(grep $_->filter ne '{}' && $_->filter ne ''} @{$self->_column_index});
+    my $index = $self->_column_index;
+    $self->columns(grep $_->filter ne '{}' && $_->filter ne '', @$index);
 }
 
 #---------------
@@ -302,6 +303,7 @@ sub row($$%)
 {   my ($self, $kind, $id, %args) = @_;
     $id or return;
 
+=pod
     if(my $sheet = $args{sheet}) ...
     #XXX see old GADS::Record->find...
       'pointer_id'
@@ -309,6 +311,7 @@ sub row($$%)
       'deleted_currentid'
       'deleted_recordid'
       'current_id';
+=cut
 }
 
 #--------------

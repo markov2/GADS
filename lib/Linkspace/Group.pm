@@ -16,9 +16,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Group;
+package Linkspace::Group;
 
-use GADS::Type::Permissions;
 use Log::Report 'linkspace';
 
 use Moo;
