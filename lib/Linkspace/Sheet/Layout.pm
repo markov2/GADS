@@ -399,12 +399,6 @@ sub has_homepage
 }
 
 #XXX move to Document
-sub all_user_columns {
-    my ($class, $site) = @_;
-    $::db->search(Layout => { internal => 0 })->all;
-}
-
-#XXX move to Document
 # Returns which field is the newest.
 # Warning: Field ids are strictly sequentially assigned.
 sub newest_field_id {
@@ -412,6 +406,7 @@ sub newest_field_id {
     $::db->search(Layout => { internal => 0 })->get_column('id')->max;
 }
 
+#-------------------------
 =head1 METHODS: Column management
 Column definitions are shared between all Sheets in a Document: a
 Layout maintains is a subset of these definitions.
@@ -450,6 +445,24 @@ sub column($)
     @_ or return $column;
     my %args = @_;
     ! $args{permission} || $column->user_can($args{permission}) ? $column : undef;
+}
+
+=head2 $layout->column_create(%insert)
+=cut
+
+sub column_create($)
+{   my ($self, %insert) = @_;
+    $insert{instance_id} = $self->sheet->id;
+
+    my $column_id = $::db->create(Layout => \%insert)->id;
+    my $column    = Linkspace::Column->from_id($column_id, layout => $self);
+    $self->sheet->document->publish_column($column);
+
+    push @{$self->all_columns}, $column;
+    my $index = $self->_column_index;
+    $index->{$column_id} = $column;
+    $index->{$column->short_name} = $column;
+    $column;
 }
 
 =head2 \@cols = $layout->columns(%options);

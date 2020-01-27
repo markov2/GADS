@@ -1141,19 +1141,18 @@ sub import_after_all
     $self->link_parent($new_id);
 }
 
-sub how_to_link_to_record {
-    my ($self, $schema) = @_;
+=head2 $class->how_to_link_to_record($record);
+Tricky part, during schema initiation where methods are produced for fields.
+=cut
 
-    my $linker = sub {
-        my ($other, $me) = ($_[0]->{foreign_alias}, $_[0]->{self_alias});
+sub how_to_link_to_record
+{   my ($class, $record) = @_;
 
-        return {
-            "$other.record_id" => { -ident => "$me.id" },
-            "$other.layout_id" => $self->id,
+    ( $class->table, sub {
+       +{ "$_[0]->{foreign_alias}.record_id" => { -ident => $_[0]->{self_alias}.id" },
+          "$_[0]->{foreign_alias}.layout_id" => $record->id,
         };
-    };
-
-    ($self->table, $linker);
+      } );
 }
 
 =head2 my @entries = $column->field_values($datum, $row, %options);

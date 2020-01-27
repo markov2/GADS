@@ -179,12 +179,22 @@ those columns.  However: cross sheet references are sometimes required.
 
 # We do often need many of the columns, so get the info for all of them
 # (within the site) at once.  Probably less than 100.
-has _column_index => (
+has _column_index_by_id => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
         my $doc_cols = Linkspace::Sheet::Layout->load_columns($self);
+
+        $::db->schema->setup_record_column_finder($doc_cols);
         +{ map +($_->id => $_, $_->short_name => $_), @$doc_cols }
+    },
+);
+
+has _column_index_by_short => (
+    is      => 'lazy',
+    builder => sub {
+        my $id_index = $_[0]->_column_index_by_id;
+        +{ map +($_->short_name => $_), values %$id_index };
     },
 );
 
@@ -196,9 +206,11 @@ access C<permission> in one go.
 
 sub column($%)
 {   my ($self, $which) = @_;
-    my $column = $self->_column_index->{$which};
+    my $column = $self->_column_index_by_id->{$which}
+              || $self->_column_index_by_short->{$which};
+
     $column->isa('Linkspace::Column')   # upgrade does not change pointer
-        or Linkspace::Column->from_record($column, document => $self);
+        or Linkspace::Column->from_record($column);
 
     @_ or return $column;
     my %args = @_;
@@ -228,7 +240,7 @@ id or object.
 sub columns_for_sheet($)
 {   my ($self, $which) = @_;
     my $sheet_id = blessed $which ? $which->id : $which;
-    $self->columns(grep $_->instance_id == $sheet_id, @{$self->_column_index});
+    $self->columns(grep $_->instance_id == $sheet_id, @{$self->_column_index_by_id});
 }
 
 =head2 \@cols = $doc->columns_with_filters;
@@ -236,8 +248,21 @@ sub columns_for_sheet($)
 
 sub columns_with_filters()
 {   my $self = shift;
-    my $index = $self->_column_index;
+    my $index = $self->_column_index_by_id;
     $self->columns(grep $_->filter ne '{}' && $_->filter ne '', @$index);
+}
+
+=head2 $doc->publish_column($column);
+Sheets can see each others columns, so they need to publish changes to
+the layout.
+=cut
+
+sub publish_column($)
+{   my ($self, $column) = @_;
+    $self->_column_index_by_id->{$column->id};
+    $self->_column_index_by_short->{$column->id};
+    $::db->schema->add_column($column);
+    $column;
 }
 
 #---------------
@@ -286,7 +311,7 @@ sub columns_refering_to($)
 sub columns_link_child_of($)
 {   my ($self, $parent) = @_;
     my $pid   = $parent->id;
-    my $index = $self->_column_index;
+    my $index = $self->_column_index_by_id;
     my @childs = grep { ($_->link_parent || 0) == $pid } values %$index;
     $self->columns(@childs);
 }

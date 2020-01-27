@@ -69,31 +69,26 @@ columns of the sheets.
 =cut
 
 sub _add_column
-{   my ($self, $rec_class, $col) = @_;
-    my ($result_class, $linker) = $col->how_to_link_to_record($self);
+{   my ($self, $rec_class, $raw_col) = @_;
+    return if $raw_col->internal;
+
+    my ($table, $linker) = Linkspace::Column->type2class($raw_col->type)
+       ->how_to_link_to_record($self->id);
 
     # We add each column twice, with a standard join and with an alternative
     # join. The alternative join allows correlated sub-queries to be used, with
     # the inner sub-query referencing a value from the main query.
 
-    my $col_id  = $col->id;
-    $rec_class->has_many("field${col_id}" => $result_class, $linker);
-    $rec_class->has_many("field${col_id}_alternative" => $result_class, $linker);
+    my $col_id  = $raw_col->id;
+    $rec_class->has_many("field${col_id}" => $table, $linker);
+    $rec_class->has_many("field${col_id}_alternative" => $table, $linker);
 }
 
 
-=head2 $schema->setup_site($site);
-Add all dynamic methods to the Record class, typically when the related
-C<$site> gets accessed first.
-=cut
-
-sub setup_site
-{   my ($self, $site) = @_;
+sub setup_record_column_finder($)
+{   my ($self, $raw_cols) = @_;
     my $rec_class = $self->class('Record');
-
-    $self->_add_column($rec_class, $_)
-        for Linkspace::Sheet::Layout->all_user_columns($site);
-
+    $self->_add_column($rec_class, $_) for @$raw_cols;
     $self;
 }
 
