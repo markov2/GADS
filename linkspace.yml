@@ -9,7 +9,6 @@ dancer2:
 
 db:
 # class: Linkspace::DB
-# schema_class: Linkspace::Schema
   dsn: dbi:Pg:dbname=gads
   user: gads
   password: WDUEHDIWUQU12

@@ -591,10 +591,9 @@ before import_hash => sub {
     $self->end_node_only($values->{end_node_only});
 };
 
-around export_hash => sub {
-    my $orig = shift;
-    my ($self, $values) = @_;
-    my $hash = $orig->(@_);
+sub export_hash
+{   my $self = shift;
+    my $hash = $self->SUPER::export_hash;
     $hash->{end_node_only} = $self->end_node_only;
     $hash->{tree}          = $self->json; # Not actually JSON
     $hash;

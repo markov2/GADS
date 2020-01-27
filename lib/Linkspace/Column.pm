@@ -21,11 +21,10 @@ package GADS::Column;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-use Log::Report 'linkspace';
-
-use GADS::Groups;
-use GADS::Type::Permission;
-use GADS::View;
+use Log::Report   'linkspace';
+use MIME::Base64  qw/encode_base64/;
+use JSON          qw/decode_json encode_json/;
+use List::Compare ();
 
 use Linkspace::Column::Autocur;
 use Linkspace::Column::Calc;
@@ -45,12 +44,7 @@ use Linkspace::Column::Serial;
 use Linkspace::Column::String;
 use Linkspace::Column::Tree;
 
-use MIME::Base64 /encode_base64/;
-use JSON qw(decode_json encode_json);
-
-use List::Compare ();
-
-use namespace::clean; # Otherwise Enum clashes with MooseLike
+#use namespace::clean; # Otherwise Enum clashes with MooseLike
 
 with 'Linkspace::Role::Presentation::Column';
 
@@ -509,24 +503,6 @@ sub parse_date
 
     $::session->user->local2dt($value);
 }
-
-#------------------------
-=head1 METHODS: Permissions / Groups
-=cut
-
-sub _access_groups() { $::db->search(LayoutGroup => { layout_id => $_[0]->id }) }
-
-# All permissions for this column
-has permissions => (    # private?
-    is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-        my %perms;
-        push @{$perms{$_->group_id}}, GADS::Type::Permission->new(short => $_->permission)
-            for $self->_access_groups;
-        \%perms;
-    },
-);
 
 sub permissions_by_group_export()
 {   my $self = shift;

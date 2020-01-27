@@ -25,6 +25,7 @@ sub _all_user
 
     my $user   = $params{user};
     my $layout = $params{layout};
+my $sheet; panic;
 
     # A user should have at least a personal dashboard, a table shared
     # dashboard and a site dashboard.
@@ -69,6 +70,7 @@ sub _all_user
 
 sub _shared_dashboard
 {   my ($self, %params) = @_;
+my $sheet; panic;
     my $dashboard = $::db->get_record(Dashboard => {
         'me.instance_id' => $sheet && $sheet->id,
         'me.user_id'     => undef,
@@ -115,6 +117,7 @@ sub create_dashboard
     my $site   = $params{site};
 
     my $guard  = $::db->begin_work;
+my $sheet; panic;
 
     my $dashboard;
 

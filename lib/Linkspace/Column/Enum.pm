@@ -364,14 +364,13 @@ before import_hash => sub {
     $self->ordering($values->{ordering});
 };
 
-around export_hash => sub {
-    my $orig = shift;
-    my ($self, $values) = @_;
-    my $hash = $orig->(@_);
+sub export_hash
+{   my $self = shift;
+    my $hash = $self->SUPER::export_hash;
     $hash->{enumvals} = $self->enumvals;
     $hash->{ordering} = $self->ordering;
-    return $hash;
-};
+    $hash;
+}
 
 sub import_value
 {   my ($self, $value) = @_;

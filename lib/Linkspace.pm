@@ -7,8 +7,6 @@ use open ':encoding(utf8)';
 
 use Log::Report 'linkspace';
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 use YAML             qw(LoadFile);
 
 use Linkspace::Util  qw(configure_util);
@@ -17,13 +15,18 @@ use Linkspace::Site  ();
 use Linkspace::Session::System ();
 use Linkspace::Mailer ();
 
+use Moo;
+use MooX::Types::MooseLike::Base qw/:all/;
+use namespace::clean;
+
 =head1 NAME
 Linkspace - the Linkspace application
 
 =head1 SYNOPSIS
 
   package main;
-  our $linkspace = Linkspace->new(...);
+  our $linkspace = Linkspace->new(...)->start(...);
+  our $linkspace = Linkspace->start(...);
 
 =head1 DESCRIPTION
 This module has main control over any application which processes Linkspace
@@ -53,15 +56,20 @@ Which configuration file to use for everything except the Dancer2 specifics.
 
 =cut
 
-sub BUILD {
-    my ($self, $args) = @_;
+sub start
+{   my $thing = shift;
+    my $args  = ref $_[0] eq 'HASH' ? shift : { @_ };
+    my $self  = ref $thing || $thing->new($args);
 
+warn "Starting";
     # This dirty global connects all singletons.  It simplifies the code
     # enormously.
     $::linkspace = $self;
 
     my $settings = $self->settings;
     configure_util $settings;
+
+    $::linkspace->db;
 
     my $host = $args->{host} || $settings->{default_site}
         or error __x"No default site found";
@@ -73,10 +81,10 @@ sub BUILD {
         site => $site,
     );
 
-    {};
+    $self;
 }
 
-
+#-----------------------
 =head1 METHODS: attributes
 
 =head2 my $session = $::linkspace->default_session;
@@ -162,6 +170,7 @@ has db => (
         my $dbconf = $self->settings_for('db');
         my $class  = delete $dbconf->{class} || 'Linkspace::DB';
 
+        my ($dsn, $user, $passwd) = @{$dbconf}{qw/dsn user password/ };
         my $db_type  = $dbconf->{dsn} =~ m/^DBI\:(pg|mysql)\:/i ? lc($1)
           : error __x"Unsupported database type in dsn '{dsn}'",
                dsn => $dbconf->{dsn};
@@ -174,10 +183,10 @@ has db => (
         $options->{mysql_enable_utf8} = 1
             if ! exists $options->{mysql_enable_utf8} && $db_type eq 'mysql';
 
-        my $sclass = delete $dbconf->{schema_class} || 'Linkspace::Schema';
-        my $schema = $sclass->new();
+        my $sclass = delete $dbconf->{schema_class} || 'GADS::Schema';
+        my $schema = $sclass->connect($dsn, $user, $passwd, $options);
 
-        $::db = $class->new(%$dbconf, schema => $schema);
+        $::db = $class->new(schema => $schema);
     },
 );
 

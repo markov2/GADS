@@ -1,17 +1,22 @@
-package Linkspace::Schema;
-use parent 'DBIx::Class::Schema';
 
-use strict;
-use warnings;
+#XXX For now kept in the GADS namespace, because the whole DB schema is
+#XXX there.  You cannot specify a different base-name for the loaded
+#XXX namespace.
+
+package GADS::Schema;
+
 use Log::Report 'linkspace';
-
 use Tie::Cache ();
+use DBIx::Class::ResultClass::HashRefInflator ();
 
-use Linkspace::Layout ();
-use GADS::DBICProfiler ();
+use Linkspace::Sheet::Layout ();
+use Linkspace::DBICProfiler  ();
+
+use Moo;
+use namespace::clean;
+extends 'DBIx::Class::Schema';
 
 # Load all classes which relate to the schema.
-
 __PACKAGE__->load_namespaces;
 
 our $VERSION = 76;
@@ -32,11 +37,12 @@ structure.
 =head2 my $schema = Linkspace::Schema->new(%options);
 =cut
 
-sub BUILD
-{   my ($self, $args) = @_;
+sub connect(%)
+{   my $class = shift;
+    my $self = $class->SUPER::connect(@_);
 
     my $storage = $self->storage;
-    $storage->debugobj(GADS::DBICProfiler->new);
+    $storage->debugobj(Linkspace::DBICProfiler->new);
     $storage->debug(1);
 
     # Limit the cached connections to 100
@@ -54,8 +60,10 @@ sub BUILD
 
     $self;
 }
+;
 
-=head1 METHODS: 
+#----------------------
+=head1 METHODS: Columns
 The Record class of the schema is dynamic: fields get added based on the
 columns of the sheets.
 =cut
@@ -84,7 +92,7 @@ sub setup_site
     my $rec_class = $self->class('Record');
 
     $self->_add_column($rec_class, $_)
-        for Linkspace::Layout->all_user_columns($site);
+        for Linkspace::Sheet::Layout->all_user_columns($site);
 
     $self;
 }
@@ -119,23 +127,22 @@ for missing ones and adds them.
 sub update_fields
 {   my ($self, $site) = @_;
 
-    my $newest = Linkspace::Layout->newest_field_id($site)
+    my $newest = Linkspace::Sheet::Layout->newest_field_id($site)
         or return; # No fields
 
     # up to date when 
     my $rec_rsource = $self->resultset('Record')->result_source;
     return if $rec_rsource->has_relationship("field$newest");
 
-    my $rec_class = $self->class('Record');
+    my $rec_class   = $self->class('Record');
 
-    my $last_known = $newest -1;
+    my $last_known  = $newest -1;
 	$last_known--
-        until $last_known==0 || $rec_rsource->has_relationship("field$last_known");
+        until $last_known==0
+           || $rec_rsource->has_relationship("field$last_known");
 
-    my $rs_layout = $self->resultset('Layout');
-
-    for(my $field_id = $last_known+1; $field_id <= $newest; $field_id++) {
-        my $col = $rs_layout->find($field_id)
+    for(my $col_id = $last_known+1; $col_id <= $newest; $col_id++) {
+        my $col = $::db->search(Layout => $col_id)
             or next;      # Column may have since been deleted
 
         $self->_add_column($rec_class, $col);

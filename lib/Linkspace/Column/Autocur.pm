@@ -64,7 +64,7 @@ has related_field => (
     }
 );
 
-sub related_field_id() { $sheet->layout->get_column('related_field') }
+sub related_field_id() { $_[0]->layout->column('related_field') }
 
 sub _build_related_field_id
 {   my $self = shift;
@@ -125,10 +125,7 @@ sub update_cached {}
 
 # Not applicable for autocurs - there is no filtering for an autocur column as
 # there is with curvals
-sub filter_view_is_ready
-{   my $self = shift;
-    return 1;
-}
+sub filter_view_is_ready { 1 }
 
 has view => (
     is      => 'ro',
@@ -196,13 +193,12 @@ sub multivalue_rs
 
 }
 
-around export_hash => sub {
-    my $orig = shift;
-    my $self = shift;
-    my $hash = $orig->($self, @_);
+sub export_hash
+{   my $self = shift;
+    my $hash = $self->SUPER::export_hash;
     $hash->{related_field_id} = $self->related_field_id;
     $hash;
-};
+}
 
 around import_after_all => sub {
     my $orig = shift;
@@ -220,7 +216,7 @@ sub how_to_link_to_record {
 	my ($self) = @_;
     my $related_field_id = $self->related_field->id; # "compile"-time
 
-    my $subquery = $::db->search(Current => (
+    my $subquery = $::db->search(Current => {
         'record_later.id' => undef,
     },{
         join => { record_single => 'record_later' },
@@ -229,11 +225,11 @@ sub how_to_link_to_record {
     my $linker = sub { 
         my ($other, $me) = ($_[0]->{foreign_alias}, $_[0]->{self_alias});
 
-        return {
+        return +{
             "$other.value"     => { -ident => "$me.current_id" },
             "$other.layout_id" => $related_field_id, 
             "$other.record_id" => { -in => $subquery },
-        };
+         };
     };
 
     (Curval => $linker);

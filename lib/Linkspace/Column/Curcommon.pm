@@ -27,6 +27,8 @@ extends 'Linkspace::Column';
 use Log::Report 'linkspace';
 use Scalar::Util qw/blessed/;
 
+use Linkspace::Filter ();
+
 ###
 ### META
 ###
@@ -121,7 +123,7 @@ sub _build_curval_fields
 
 has curval_field_ids_index => (
     is      => 'lazy',
-    builder => sub { +{ map +($_ => undef), @{$self->curval_field_ids} } },
+    builder => sub { +{ map +($_ => undef), @{$_[0]->curval_field_ids} } },
 );
 
 # All the curval fields that are multivalue
@@ -136,7 +138,7 @@ sub _build_curval_field_ids_all
 {   my $self = shift;
     my @curval_fields = $::db->search(Layout => {
         internal    => 0,
-        instance_id => $sheet->id,
+        instance_id => $self->sheet->id,
     }, {
         order_by => 'me.position',
     })->get_column('id')->all;
@@ -205,7 +207,7 @@ has filtered_values => (
     {   my $self = shift;
         $self->value_selector eq 'dropdown' or return [];
         my $records = $self->_records_from_db or return [];
-        [ map $self->_format_row($r), $records->all ];
+        [ map $self->_format_row($_), $records->all ];
     },
 );
 
@@ -215,7 +217,7 @@ has all_values => (
     {   my $self = shift;
         $self->value_selector eq 'dropdown' or return [];
         my $records = $self->_records_from_db(no_filter => 1) or return [];
-        [ map $self->_format_row($r), $records->all ];
+        [ map $self->_format_row($_), $records->all ];
     },
 );
 
@@ -267,7 +269,7 @@ sub selected_values
 has values_index => (
     is        => 'lazy',
     predicate => 1,
-    builder   => sub { +{ map +($_->{id} => $_->{value}), @{$_[0]->all_values} } };
+    builder   => sub { +{ map +($_->{id} => $_->{value}), @{$_[0]->all_values} } },
 );
 
 sub filter_value_to_text
@@ -391,7 +393,7 @@ sub field_values
         my %datums;
         # Curval values that have not been written yet don't have an ID
         next if !$row->current_id;
-        foreach my $col (@cols)
+        foreach my $col (@$row)
         {   my $col_id = $col->id;
 
             # Prevent recursive loops. It's possible that a curval and autocur
@@ -572,30 +574,28 @@ sub format_value
     join ', ', map +($_ || ''), @_;
 }
 
-around export_hash => sub {
-    my $orig = shift;
-    my ($self, $values, %options) = @_;
-    my $hash = $orig->(@_);
-    my $report = $options{report_only} && $self->id;
+sub export_hash()
+{   my $self = shift;
+    my $hash = $self->SUPER::export_hash;
     $hash->{refers_to_instance_id} = $self->refers_to_instance_id;
     $hash->{curval_field_ids}      = $self->curval_field_ids;
     $hash;
-};
+}
 
 around import_after_all => sub {
     my $orig = shift;
     my ($self, $values, %options) = @_;
     my $mapping = $options{mapping};
-    my @field_ids = map { $mapping->{$_} } @{$values->{curval_field_ids}};
+    my @field_ids = map $mapping->{$_}, @{$values->{curval_field_ids}};
     $self->curval_field_ids(\@field_ids);
 
     # Update any field IDs contained within a filter - need to recurse deeply
     # into the JSON structure. Do not set layout now, as it will cause column
     # IDs to be validated and removed, which have not been mapped yet
-    my $filter = GADS::Filter->new(as_json => $values->{filter});
+    my $filter = Linkspace::Filter->from_json($values->{filter});
     foreach my $f (@{$filter->filters})
     {
-        $f->{id} = $mapping->{$f->{id}}       or panic "Missing ID";
+        $f->{id}    = $mapping->{$f->{id}}    or panic "Missing ID";
         $f->{field} = $mapping->{$f->{field}} or panic "Missing field";
         delete $f->{column_id}; # XXX See comments in GADS::Filter
     }

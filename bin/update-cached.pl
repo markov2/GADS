@@ -18,81 +18,47 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-use FindBin;
-use lib "$FindBin::Bin/../lib";
-
-use GADS::DB;
-use GADS::Instances;
-use Linkspace::Layout;
-use Dancer2;
-use Dancer2::Plugin::DBIC;
-use Dancer2::Plugin::LogReport mode => 'NORMAL';
+use Linkspace;
 use Tie::Cache;
 
-GADS::DB->setup(schema);
+my $linkspace = Linkspace->new;
 
-# Setup these singleton classes with required parameters for if/when
-# they are called in classes later.
-GADS::Config->instance(
-    config => config,
-);
+tie %{::db->schema->storage->dbh->{CachedKids}}, 'Tie::Cache', 100;
 
-GADS::Email->instance(
-    config => config,
-);
-
-tie %{schema->storage->dbh->{CachedKids}}, 'Tie::Cache', 100;
-
-foreach my $site (schema->resultset('Site')->all)
+foreach my $site (@{$linkspace->all_sites})
 {
-    schema->site_id($site->id);
-    my $instances = GADS::Instances->new(
-        schema                   => schema,
-        user                     => undef,
-        user_permission_override => 1,
-    );
-
-    foreach my $layout (@{$instances->all})
-    {
-        next if $layout->no_overnight_update;
+    foreach my $sheet (@{$site->all_sheets})
+    {   next if $sheet->no_overnight_update;
+        my $layout = $sheet->layout;
 
         my $cols = $layout->col_ids_for_cache_update;
         next if !@$cols;
 
-        my $records = GADS::Records->new(
-            user                 => undef,
-            layout               => $layout,
-            schema               => schema,
+        my $page = $sheet->data->records(
             columns              => $cols,
             curcommon_all_fields => 1, # Code might contain curcommon fields not in normal display
             include_children     => 1, # Update all child records regardless
         );
 
         my %changed;
-        while (my $record = $records->single)
+        while (my $row = $page->row_next)
         {
-            foreach my $column ($layout->all(order_dependencies => 1, has_cache => 1))
+            foreach my $column ($layout->columns(order_dependencies => 1, has_cache => 1))
             {
-                my $datum = $record->fields->{$column->id};
+                my $datum = $row->field($column);
                 $datum->re_evaluate(no_errors => 1);
                 $datum->write_value;
-                $changed{$column->id} ||= [];
-                push @{$changed{$column->id}}, $record->current_id
+                push @{$changed{$column->id}}, $row->current_id
                     if $datum->changed;
             }
         }
 
         # Send any alerts
         foreach my $col_id (keys %changed)
-        {
-            my $alert_send = GADS::AlertSend->new(
-                layout      => $layout,
-                schema      => schema,
-                user        => undef,
+        {   $layout->alert_send(
                 current_ids => $changed{$col_id},
                 columns     => $col_id,
-            );
-            $alert_send->process;
+            )->process;
         }
     }
 }

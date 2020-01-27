@@ -145,7 +145,10 @@ sub html
         $params->{content} = $self->content;
     }
     else
-    {   my $view = $sheet->views->view($self->view_id);
+    {
+my ($sheet, $layout);
+panic;
+        my $view = $sheet->views->view($self->view_id);
 
         if ($self->type eq 'table')
         {

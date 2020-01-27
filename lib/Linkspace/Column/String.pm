@@ -100,14 +100,13 @@ before import_hash => sub {
     $self->force_regex($values->{force_regex});
 };
 
-around export_hash => sub {
-    my $orig = shift;
-    my ($self, $values) = @_;
-    my $hash = $orig->(@_);
+sub export_hash
+{   my $self = shift;
+    my $hash = $self->SUPER::export_hash;
     $hash->{textbox}     = $self->textbox;
     $hash->{force_regex} = $self->force_regex;
     $hash;
-};
+}
 
 sub import_value
 {   my ($self, $value) = @_;

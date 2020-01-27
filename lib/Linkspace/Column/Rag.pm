@@ -96,12 +96,11 @@ before import_hash => sub {
     $self->code($values->{code});
 };
 
-around export_hash => sub {
-    my $orig = shift;
-    my ($self, $values) = @_;
-    my $hash = $orig->(@_);
+sub export_hash
+{   my $self = shift;
+    my $hash = $self->SUPER::export_hash;
     $hash->{code} = $self->code;
-    return $hash;
-};
+    $hash;
+}
 
 1;

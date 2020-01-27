@@ -1,9 +1,7 @@
 
 package Linkspace::DB;
 
-use warnings;
-use strict;
-
+use GADS::Schema ();
 use Log::Report 'linkspace';
 
 # Close to all records in the database are restricted to a site.  However,
@@ -14,8 +12,8 @@ my %has_site_id = map +($_ => 1),
     qw/Audit Department Group Import Organisation Team Title Instance User/;
 
 use Moo;
-#use MooX::Types::MooseLike::Base qw/:all/;
-use DBIx::Class::ResultClass::HashRefInflator;
+use MooX::Types::MooseLike::Base qw/:all/;
+use namespace::clean;
 
 =head1 NAME
 Linkspace::DB - database abstraction
@@ -39,7 +37,7 @@ which have extended rules in the Records.
 =head1 METHODS: Attributes
 
 =head2 my $schema = $db->schema;
-Returns the L<Linkspace::Schema> object (extends L<DBIx::Class::Schema>)
+Returns the L<GADS::Schema> object (extends L<DBIx::Class::Schema>)
 which manages the database access.
 =cut
 
@@ -47,7 +45,6 @@ has schema => (
     is       => 'ro',
     required => 1,
 );
-
 
 =head1 METHODS: Processing
 

@@ -21,8 +21,9 @@ package Linkspace::Sheet::Layout;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 use Log::Report 'linkspace';
+use List::Util  qw/first max/;
 
-use Linkspace::Column ();
+#use Linkspace::Column ();
 
 has forget_history => (
     is      => 'ro',
@@ -49,26 +50,13 @@ has default_view_limit_extra => (
 );
 
 has api_index_layout => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => sub { $_[0]->column($self->api_index_layout_id) },
+    is      => 'lazy',
+    builder => sub { $_[0]->column($_[0]->api_index_layout_id) },
 );
 
 has api_index_layout_id => (
     is      => 'ro',
     isa     => Maybe[Int],
-);
-
-has columns => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => '_build_columns',
-);
-
-has set_groups => (
-    is        => 'rw',
-    isa       => ArrayRef,
-    predicate => 1,
 );
 
 #------------------
@@ -164,40 +152,30 @@ sub load_columns($)
 
 has has_globe => (
     is      => 'lazy',
-    builder => sub { !! grep $_->return_type eq 'globe', @{$_[0]->all_columns} },
-}
+    builder => sub { !! first { $_->return_type eq 'globe' } @{$_[0]->all_columns} },
+);
 
 has has_children => (
     is      => 'lazy',
-    builder => sub { !! grep $_->can_child, $_[0]->all_columns },
-);
-
-has has_topics => (
-    is      => 'lazy',
-    builder => sub { !! $::db->search(Topic => { instance_id => $self->sheet->id })->next },
-);
-
-has col_ids_for_cache_update => (
-    is  => 'lazy',
-    isa => ArrayRef,
+    builder => sub { !! first { $_->can_child } $_[0]->all_columns },
 );
 
 # All the column IDs needed to update all cached fields. This is all the
 # calculated/rag fields, plus any fields that they depend on
-sub _build_col_ids_for_cache_update
+sub col_ids_for_cache_update
 {   my $self = shift;
     my $sheet_id = shift->sheet->id;
 
     # First all the "parent" fields (the calc/rag fields)
     my %cols = map +($_ => 1), $::db->search(LayoutDepend => {
-        instance_id => $sheet_id
+        instance_id => $sheet_id,
     },{
         join     => 'layout',
         group_by => 'me.layout_id',
     })->get_column('layout_id')->all;
 
     # Then all the fields they depend on
-    $cols{$_} = 1 for $::db->search(LayoutDepend =>
+    $cols{$_} = 1 for $::db->search(LayoutDepend => {
         instance_id => $sheet_id,
     },{
         join     => 'depend_on',
@@ -209,12 +187,12 @@ sub _build_col_ids_for_cache_update
     # table
     $cols{$_->id} = 1 for grep $_->has_cache, $self->all_columns;
 
-    return [ keys %cols ];
+    [ keys %cols ];
 }
 
 sub all_with_internal
 {   my $self = shift;
-    $self->all(@_, include_internal => 1);
+    $self->columns(@_, include_internal => 1);
 }
 
 sub columns_for_filter
@@ -256,56 +234,19 @@ sub position
 
 sub contains_column($)
 {   my ($self, $column) = @_;
-    !! $self->columns_index->{$column_id};
-}
-
-sub _build__columns_namehash
-{   my $self = shift;
-    my %columns;
-    foreach (@{$self->columns})
-    {   error __x"Column {name} exists twice - unable to find unique column",
-            name => $_ if $columns{$_};
-        $columns{$_->name} = $_;
-    }
-    \%columns;
-}
-
-sub column_by_name { $_->_columns_name->{$_[1]} }
-
-sub _build__columns_name_shorthash
-{   my $self = shift;
-    # Include all columns across all instances, except for internal columns of
-    # other instances, which will have the same short names as the one from
-    # this instance
-    my %columns = map { $_->name_short => $_ } grep {
-        $_->name_short && (!$_->internal || $_->instance_id == $self->instance_id)
-    } @{$self->columns};
-    \%columns;
-}
-
-sub column_by_name_short
-{   my ($self, $name) = @_;
-    $self->_columns_name_shorthash->{$name};
-}
-
-sub column_id
-{   my $self = shift;
-    $self->column_by_name_short('_id')
-        or panic "Internal _id column missing";
+    !! $self->columns_index->{$column->id};
 }
 
 # Returns what a user can do to the whole data set. Individual
 # permissions for columns are contained in the column class.
 sub user_can
 {   my ($self, $permission) = @_;
-    return 1 if $self->user_permission_override;
     $self->_user_permissions_overall->{$permission};
 }
 
 # Whether the user has got any sort of access
 sub user_can_anything
 {   my $self = shift;
-    return 1 if $self->user_permission_override;
     !! keys %{$self->_user_permissions_overall};
 }
 
@@ -439,7 +380,7 @@ sub purge
     $_->delete for reverse
         $self->search_columns(order_dependencies => 1, include_hidden => 1);
 
-    my %ref_sheet = { instance_id => $sheet->id };
+    my %ref_sheet = { instance_id => $self->sheet->id };
 
     $::db->resultset('UserLastrecord')->delete;   # empty table
 
@@ -658,9 +599,9 @@ sub column_delete($)
 
     # First see if any views are conditional on this field
     my $disps = $column->display_fields;
-....
+
     if(@$disps)
-    {   my @names = map $_->layout->name, @disps;   #XXX???
+    {   my @names = map $_->layout->name, @$disps;   #XXX???
         error __x"The following fields are conditional on this field: {dep}.
             Please remove these conditions before deletion.", dep => \@names;
     }
@@ -687,7 +628,7 @@ sub column_delete($)
             l => [ map $_->name_long, @$childs ];
     }
 
-    my $graphs = $sheet->graphs->graphs_using_column($column);
+    my $graphs = $self->sheet->graphs->graphs_using_column($column);
     if(@$graphs)
     {
         error __x"The following graphs references this field: {graph}. Please update them before deletion.",
@@ -697,7 +638,7 @@ sub column_delete($)
     my $guard = $::db->begin_work;
     $doc->column_unuse($column);
     $column->remove_history;
-    $::db->delete(Layout => $column->id);    # Finally!
+    $column->delete;    # Finally!
 
     $guard->commit;
 }

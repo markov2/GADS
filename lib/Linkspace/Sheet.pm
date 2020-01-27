@@ -341,4 +341,9 @@ sub column_unuse($)
     $self->views->column_unuse($column);
 }
 
+has has_topics => (
+    is      => 'lazy',
+    builder => sub { !! $::db->search(Topic => { instance_id => $_[0]->id })->first },
+);
+
 1;

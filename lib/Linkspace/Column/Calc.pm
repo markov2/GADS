@@ -156,15 +156,14 @@ before import_hash => sub {
     $self->decimal_places($values->{decimal_places});
 };
 
-around export_hash => sub {
-    my $orig = shift;
-    my ($self, $values) = @_;
-    my $hash = $orig->(@_);
+sub export_hash
+{   my $self = shift;
+    my $hash = $self->SUPER::export_hash;
     $hash->{code}           = $self->code;
     $hash->{return_type}    = $self->return_type;
     $hash->{decimal_places} = $self->decimal_places;
     $hash;
-};
+}
 
 # This list of regexes is copied directly from the plotly source code
 my @regexes = map qr!$_!, qw/
