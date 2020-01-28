@@ -50,9 +50,58 @@ sub remove($)
     $::db->delete(CurvalField => { parent_id => $col_id });
 }
 
+sub _column_create($)
+{   my ($class, $insert) = @_;
+
+    $insert->{related_field}
+        or error __x"Please select a field that refers to this table";
+
+    $class->SUPER::_columns_create($insert);
+}
+
 ###
 ### Instance
 ###
+
+sub column_update($)
+{   my ($self, $update) = @_;
+    my $curval_field_ids = delete $update{curval_field_ids};
+    $self->SUPER::column_update($update);
+
+    defined $curval_field_ids or return $self;
+
+    # Skip fields not part of referred instance. This can happen when a
+    # user changes the instance that is referred to, in which case fields
+    # may still be selected and submitted from the no-longer-displayed
+    # table's list of fields
+
+    my $layout_parent    = $self->layout_parent;
+    my $parent_sheet_id  = $layout_parent->sheet_id;
+    my @curval_fields    = grep $_->sheet_id == $parent_sheet_id,
+        $self->site->columns($curval_field_ids);
+
+    my @curval_field_ids;
+    foreach my $column (@curval_fields)
+    {
+        # Check whether field is a curval - can't refer recursively
+        next if $column->type eq 'curval';
+
+        my %link = (parent_id => $column->id, child_id => $field);
+
+        $::db->get_record(CurvalField => \%link)
+            or $::db->create(CurvalField => \%link);
+
+        push @curval_field_ids, $column->id;
+    }
+
+    # Then delete any that no longer exist
+    my $search = { parent_id => $id };
+    $search->{child_id} = { '!=' =>  [ -and => @curval_field_ids ] }
+        if @curval_field_ids;
+
+    $::db->delete(CurvalField => $search);
+
+}
 
 sub tjoin
 {   my ($self, %options) = @_;
@@ -60,30 +109,9 @@ sub tjoin
         grep !$_->internal, @{$self->curval_fields_retrieve(%options)});
 }
 
-has override_permissions => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    builder => sub {
-        my $self = shift;
-        return 0 unless $self->has_options;
-        $self->options->{override_permissions};
-    },
-    trigger => sub { $_[0]->reset_options },
-    predicated => 1,
-);
-
-has refers_to_instance_id => (
-    is      => 'rw',
-    isa     => Maybe[Int],
-    lazy    => 1,
-    coerce  => sub { $_[0] || undef },
-    builder => '_build_refers_to_instance_id',
-);
-
 has layout_parent => (
     is      => 'lazy',
+    builder => sub { my $p = $_[0]->related_column; $p ? $p->layout : $p } },
 );
 
 has retrieve_all_columns => (
@@ -113,13 +141,12 @@ has curval_field_ids => (
 
 has curval_fields => (
     is      => 'lazy',
-    isa     => ArrayRef,
+    builder => sub
+    {   my $self = shift;
+        my $layout = $self->layout_parent;
+        [ map $layout->column($_, permission => 'read'), @{$self->curval_field_ids} ];
+    },
 );
-
-sub _build_curval_fields
-{   my $self = shift;
-    [ map $self->layout_parent->column($_, permission => 'read'), @{$self->curval_field_ids} ];
-}
 
 has curval_field_ids_index => (
     is      => 'lazy',
@@ -131,19 +158,14 @@ sub curval_fields_multivalue() { [ grep $_->is_multivalue, @{$_[0]->curval_field
 
 has curval_field_ids_all => (
     is      => 'lazy',
-    isa     => ArrayRef,
-);
+    builder => sub
+    {   my $self = shift;
+        my $columns = $self->layout_parent->columns(internal => 0);
 
-sub _build_curval_field_ids_all
-{   my $self = shift;
-    my @curval_fields = $::db->search(Layout => {
-        internal    => 0,
-        instance_id => $self->sheet->id,
-    }, {
-        order_by => 'me.position',
-    })->get_column('id')->all;
-    \@curval_fields;
-}
+        #XXX probably, the caller of this wants something else
+        [  map $_->id, @$columns ];
+    },
+);
 
 sub curval_field_ids_retrieve
 {   my ($self, %options) = @_;
@@ -168,17 +190,17 @@ sub curval_fields_retrieve
 
 has curval_fields_all => (
     is      => 'lazy',
-    isa     => ArrayRef,
-);
-
-sub _build_curval_fields_all
-{   my $self = shift;
-    [ map { $self->layout_parent->column($_, permission => 'read') } @{$self->curval_field_ids_all} ];
+    builder => sub
+    {   my $self = shift;
+        my $all    = $self->curval_field_ids_all;
+        my $parent = $self->layout_parent;
+        [ map $parent->column($_, permission => 'read'), @$all ];
+    }
 }
 
 sub sort_columns
 {   my $self = shift;
-    map $_->sort_columns, @{$self->curval_fields};
+    [ map $_->sort_columns, @{$self->curval_fields} ];
 }
 
 # Does this column reference the field?
@@ -196,7 +218,7 @@ sub _build_all_ids
 {   my $self = shift;
     [
         $::db->search(Current => {
-            instance_id => $self->refers_to_instance_id,
+            instance_id => $self->related_sheet_id,
         })->get_column('id')->all
     ];
 }
@@ -242,7 +264,6 @@ sub _records_from_db
     }
 
     my $records = GADS::Records->new(
-        user               => $self->override_permissions ? undef : $self->layout->user,
         view               => $view,
         layout             => $layout,
         columns            => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
@@ -318,16 +339,16 @@ sub field_values_for_code
     {
         foreach my $col (@retrieve_cols)
         {
-            if (my $d = $values->{$cid}->{$col->id})
-            {
-                # Ensure that the "global" (within parent datum) already_seen
-                # hash is passed around all sub-datums.
-                $d->already_seen_code($already_seen_code);
-                # As we delve further into more values, increase the level for
-                # each curval/autocur
-                $d->already_seen_level($options{level} + ($col->is_curcommon ? 1 : 0));
-                $return->{$cid}->{$col->name_short} = $d->for_code;
-            }
+            my $d = $values->{$cid}->{$col->id} or next;
+
+            # Ensure that the "global" (within parent datum) already_seen
+            # hash is passed around all sub-datums.
+            $d->already_seen_code($already_seen_code);
+
+            # As we delve further into more values, increase the level for
+            # each curval/autocur
+            $d->already_seen_level($options{level} + ($col->is_curcommon ? 1 : 0));
+            $return->{$cid}->{$col->name_short} = $d->for_code;
         }
     }
 
@@ -359,15 +380,14 @@ sub field_values
         # Those that need to be retrieved
         #XXX use parted
         @need_ids = map $_->current_id,
-            grep !$_->has_fields(@cur_retrieve),
+            grep ! $_->has_fields(@cur_retrieve),
                 @$rows;
 
         # Those that don't can be added straight to the return array
         @rows = grep $_->has_fields(@cur_retrieve), @$rows;
     }
     elsif($all_fields)
-    {
-        # This section is if we have only been passed IDs, in which case we
+    {   # This section is if we have only been passed IDs, in which case we
         # will need to retrieve the rows
         @need_ids = @{$params{ids}};
     }
@@ -433,60 +453,6 @@ sub _get_rows
     $rows;
 }
 
-sub _update_curvals
-{   my ($self, %options) = @_;
-
-    my $id   = $options{id};
-    my $rset = $options{rset};
-
-    !@{$self->curval_field_ids} && !$ENV{GADS_ALLOW_BLANK_CURVAL}
-        and error __"Please select some fields to use from the other table";
-
-    my $layout_parent = $self->layout_parent;
-
-    my @curval_field_ids;
-    foreach my $field (@{$self->curval_field_ids})
-    {
-        # Skip fields not part of referred instance. This can happen when a
-        # user changes the instance that is referred to, in which case fields
-        # may still be selected and submitted from the no-longer-displayed
-        # table's list of fields
-        my $field_full = $layout_parent->column($field);
-        $field_full->instance_id == $layout_parent->instance_id
-            or next;
-
-        # Check whether field is a curval - can't refer recursively
-        next if $field_full->type eq 'curval';
-        my %link = (parent_id => $id, child_id => $field);
-
-        $::db->get_record(CurvalField => \%link)
-            or $::db->create(CurvalField => \%link);
-
-        push @curval_field_ids, $field;
-    }
-
-    # Then delete any that no longer exist
-    my $search = { parent_id => $id };
-    $search->{child_id} = { '!=' =>  [ -and => @curval_field_ids ] }
-        if @curval_field_ids;
-
-    $::db->delete(CurvalField => $search);
-
-}
-
-sub _build_layout_parent
-{   my $self = shift;
-    $self->refers_to_instance_id or return;
-    Linkspace::Layout->new(
-        user          => $self->layout->user,
-        instance_id   => $self->refers_to_instance_id,
-        # We want to honour the permissions for the fields that we retrieve,
-        # but apply filtering regardless (for curval filter fields)
-        user_permission_override        => $self->override_permissions || $self->user_permission_override,
-        user_permission_override_search => 1,
-    );
-}
-
 sub validate_search
 {   my ($self, $value, %options) = @_;
     if(!$value)
@@ -507,23 +473,22 @@ sub values_beginning_with
 {   my ($self, $match) = @_;
     return if !$self->filter_view_is_ready; # Record not ready yet in sub_values
     # First create a view to search for this value in the column.
-    my @conditions = map {
-        +{
-            field    => $_->id,
-            id       => $_->id,
-            type     => $_->type,
-            value    => $match,
-            operator => $_->return_type eq 'string' ? 'begins_with' : 'equal',
-        },
-    } @{$self->curval_fields};
-    my @rules = (
-        {
-            condition => 'OR',
-            rules     => [@conditions],
-        },
-    );
+    my @conditions = map +{
+        field    => $_->id,
+        id       => $_->id,
+        type     => $_->type,
+        value    => $match,
+        operator => $_->return_type eq 'string' ? 'begins_with' : 'equal',
+    }, @{$self->curval_fields};
+
+    my @rules = +{
+        condition => 'OR',
+        rules     => \@conditions,
+    };
+
     push @rules, $self->view->filter->as_hash
         if $self->view;
+
     my $filter = GADS::Filter->new(
         as_hash => {
             condition => 'AND',
@@ -531,14 +496,14 @@ sub values_beginning_with
         },
         layout => $self->layout_parent,
     );
+
     my $view = GADS::View->new(
-        instance_id => $self->refers_to_instance_id,
+        instance_id => $self->related_sheet_id,
         layout      => $self->layout_parent,
-        user        => undef,
+        filter      => $match ? $filter : undef,
     );
-    $view->filter($filter) if $match;
+
     my $records = GADS::Records->new(
-        user    => $self->override_permissions ? undef : $self->layout->user,
         rows    => 10,
         view    => $view,
         layout  => $self->layout_parent,
@@ -554,17 +519,17 @@ sub _format_row
 {   my ($self, $row, %options) = @_;
     my $value_key = $options{value_key} || 'value';
     my @values;
+    my $layout_parent = $self->layout_parent;
+
     foreach my $fid (@{$self->curval_field_ids})
-    {
-        next if !$self->layout_parent->column($fid, permission => 'read');
-        push @values, $row->fields->{$fid};
+    {   push @values, $row->field($fid)
+            if $layout_parent->column($fid, permission => 'read');
     }
 
-    my $text     = $self->format_value(@values);
     +{
         id         => $row->current_id,
         record     => $row,
-        $value_key => $text,
+        $value_key => $self->format_value(@values),
         values     => \@values,
     };
 }
@@ -577,7 +542,7 @@ sub format_value
 sub export_hash()
 {   my $self = shift;
     my $hash = $self->SUPER::export_hash;
-    $hash->{refers_to_instance_id} = $self->refers_to_instance_id;
+    $hash->{refers_to_instance_id} = $self->related_sheet_id;
     $hash->{curval_field_ids}      = $self->curval_field_ids;
     $hash;
 }
@@ -599,7 +564,6 @@ around import_after_all => sub {
         $f->{field} = $mapping->{$f->{field}} or panic "Missing field";
         delete $f->{column_id}; # XXX See comments in GADS::Filter
     }
-    $filter->clear_as_json;
     $filter->layout($self->layout);
     $self->filter($filter);
 

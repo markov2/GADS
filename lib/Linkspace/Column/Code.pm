@@ -36,6 +36,10 @@ sub has_cache { 1 }
 sub userinput { 0 }
 
 ###
+### Class
+###
+
+###
 ### Instance
 ###
 
@@ -128,10 +132,6 @@ use Inline 'Lua' => q{
     end
 };
 
-has _rset_code => (
-    is      => 'lazy',
-);
-
 has code => (
     is      => 'rw',
     isa     => Str,
@@ -180,7 +180,7 @@ sub update_cached
 
     my $records = GADS::Records->new(
         layout               => $layout,
-        columns              => [ @{$self->depends_on}, $self->id ],
+        columns              => [ @{$self->depends_on_ids}, $self->id ],
         view_limit_extra_id  => undef,
         curcommon_all_fields => 1, # Code might contain curcommon fields not in normal display
         include_children     => 1, # Update all child records regardless
@@ -230,22 +230,21 @@ sub working_days_diff
 {   my ($start_epoch, $end_epoch, $country, $region) = @_;
 
     @_ == 4
-        or error "Parameters for working_days_diff need to be: start, end, country, region";
+        or error "parameters for working_days_diff need to be: start, end, country, region";
 
     $country eq 'GB' or error "Only country GB is currently supported";
-
-    $start_epoch or error "Start date missing for working_days_diff";
-    $end_epoch or error "End date missing for working_days_diff";
+    $start_epoch     or error "Start date missing for working_days_diff";
+    $end_epoch       or error "End date missing for working_days_diff";
 
     my $start = DateTime->from_epoch(epoch => $start_epoch);
-    my $end = DateTime->from_epoch(epoch => $end_epoch);
+    my $end   = DateTime->from_epoch(epoch => $end_epoch);
 
     # Check that we have the holidays for the years requested
     my $min = $start < $end ? $start->year : $end->year;
     my $max = $end > $start ? $end->year : $start->year;
+
     foreach my $year ($min..$max)
-    {
-        error __x"No bank holiday information available for year {year}", year => $year
+    {   error __x"No bank holiday information available for year {year}", year => $year
             if !%{gb_holidays(year => $year, regions => [$region])};
     }
 
@@ -266,8 +265,8 @@ sub working_days_diff
             $marker->add(days => 1);
         }
     }
-    else {
-        my $marker = $start->clone->subtract(days => 1);
+    else
+    {   my $marker = $start->clone->subtract(days => 1);
 
         while ($marker >= $end)
         {
@@ -321,12 +320,12 @@ sub eval
     my $return = lua_run($run_code, $vars, \&working_days_diff, \&working_days_add);
     # Make sure we're not returning anything funky (e.g. code refs)
     my $ret = $return->{return};
-    if ($self->multivalue && ref $ret eq 'ARRAY')
-    {
-        $ret = [ map "$_", @$ret ];
+
+    if($self->multivalue && ref $ret eq 'ARRAY')
+    {   $ret = [ map "$_", @$ret ];
     }
-    elsif (defined $ret) {
-        $ret = "$ret" if defined $ret;
+    elsif(defined $ret)
+    {   $ret = "$ret";
     }
     my $err = $return->{error} && ''.$return->{error};
     no warnings "uninitialized";

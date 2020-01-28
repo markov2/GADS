@@ -7,12 +7,10 @@ sub _presentation_details {
 
     #return [] unless $self->as_string;
 
-    my $rti = $self->column->refers_to_instance_id;
-
     my @links = map +{
         id                    => $_->{id},
         href                  => $_->{value},
-        refers_to_instance_id => $rti,
+        refers_to_instance_id => $self->column->related_sheet_id,
         values                => $_->{values},
         presentation          => $_->{record}->presentation($sheet, curval_fields => $self->column->curval_fields),
     }, @{$self->values};

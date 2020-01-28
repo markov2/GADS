@@ -24,6 +24,7 @@ use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column::Person';
 
 use Log::Report 'linkspace';
+use List::Util  qw/uniq/;
 
 ###
 ### META
@@ -46,9 +47,8 @@ sub fetch_multivalues
 {   my ($self, $victim_ids) = @_;
     $victim_ids && @$victim_ids or return +{ };
 
-    my %victim_ids = map +($_ => 1), grep $_, @$victim_ids;
     my $users      = $::session->site->users;
-    my @victims    = grep defined, map $users->user($_), keys %victim_ids;
+    my @victims    = grep defined, map $users->user($_), uniq @$victim_ids;
 
     +{ map +($_->id => $_), @victims };
 }

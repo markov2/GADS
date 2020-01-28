@@ -2159,33 +2159,36 @@ prefix '/:layout_name' => sub {
             unless $sheet->user_can("layout");
 
         my $id = param 'id';
-        my $topic = $id && schema->resultset('Topic')->search({
-            id          => $id,
-            instance_id => $instance_id,
-        })->next;
+        my $topic = $id && $sheet->topic($id);
 
         if (param 'submit')
-        {
-            $topic = schema->resultset('Topic')->new({ instance_id => $instance_id })
-                if !$id;
+        {   my $name = param 'name';
+            my %data = (
+                name                  => $name,
+                description           => (param 'description'),
+                click_to_edit         => (param 'click_to_edit'),
+                initial_state         => (param 'initial_state'),
+                prevent_edit_topic_id => is_valid_id(param 'prevent_edit_topic_id'),
+            );
 
-            $topic->name(param 'name');
-            $topic->description(param 'description');
-            $topic->click_to_edit(param 'click_to_edit');
-            $topic->initial_state(param 'initial_state');
-            $topic->prevent_edit_topic_id(param('prevent_edit_topic_id') || undef);
-
-            if (process(sub {$topic->update_or_insert}))
-            {
-                my $action = param('id') ? 'updated' : 'created';
-                return forwardHome(
-                    { success => "Topic has been $action successfully" }, $sheet->identifier.'/topics' );
+            my $msg;
+            if(process(sub {
+                if($topic)
+                {   $sheet->topic_update($topic, \%data);
+                    $msg = "Topic $name has been updated successfully";
+                }
+                else
+                {   $topic = $sheet->topic_create(\%data);
+                    $msg = "Topic $name has been created successfully";
+                };
+            }))
+            {   return forwardHome({ success => $msg }, $sheet->identifier.'/topics');
             }
         }
 
         if (param 'delete_topic')
         {
-            if (process(sub {$topic->delete}))
+            if (process(sub {$sheet->topic_delete(topic))
             {
                 return forwardHome(
                     { success => "The topic has been deleted successfully" }, $sheet->identifier.'/topics' );
@@ -2194,29 +2197,27 @@ prefix '/:layout_name' => sub {
 
         my $topic_name = $id ? $topic->name : 'new topic';
         my $topic_id   = $id ? $topic->id : 0;
-        template 'topic' => {
+        template topic => {
             topic       => $topic,
-            topics      => [schema->resultset('Topic')->search({ instance_id => $instance_id })->all],
-            breadcrumbs => [Crumb($sheet) => Crumb($sheet, '/topics' => 'topics') => Crumb($sheet, "/topic/$topic_id" => $topic_name)],
+            topics      => $sheet->all_topics,
+            breadcrumbs => [
+                Crumb($sheet),
+                Crumb($sheet, '/topics' => 'topics')
+                Crumb($sheet, "/topic/$topic_id" => $topic_name)
+            ],
             page        => !$id ? 'topic/0' : 'topics',
         }
     };
 
     get '/topics/?' => require_login sub {
 
-        my $layout = var('layout') or pass;
+        $sheet->user_can("layout")
+            or forwardHome({ danger => "You do not have permission to manage topics"}, '');
 
-        my $user        = logged_in_user;
-
-        my $instance_id = $layout->instance_id;
-
-        forwardHome({ danger => "You do not have permission to manage topics"}, '')
-            unless $sheet->user_can("layout");
-
-        template 'topics' => {
+        template topics => {
             layout      => $layout,
-            topics      => [schema->resultset('Topic')->search({ instance_id => $instance_id })->all],
-            breadcrumbs => [Crumb($sheet) => Crumb($sheet, '/topics' => 'topics')],
+            topics      => $sheet->all_topics,
+            breadcrumbs => [ Crumb($sheet) => Crumb($sheet, '/topics' => 'topics') ],
             page        => 'topics',
         };
     };
@@ -2245,7 +2246,7 @@ prefix '/:layout_name' => sub {
 
         my $global = $param('global') ? 1 : 0;
         $global = 0
-            if param('clone')
+            if  $clone_id
             && !$view->group_id
             && !$sheet->user_can('layout');
 
@@ -2255,8 +2256,7 @@ prefix '/:layout_name' => sub {
             #XXX not needed anymore?
 
             my $name = param('name');
-            if(process sub{ $view->update(
-                sheet      => $sheet,
+            if(process sub{ $view->view_update(
                 column_ids => param('column'),
                 global     => $global,
                 is_admin   => param('is_admin') ? 1 : 0,
@@ -2281,7 +2281,7 @@ prefix '/:layout_name' => sub {
         }
         elsif (param 'delete')
         {
-            if(process( sub { $view->delete($sheet) }))
+            if(process( sub { $view->view_delete }))
             {   session('persistent')->{view}{$sheet->id} = undef;
                 return forwardHome(
                     { success => "The view has been deleted successfully" }, $sheet->identifier.'/data' );
@@ -2307,16 +2307,14 @@ prefix '/:layout_name' => sub {
         push @breadcrumbs, Crumb($sheet, "/view/0" => 'new view')
             if !$view_id && defined $view_id;
 
-        my $output = template 'view' => {
+        return template 'view' => {
+            page        => $page,
             layout      => $layout,
             sort_types  => $view->sort_types,
             view_edit   => $view, # TT does not like variable "view"
             clone       => $clone_id,  #XXX or $is_clone
-            page        => $page,
             breadcrumbs => \@breadcrumbs,
         };
-
-        $output;
     };
 
     any ['get', 'post'] => '/layout/?:id?' => require_login sub {
@@ -2332,13 +2330,13 @@ prefix '/:layout_name' => sub {
 
         if($col_id)
         {   # Get all layouts of all instances for field linking
-            $params->{instance_layouts} = var('instances')->all;
-            $params->{instances_object} = var('instances'); # For autocur. Don't conflict with other instances var
+            $params->{instance_layouts} = $document->all_sheets;  #XXX
+            $params->{instances_object} = $document->all_sheets;
         }
 
         my @breadcrumbs = (
             Crumb($sheet),
-            Crumb($sheet, '/layout' => 'fields');
+            Crumb($sheet, '/layout' => 'fields'),
         );
 
         if($col_id || param('submit') || param('update_perms'))
@@ -2370,69 +2368,64 @@ prefix '/:layout_name' => sub {
 
                 my $type = param 'type';
                 my %data =
-                  ( permissions => \%permissions,
+                  ( permissions    => \%permissions,
+                  , display_fields => param('display_fields'),
                   );
 
                 $data{$_} = param $_
                     for Linkspace::Column->attributes_for($type);
 
-                $column->display_fields(param 'display_fields');
-                # Set the layout in the GADS::Filter object, in case the write
-                # doesn't success, in which case the filter will need to be
-                # turned into base64 which requires layout to be set in
-                # GADS::Filter (to prevent a panic)
-                $column->display_fields->layout($layout);
-
+                #XXX normalization and validation?
+                my %extra;
                 my $no_alerts;
-                if ($column->type eq "file")
-                {   $data{filesize}      = param 'filesize';
+                if($type eq 'file')
+                {   $extra{filesize}      = param 'filesize';
                 }
-                elsif ($column->type eq "rag")
-                {   $data{code}          = param 'code_rag';
-                    $data{no_alerts}     = param 'no_alerts_rag';
+                elsif($type eq 'rag')
+                {   $extra{code}          = param 'code_rag';
+                    $extra{no_alerts}     = param 'no_alerts_rag';
                 }
-                elsif ($column->type eq "enum")
-                {   $data{enumvals}      = [ body_parameters->get_all('enumval') ];
-                    $data{enumval_ids}   = [ body_parameters->get_all('enumval_id') ];
-                    $data{ordering}      = param 'ordering';
+                elsif($type eq 'enum')
+                {   $extra{enumvals}      = [ body_parameters->get_all('enumval') ];
+                    $extra{enumval_ids}   = [ body_parameters->get_all('enumval_id') ];
+                    $extra{ordering}      = param 'ordering';
                 }
-                elsif ($column->type eq "calc")
-                {   $data{code}          = param 'code_calc';
-                    $data{return_type}   = param 'return_type';
-                    $data{no_alerts}     = param 'no_alerts_calc';
+                elsif($type eq 'calc')
+                {   $extra{code}          = param 'code_calc';
+                    $extra{return_type}   = param 'return_type';
+                    $extra{no_alerts}     = param 'no_alerts_calc';
                 }
-                elsif ($column->type eq "tree")
-                {   $data{end_node_only} = param 'end_node_only');
+                elsif($type eq 'tree')
+                {   $extra{end_node_only} = param 'end_node_only');
                 }
-                elsif ($column->type eq "string")
-                {   $data{textbox}       = param 'textbox';
-                    $data{force_regex}   = param 'force_regex');
+                elsif($type eq 'string')
+                {   $extra{textbox}       = param 'textbox';
+                    $extra{force_regex}   = param 'force_regex');
                 }
-                elsif ($type eq "curval")
-                {   $data{refers_to_instance_id} = param 'refers_to_instance_id');
-                    $data{filter}        = { json => param 'filter' }; 
-                    my @curval_field_ids = body_parameters->get_all('curval_field_ids');
-                    $data{curval_field_ids} = \@curval_field_ids;
+                elsif($type eq 'curval')
+                {   $extra{refers_to_instance_id} = param 'refers_to_instance_id');
+                    $extra{filter}        = param 'filter';
+                    $extra{curval_field_ids} = [body_parameters->get_all('curval_field_ids' ];
                 }
-                elsif ($type eq "autocur")
-                {
-                    my @curval_field_ids = body_parameters->get_all('autocur_field_ids');
-                    $data{curval_field_ids} = \@curval_field_ids;
-                    $data{related_field_id} = param 'related_field_id';
+                elsif($type eq 'autocur')
+                {   $extra{curval_field_ids} = [ body_parameters->get_all('autocur_field_ids') ];
+                    $extra{related_field_id} = param 'related_field_id';
                 }
 
-                $data{no_cache_update}   = $type eq 'rag'
+                $extra{no_cache_update}   = $type eq 'rag'
                   ? param 'no_cache_update_rag'
                   : param 'no_cache_update_calc';
 
                 my $msg;
                 if(process( sub {
-                   if($colums)
+                   if($column)
                    {   $layout->column_update($column, %data);
+                       $column->extra_update(\%extra);
                        $msg    = 'Your field has been updated successfully.';
                    }
                    else
                    {   $column = $layout->column_create(%data);
+                       $column->extra_update(\%extra);
                        $msg    = 'Your field has been created successfully.';
                    }
                 })
@@ -2441,18 +2434,17 @@ prefix '/:layout_name' => sub {
                 }
             }
             $params->{column} = $column;
-            push @breadcrumbs, Crumb($sheet, "/layout/".$column->id => 'edit field "'.$column->name.'"');
+            push @breadcrumbs, Crumb($sheet, "/layout/$col_id" => 'edit field "'.$column->name.'"');
         }
-        elsif (defined param('id'))
-        {
-            $params->{column} = 0; # New
+        elsif($col_id==0)
+        {   $params->{column} = 0; # New
             push @breadcrumbs, Crumb($sheet, "/layout/0" => 'new field');
         }
         $params->{groups}             = $site->groups->all_groups;
-        $params->{permissions}        = [ GADS::Type::Permissions->all ];
+        $params->{permissions}        = $groups->all_permissions;
         $params->{permission_mapping} = GADS::Type::Permissions->permission_mapping;
         $params->{permission_inputs}  = GADS::Type::Permissions->permission_inputs;
-        $params->{topics}             = [ $::db->search(Topic => { instance_id => $sheet->id })->all ];
+        $params->{topics}             = $sheet->all_topics;
 
         if (param 'saveposition')
         {
@@ -2465,7 +2457,7 @@ prefix '/:layout_name' => sub {
         }
 
         $params->{breadcrumbs} = \@breadcrumbs;
-        template 'layout' => $params;
+        template layout => $params;
     };
 
     any ['get', 'post'] => '/approval/?:id?' => require_login sub {

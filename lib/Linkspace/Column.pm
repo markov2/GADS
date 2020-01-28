@@ -104,6 +104,19 @@ sub sort_parent   { undef }
 ### Class
 ###
 
+sub column_create(%)
+{   my ($class, $insert) = @_;
+    $self->type2class($insert->{type})->_column_create($insert);
+}
+
+sub _column_create($)
+{   my ($class, $insert) = @_;
+
+    $insert{related_field} = $insert{related_field}->id
+        if blessed $insert{related_field};
+
+    $self->create($insert)->id;
+}
 
 ###
 ### Instance
@@ -116,19 +129,23 @@ sub value_field_as_index { $_[0]->value_field }
 
 # Used when searching for a value's index value as opposed to
 # string value (e.g. enums)
-sub sort_columns   { $_[0] }
+sub sort_columns   { [ $_[0] ] }
 
 ### helpers
 sub site           { $::session->site }
 sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
 sub field          { "field".($_[0]->id) }
 
+# usage may avoid instantiation of a full sheet
+# Please try to avoid the name 'instance_id' unless doing direct db access
+sub sheet_id       { $_[0]->instance_id }
+
 has sheet  => (
     is       => 'lazy',
     weakref  => 1,
     builder  => sub
     {   # dangling column needs it's sheet
-        $self->site->sheet($_[0]->instance_id);
+        $_[0]->site->sheet($_[0]->instance_id);
     }
 );
 
@@ -162,32 +179,6 @@ has name_short => (
 );
 
 sub name_long() { $_[0]->name . ' (' . $_[0]->sheet->name . ')' }
-
-has options => (
-    is        => 'rwp',
-    isa       => HashRef,
-    lazy      => 1,
-    builder   => 1,
-    predicate => 1,
-);
-
-sub reset_options
-{   my $self = shift;
-    # Force each option to build now to capture its value, otherwise if it
-    # hasn't already been built then the options hash will be lost and it will
-    # use its default value
-    $self->$_ foreach @{$self->option_names};
-    $self->clear_options;
-}
-
-sub _build_options
-{   my $self = shift;
-    my $options = {};
-    foreach my $option_name (@{$self->option_names})
-    {   $options->{$option_name} = $self->$option_name;
-    }
-    $options;
-}
 
 has ordering => (
     is  => 'rw',
@@ -236,12 +227,11 @@ sub _build_can_child
             join => 'depend_on',
         })->next;
     }
-    return $self->set_can_child;
+    $self->set_can_child;
 }
 
 has filter => (
-    is      => 'rw',
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub { GADS::Filter->new },
 );
 
@@ -364,21 +354,7 @@ sub _build_widthcols
     }
 }
 
-has topic_id => (
-    is     => 'rw',
-    isa    => Maybe[Int],
-    coerce => sub { $_[0] || undef }, # Account for empty string from form
-);
-
-has topic => (
-    is => 'lazy',
-);
-
-sub _build_topic
-{   my $self = shift;
-    $self->topic_id or return;
-    $self->schema->resultset('Topic')->find($self->topic_id);
-}
+sub topic { $_[0]->sheet->topic($_[0]->topic_id) }
 
 has aggregate => (
     is  => 'rw',
@@ -399,15 +375,12 @@ has group_display => (
     },
 );
 
+### display_field
+
 has has_display_field => (
     is  => 'lazy',
-    isa => Bool,
-);
-
-sub _build_has_display_field
-{   my $self = shift;
-    !!@{$self->display_fields->filters};
-}
+    builder => sub { !! @{$self->display_fields->filters} },
+)
 
 has display_field_col_ids => (
     is      => 'lazy',
@@ -419,11 +392,6 @@ sub display_fields_b64
     $self->has_display_field or return;
     encode_base64 $self->display_fields->as_json, ''; # base64 plugin does not like new lines in content
 }
-
-has helptext => (
-    is  => 'rw',
-    isa => Maybe[Str],
-);
 
 has link_parent => (
     is     => 'rw',
@@ -456,21 +424,21 @@ has blank_row => (
 sub datum_class() { ref $_[0] =~ s/^Linkspace::Column/Linkspace::Datum/r }
 
 # Which fields this column depends on
-has depends_on => (
+has depends_on_ids => (
     is      => 'lazy',
     isa     => ArrayRef,
     builder => sub {
         my $self = shift;
         return [] if $self->userinput;
 
-        my $depends = $::db->(LayoutDepend => { layout_id => $self->id });
+        my $depends = $::db->search(LayoutDepend => { layout_id => $self->id });
         [ $depends->get_column('depends_on')->all ];
     },
 );
 
 sub dependencies
 {   my $self = shift;
-    $self->has_display_field ? $self->display_field_col_ids : $self->depends_on;
+    $self->has_display_field ? $self->display_field_col_ids : $self->depends_on_ids;
 }
 
 # Which columns depend on this field
@@ -536,9 +504,10 @@ sub group_summary
 }
 
 #-------------------
-sub build_values
+=head2 $column->column_update(%)
 {   my ($self, $original) = @_;
 
+    delete $update{topic_id} unless $update{topic_id};
     my $link_parent = $original->{link_parent};
     if (ref $link_parent)
     {
@@ -560,8 +529,10 @@ sub build_values
     $self->multivalue($original->{multivalue} ? 1 : 0) if $self->can_multivalue;
     $self->position($original->{position});
     $self->helptext($original->{helptext});
+
     my $options = $original->{options} ? decode_json($original->{options}) : {};
     $self->_set_options($options);
+
     $self->description($original->{description});
     $self->width($original->{width});
     $self->field("field$original->{id}");
@@ -1130,6 +1101,7 @@ sub import_after_all
     else {
         $self->display_fields->as_hash({});
     }
+
     notice __x"Update: display_fields has been updated for {name}",
         name => $self->name
             if $report && $self->display_fields->changed;
@@ -1149,7 +1121,7 @@ sub how_to_link_to_record
 {   my ($class, $record) = @_;
 
     ( $class->table, sub {
-       +{ "$_[0]->{foreign_alias}.record_id" => { -ident => $_[0]->{self_alias}.id" },
+       +{ "$_[0]->{foreign_alias}.record_id" => { -ident => "$_[0]->{self_alias}.id" },
           "$_[0]->{foreign_alias}.layout_id" => $record->id,
         };
       } );
@@ -1171,6 +1143,17 @@ sub field_values($$%)
     @values or @values = (undef);
 
     map +{ value => $_ }, @values;
+}
+
+### Only used by Autocur
+#   XXX The 'related_field' contains the id, which makes it hard to give
+#   XXX nice names to the methods.
+sub related_column_id  { $_[0]->related_field }
+sub related_column()   { $_[0]->layout->column($_[0]->related_field) }
+
+sub related_sheet_id() {
+    my $column = $_[0]->related_column;
+    $column ? $column->sheet_id : undef;
 }
 
 1;

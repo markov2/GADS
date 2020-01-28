@@ -45,24 +45,6 @@ __PACKAGE__->has_many(
   { cascade_copy => 0, cascade_delete => 0 },
 );
 
-sub need_completed_topics_as_string
-{   my $self = shift;
-    return '' if !$self->need_completed_topics->count;
-    if ($self->need_completed_topics > 1)
-    {
-        my @topics = $self->need_completed_topics;
-        my $final = pop @topics;
-        my $text = join ', ', map { $_->name } @topics;
-        return "$text and ".$final->name;
-    }
-    return $self->need_completed_topics->next->name;
-}
-
-sub need_completed_topics_count
-{   my $self = shift;
-    $self->need_completed_topics->count;
-}
-
 __PACKAGE__->belongs_to(
   "instance",
   "GADS::Schema::Result::Instance",
@@ -86,45 +68,5 @@ __PACKAGE__->belongs_to(
     on_update     => "NO ACTION",
   },
 );
-
-sub before_delete
-{   my $self = shift;
-    $self->result_source->schema->resultset('Layout')->search({
-        topic_id => $self->id,
-    })->update({ topic_id => undef });
-}
-
-sub import_hash
-{   my ($self, $values, %options) = @_;
-
-    my $report = $options{report_only} && $self->id;
-
-    notice __x"Update: name from {old} to {new} for topic {name}",
-        old => $self->name, new => $values->{name}, name => $self->name
-            if $report && $self->name ne $values->{name};
-    $self->name($values->{name});
-
-    notice __x"Update: description from {old} to {new} for topic {name}",
-        old => $self->description, new => $values->{description}, name => $self->name
-            if $report && ($self->description || '') ne ($values->{description} || '');
-    $self->description($values->{description});
-
-    notice __x"Update: initial_state from {old} to {new} for topic {name}",
-        old => $self->initial_state, new => $values->{initial_state}, name => $self->name
-            if $report && ($self->initial_state || '') ne ($values->{initial_state} || '');
-    $self->initial_state($values->{initial_state});
-
-    notice __x"Update: click_to_edit from {old} to {new} for topic {name}",
-        old => $self->click_to_edit, new => $values->{click_to_edit}, name => $self->name
-            if $report && $self->click_to_edit != $values->{click_to_edit};
-    $self->click_to_edit($values->{click_to_edit});
-
-    notice __x"Update: prevent_edit_topic_id from {old} to {new} for topic {name}",
-        old => $self->prevent_edit_topic_id, new => $values->{prevent_edit_topic_id}, name => $self->name
-            if $report
-                && ($self->prevent_edit_topic_id xor $values->{prevent_edit_topic_id})
-                && $self->prevent_edit_topic_id != $values->{prevent_edit_topic_id};
-    $self->prevent_edit_topic_id($values->{prevent_edit_topic_id});
-}
 
 1;

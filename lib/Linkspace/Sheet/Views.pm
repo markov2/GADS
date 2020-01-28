@@ -28,16 +28,17 @@ has sheet => (
     weakref  => 1,
 );
 
-has all_views => (
+has _all_views_index => (
     is      => 'lazy',
     isa     => ArrayRef,
     builder => sub {
         my $self  = shift;
         my $views = $::db->search(View => { instance_id => $self->sheet->id });
-        [ map $self->view($_->id), $views->all ];
+        +{ map +($_->id => $_), $views->all ] };
     },
 );
 
+sub all_views() { [ map $_[0]->view($_), keys ${$_[0]->_all_views_index ] } }
 
 sub user_views(;$)
 {   my ($self, $victim) = @_;
@@ -91,6 +92,9 @@ sub view($)
     my $view  = first { $_->id == $view_id } @{$self->all_views}
         or return;
 
+    Linkspace::View->from_record($view, sheet => $sheet)
+        unless $view->isa('Linkspace::View');
+
     my $user  = $::session->user;
 
     return $view
@@ -108,7 +112,7 @@ sub view($)
         && $view->group_id
         && $user->in_group($view->group_id);
 
-    undef;
+    ();
 }
 
 =head2 my $view_id = $views->view_create(%insert);
@@ -117,6 +121,15 @@ sub view($)
 sub view_create
 {   my ($self, %insert) = @_;
     $::db->create(View => \%insert);
+}
+
+=head2 my $view = $views->view_temporary(%options);
+Create a filters which is only temporary.
+=cut
+
+sub view_temporary(%)
+{   my $self = shift;
+    Linkspace::View->new(@_, sheet => $self->sheet);
 }
 
 #------------------------------

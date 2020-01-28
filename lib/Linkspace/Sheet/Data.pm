@@ -1441,9 +1441,9 @@ sub order_by
             my $column = $self->layout->column($s->{id}, permission => 'read')
                 or next;
             my $column_parent = $self->layout->column($s->{parent_id});
-            my @cols_main = $column->sort_columns;
-            my @cols_link = $column->link_parent ? $column->link_parent->sort_columns : ();
-            foreach my $col_sort (@cols_main)
+            my $cols_main = $column->sort_columns;
+            my $cols_link = $column->link_parent ? $column->link_parent->sort_columns : ();
+            foreach my $col_sort (@$cols_main)
             {   my $parent = $column_parent || $column->sort_parent;
                 $self->add_join($parent, sort => 1) if $parent;
                 $self->add_join($col_sort, sort => 1, parent => $parent);
@@ -1451,7 +1451,7 @@ sub order_by
                 my $sort_name;
                 if ($column->link_parent) # Original column, not the sub-column ($col_sort)
                 {
-                    my $col_link = shift @cols_link;
+                    my $col_link = shift @$cols_link;
                     $self->add_join($col_link, sort => 1);
                     my $main = "$s_table.".$column->sort_field;
                     my $link = $self->table_name($col_link, sort => 1, linked => 1, %options).".".$col_link->sort_field;
@@ -1474,11 +1474,12 @@ sub order_by
     {
         my $date = $::db->format_datetime($self->from || $self->to);
         @order_by = map {
-            my ($field) = values %$_;
+            my $field  = (values %$_)[0];
             my $quoted = $self->quote($field);
+
             if ($field =~ /from/) # Date range
-            {
-                (my $to = $field) =~ s/from/to/;
+            {  (my $to = $field) =~ s/from/to/;
+
                 my $quoted_to = $self->quote($to);
                 # For a date range, take either the "from" or the "to" value,
                 # whichever is just past the start date of our range
@@ -1512,18 +1513,14 @@ sub order_by
         } @order_by;
 
         if ($options{with_min})
-        {
-            # When we have a group_by, we need an additional aggregate function
+        {   # When we have a group_by, we need an additional aggregate function
             my $func = $self->limit_qty eq 'from' ? 'min' : 'max';
             @order_by = map +{ $func => { -ident => $_ } }, @order_by;
         }
-        if ($self->limit_qty eq 'from')
-        {
-            return +{ -asc => $::db->resultset('Current')->helper_least(@order_by) };
-        }
-        else {
-            return +{ -desc => $::db->resultset('Current')->helper_greatest(@order_by) };
-        }
+
+        return $self->limit_qty eq 'from'
+           ? +{ -asc  => $::db->resultset('Current')->helper_least(@order_by) },
+           : +{ -desc => $::db->resultset('Current')->helper_greatest(@order_by) };
     }
 
     \@order_by;

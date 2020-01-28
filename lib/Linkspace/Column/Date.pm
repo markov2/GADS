@@ -60,55 +60,29 @@ sub remove($)
 ### Instance
 ###
 
-has show_datepicker => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    builder => sub {
-        my $self = shift;
-        return 1 unless $self->has_options;
-        $self->options->{show_datepicker};
-    },
-    trigger => sub { $_[0]->reset_options },
-);
-
-has default_today => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    builder => sub {
-        my $self = shift;
-        return 0 unless $self->has_options;
-        $self->options->{default_today};
-    },
-    trigger => sub { $_[0]->reset_options },
-);
+has show_datepicker => ( is => 'ro', default => sub { 1 } );
+has default_today   => ( is => 'ro', default => sub { 0 } );
 
 sub validate
-{   my ($self, $value, %options) = @_;
-    return 1 if !$value;
-    if (!$self->parse_date($value))
-    {
-        return 0 unless $options{fatal};
-        error __x"Invalid date '{value}' for {col}. Please enter as {format}.",
-            value => $value, col => $self->name, format => $self->dateformat;
-    }
-    1;
+{   my ($self, $date, %options) = @_;
+    return 1 if !$date || $self->parse_date($date);
+
+    return 0 unless $options{fatal};
+    error __x"Invalid date '{value}' for {col}. Please enter as {format}.",
+        value => $date, col => $self->name, format => $self->dateformat;
 }
 
 sub validate_search
 {   my $self = shift;
     my ($value, %options) = @_;
-    if (!$value)
-    {
-        return 0 unless $options{fatal};
-        error __x"Date cannot be blank for {col}.",
-            col => $self->name;
+
+    if(!$value)
+    {   return 0 unless $options{fatal};
+        error __x"Date cannot be blank for {col}.", col => $self->name;
     }
-    GADS::View->parse_date_filter($value) and return 1;
-    $self->validate(@_);
+
+    return 1 if GADS::View->parse_date_filter($value);
+    $self->validate($value, %options);
 }
 
 sub import_value

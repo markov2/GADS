@@ -325,6 +325,55 @@ sub metric_group {...}
 sub metric_group_create { $metric_group->import_hash($mg) }
 =cut
 
+#---------------------
+=head1 METHODS: Topic administration
+
+XXX Move to a separate sub-class?
+=cut
+
+has _topics_index => (
+    is      => 'lazy',
+    builder => sub {
+        my $sheet_id = $_[0]->id;
+        index_by_id $::db->search(Topic => { instance_id => $sheet_id })->all;
+    },
+);
+
+sub has_topics() { keys %{$_[0]->_topics_index} }
+
+sub topic($)
+{   my ($self, $id) = @_;
+    defined $id or return;
+    my $topic = $self->_topics_index->{$id} or return;
+
+    Linkspace::Topic->from_record($topic)
+        unless $topic->isa('Linkspace::Topic');
+
+    $topic;
+}
+
+sub all_topics { [ map $_[0]->topic($_), keys %{$_[0]->_topics_index} ] }
+
+sub topic_create($)
+{   my ($self, $insert) = @_;
+    my $topic_id = $::db->create(Topic => $insert)->id;
+    $self->topic($topic_id);
+}
+
+sub topic_update($%)
+{   my ($self, $which, $update) = @_;
+    my $topic_id = blessed $which ? $which->id : $which;
+    $topic->report_changes($update);
+    $::db->update(Topic => $topic_id, $update);
+    $self;
+}
+
+sub topic_delete($)
+{   my ($self, $topic) = @_;
+    $self->layout->topic_unuse($topic);
+    $topic->delete;
+}
+
 #----------------------
 =head1 METHODS: Other
 
@@ -340,10 +389,5 @@ sub column_unuse($)
     $self->layout->column_unuse($column);
     $self->views->column_unuse($column);
 }
-
-has has_topics => (
-    is      => 'lazy',
-    builder => sub { !! $::db->search(Topic => { instance_id => $_[0]->id })->first },
-);
 
 1;

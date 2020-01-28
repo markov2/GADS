@@ -421,9 +421,8 @@ sub html_withlinks
     $self->as_string or return "";
     my @return;
     foreach my $v (@{$self->values})
-    {
-        my $string = encode_entities $v->{value};
-        my $link = "/record/$v->{id}?oi=".$self->column->refers_to_instance_id;
+    {   my $string = encode_entities $v->{value};
+        my $link   = "/record/$v->{id}?oi=".$self->related_sheet_id;
         push @return, qq(<a href="$link">$string</a>);
     }
     join '; ', @return;
@@ -432,13 +431,10 @@ sub html_withlinks
 sub field_values
 {   my $self = shift;
     my $values = $self->_records
-        ? $self->column->field_values(rows => $self->_records)
-        : $self->column->field_values(ids => $self->ids);
-    # Translate into something useful
-    my @recs;
-    push @recs, $values->{$_}
-        foreach keys %$values;
-    \@recs;
+      ? $self->column->field_values(rows => $self->_records)
+      : $self->column->field_values(ids => $self->ids);
+
+    [ values %$values ];
 }
 
 sub field_values_for_code

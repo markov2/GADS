@@ -247,9 +247,20 @@ sub columns_for_sheet($)
 =cut
 
 sub columns_with_filters()
-{   my $self = shift;
+{   my $self  = shift;
     my $index = $self->_column_index_by_id;
     $self->columns(grep $_->filter ne '{}' && $_->filter ne '', @$index);
+}
+
+=head2 \@cols = $doc->columns_relating_to($column);
+=cut
+
+sub columns_relating_to($)
+{   my ($self, $column) = @_;
+    $column or return ();
+    my $col_id = $column_id;
+    my $index = $self->_column_index_by_id;
+    $self->columns(grep $col_id==($_->related_field // 0), @$index);
 }
 
 =head2 $doc->publish_column($column);

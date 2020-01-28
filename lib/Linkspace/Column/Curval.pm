@@ -24,6 +24,7 @@ use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column::Curcommon';
 
 use Log::Report 'linkspace';
+use Linkspace::Util qw/uniq_objects/;
 
 my @option_names = qw/override_permissions value_selector show_add delete_not_used/;
 
@@ -34,6 +35,10 @@ my @option_names = qw/override_permissions value_selector show_add delete_not_us
 __PACKAGE__->register_type;
 
 sub option_names { shift->SUPER::option_names(@_, @option_names) }
+
+###
+### Class
+###
 
 ###
 ### Instance
@@ -92,22 +97,18 @@ sub filter_view_is_ready
 
 has view => (
     is      => 'lazy',
-);
+    builder => sub
+    {   my $self = shift;
 
-sub _build_view
-{   my $self = shift;
-    my $view = GADS::View->new(
-        instance_id => $self->refers_to_instance_id,
-        filter      => $self->filter,
-        layout      => $self->layout_parent,
-        user        => undef,
-    );
-    # Replace any "special" $short_name values with their actual value from the
-    # record. If sub_values fails (due to record not being ready yet), then the
-    # view is not built
-    return unless $view->filter->sub_values($self->layout);
-    return $view;
-}
+        # Replace any "special" $short_name values with their actual value from the
+        # record. If sub_values fails (due to record not being ready yet), then the
+        # view is not built
+        my $filter = $self->filter->sub_values($self->layout)
+            or return;
+
+        $self->sheet_parent->views->view_temporary(filter => $filter);
+    },
+);
 
 # Whether this field has subbed in values from other parts of the record in its
 # filter
@@ -123,20 +124,19 @@ has subvals_input_required => (
 );
 
 sub _build_subvals_input_required
-{   my $self = shift;
-    my $layout = ...;
-    my $cols = $self->filter_rules->columns_in_subs;
+{   my $self   = shift;
+    my $doc    = $self->document
+    my $cols   = $self->filter_rules->columns_in_subs;
 
     foreach my $col (@$cols)
     {   my @disp_col_ids = map $_->display_field_id,
             $::db->search(DisplayField => { layout_id => $col->id })->all;
 
-        push @cols, $layout->column($_)
-            for @{$col->depends_on}, @disp_col_ids;
+        #XXX permission => 'write' ?
+        push @$cols, $doc->columns(@{$col->depends_on_ids}, @disp_col_ids);
     }
 
-    my %needed = map +($_->id => $_), @cols;
-    [ grep $_->userinput, values %needed ];
+    [ grep $_->userinput, uniq_objects \@cols ];
 }
 
 # The string/array that will be used in the edit page to specify the array of
@@ -149,20 +149,18 @@ has data_filter_fields => (
 sub _build_data_filter_fields
 {   my $self   = shift;
     my $fields = $self->subvals_input_required;
-    grep $_->instance_id != $self->instance_id, @$fields
+    my $my_sheet_id = $self->sheet_id;
+    first { $_->instance_id != $my_sheet_id } @$fields
         and warning "The filter refers to values of fields that are not in this table";
     '[' . (join ', ', map '"'.$_->field.'"', @$fields) . ']';
 }
 
-sub _build_refers_to_instance_id
-{   my $self = shift;
-    my $fields_ids = $self->curval_field_ids;
-    @$fields_ids or return undef;
+# Pick a random field from the selected display fields
+# (to work out the parent layout)
 
-    # Pick a random field from the selected display fields to work out the
-    # parent layout
-    my $random = $self->layout->column($field_ids->[0]);
-    $random ? $random->instance_id : undef;
+sub related_sheet_id()
+{   my $random = $_[0]->curval_fields->[0];
+    $random ? $random->sheet_id : undef;
 }
 
 sub make_join
@@ -178,13 +176,10 @@ sub make_join
     };
 }
 
-has autocurs => (
-    is      => 'lazy',
-    builder => sub
-    {   my $id = $_[0]->id;
-        [ $::db->search(Layout => { type => 'autocur', related_field => $id })->all ];
-    },
-);
+sub autocurs()
+{   my $document = shift->document;
+    [ grep $_->type eq 'autocur', $document->columns_relating_to($self) ];
+}
 
 sub write_special
 {   my ($self, %options) = @_;
@@ -203,11 +198,6 @@ sub write_special
     $rset->update({
         typeahead   => 0, # No longer used, replaced with value_selector
     });
-
-    # Clear what may be cached values that should be updated after write
-    $self->clear;
-    # Re-add the layout - will be missing as a result of the clear
-    $self->filter->layout($self->layout);
 
     # Force any warnings to be shown about the chosen filter fields
     $self->data_filter_fields unless $options{override};

@@ -143,6 +143,7 @@ sub load_columns($)
     },{
         select   => 'me.*',
         join     => 'instance',
+#XXX do not prefetch for performance?
         prefetch => [ qw/calcs rags link_parent display_fields/ ],
         result_class => 'HASH',
     });
@@ -454,8 +455,11 @@ sub column_create($)
 {   my ($self, %insert) = @_;
     $insert{instance_id} = $self->sheet->id;
 
-    my $column_id = $::db->create(Layout => \%insert)->id;
+    $::db->begin_work;
+    my $column_id = Linkspace::Column->create_column(\%insert);
     my $column    = Linkspace::Column->from_id($column_id, layout => $self);
+    $::db->commit;
+
     $self->sheet->document->publish_column($column);
 
     push @{$self->all_columns}, $column;
@@ -661,6 +665,12 @@ sub sheet_unuse($)
 
     $self->column_delete($_) for $self->all_columns;
     # I have no substance
+}
+
+sub topic_unuse($)
+{   my ($self, $topic) = @_;
+    $topic or return;
+    $::db->update(Layout => { topic_id => $topic->id }, { topic_id => undef });
 }
 
 1;

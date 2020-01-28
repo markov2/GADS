@@ -224,7 +224,7 @@
     <div class="field-options curval">
         <h4>Field options</h4>
         [% IF instance_layouts.size %]
-            [% rti = column.refers_to_instance_id %]
+            [% rti = column.related_sheet_id %]
             <div class="form-group">
                 <label for="value_selector">Type of value selector:</label>
                 <select class="form-control" id="value_selector" name="value_selector">
@@ -258,8 +258,8 @@
                 </div>
             </div>
             <div class="form-group">
-                <label for="refers_to_instance_id">Use this table:</label>
-                <select class="form-control" id="refers_to_instance_id" name="refers_to_instance_id">
+                <label for="related_sheet_id">Use this table:</label>
+                <select class="form-control" id="related_sheet_id" name="related_sheet_id">
                     [% IF NOT rti %]
                         <option></option>
                     [% END %]
@@ -464,7 +464,7 @@
             [% FOREACH instance IN layout.referred_by %]
                 [% instance = instances_object.layout(instance.instance_id) %]
                 <div id="autocur_instance_[% instance.instance_id %]" class="autocur_instance"
-                    [% IF !column.refers_to_instance_id OR column.refers_to_instance_id != instance.instance_id %]
+                    [% IF !column.related_sheet_id OR column.related_sheet_id != instance.instance_id %]
                         style="display:none"
                     [% END %]
                     >
@@ -473,7 +473,7 @@
                         [% FOREACH c IN instance.all %]
                             [% NEXT IF c.type == "curval" %]
                             [% checked = "" %]
-                            [% IF instance.instance_id == column.refers_to_instance_id AND column.has_curval_field(c.id) %]
+                            [% IF instance.instance_id == column.related_sheet_id AND column.has_curval_field(c.id) %]
                                 [% checked = "checked" %]
                             [% END %]
                             <div class="checkbox">
@@ -705,7 +705,7 @@
                     ' );
                     $('.sortable').sortable('refresh');
                 });
-                $('#refers_to_instance_id').change(function(){
+                $('#related_sheet_id').change(function(){
                     var divid = '#instance_fields_' + $(this).val();
                     $('.instance_fields').hide();
                     $(divid).show();
@@ -721,7 +721,7 @@
                 [% END %]
                 [% IF column.filter.has_value %]
                     var data = base64.decode('[% column.filter.base64 %]');
-                    $('#builder[% column.refers_to_instance_id %]').queryBuilder('setRules',
+                    $('#builder[% column.related_sheet_id %]').queryBuilder('setRules',
                         JSON.parse(data)
                     );
                 [% END %]
@@ -756,7 +756,7 @@
                     var res = $('#displayConditionsBuilder').queryBuilder('getRules');
                     $("#displayConditions").val(JSON.stringify(res, null, 2));
 
-                    var current_builder = "#builder" + $('#refers_to_instance_id').val();
+                    var current_builder = "#builder" + $('#related_sheet_id').val();
                     if( $('#jstree_demo_div').length && $('#jstree_demo_div').is(":visible") ) {
                         var v =$("#jstree_demo_div").jstree(true).get_json('#', { 'flat': false });
                         var mytext = JSON.stringify(v);

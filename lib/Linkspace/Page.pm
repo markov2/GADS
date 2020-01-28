@@ -1436,9 +1436,9 @@ sub order_by
             my $column = $self->layout->column($s->{id}, permission => 'read')
                 or next;
             my $column_parent = $self->layout->column($s->{parent_id});
-            my @cols_main = $column->sort_columns;
-            my @cols_link = $column->link_parent ? $column->link_parent->sort_columns : ();
-            foreach my $col_sort (@cols_main)
+            my $cols_main = $column->sort_columns;
+            my $cols_link = $column->link_parent ? $column->link_parent->sort_columns : ();
+            foreach my $col_sort (@$cols_main)
             {   my $sort_parent = $column->sort_parent;
                 my $parent = $column_parent || $sort_parent;
                 $self->add_join($parent, sort => 1) if $parent;
@@ -1448,7 +1448,7 @@ sub order_by
                 my $sort_name;
                 if ($column->link_parent) # Original column, not the sub-column ($col_sort)
                 {
-                    my $col_link = shift @cols_link;
+                    my $col_link = shift @$cols_link;
                     $self->add_join($col_link, sort => 1);
                     my $main = "$s_table.".$column->sort_field;
                     my $link = $self->table_name($col_link, sort => 1, linked => 1, %options).".".$col_link->sort_field;

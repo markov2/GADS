@@ -25,10 +25,12 @@ use parent 'Exporter';
 our @EXPORT_OK = qw/
     configure_util
     email_valid
+    index_by_id
     iso2datetime
     is_valid_id
     parse_duration
     scan_for_plugins
+    uniq_objects
 /;
 
 use DateTime::Format::ISO8601   ();
@@ -70,6 +72,17 @@ sub email_valid($)
 {   $_[0] =~ m/^[=+\'a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,10}$/i;
 }
 
+
+=head2 my $index = index_by_id @objects;
+
+=head2 my $index = index_by_id \@objects;
+Create a HASH which maps ids to their objects.  This is used very ofter to
+speed-up access to objects by id reference.
+=cut
+
+sub index_by_id(@)
+{   +{ map +($_->id => $_), (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_) };
+}
 
 =head2 my $dt = iso2datetime $string;
 Convert a date represented as ISO8601 string to a L<DateTime> object.
@@ -144,5 +157,15 @@ sub scan_for_plugins($%) {
     \%pkgs;
 }
 
+=head2 my @subset = uniq_objects @objects;
+=head2 my @subset = uniq_objects \@objects;
+De-duplicate objects, based on their id.  Maintains order.
+=cut
+
+sub uniq_objects
+{   my %seen;
+    grep ! $seen{$_->id}++, (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_);
+}
+ 
 1;
 

@@ -38,39 +38,7 @@ __PACKAGE__->register_type;
 sub can_multivalue { 1 }
 sub has_filter_typeahead { $_[0]->return_type eq 'string' }
 sub numeric() { my $rt = $_[0]->return_type; $rt eq 'integer' || $rt eq 'numeric' }
-sub table          { 'Calcval' }
-
-sub return_type()
-{   my $thing = shift;
-    ref $thing ? $thing->_rset_code->return_format : 'string';
-)
-
-my %format2field = (
-   date    => 'value_date',
-   integer => 'value_int',
-   numeric => 'value_numeric',
-);
-sub value_field()  { $format2field{$_[0]->return_type} || 'value_text' }
-
-#XXX
-sub _build__rset_code
-{   my $self = shift;
-    $self->_rset or return;
-    my ($code) = $sheet->layout->calcs;
-    $code || $::db->resultset('Calc')->new({});
-}
-
-after build_values => sub {
-    my ($self, $original) = @_;
-    my $calc = $original->{calcs}->[0];
-    $self->return_type($calc->{return_format});
-    $self->decimal_places($calc->{decimal_places});
-};
-
-has decimal_places => (
-    is      => 'rw',
-    isa     => Maybe[Int],
-);
+sub table     { 'Calcval' }
 
 ###
 ### Class
@@ -82,9 +50,61 @@ sub remove($)
     $::db->delete(Calcval => { layout_id => $col_id });
 }
 
+sub _column_create($)
+{   my ($self, $insert) = @_;
+    my $column_id = $self->SUPER::_column_create($insert);
+    $::db->create(Calc => { layout_id => $column_id, return_type => 'string' });
+    $columns_id;
+}
+
 ###
 ### Instance
 ###
+
+my %format2field = (
+   date    => 'value_date',
+   integer => 'value_int',
+   numeric => 'value_numeric',
+);
+
+sub value_field()  { $format2field{$_[0]->return_type} || 'value_text' }
+
+### The "Calc" table
+#XXX why a has_many relationship?
+
+has calc => (
+    is      => 'lazy',
+    builder => sub { ($_[0]->calcs)[0] },
+};
+
+sub code           { $_[0]->calc->{code} }
+sub decimal_places { $_[0]->calc->{decimal_places} }
+sub return_type    { $_[0]->calc->{return_type}    }
+
+sub extra_update($)
+{   my ($self, $extra) = @_;
+    my $name      = $self->name;
+    my $old       = $self->{calc};
+
+    my %update    = %$old;
+    $update{code} = my $code = delete $values->{code};
+    notice __x"Update: code has been changed for field {name}", name => $name
+        if $old->{code} ne $code;
+
+    $update{return_type} = my $rt = delete $values->{return_type};
+    notice __x"Update: return_type from {old} to {new} for field {name}",
+        old => $self->return_type, new => $rt, name => $self->name
+        if $old->{return_type} ne $rt;
+
+    $update{decimal_places} = my $decimals = delete $values->{decimal_places};
+    if($rt eq 'numeric')
+    {   notice __x"Update: decimal_places from {old} to {new} for field {name}",
+            old => $self->decimal_places, new => $decimals, name => $name
+            if +($old->{decimal_places} // -1) != ($decimals // -1);
+    }
+    
+    $::db->update(Calc => delete $update{id}, \%update);
+};
 
 # Used to provide a blank template for row insertion
 # (to blank existing values)
@@ -101,28 +121,12 @@ has '+blank_row' => (
 );
 
 has '+string_storage' => (
-    default => sub { $_{0]->value_field eq 'value_text' },
+    default => sub { $_[0]->value_field eq 'value_text' },
 );
-
-# Returns whether an update is needed
-sub write_code
-{   my ($self, $layout_id, %options) = @_;
-    my $rset = $self->_rset_code;
-    my $need_update = !$rset->in_storage
-        || $self->_rset_code->code ne $self->code
-        || $self->_rset_code->return_format ne $self->return_type
-        || $options{old_rset}->{multivalue} != $self->multivalue;
-    $rset->layout_id($layout_id);
-    $rset->code($self->code);
-    $rset->return_format($self->return_type);
-    $rset->decimal_places($self->decimal_places);
-    $rset->insert_or_update;
-    return $need_update;
-}
 
 sub resultset_for_values
 {   my $self = shift;
-    $self->value_field eq 'value_text' or return
+    $self->value_field eq 'value_text' or return;
     $::db->(Calcval => { layout_id => $self->id }, { group_by  => 'me.value_text' });
 }
 
@@ -137,31 +141,17 @@ sub validate
 
 before import_hash => sub {
     my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->id;
-    notice __x"Update: code has been changed for field {name}", name => $self->name
-        if $report && $self->code ne $values->{code};
-    $self->code($values->{code});
+    $self->extra_update($values, %options);
+}
 
-    notice __x"Update: return_type from {old} to {new} for field {name}",
-        old => $self->return_type, new => $values->{return_type}, name => $self->name
-        if $report && $self->return_type ne $values->{return_type};
-    $self->return_type($values->{return_type});
-
-    notice __x"Update: decimal_places from {old} to {new} for field {name}",
-        old => $self->decimal_places, new => $values->{decimal_places}, name => $self->name
-        if $report && $self->return_type eq 'numeric' && (
-            (defined $self->decimal_places xor defined $values->{decimal_places})
-            || (defined $self->decimal_places && defined $values->{decimal_places} && $self->decimal_places != $values->{decimal_places})
-        );
-    $self->decimal_places($values->{decimal_places});
-};
 
 sub export_hash
 {   my $self = shift;
     my $hash = $self->SUPER::export_hash;
-    $hash->{code}           = $self->code;
-    $hash->{return_type}    = $self->return_type;
-    $hash->{decimal_places} = $self->decimal_places;
+    my $cals = $self->calc;
+    $hash->{code}           = $calc->{code};
+    $hash->{return_type}    = $calc->{return_type};
+    $hash->{decimal_places} = $calc->{decimal_places};
     $hash;
 }
 

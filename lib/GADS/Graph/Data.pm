@@ -200,18 +200,12 @@ sub get_color
         $color = $existing->color;
     }
     else {
-        $color = $value eq 'a_grey'
-               ? $grey
-               : $value eq 'b_red'
-               ? $red
-               : $value eq 'c_amber'
-               ? $amber
-               : $value eq 'c_yellow'
-               ? $yellow
-               : $value eq 'd_green'
-               ? $green
-               : $value eq 'e_purple'
-               ? $purple
+        $color = $value eq 'a_grey'   ? $grey
+               : $value eq 'b_red'    ? $red
+               : $value eq 'c_amber'  ? $amber
+               : $value eq 'c_yellow' ? $yellow
+               : $value eq 'd_green'  ? $green
+               : $value eq 'e_purple' ? $purple
                : (keys %{$self->_colors})[0];
         $self->schema->resultset('GraphColor')->update_or_create({
             name  => $value,

@@ -36,6 +36,10 @@ sub value_field    { 'id' }
 sub option_names   { shift->SUPER::option_names(@_, qw/override_permissions/ ) }
 
 ###
+### Class
+###
+
+###
 ### Instance
 ###
 
@@ -44,45 +48,6 @@ sub sprefix        { 'current' };
 ### Curcommon types
 
 sub value_selector { '' }
-
-sub _build_refers_to_instance_id
-{   my $self = shift;
-    $self->related_field or return undef;
-    $self->related_field->instance_id;
-}
-
-has related_field => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        # Under normal circumstances we will have a full layout with columns
-        # built. If not, fall back to retrieving from database. The latter is
-        # needed when initialising the schema in GADS::DB::setup()
-        $self->layout->column($self->related_field_id)
-        || $::db->get_record(Layout => $self->related_field_id);
-    }
-);
-
-sub related_field_id() { $_[0]->layout->column('related_field') }
-
-sub _build_related_field_id
-{   my $self = shift;
-    $self->related_field->id;
-}
-
-# XXX At some point these individual refers_from properties should be replaced
-# by an object representing the whole column. That will be easier if/when the
-# column object can be easily generated with an ID value
-has refers_from_field => (
-    is => 'lazy',
-    builder => sub { "field".$_[0]->related_field->id },
-);
-
-has refers_from_value_field => (
-    is      => 'lazy',
-    default => sub { 'value' },
-);
 
 sub make_join
 {   my ($self, @joins) = @_;
@@ -96,28 +61,6 @@ sub make_join
         }
     };
 }
-
-sub write_special
-{   my ($self, %options) = @_;
-
-    return if $options{override};
-
-    my $rset = $options{rset};
-
-    $self->related_field_id
-        or error __x"Please select a field that refers to this table";
-
-    $rset->update({
-        related_field => $self->related_field_id,
-    });
-
-    $self->_update_curvals(%options);
-
-    # Clear what may be cached values that should be updated after write
-    $self->clear;
-
-    return ();
-};
 
 # Autocurs are defined as not user input, so they get updated during
 # update-cached. This makes sure that it does nothing silently
@@ -179,7 +122,7 @@ sub multivalue_rs
         join => { record_single => 'record_later' },
     })->get_column('record_single.id')->as_query;
 
-    $self->schema->resultset('Curval')->search({
+    $::db->search(Curval => {
         'me.record_id' => { -in => $subquery },
         'me.layout_id' => $self->related_field->id,
         'records.id'   => \@record_ids,
@@ -196,7 +139,7 @@ sub multivalue_rs
 sub export_hash
 {   my $self = shift;
     my $hash = $self->SUPER::export_hash;
-    $hash->{related_field_id} = $self->related_field_id;
+    $hash->{related_field_id} = $self->related_field;
     $hash;
 }
 
@@ -214,7 +157,7 @@ around import_after_all => sub {
 
 sub how_to_link_to_record {
 	my ($self) = @_;
-    my $related_field_id = $self->related_field->id; # "compile"-time
+    my $related_field_id = $self->related_column_id; # "compile"-time
 
     my $subquery = $::db->search(Current => {
         'record_later.id' => undef,

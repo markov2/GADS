@@ -144,11 +144,11 @@ sub sub_values
     }
     else
     {   foreach (@{$filter->{rules}})
-        {   return 0 unless $self->_sub_filter_single($_, $layout);
+        {   $self->_sub_filter_single($_, $layout) or return;
         }
     }
     $self->as_hash($filter);
-    return 1;
+    $filter;
 }
 
 sub _sub_filter_single
