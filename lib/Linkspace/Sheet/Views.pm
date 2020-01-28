@@ -19,6 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Sheet::Views;
 
 use Log::Report 'linkspace';
+use Linkspace::Util qw/index_by_id/;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef Int Maybe Bool/;
 
@@ -30,15 +32,13 @@ has sheet => (
 
 has _all_views_index => (
     is      => 'lazy',
-    isa     => ArrayRef,
     builder => sub {
-        my $self  = shift;
-        my $views = $::db->search(View => { instance_id => $self->sheet->id });
-        +{ map +($_->id => $_), $views->all ] };
+        my $sheet_id = $_[0]->sheet->id;
+        index_by_id $::db->search(View => { instance_id => $sheet_id })->all;
     },
 );
 
-sub all_views() { [ map $_[0]->view($_), keys ${$_[0]->_all_views_index ] } }
+sub all_views() { [ map $_[0]->view($_), keys ${$_[0]->_all_views_index} ] } }
 
 sub user_views(;$)
 {   my ($self, $victim) = @_;

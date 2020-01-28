@@ -18,13 +18,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Column::Createdby;
 
+use Log::Report     'linkspace';
+use List::Util      qw/uniq/;
+use Linkspace::Util qw/index_by_id/;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
 extends 'Linkspace::Column::Person';
-
-use Log::Report 'linkspace';
-use List::Util  qw/uniq/;
+use namespace::clean;
 
 ###
 ### META
@@ -47,10 +49,8 @@ sub fetch_multivalues
 {   my ($self, $victim_ids) = @_;
     $victim_ids && @$victim_ids or return +{ };
 
-    my $users      = $::session->site->users;
-    my @victims    = grep defined, map $users->user($_), uniq @$victim_ids;
-
-    +{ map +($_->id => $_), @victims };
+    my $users = $self->site->users;
+    index_by_id [ map $users->user($_), uniq @$victim_ids ];
 }
 
 1;

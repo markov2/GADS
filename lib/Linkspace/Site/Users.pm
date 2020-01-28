@@ -24,15 +24,17 @@ use DateTime           ();
 use Session::Token     ();
 use Text::CSV          ();
 use Text::CSV::Encoded ();
-use Linkspace::Util    qw(email_valid iso2datetime);
 use File::BOM          qw(open_bom);
+use List::Util         qw(first);
 
-use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
-
+use Linkspace::Util    qw(email_valid iso2datetime);
 use Linkspace::User;
 use Linkspace::Group;
 use Linkspace::Permission;
+
+use Moo;
+use MooX::Types::MooseLike::Base qw(:all);
+use namespace::clean;
 
 =head1 NAME
 
@@ -59,71 +61,42 @@ has site => (
 Returns all active users.
 =cut
 
-has all_users => (
+has _users_index =>
     is      => 'lazy',
     builder => sub
-    {   my $self = shift;
-        my $all  = $self->active_users({}, {
+    {   my $self  = shift;
+        my $users = $self->active_users({}, {
             join     => { user_permissions => 'permission' },
             order_by => 'surname',
             collapse => 1
         });
-        my $doc = $self->document;
-        [ map Linkspace::User->from_record($_, document => $doc), $all->all ];
+        index_by_id $users->all;
     },
-);
+
+sub _user_records
+{   sort { $a->surname cmp $b->surname } values %{$_[0]->_users_index};
+}
+
+sub all_users()
+{   my $self = shift;
+    [  $_[0]->user($_), $_[0]->_users ];
+}
 
 =head2 \@emails = $users->useradmins_emails;
 Returns a list of the email addresses of the people who maintain the site's
 users.
 =cut
 
-has useradmins_emails => (
-    is      => 'lazy',
-    builder => sub
-    {   my $user_admins = $_[0]->active_users( {
-            'permission.name' => 'useradmin',
-        }, {
-            join     => { user_permissions => 'permission' },
-            collapse => 1,
-        });
-        [ $user_admins->get_column('email')->all ];
-    },
+sub useradmins_emails
+{   my $self = shift;
+    my $is_useradmin = sub { first { $_->{name} eq 'useradmin' } @$_ };
+    [ map $_->email, grep $is_useradmin->($_->{permission}), $self->_user_records ];
 );
 
-has account_requestors => (
-    is      => 'lazy',
-    builder => sub {
-        my $requestors = $::db->search(User => { account_request => 1 });
-        [ map $_[0]->user($_), $requestors->get_column('id')->all ];
-    },
-);
-
-#XXX All following fields are located in the site table, but are used for
-#XXX users.
-
-sub titles()      { sort { $a->name cmp $b->name } $_[0]->site->titles }
-sub teams()       { sort { $a->name cmp $b->name } $_[0]->site->teams }
-sub organisations { sort { $a->name cmp $b->name } $_[0]->site->organisations }
-sub departments   { sort { $a->name cmp $b->name } $_[0]->site->departments }
-
-has user_fields => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
-
-sub _build_user_fields
-{   my $self   = shift;
-    my @fields = qw/Surname Forename Email/;
-
-    my $site   = $self->site;
-    push @fields, $site->organisation_name if $site->register_show_organisation;
-    push @fields, $site->department_name   if $site->register_show_department;
-    push @fields, $site->team_name         if $site->register_show_team;
-    push @fields, 'Title'                  if $site->register_show_title;
-    push @fields, $site->register_freetext1_name if $site->register_freetext1_name;
-    push @fields, $site->register_freetext2_name if $site->register_freetext2_name;
-    \@fields;
+sub account_requestors()
+{   my $self = shift;
+    my $index = $self->_users_index;
+    [ map $self->user($_->id), grep $_->{account_request}, $self->_user_records ];
 }
 
 sub active_users
@@ -133,27 +106,34 @@ sub active_users
     $::db->search(User => $search, @_);
 }
 
-sub users_in_org
-{   my ($self, $org_id) = @_;
-    my $in_org = $self->active_users({ organisation => $org_id });
-    [ map $self->user($_), $in_org->get_column('id')->all ];
-}
-
 =head2 my $user = $users->user($id);
-
-=head2 my $user = $users->user(%which);
 Returns a L<Linkspace::User> object.
-
-   my $u = $users->user(4);
-   my $u = $users->user(id => 4);  # same
-   my $u = $users->user(email => $email);
-
 =cut
 
 sub user
-{   my $self = shift;
-    my $record = $::db->get_record(User => @_) or return;
-    Linkspace::User->from_record($record, document => $self->document);
+{   my ($self, $user_id) = @_;
+    $user_id or return;
+    my $user = $self->_users_index->{$user_id};
+    Linkspace::User->from_record($user)
+         unless $user->isa('Linkspace::User');
+    $user;
+}
+
+=head2 my $user = $users->user_by_name($email)
+=head2 my $user = $users->user_by_name($username)
+=cut
+
+sub user_by_name()
+{   my ($self, $name) = @_;
+    $name or return;
+    my $r = first { $_->email eq $name || $_->username eq $name} $self->_user_records;
+    $r ? $self->user($r->id) : undef;
+}
+
+sub users_in_org
+{   my ($self, $org_id) = @_;
+    my @in_org = grep $_->{organisation}==$org_id, $self->_user_records;
+    [ map $self->user($_->id), @in_org ];
 }
 
 =head2 my $victim = $users->user_create(%insert);
@@ -237,6 +217,7 @@ sub user_create
 
     $guard->commit;
 
+    $self->_user_index->{$victim->id} = $victim;
     $victim;
 }
 
@@ -293,6 +274,33 @@ sub user_delete($)
 
     #XXX remove from groups?
     $::db->update(User => $victim_id, { deleted => \'NOW' });
+}
+
+#XXX All following fields are located in the site table, but are used for
+#XXX users.
+
+sub titles()      { sort { $a->name cmp $b->name } $_[0]->site->titles }
+sub teams()       { sort { $a->name cmp $b->name } $_[0]->site->teams }
+sub organisations { sort { $a->name cmp $b->name } $_[0]->site->organisations }
+sub departments   { sort { $a->name cmp $b->name } $_[0]->site->departments }
+
+has user_fields => (
+    is  => 'lazy',
+    isa => ArrayRef,
+);
+
+sub _build_user_fields
+{   my $self   = shift;
+    my @fields = qw/Surname Forename Email/;
+
+    my $site   = $self->site;
+    push @fields, $site->organisation_name if $site->register_show_organisation;
+    push @fields, $site->department_name   if $site->register_show_department;
+    push @fields, $site->team_name         if $site->register_show_team;
+    push @fields, 'Title'                  if $site->register_show_title;
+    push @fields, $site->register_freetext1_name if $site->register_freetext1_name;
+    push @fields, $site->register_freetext2_name if $site->register_freetext2_name;
+    \@fields;
 }
 
 =head2 my $csv = $users->cvs;

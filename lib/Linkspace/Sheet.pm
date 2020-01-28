@@ -352,6 +352,12 @@ sub topic($)
     $topic;
 }
 
+#XXX apparently double names can exist :-(  See import
+sub topics_by_name($)
+{   my ($self, $name) = @_;
+    [ map $_->topic($_->id), grep lc($_->name) eq lc($name), %{$self->_topics_index} ];
+}
+
 sub all_topics { [ map $_[0]->topic($_), keys %{$_[0]->_topics_index} ] }
 
 sub topic_create($)

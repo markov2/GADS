@@ -18,18 +18,21 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Graphs;
 
+use Log::Report      'linkspace';
+use Scalar::Util     qw/blessed/;
+use Linkspace::util  qw/index_by_id/;
+use Linkspace::Graph;
+
+my @graph_types =    qw/bar line donut scatter pie/;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-
-use GADS::Graph;
-use Log::Report 'linkspace';
-use Scalar::Util qw/blessed/;
-
-my @graph_types = qw(bar line donut scatter pie);
+use namespace::clean;
 
 has sheet => (
     is       => 'ro',
     required => 1,
+    weakref  => 1,
 );
 
 has all_graphs => (
@@ -42,7 +45,7 @@ sub _build_all_graphs()
     my $sheet_id = $self->sheet->id;
 
     # First create a hash of all the graphs the user has selected
-    my %user_selected = map +($_->id => 1),
+    my %user_selected = index_by_id
         $::db->search(Graph => {
             'user_graphs.user_id' => $user_id,
             instance_id           => $sheet_id,

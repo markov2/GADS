@@ -19,14 +19,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # Shared by ::Calc and ::Rag
 package Linkspace::Column::Code;
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
-extends 'Linkspace::Column';
-
-use Log::Report 'linkspace';
+use Log::Report        'linkspace';
 use DateTime;
 use Date::Holidays::GB qw/is_gb_holiday gb_holidays/;
+use Linkspace::Util    qw/index_by_id/;
+
+use Moo;
+use MooX::Types::MooseLike::Base qw/:all/;
+extends 'Linkspace::Column';
 
 ###
 ### META
@@ -364,7 +364,7 @@ sub write_special
         $return_options{no_alerts} = 1 if $new;
 
         # Stop duplicates
-        my %depends_on = map +($_->id => 1), grep !$_->internal,
+        my %depends_on = index_by_id grep !$_->internal,
             $self->param_columns(is_fatal => $options{override} ? 0 : 1);
 
         $::db->delete(LayoutDepend => { layout_id => $id });

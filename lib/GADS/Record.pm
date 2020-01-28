@@ -35,6 +35,8 @@ use Scalar::Util  qw(blessed);
 use GADS::AlertSend;
 use GADS::Datum::Tree;
 
+use Linkspace::Util qw(index_by_id);
+
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
@@ -118,14 +120,8 @@ has id_count => (
 
 has _columns_retrieved_index => (
     is  => 'lazy',
-    isa => HashRef,
+    builder = sub { index_by_id $_[0]->columns_retrieved_do },
 );
-
-sub _build__columns_retrieved_index
-{   my $self = shift;
-    my $do = $self->columns_retrieved_do or panic 'test';
-    +{ map +($_->id => 1), @$do };
-}
 
 # XXX Can we not reference the parent Records entry somehow
 # or vice-versa?

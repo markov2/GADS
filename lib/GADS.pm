@@ -397,7 +397,7 @@ any ['get', 'post'] => '/login' => sub {
             if $site->hide_account_request;
 
         # Check whether this user already has an account
-        my $victim = $site->users->user(email => $email);
+        my $victim = $site->users->user_by_email($email);
 
         if($victim)
         {
@@ -457,7 +457,7 @@ any ['get', 'post'] => '/login' => sub {
         my $remember_me = param 'remember_me';
         my $password    = param 'password';
 
-        my $victim    = $site->users->user(username => $username);
+        my $victim    = $site->users->user_by_name($username);
         my $fail      = $victim->failcount >= 5
             && $victim->lastfail > DateTime->now->subtract(minutes => 15);
 
@@ -491,7 +491,7 @@ any ['get', 'post'] => '/login' => sub {
         else
         {   $::session->audit("Login failure using username $username", type => 'login_failure');
 
-            my $victim = $site->users->user(username => $username);
+            my $victim = $site->users->user_by_name($username);
             if($victim && ! $victim->account_requested)
             {   my $fail_count = $victim->login_failed;
                 trace "Fail count for $username is now $fail_count";
@@ -1189,7 +1189,7 @@ any ['get', 'post'] => '/resetpw/:code' => sub {
         {
             app->destroy_session;
 
-            my $user   = $site->users->user(username => $username);
+            my $user   = $site->users->user_by_name($username);
             # Now we know this user is genuine, reset any failure that would
             # otherwise prevent them logging in
             $user->update({ failcount => 0 });
