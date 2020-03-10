@@ -16,18 +16,21 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Graphs;
+package Linkspace::Sheet::Graphs;
 
 use Log::Report      'linkspace';
 use Scalar::Util     qw/blessed/;
-use Linkspace::util  qw/index_by_id/;
-use Linkspace::Graph;
 
-my @graph_types =    qw/bar line donut scatter pie/;
+use Linkspace::Util  qw/index_by_id/;
+use Linkspace::Graph ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 use namespace::clean;
+
+#--------------------
+=head1 METHODS: Generic Attributes
+=cut
 
 has sheet => (
     is       => 'ro',
@@ -35,11 +38,21 @@ has sheet => (
     weakref  => 1,
 );
 
-has all_graphs => (
+sub purge
+{   my $self = shift;
+    $self->graph_delete($_) for @{$self->all_graphs};
+}
+
+#--------------------
+=head1 METHODS: Manage Graphs
+=cut
+
+#XXX all graphs for this user
+has user_graphs => (
     is      => 'lazy',
 );
 
-sub _build_all_graphs()
+sub _build_user_graphs()
 {   my $self     = shift;
     my $user_id  = $::session->user;
     my $sheet_id = $self->sheet->id;
@@ -85,21 +98,14 @@ sub _build_all_graphs()
     \@graphs;
 }
 
-has all_shared => (
-    is      => 'lazy',
-    builder => sub { [ grep $_->is_shared, @{$self->all_graphs} ] },
-);
-
-has all_personal => (
-    is      => 'lazy',
-    builder => sub { [ grep !$_->is_shared, @{$self->all_groups} ] },
-);
+sub all_shared   { [ grep  $_->is_shared, @{$_[0]->user_graphs} ] }
+sub all_personal { [ grep !$_->is_shared, @{$_[0]->user_graphs} ] }
 
 has all_all_users => (
     is => 'lazy',
 );
 
-#XXX should maybe be merged in all_graphs when user->is_admin
+#XXX should maybe be merged in user_graphs when user->is_admin
 sub _build_all_all_users
 {   my $self = shift;
 
@@ -109,25 +115,54 @@ sub _build_all_all_users
     [ map $self->graph($_), @all_graph_ids ];
 }
 
-sub purge
-{   my $self = shift;
-    $_->graph_delete for @{$self->all_graphs};
+sub graphs_using_column($)
+{   my ($self, $which) = @_;
+    my $col_id = ! defined $which ? return : blessed $which ? $which->id : $which;
+
+    [ grep $_->x_axis_id==$col_id || $_->y_axis_id==$col_id || $_->group_by_id==$col_id,
+        @{$self->user_graphs} ];
 }
 
-sub types { @graph_types }
+sub graph_delete($)
+{   my ($self, $which) = @_;
+    my $graph_id = ! defined $which ? return : blessed $which ? $which->id : $which;
 
-sub graphs_using_column($)
-{   my ($self, $column) = @_;
-    $column or return;
+    my $graph = $self->graph($graph_id) or return;
+    $graph->writable
+        or error __"You do not have permission to delete this graph";
 
-    my $col_id    = $column->id;
-    my @graph_ids = $::db->search(Graph => [
-        { x_axis   => $col_id },
-        { y_axis   => $col_id },
-        { group_by => $col_id },
-    ])->get_column('id')->all;
+    $::db->update(Widget => { graph_id => $graph_id }, { graph_id => undef });
+    $::db->delete(UserGraph => { graph_id => $graph_id });
+    $::db->delete(Graph => $graph_id);
+}
 
-   [ map $self->graph($_), @graph_ids ];
+sub graph($)
+{   my ($self, $graph_id) = @_;
+    $graph_id or return;
+
+    my $record = $self->_graphs_index->{$graph_id};
+    $record->isa('Linkspace::Graph')
+        or Linkspace::Graph->from_record($record);
+}
+
+#--------------------
+=head1 METHODS: Manage Metric Groups
+
+=head2 \@mg = $graphs->metric_groups;
+Returns the metric groups for this sheet.
+=cut
+
+sub metric_groups()
+{   my ($self) = @_;
+
+GADS::MetricGroups->new(
+            instance_id => session('persistent')->{instance_id},
+        )->all;
+
+}
+
+sub all_metric_groups()
+{
 }
 
 1;

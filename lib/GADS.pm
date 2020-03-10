@@ -1650,7 +1650,7 @@ prefix '/:layout_name' => sub {
             $params->{colors}       = delete $timeline->{colors};
             $params->{timeline}     = $timeline;
             $params->{tl_options}   = $tl_options;
-            $params->{columns_read} = [ $layout->search_columns(user_can_read => 1) ];
+            $params->{columns_read} = $layout->columns(user_can_read => 1);
             $params->{page}         = 'data_timeline';
             $params->{viewtype}     = 'timeline';
             $params->{search_limit_reached} = $records->search_limit_reached;
@@ -1991,56 +1991,48 @@ prefix '/:layout_name' => sub {
 
     any ['get', 'post'] => '/graph/:id' => require_login sub {
         my $graph_id = is_valid_id(param 'id');
+        my $graphs   = $sheet->graphs;
 
-        my $params = {
-            layout => $layout,
-            page   => 'graph',
-        };
-
-        my $graph = GADS::Graph->new(
-            id           => $graph_id,
-            layout       => $layout,
-            current_user => $user,
-        );
-
-        if (param 'delete')
-        {
-            if (process( sub { $graph->delete }))
-            {
-                return forwardHome(
+        if(param 'delete')
+        {   if(process( sub { $graphs->graph_delete($graph_id) }))
+            {   return forwardHome(
                     { success => "The graph has been deleted successfully" }, $sheet->identifier.'/graphs' );
             }
         }
-
-        if (param 'submit')
+        elsif(param 'submit')
         {
-            my $values = params;
-            $graph->$_(param $_)
-                foreach (qw/title description type set_x_axis x_axis_grouping y_axis
-                    y_axis_label y_axis_stack group_by stackseries metric_group_id as_percent
-                    is_shared group_id trend from to x_axis_range/);
-
-            if(process( sub { $graph->write }))
-            {
-                my $action = $graph_id ? 'updated' : 'created';
-                return forwardHome(
-                    { success => "Graph has been $action successfully" }, $sheet->identifier.'/graphs' );
+            my $msg;
+            if(process sub {
+                my $data = Linkspace::Graph->validate($group_id, $sheet, params);
+                if($graph_id)
+                {   $graph = $graphs->graph_update($graph, $data);
+                    $msg = "Graph has been updated successfully";
+                }
+                else
+                {   $graph = $graphs->graph_create($data);
+                    $msg = "Graph has been created successfully";
+                }
+              })
+            {   return forwardHome( { success => $msg }, $sheet->identifier.'/graphs' );
             }
         }
 
-        $params->{graph}         = $graph;
-        $params->{metric_groups} = GADS::MetricGroups->new(
-            instance_id => session('persistent')->{instance_id},
-        )->all;
+        my @breadcrumbs = (
+            Crumb($sheet),
+            Crumb($sheet, '/data' => 'records'),
+            Crumb($sheet, '/graphs' => 'graphs'),
+            ( $graph
+            ? Crumb($sheet, '/graph/'.$graph->id => $graph->title),
+            : Crumb($sheet, '/graph/0' => 'add a graph')
+            ),
+        );
 
-        my $graph_name = $id ? $graph->title : "add a graph";
-        my $graph_id   = $id ? $graph->id : 0;
-        $params->{breadcrumbs}   = [
-            Crumb($sheet) => Crumb($sheet, '/data' => 'records')
-                => Crumb($sheet, '/graphs' => 'graphs') => Crumb($sheet, "/graph/$graph_id" => $graph_name)
-        ],
-
-        template 'graph' => $params;
+        template graph => +{
+            page          => 'graph',
+            graph         => $graph,
+            metric_groups => $graphs->metric_groups,
+            breadcrumbs   => \@breadcrumbs,
+        };
     };
 
     get '/metrics/?' => require_login sub {
@@ -2490,7 +2482,8 @@ prefix '/:layout_name' => sub {
                 );
 
             my $failed;
-            foreach my $col ($cur->edit_columns(new => $approval_of_new, approval => 1))
+            my $columns = $cur->edit_columns(new => $approval_of_new, approval => 1);
+            foreach my $col (@$columns)
             {   my $newv = param($col->field) or next;
                 $col->userinput or next; # Not calculated fields
 
@@ -2685,8 +2678,10 @@ prefix '/:layout_name' => sub {
         if (param 'submit')
         {
             # See which ones to update
-            my $failed_initial; my @updated;
-            foreach my $col ($record->edit_columns(new => 1, bulk => $type))
+            my ($failed_initial, @updated);
+            my $columns = $record->edit_columns(new => 1, bulk => $type);
+
+            foreach my $col (@$columns)
             {
                 my @newv = body_parameters->get_all($col->field);
                 my $included = body_parameters->get('bulk_inc_'.$col->id); # Is it ticked to be included?
@@ -2714,7 +2709,8 @@ prefix '/:layout_name' => sub {
                         last if $failed = !process( sub { $record_update->fields->{$col->id}->set_value($newv, bulk => 1) } );
                     }
                     $record_update->field($_)->re_evaluate(force => 1)
-                        foreach $layout->search_columns(has_cache => 1);
+                        foreach @{$layout->columns(has_cache => 1)};
+
                     if (!$failed)
                     {
                         # Use force_mandatory to skip "was previously blank" warnings. No
@@ -3153,9 +3149,10 @@ sub _process_edit
         # columns can be ignored, but if we do write them, an error will be
         # thrown to the user if they've been changed. This is better than
         # just silently ignoring them, IMHO.
-        my @display_on_fields;
-        my @validation_errors;
-        foreach my $col ($record->edit_columns(new => !$id))
+        my (@display_on_fields, @validation_errors);
+
+        my $columns = $record->edit_columns(new => !$id);
+        foreach my $col (@$columns)
         {
             my $newv;
             if ($modal)
@@ -3248,7 +3245,7 @@ sub _process_edit
     # Clear all fields which we may write but not read.
     $record->field($_)->set_value("")
         for grep ! $_->user_can('read'),
-               $sheet->layout->search_columns(user_can_write => 1);
+               @{$sheet->layout->columns(user_can_write => 1)};
 
     my $child_rec = $child && $sheet->user_can('create_child')
         ? is_valid_id(param 'child')

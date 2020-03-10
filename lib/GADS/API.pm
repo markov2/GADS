@@ -506,7 +506,8 @@ sub _get_dashboard_widget {
 sub _get_dashboard_widget_edit {
     my $layout = shift;
     my $user   = logged_in_user;
-    my $widget = _get_widget_write(route_parameters->get('id'), route_parameters->get('dashboard_id'), $layout, $user);
+    my $widget = _get_widget_write(route_parameters->get('id'),
+        route_parameters->get('dashboard_id'), $layout, $user);
 
     my $params = {
         widget          => $widget,
@@ -514,26 +515,13 @@ sub _get_dashboard_widget_edit {
         globe_options   => $widget->globe_options_inflated,
     };
 
-    unless ($widget->type eq 'notice')
-    {
-        my $views = GADS::Views->new(
-            user          => $user,
-            schema        => schema,
-            layout        => $layout,
-            instance_id   => $layout->instance_id,
-        );
-        $params->{user_views}   = $views->user_views;
-        $params->{columns_read} = [ $layout->search_columns(user_can_read => 1) ];
+    if($widget->type ne 'notice')
+    {   $params->{user_views}   = $sheet->views->user_views;
+        $params->{columns_read} = [ $sheet->layout->columns(user_can_read => 1) ];
     }
 
-    if ($widget->type eq 'graph')
-    {
-        my $graphs = GADS::Graphs->new(
-            current_user => $user,
-            schema       => schema,
-            layout       => $layout,
-        );
-        $params->{graphs} = $graphs;
+    if($widget->type eq 'graph')
+    {   $params->{graphs} = $sheet->graphs->user_graphs;
     }
 
     my $content = template 'widget' => $params, {

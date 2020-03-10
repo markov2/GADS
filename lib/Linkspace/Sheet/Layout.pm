@@ -364,7 +364,7 @@ sub purge
     GADS::Views->new(instance_id => $self->instance_id, user => undef)->purge;
 
     $_->delete for reverse
-        $self->search_columns(order_dependencies => 1, include_hidden => 1);
+        @{$self->columns(order_dependencies => 1, include_hidden => 1)};
 
     my %ref_sheet = { instance_id => $self->sheet->id };
 
@@ -575,7 +575,7 @@ sub columns
         @columns = @new;
     }
 
-    @columns;
+    \@columns;
 }
 
 =head2 $layout->column_unuse($column);

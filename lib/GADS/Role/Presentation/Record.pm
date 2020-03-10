@@ -19,20 +19,19 @@ sub _presentation_map_columns {
 sub edit_columns
 {   my ($self, %options) = @_;
 
-    my %permissions = $options{approval} && $options{new}
-        ? (user_can_approve_new => 1)
-        : $options{approval}
-        ? (user_can_approve_existing => 1)
-        : $options{new}
-        ? (user_can_write_new => 1)
-        : (user_can_readwrite_existing => 1);
+    my %permissions
+      = $options{approval} && $options{new} ? (user_can_approve_new => 1)
+      : $options{approval} ? (user_can_approve_existing => 1)
+      : $options{new}      ? (user_can_write_new => 1)
+      :                      (user_can_readwrite_existing => 1);
 
-    my @columns = $self->layout->search_columns(sort_by_topics => 1, can_child => $options{child}, userinput => 1, %permissions);
+    my @columns = $self->sheet->layout->columns(sort_by_topics => 1,
+        can_child => $options{child}, userinput => 1, %permissions);
 
     @columns = grep $_->type ne 'file', @columns
         if $options{bulk} && $options{bulk} eq 'update';
 
-    return @columns;
+    \@columns;
 }
 
 sub presentation($%) {
@@ -58,7 +57,7 @@ sub presentation($%) {
             foreach my $display_field_id (@{$col->display_field_col_ids})
             {
                 my $seen = first { $_ == $display_field_id } keys %this_indent;
-                if ($seen || ($previous && $display_field_id == $previous->id))
+                if($seen || ($previous && $display_field_id == $previous->id))
                 {
                     $indent{$col->id} = $seen && $indent{$seen} ? ($indent{$seen} + 1) : 1;
                     $this_indent{$col->id} = $indent{$col->id};
@@ -87,7 +86,7 @@ sub presentation($%) {
         deleted         => $self->deleted,
         deletedby       => $self->deletedby,
         createdby       => $self->createdby,
-        user_can_delete => ($cur_id && $sheet->user_can("delete") ? 1 : 0),
+        user_can_delete => ($cur_id && $sheet->user_can('delete') ? 1 : 0),
         user_can_edit   => $sheet->user_can('write_existing'),
         id_count        => $self->id_count,
     }

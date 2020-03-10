@@ -334,7 +334,7 @@ sub _build_data
         ? ($self->x_axis)
         : $self->view
         ? @{$self->view->column_ids}
-        : $self->records->layout->search_columns(user_can_read => 1);
+        : $self->records->layout->columns(user_can_read => 1);
 
     @columns = map {
         +{
@@ -437,7 +437,7 @@ sub _build_data
         push @x, @{$self->records->columns_view};
     }
     else {
-        push @x, $layout->search_columns(user_can_read => 1);
+        push @x, $layout->columns(user_can_read => 1);
     }
 
     # Now go into each of the retrieved database results, and create a more
@@ -542,7 +542,7 @@ sub _build_data
         }
         else {
             my $sum = _sum( @{$series->{1}->{data}} );
-            $series->{1}->{data} = [ map { _to_percent($sum, $_) } @{$series->{1}->{data}} ];
+            $series->{1}->{data} = [ map _to_percent($sum, $_), @{$series->{1}->{data}} ];
         }
     }
 
@@ -613,7 +613,7 @@ sub _build_data
             $series->{$k}->{label} = {
                 color         => $color,
                 showlabel     => $showlabel,
-                showline      => $self->type eq "scatter" ? 'false' : 'true',
+                showline      => $self->type eq 'scatter' ? 'false' : 'true',
                 markeroptions => $markeroptions,
                 label         => $k,
             };
@@ -622,21 +622,21 @@ sub _build_data
         # Sort the names of the series so they appear in order on the
         # graph. For some reason, they need to be in reverse order to
         # appear correctly in jqplot.
-        my @all_series = map { $series->{$_} } reverse sort keys %$series;
-        @points        = map { $_->{data} } @all_series;
-        @labels        = map { $_->{label} } @all_series;
+        my @all_series = map $series->{$_}, reverse sort keys %$series;
+        @points        = map $_->{data}, @all_series;
+        @labels        = map $_->{label}, @all_series;
     }
 
-    my $options = {};
-    $options->{y_max}     = 100 if defined $metric_max && $metric_max < 100;
-    $options->{is_metric} = 1 if defined $metric_max;
+    my %options;
+    $options{y_max}     = 100 if defined $metric_max && $metric_max < 100;
+    $options{is_metric} =   1 if defined $metric_max;
 
     # If we had a curval as a link, then we need to reset its retrieved fields,
     # otherwise anything else using the field after this procedure will be
     # using the reduced columns that we used for the graph
+#XXX
     if ($self->x_axis_link)
-    {
-        $link->clear_curval_field_ids;
+    {   $link->clear_curval_field_ids;
         $link->clear;
     }
 
@@ -644,7 +644,7 @@ sub _build_data
         xlabels => \@xlabels, # Populated, but not used for donut or pie
         points  => \@points,
         labels  => \@labels, # Not used for pie/donut
-        options => $options,
+        options => \%options,
     }
 }
 
@@ -653,12 +653,12 @@ sub _records_to_results
 
     my $x_daterange = $params{x_daterange};
     my $x           = $params{x};
+    my $records_results = $self->records->results;
 
     my ($results, $series_keys, $datemin, $datemax);
 
-    my $records_results = $self->records->results;
-
-    my $df = $self->x_axis_grouping_calculated && $dgf->{$self->x_axis_grouping_calculated};
+    my $df = $self->x_axis_grouping_calculated
+          && $dgf->{$self->x_axis_grouping_calculated};
 
     # If we have a specified x-axis range but only a date field, then we need
     # to pre-populate the range of x values. This is not needed with a
@@ -693,10 +693,8 @@ sub _records_to_results
             $x_value ||= $line->get_column("${col}_link")
                 if !$x_daterange && $x->link_parent;
 
-            if (!$x_daterange && $x->type eq 'curval' && $x_value)
-            {
-                $x_value = $self->_format_curcommon($x, $line);
-            }
+            $x_value = $self->_format_curcommon($x, $line)
+                if !$x_daterange && $x->type eq 'curval' && $x_value;
 
             if (!$self->trend && $self->x_axis_grouping_calculated) # Group by date, round to required interval
             {
@@ -715,46 +713,47 @@ sub _records_to_results
             $x_value ||= '<no value>';
 
             # The column name to retrieve from SQL record
-            my $fname = $x_daterange
-                      ? $x->epoch
-                      : !$self->x_axis
-                      ? $x->field
-                      : $self->y_axis_stack eq 'count'
-                      ? 'id_count' # Don't use field count as NULLs are not counted
-                      : $self->y_axis_col->field."_".$self->y_axis_stack;
+            my $fname
+              = $x_daterange   ? $x->epoch
+              : !$self->x_axis ? $x->field
+              : $self->y_axis_stack eq 'count' ? 'id_count' # Don't use field count as NULLs are not counted
+              :  $self->y_axis_col->field."_".$self->y_axis_stack;
+
             my $val = $line->get_column($fname);
 
             # Add on the linked column from another datasheet, if applicable
             my $include_linked = !$self->x_axis && (!$x->numeric || !$x->link_parent); # Multi x-axis
-            my $val_linked     = $self->y_axis_stack eq 'sum' && $self->y_axis_col->link_parent
+            my $val_linked     = $self->y_axis_stack eq 'sum'
+                && $self->y_axis_col->link_parent
                 && $line->get_column("${fname}_link");
 
             no warnings 'numeric', 'uninitialized';
-            if ($params{values_only}) {
-                $series_keys->{$x_value} = 1;
+            if($params{values_only})
+            {   $series_keys->{$x_value} = 1;
                 $results->{$x_value} += $val + $val_linked;
             }
-            else {
-                # The key for this series. May only be one (use "1")
+            else
+            {   # The key for this series. May only be one (use "1")
                 my $k = $self->group_by_col && $self->group_by_col->is_curcommon
                       ? $self->_format_curcommon($self->group_by_col, $line)
                       : $self->group_by_col
                       ? $line->get_column($self->group_by_col->field)
                       : 1;
                 $k ||= $line->get_column($self->group_by_col->field."_link")
-                      if $self->group_by_col && $self->group_by_col->link_parent;
+                    if $self->group_by_col && $self->group_by_col->link_parent;
                 $k ||= '<blank value>';
 
                 $series_keys->{$k} = 1; # Hash to kill duplicate values
+
                 # Store all the results for each x value together, by series
-                $results->{$x_value} ||= {};
-                $results->{$x_value}->{$k} += $val + $val_linked;
+                $results->{$x_value}{$k} += $val + $val_linked;
             }
         }
     }
 
-    return ($results, $series_keys, $datemin, $datemax);
+    ($results, $series_keys, $datemin, $datemax);
 }
+
 # Take a date and round it down according to the grouping
 sub _group_date
 {   my ($self, $val) = @_;

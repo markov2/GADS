@@ -343,13 +343,10 @@ foreach my $l (@all_layouts)
         my $graph;
         if ($merge || $report_only)
         {   my $title = $g->{title};
-            my $has_graphs = $sheet->graphs_with_title($title);
 
-            report ERROR => "More than one existing graph titled {title}", title => $title
-                if @$has_groupds > 1;
-
-            if($graph = $has_graphs->[0])
-            {   $sheet->graph_update($graph, $g);
+            if(my $graph = $sheet->graphs_with_title($title))
+            {   $graph->show_changes($g) if $report;
+                $sheet->graph_update($graph, $g);
             }
             else
             {   report NOTICE => __x"Graph to be created: {graph}", graph => $title;

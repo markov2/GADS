@@ -18,16 +18,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Sheet;
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
-extends 'GADS::Schema::Result::Instance';
-
 use Log::Report  'linkspace';
-
 use Clone        'clone';
 use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
+
+use Linkspace::Sheet::Layout ();
+use Linkspace::Sheet::Views  ();
+use Linkspace::Sheet::Graphs ();
+
+use Moo;
+use MooX::Types::MooseLike::Base qw/:all/;
+extends 'GADS::Schema::Result::Instance';
 
 ###!!!!  The naming is confusing, because that's legacy.
 ###  table Instance      contains Sheet data
@@ -53,12 +55,13 @@ Required is a C<document>.
 =cut
 
 =head2 my $sheet = Linkspace::Sheet->from_record($record, %options);
-The C<%options> are passed to C<new()>.
 =cut
 
-sub from_record
+sub from_record($%)
 {   my ($class, $record, %args) = @_;
-    $class->new( { %$record, %args } );
+    my $self = bless $record, $class;
+	$self->document($args{document} or panic);
+    $self;
 }
 
 =head2 my $sheet = $class->from_id($sheet_id, %options);
@@ -66,9 +69,10 @@ Create a Sheet object based on a C<$sheet_id> (old name: instance_id).
 The same C<%options> as method C<from_record()>.
 =cut
 
-sub from_id
+sub from_id($%)
 {   my ($class, $sheet_id, %args) = @_;
-    $class->from_record($::db->get_record(Instances => $sheet_id), %args);
+    my $record = $::db->get_record(Instances => $sheet_id) or return;
+    $class->from_record($record, %args);
 }
 
 =head2 $sheet->sheet_update(%changes);
@@ -87,7 +91,7 @@ sub sheet_update($)
 }
 
 #--------------------
-=head1 METHODS: Accessors
+=head1 METHODS: Generic accessors
 
 =head2 my $doc = $sheet->document;
 The Site where the User has logged-in contains Sheets which are clustered
@@ -95,8 +99,7 @@ into Documents (at the moment, only one Document per Site is supported)
 =cut
 
 has document => (
-    is       => 'ro',
-    required => 1,
+    is       => 'rw',
     weak_ref => 1,
 );
 

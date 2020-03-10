@@ -39,7 +39,7 @@ my $layout = $sheet->layout;
 my $columns = $sheet->columns;
 $sheet->create_records;
 
-my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
 my $records = GADS::Records->new(
     from    => DateTime->now,
@@ -153,7 +153,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
     my $columns  = $sheet->columns;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     # Run 2 tests - sorted by string1 and enum1. string1 will randomise the
     # results to make sure the correct ones are pulled out by date; enum1 will
@@ -270,7 +270,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
     my $dr1      = $sheet->columns->{daterange1}->id;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $records = GADS::Records->new(
         from    => DateTime->new(year => 2009, month => 03, day => 01),
@@ -383,7 +383,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     $sheet->create_records;
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $records = GADS::Records->new(
         from    => DateTime->new(year => 2007, month => 01, day => 01),
@@ -409,7 +409,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     $sheet->create_records;
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $records = GADS::Records->new(
         from    => DateTime->now,
@@ -430,7 +430,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     $sheet->create_records;
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $records = GADS::Records->new(
         user    => undef,
@@ -461,7 +461,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     $sheet->create_records;
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $records = GADS::Records->new(
         from    => DateTime->now->add(days => 100),
@@ -486,7 +486,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     $sheet->create_records;
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $from = DateTime->now->subtract(years => 1);
     my $to   = DateTime->now->add(years => 2);
@@ -525,7 +525,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     $sheet->create_records;
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $records = GADS::Records->new(
         user    => undef,
@@ -563,7 +563,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     $sheet->create_records;
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $records = GADS::Records->new(
         from    => DateTime->now,
@@ -634,7 +634,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
 
     my $view = GADS::View->new(
         name        => 'Test',
-        columns     => [ map { $_->id } $layout->all(exclude_internal => 1) ],
+        columns     => [ map { $_->id } $layout->columns(exclude_internal => 1) ],
         instance_id => $layout->instance_id,
         layout      => $layout,
         schema      => $schema,
@@ -796,7 +796,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
     $sheet->create_records;
     my $schema   = $sheet->schema;
     my $layout   = $sheet->layout;
-    my $showcols = [ map { $_->id } $layout->all(exclude_internal => 1) ];
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
 
     my $view = GADS::View->new(
         name        => 'Test view',

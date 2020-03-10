@@ -553,9 +553,9 @@ sub _build__search_all_fields
     );
 
     my @columns_can_view;
-    foreach my $col ($self->layout->search_columns(user_can_read => 1))
-    {
-        push @columns_can_view, $col->id;
+    my $columns = $self->layout->columns(user_can_read => 1);
+    foreach my $col (@$columns)
+    {   push @columns_can_view, $col->id;
         push @columns_can_view, @{$col->curval_field_ids}
             if $col->type eq 'curval'; # Curval type needs all its columns from other layout
     }
@@ -565,9 +565,7 @@ sub _build__search_all_fields
     # Only search limited view if configured for user
     push @basic_search, $self->_view_limits_search;
 
-    my $date_column = Linkspace::Column::Date->new(
-        layout => $self->layout,
-    );
+    my $date_column = Linkspace::Column::Date->new(layout => $self->layout);
     my %found;
     foreach my $field (@fields)
     {
@@ -1217,23 +1215,23 @@ sub _build_columns_view
             if $self->current_group_id;
 
         my $group_display = $view->is_group && !@{$self->additional_filters};
-        @cols = $layout->search_columns(
-            user_can_read => 1,
-            group_display => $group_display,
-            include_column_ids => \%view_layouts
-        );
+        @cols = @{$layout->columns(
+            user_can_read      => 1,
+            group_display      => $group_display,
+            include_column_ids => \%view_layouts,
+        )};
 
         unshift @cols, $self->layout->column($self->current_group_id)
             if $self->current_group_id;
     }
-    else {
-        @cols = $self->layout->search_columns(user_can_read => 1);
+    else
+    {   @cols = @{$self->layout->columns(user_can_read => 1)};
     }
 
     unshift @cols, $self->layout->column_id
         unless $self->is_group;
 
-    return \@cols;
+    \@cols;
 }
 
 has additional_filters => (
@@ -2066,7 +2064,8 @@ sub data_timeline
 
         # Only show the first field, plus all the date fields
         my ($picked, @to_show);
-        foreach my $column ($overlay->search_columns(user_can_read => 1))
+        my $columns = $overlay->columns(user_can_read => 1);
+        foreach my $column (@$columns)
         {
             if($column->returns_date)
             {   push @to_show, $column;
@@ -2078,7 +2077,7 @@ sub data_timeline
         }
 
         my $records = GADS::Records->new(
-            columns => [ map { $_->id } @to_show ],
+            columns => [ map $_->id, @to_show ],
             from    => $min,
             to      => $max,
             layout  => $overlay,
@@ -2102,14 +2101,12 @@ sub data_timeline
         }
     }
 
-    my @groups = map {
-        {
-            id        => $timeline->groups->{$_},
-            content   => encode_entities($_),
-            order     => int $timeline->groups->{$_},
-            style     => 'font-weight: bold',
-        }
-    } keys %{$timeline->groups};
+    my @groups = map +{
+        id        => $timeline->groups->{$_},
+        content   => encode_entities($_),
+        order     => int $timeline->groups->{$_},
+        style     => 'font-weight: bold',
+    }, keys %{$timeline->groups};
 
     $self->from($original_from);
     $self->to($original_to);

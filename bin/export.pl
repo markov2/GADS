@@ -115,15 +115,15 @@ foreach my $layout (@instances)
     mkdir "$ins_dir/layout"
         or report FAULT => "Unable to create layout directory";
 
-    dump_all("$ins_dir/layout/", $layout->all(order_dependencies => 1, exclude_internal => 1));
+    dump_all("$ins_dir/layout/", @{$layout->columns(order_dependencies => 1, exclude_internal => 1)});
 
     mkdir "$ins_dir/metrics"
         or report FAULT => "Unable to create metrics directory";
-    dump_all("$ins_dir/metrics/", @{GADS::MetricGroups->new(schema => schema, instance_id => $instance_id)->all});
+    dump_all("$ins_dir/metrics/", @{$sheet->graphs->all_metric_groups});
 
     mkdir "$ins_dir/graphs"
         or report FAULT => "Unable to create graphs directory";
-    dump_all("$ins_dir/graphs/", @{GADS::Graphs->new(schema => schema, layout => $layout)->all_all_users});
+    dump_all("$ins_dir/graphs/", @{$sheet->graphs->all_graphs});
 
     if ($include_data)
     {

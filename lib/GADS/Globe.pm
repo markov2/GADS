@@ -317,15 +317,13 @@ sub _build_data
         my %existing = map { $_->{col}->id => 1 } @extra;
         push @extra, map { +{ col => $_ } } grep { !$existing{$_->id} }
             @{$records->columns_view};
-        my @gc = $layout->search_columns(is_globe => 1, user_can_read => 1);
-        my $has_globe;
-        $has_globe = 1
-            if grep { $_->{col}->return_type eq 'globe' } @extra;
-        push @extra, { col => $gc[0], group => $self->is_group }
-            if @gc == 1 && !$has_globe;
+        my $gc = $layout->columns(is_globe => 1, user_can_read => 1);
+        my $has_globe = first { $_->{col}->return_type eq 'globe' } @extra;
+        push @extra, { col => $gc->[0], group => $self->is_group }
+            if @$gc == 1 && !$has_globe;
     }
     else {
-        push @extra, map +{ col => $_ }, $layout->search_columns(user_can_read => 1);
+        push @extra, map +{ col => $_ }, @{$layout->columns(user_can_read => 1)};
     }
 
     if ($self->is_group)
