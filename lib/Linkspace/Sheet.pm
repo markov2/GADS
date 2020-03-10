@@ -309,7 +309,7 @@ sub get_page($)
        [ map $views->view($_->view_id), $views->limits_for_user ];
 
     my $view_limit_extra_id
-      = $self->user_can("view_limit_extra")
+      = $self->user_can('view_limit_extra')
       ? $args{view_limit_extra_id}
       : $self->default_view_limit_extra_id;
 
@@ -394,6 +394,18 @@ sub column_unuse($)
 
     $self->layout->column_unuse($column);
     $self->views->column_unuse($column);
+}
+
+=head2 \%h = $self->sort_defaults;
+Returns a HASH which contains the default values to sort row displays.  It returns
+a HASH with a column C<id> and a direction (C<type>).
+=cut
+
+sub sort_defaults()
+{   my $self = shift;
+     +{ id   => $self->sort_layout_id,
+        type => $self->sort_type,
+      };
 }
 
 1;

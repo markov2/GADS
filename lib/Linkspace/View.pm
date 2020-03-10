@@ -550,6 +550,7 @@ has is_group => (
     builder => sub { !! @{$_[0]->groups },
 );
 
+
 =head2 my $page = $view->search(%options)
 Apply the filters, and probably some temporary restrictions.  Returns
 a L<Linkspace::Page>.

@@ -138,22 +138,8 @@ sub multivalue_rs
 
 sub export_hash
 {   my $self = shift;
-    my $hash = $self->SUPER::export_hash;
-    $hash->{related_field_id} = $self->related_field;
-    $hash;
+    $self->SUPER::export_hash(@_, related_field_id => $self->related_field);
 }
-
-around import_after_all => sub {
-    my $orig = shift;
-    my ($self, $values, %options) = @_;
-    my $mapping = $options{mapping};
-    my $report = $options{report_only};
-    my $new_id = $mapping->{$values->{related_field_id}};
-    notice __x"Update: related_field_id from {old} to {new}", old => $self->related_field_id, new => $new_id
-        if $report && $self->related_field_id != $new_id;
-    $self->related_field_id($new_id);
-    $orig->(@_);
-};
 
 sub how_to_link_to_record {
 	my ($self) = @_;

@@ -46,6 +46,8 @@ sub remove($)
 ### Instance
 ###
 
+sub string_storage { 1 }
+
 has textbox => (
     is      => 'rw',
     isa     => Bool,
@@ -60,9 +62,8 @@ has force_regex => (
     lazy    => 1,
 );
 
-after 'build_values' => sub {
+after build_values => sub {
     my ($self, $original) = @_;
-    $self->string_storage(1);
     $self->textbox(1) if $original->{textbox};
 
     if(my $force_regex = $original->{force_regex})
@@ -102,10 +103,10 @@ before import_hash => sub {
 
 sub export_hash
 {   my $self = shift;
-    my $hash = $self->SUPER::export_hash;
-    $hash->{textbox}     = $self->textbox;
-    $hash->{force_regex} = $self->force_regex;
-    $hash;
+    $self->SUPER::export_hash(@_,
+        textbox => $self->textbox,
+        force_regex => $self->force_regex,
+    );
 }
 
 sub import_value

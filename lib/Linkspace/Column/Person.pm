@@ -75,19 +75,10 @@ sub value_field_as_index
     $type;
 }
 
-
-has default_to_login => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    builder => sub {
-        my $self = shift;
-        $self->has_options ? $self->options->{default_to_login} : 0;
-    },
-    trigger => sub { $_[0]->reset_options },
-);
-
+sub default_to_login()
+{   my $self = shift;
+    $self->has_options ? $self->options->{default_to_login} : 0;
+)
 
 sub people { $_[0]->site->users->all }
 
@@ -105,13 +96,7 @@ after build_values => sub {
     }
 };
 
-sub random   #XXX still in use?
-{   my $self = shift;
-    my @people = $self->people;
-    $people[rand @people]->value;
-}
-
-sub resultset_for_values { $self->site->users->search_active }
+sub resultset_for_values { $self->site->users->all_users }
 
 sub import_value
 {   my ($self, $value) = @_;

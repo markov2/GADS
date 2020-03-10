@@ -48,7 +48,7 @@ Returns true when the user has super user rights: can pass all checks.
 # To be extended in sub-class
 sub is_admin { 0 }
 
-
+#-----------------
 =head1 METHODS: Groups
 
 =head2 my @groups = $user->groups;
@@ -62,6 +62,7 @@ sub groups { () }
 
 sub has_group($) { 1 }
 
+#-----------------
 =head1 METHODS: Other
 
 =head2 my $dt = $user->local2dt($stamp, [$pattern]);
@@ -110,5 +111,13 @@ has date_pattern => (
        $::linkspace->setting(users => 'cldr_pattern') || 'yyyy-MM-dd';
     },
 );
+
+=head2 my $can = $user->can_column($column, $action);
+=cut
+
+sub can_column($$)
+{   my ($self, $column, $permission) = @_;
+    1;
+}
 
 1;

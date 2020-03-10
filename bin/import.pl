@@ -314,12 +314,16 @@ foreach my $ins (readdir $root)
 foreach my $l (@all_layouts)
 {
     my $layout = $l->{layout};
-    $layout->import_after_all(
-        $l->{values},
-         mapping => \%column_ext2int,
-         report_only => $report_only
-    );
-    $layout->write;
+    if(my $sort_id = $l->{values}->{sort_layout_id})
+    {   my $new_id = $column_ext2int{$sort_id};
+        my $old_id = $sheet->sort_layout_id;
+
+        notice __x"Update: sort_layout_id from {old} to {new} for {name}",
+            old => $old_id, new => $new_id, name => $self->name
+                if $report && ($old_id // 0) != ($new_id // 0);
+
+        $sheet->sheet_update(sort_layout_id => $new_id );
+    }
 
     foreach my $g (dir($l->{graphs}))
     {
@@ -364,11 +368,22 @@ foreach my $todo (@columns_todo)
     next if $ignore_fields{$column->name};
 
     report TRACE => __x"Final update of column {name}", name => $column->name;
+    if(my $rel_id = delete $data->{related_field_id})
+    {   $data->{related_field} = $column_ext2int{$rel_id};
+    }
+
+    if(my $curval_ids = $data->{curval_field_ids}})
+    {   $data->{curval_field_ids} = map $column_ext2int{$_}, @$curval_ids;
+    }
+
+    if(my $filter = $data->{filter})
+    {   $data->{filter} = Linkspace::Filter->from_json(layout => $any_layout)
+            ->renumber_columns(\%column_ext2int);
+    }
+
     $layout->column_update($column, $data,
-        mapping     => \%column_ext2int,
-        report_only => $report_only && $todo->{updated},
+        report     => $report_only && $todo->{updated},
         force       => $force
-        add_db      => 1,
         no_cache_update => 1,
         update_dependents => 1,
     );

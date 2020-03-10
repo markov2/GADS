@@ -131,6 +131,10 @@ sub value_field_as_index { $_[0]->value_field }
 # string value (e.g. enums)
 sub sort_columns   { [ $_[0] ] }
 
+# Whether the data is stored as a string. If so, we need to check for both
+# empty string and null values to test if empty
+sub string_storage { 0 }
+
 ### helpers
 sub site           { $::session->site }
 sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
@@ -310,15 +314,6 @@ sub display_fields_summary
         return [$type, $conds];
     }
 }
-
-# Whether the data is stored as a string. If so, we need to check for both
-# empty string and null values to test if empty
-has string_storage => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    default => 0,
-);
 
 has optional => (
     is      => 'rw',
@@ -505,9 +500,18 @@ sub group_summary
 
 #-------------------
 =head2 $column->column_update(%)
-{   my ($self, $original) = @_;
+=cut
+
+sub column_update($%)
+{   my ($self, $update, %options) = @_;
+    my $report = $args{report_only};
+
+    notice __x"Update: related_field_id from {old} to {new}", 
+        old => $self->related_field, new => $new_id
+        if $report && $self->related_field != $new_id;
 
     delete $update{topic_id} unless $update{topic_id};
+
     my $link_parent = $original->{link_parent};
     if (ref $link_parent)
     {
@@ -515,32 +519,14 @@ sub group_summary
         my $column = $class->new(set_values => $link_parent);
         $self->link_parent($column);
     }
-    else {
-        $self->link_parent_id($original->{link_parent});
+    else
+    {   $self->link_parent_id($original->{link_parent});
     }
-    $self->id($original->{id});
-    $self->name($original->{name});
-    $self->name_short($original->{name_short});
-    $self->topic_id($original->{topic_id});
-    $self->optional($original->{optional});
-    $self->remember($original->{remember});
-    $self->isunique($original->{isunique});
-    $self->set_can_child($original->{can_child});
-    $self->multivalue($original->{multivalue} ? 1 : 0) if $self->can_multivalue;
-    $self->position($original->{position});
-    $self->helptext($original->{helptext});
+
+    $update{multivalue} ||= 0 if $update{multivalue};
 
     my $options = $original->{options} ? decode_json($original->{options}) : {};
     $self->_set_options($options);
-
-    $self->description($original->{description});
-    $self->width($original->{width});
-    $self->field("field$original->{id}");
-    $self->type($original->{type});
-    $self->display_condition($original->{display_condition});
-    $self->set_display_fields($original->{display_fields});
-    $self->set_group_display($original->{group_display});
-    $self->aggregate($original->{aggregate} || undef);
 
     # XXX Move to curval class
     if ($self->type eq 'curval')
@@ -550,6 +536,10 @@ sub group_summary
     }
 
 }
+
+#-----------------------
+=head1 METHODS: Filters
+=cut
 
 # ID for the filter
 has filter_id => (
@@ -631,11 +621,6 @@ sub remove_history()
 {   my $self = shift;
     $_->remove($self) for ${$self->all_column_classes};
 }
-
-sub remove($) { }   # remove all refs to a columns
-
-sub write_special { () } # Overridden in children
-sub after_write_special {} # Overridden in children
 
 sub write
 {   my ($self, %options) = @_;
@@ -791,16 +776,17 @@ sub write
 
 sub user_can
 {   my ($self, $permission) = @_;
-    return 1 if $self->user_permission_override;
-    return 1 if $self->internal && $permission eq 'read';
+    return 1 if  $self->internal  && $permission eq 'read';
     return 0 if !$self->userinput && $permission ne 'read'; # Can't write to code fields
-    return 1 if $self->layout->current_user_can_column($self->id, $permission);
-    if ($permission eq 'write') # shortcut
-    {
-        return 1
-            if $self->layout->current_user_can_column($self->id, 'write_new')
-            || $self->layout->current_user_can_column($self->id, 'write_existing');
+    my $user = $::session->user;
+    if($permission eq 'write') # shortcut
+    {   return 1 $user->can_column($self, 'write_new')
+              || $user->can_column($self, 'write_existing');
     }
+    elsif($user->can_column($permission))
+    {   return 1;
+    }
+
     0;
 }
 
@@ -1066,6 +1052,7 @@ sub export_hash
         display_fields    => \@display_fields,
         link_parent       => $self->link_parent && $self->link_parent->id,
         permissions       => $self->permissions_by_group_export,
+        @_,                               # from extensions
     };
 
     $export{$_} = $self->$_ for
@@ -1098,8 +1085,8 @@ sub import_after_all
             rules     => \@rules,
         });
     }
-    else {
-        $self->display_fields->as_hash({});
+    else
+    {   $self->display_fields->as_hash({});
     }
 
     notice __x"Update: display_fields has been updated for {name}",

@@ -497,4 +497,37 @@ has all_permissions => (
     builder => sub { [ $::db->resultset('Permission')->all ] },
 );
 
+has _can_column => (
+    is      => 'lazy',
+    builder => sub
+    {   my $perms = $::db->search(User => {
+            'me.id'              => $self->id,
+        },
+        {
+            prefetch => {
+                user_groups => {
+                    group => {
+                        layout_groups => 'layout',
+                    },
+                }
+            },
+            result_class => 'HASH',
+        })->single;
+
+#XXX needs more work: we already know the groups of the user, so may simply
+#XXX get it from the groups.
+        my %perms;
+        foreach my $group (@{$perms->{user_groups}})
+        {   $perms{$_->{layout_id}}->{$_->{permission}} = 1
+               for @{$group->{group}{layout_groups}};
+        }
+        \%perms;
+    },
+);
+
+sub can_column($$)
+{   my ($self, $column, $permission) = @_;
+    $self->_can_column->{$column->id}{$permission};
+}
+
 1;

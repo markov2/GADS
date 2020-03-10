@@ -309,7 +309,7 @@ sub file_create(%)
 
 #---------------
 =head1 METHODS: Pointers
-Manage table "Current", which contains pointers to records.
+Manage table "CurvalField", which contains pointers to records.
 =cut
 
 sub columns_refering_to($)

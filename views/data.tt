@@ -30,12 +30,12 @@
                             Current view: [% IF v %][% v.name | html %][% ELSE %]All data[% END %] <span class="caret"></span>
                     </button>
                     <ul id="menu_view" class="dropdown-menu scrollable-menu" role="menu">
-			[% IF layout.user_can("view_create") %]
+			[% IF sheet.user_can("view_create") %]
 			    <li [% IF page=="view/0" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/view/0">Add a view</a></li>
 			[% END %]
 
 			[% IF v %]
-                            [% IF layout.user_can("view_create") %]
+                            [% IF sheet.user_can("view_create") %]
 				[% IF v.writable %]
 				    <li [% IF page=="view" %]class="active"[% END %]><a href="[% url.page %]/[% layout.identifier %]/view/[% v.id %]">
                                         Edit current view</a></li>
@@ -45,7 +45,7 @@
                             <li role="presentation"><a href="" role="menuitem" tabindex="-1" data-toggle="modal" data-target="#modal_alert">Alert me...</a></li>
 			[% END %]
 
-                        [% IF layout.user_can("layout") %]
+                        [% IF sheet.user_can("layout") %]
                             <li role="presentation">
                                 <a href="" role="menuitem" tabindex="-1" data-toggle="modal" data-target="#modal_views_other_user">
                                     Manage views of another user...
@@ -111,7 +111,7 @@
                     </div>
                 [% END %]
 
-                [% IF layout.user_can("bulk_update") OR layout.user_can("delete") OR layout.user_can("download") %]
+                [% IF sheet.user_can("bulk_update") OR sheet.user_can("delete") OR sheet.user_can("download") %]
                     <div class="btn-group">
                         <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-expanded="false" aria-controls="menu_action">
                                 Action <span class="caret"></span>
@@ -124,14 +124,14 @@
                             [% ELSE %]
                                 [% sel_type = "records in this view" %]
                             [% END %]
-                            [% IF layout.user_can("delete") %]
+                            [% IF sheet.user_can("delete") %]
                                 <li role="presentation"><a role="menuitem" id="delete_href" class="bulk_href" tabindex="-1" data-toggle="modal" data-target="#modal_delete" style="cursor: pointer">Delete all [% sel_type %]...</a>
                             [% END %]
-                            [% IF layout.user_can("bulk_update") %]
+                            [% IF sheet.user_can("bulk_update") %]
                                 <li role="presentation"><a role="menuitem" id="update_href" class="bulk_href" tabindex="-1" href="/[% layout.identifier %]/bulk/update/">Update all [% sel_type %]...</a></li>
                                 <li role="presentation"><a role="menuitem" id="clone_href" class="bulk_href" tabindex="-1" href="/[% layout.identifier %]/bulk/clone/">Clone all [% sel_type %]...</a></li>
                             [% END %]
-                            [% IF viewtype == "table" AND records.size AND layout.user_can("download") %]
+                            [% IF viewtype == "table" AND records.size AND sheet.user_can("download") %]
                                 <li role="presentation"><a role="menuitem" tabindex="-1"
                                         href="/[% layout.identifier %]/data?download[% IF filter_url %]&[% filter_url %][% END %]">Download records</a></li>
                             [% END %]
@@ -226,7 +226,7 @@
     [% END %]
 [% END %]
 
-[% IF layout.user_can("layout") %]
+[% IF sheet.user_can("layout") %]
     [% IF views_other_user %][% modal_extra_action = "views_other_user_clear" %][% END %]
     [% WRAPPER modal_dialog.tt
         modal_id="modal_views_other_user" modal_action_text="Submit" modal_heading="Manage views of other user"

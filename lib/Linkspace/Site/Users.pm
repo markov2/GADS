@@ -54,13 +54,19 @@ has site => (
     weakref  => 1,
 );
 
+sub component_changed() { $_[0]->site->changed('users') }
+
 #-----------------
 =head1 METHODS: Users
+Maintain users which use the website.  The session user may also be a system
+user, which is not stored in the database: it gets derived from operating
+system information.
 
 =head2 \@users = $users->all_users;
 Returns all active users.
 =cut
 
+# The index is only used when other users than the session user are addressed.
 has _users_index =>
     is      => 'lazy',
     builder => sub
@@ -113,10 +119,22 @@ Returns a L<Linkspace::User> object.
 sub user
 {   my ($self, $user_id) = @_;
     $user_id or return;
-    my $user = $self->_users_index->{$user_id};
-    Linkspace::User->from_record($user)
-         unless $user->isa('Linkspace::User');
-    $user;
+
+    if((my $su = $::session->user) && $su->isa('Linkspace::User::Person'))
+    {   # Do not load all other users when we are only using the session user
+        return $su if $user_id == $su->user_id;
+    }
+    else
+    {   # Loading session user, avoiding loading full index
+        my $record = $::db->get_record(User => $user_id);
+        return Linkspace::User->from_record($record);
+    }
+
+    my $record = $self->_users_index->{$user_id};
+    return $record
+        if !$record || $record->isa('Linkspace::User');
+
+    Linkspace::User->from_record($record);  # blesses in place
 }
 
 =head2 my $user = $users->user_by_name($email)
@@ -214,10 +232,13 @@ sub user_create
     $msg .= __x", permissions: {permissions}", permissions => $perms if $perms;
 
     $::session->audit($msg, type => 'login_change');
+    $self->component_changed;
 
     $guard->commit;
 
-    $self->_user_index->{$victim->id} = $victim;
+    $self->_user_index->{$victim->id} = $victim
+         if $self->has__user_index;
+
     $victim;
 }
 
@@ -260,6 +281,7 @@ sub user_update
     my $msg = __x"User updated: id={id}, username={username}",
         id => $victim_id, username => $username;
     $::session->audit($msg, type => 'login_change');
+    $self->component_changed;
 
     $guard->commit;
     $victim;
@@ -274,6 +296,7 @@ sub user_delete($)
 
     #XXX remove from groups?
     $::db->update(User => $victim_id, { deleted => \'NOW' });
+    $self->component_changed;
 }
 
 #XXX All following fields are located in the site table, but are used for
@@ -535,12 +558,14 @@ sub match
 =head1 METHODS: Manage groups
 
 =head2 my $gid = $class->group_create(%insert);
+There are (probably) only very few groups, so they all get instantiated.
 =cut
 
 sub group_create(%)
 {   my ($class, %insert) = @_;
     $insert{site_id} = $::session->site->id;
     $::db->create(Group => \%insert);
+    $self->component_changed;
 }
 
 =head2 $users->group_delete($group);
@@ -554,6 +579,7 @@ sub group_delete($)
         for qw/LayoutGroup InstanceGroup UserGroup/;
 
     $victim->delete;
+    $self->component_changed;
 }
 
 =head2 \@groups = $users->all_groups;
@@ -573,7 +599,7 @@ Returns a L<Linkspace::Group>.  Use C<id> or a C<name>.
 
 has _group_index => (
     is      => 'lazy',
-    builder => sub { +{ map +($_->id => $_, $_->name), $_[0]->all_groups } },
+    builder => sub { index_by_id $_[0]->all_groups } },
 );
 
 sub group($) { $_[0]->_group_index->{$_[1]} }

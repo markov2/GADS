@@ -355,21 +355,6 @@ sub import_hash
     ]);
 }
 
-sub import_after_all
-{   my ($self, $values, %options) = @_;
-    my $report  = $options{report_only} && $self->instance_id;
-    my $mapping = $options{mapping};
-
-    if ($values->{sort_layout_id})
-    {
-        my $new_id = $mapping->{$values->{sort_layout_id}};
-        notice __x"Update: sort_layout_id from {old} to {new} for {name}",
-            old => $self->sort_layout_id, new => $new_id, name => $self->name
-                if $report && ($self->sort_layout_id || 0) != ($new_id || 0);
-        $self->sort_layout_id($new_id);
-    }
-}
-
 sub purge
 {   my $self = shift;
 

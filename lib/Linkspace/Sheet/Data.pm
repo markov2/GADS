@@ -18,12 +18,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Sheet::Data;
 
-use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
-use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
-
-with 'GADS::RecordsJoin', 'GADS::Role::Presentation::Records';
-
 use Linkspace::Sheet::Approval;
 
 use Data::Dumper qw/Dumper/;
@@ -40,13 +34,10 @@ use POSIX qw(ceil);
 use Scalar::Util qw(looks_like_number);
 use Text::CSV::Encoded;
 
-
-# Preferably this is passed in to prevent extra
-# DB reads, but loads it if it isn't
-has layout => (
-    is       => 'rw',
-    required => 1,
-);
+use Moo;
+use MooX::Types::MooseLike::Base qw(:all);
+use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
+with 'GADS::RecordsJoin', 'GADS::Role::Presentation::Records';
 
 =head1 NAME
 
@@ -77,6 +68,7 @@ has page => (
     is => 'rw',
 );
 
+#-----------------
 =head1 METHODS: Other
 
 =head2 my $page = $data->search(%options)
@@ -146,21 +138,19 @@ sub _view_limits_search
 has from => (
     is     => 'rw',
     coerce => sub {
-        my $value = shift
-            or return;
+        my $value = shift or return;
         $value->truncate(to => 'day');
-        return $value;
+        $value;
     },
 );
 
 has to => (
     is     => 'rw',
     coerce => sub {
-        my $value = shift
-            or return;
+        my $value = shift or return;
         return $value if $value->hms('') eq '000000';
         $value->truncate(to => 'day')->add(days => 1);
-        return $value;
+        $value;
     },
 );
 
@@ -282,7 +272,7 @@ sub _build_current_ids
 
 # Common search parameters used across different queries
 sub common_search
-{   my $self = shift;
+{   my $self    = shift;
     my $current = shift || 'me';
     my @search;
 
@@ -307,7 +297,7 @@ sub search_query
     my $linked        = delete $options{linked};
     my @search        = $self->_query_params(%options);
     my $root_table    = $options{root_table} || 'current';
-    my $current       = $options{alias} ? $options{alias} : $root_table eq 'current' ? 'me' : 'current';
+    my $current       = $options{alias} || ($root_table eq 'current' ? 'me' : 'current');
     my $record_single = $self->record_name(%options);
     unless ($self->include_approval)
     {
@@ -326,16 +316,21 @@ sub search_query
         push @search, +{ "$record_single.approval" => 0 }
             if $approval_exists;
     }
+
     # Current IDs from quick search if used
-    push @search, { "$current.id"          => $self->_search_all_fields->{cids} } if $self->search;
-    push @search, { "$current.id"          => $self->limit_current_ids } if $self->limit_current_ids; # $self->has_current_ids && $self->current_ids;
-    push @search, { "$current.instance_id" => $self->layout->instance_id };
-    push @search, $self->common_search($current);
-    push @search, $self->record_later_search(%options, linked => $linked);
-    push @search, {
-        "$record_single.created" => { '<' => $self->rewind_formatted },
-    } if $self->rewind;
-    [@search];
+    push @search, { "$current.id" => $self->_search_all_fields->{cids} } if $self->search;
+    push @search, { "$current.id" => $self->limit_current_ids }
+        if $self->limit_current_ids; # $self->has_current_ids && $self->current_ids;
+
+    push @search,
+        +{ "$current.instance_id" => $self->sheet->id },
+        $self->common_search($current),
+        $self->record_later_search(%options, linked => $linked);
+
+    push @search, { "$record_single.created" => { '<' => $self->rewind_formatted } }
+        if $self->rewind;
+
+    \@search;
 }
 
 has _plus_select => (
@@ -386,21 +381,13 @@ has sort_first => (
     builder => sub { $_[0]->_sorts->[0] },
 );
 
-# Default sort if not set
-has default_sort => (
-    is      => 'lazy',
-    builder => sub {
-        my $layout = $_[0]->layout;
-        +{ id   => $layout->sort_layout_id,
-           type => $layout->sort_type,
-         };
-    },
-}
-
 has results => (
     is        => 'lazy',
-    isa       => ArrayRef,
     predicate => 1,
+    builder   =>
+    {   my $self = shift;
+        $self->is_group ? $self->_build_group_results : $self->_build_standard_results;
+    },
 );
 
 sub _search_construct;
@@ -455,56 +442,55 @@ sub search_views
             trace qq(About to decode filter for view ID $view_id);
             my $decoded = $filter->as_hash;
             if (keys %$decoded)
-            {
-                my $search = {
-                    'me.instance_id'          => $self->layout->instance_id,
-                    $self->_search_construct($decoded, $self->layout, ignore_perms => 1, user => $user),
-                };
-                $search = { %$search, %$_ }
-                    for $self->record_later_search(linked => 1, search => 1);
-
-                my $i = 0; my @ids;
-                while ($i < @$current_ids)
-                {
-                    # See comment above about searching for all current_ids
-                    unless (@$current_ids == $self->count)
-                    {
-                        my $max = $i + 499;
-                        $max = @$current_ids-1 if $max >= @$current_ids;
-                        $search->{'me.id'} = [ @{$current_ids}[$i..$max] ];
-                    }
-                    push @ids, $::db->search(Current => $search,{
-                        join => [
-                            [$self->linked_hash(search => 1)],
-                            {
-                                'record_single' => [
-                                    $self->jpfetch(search => 1),
-                                    'record_later',
-                                ],
-                            },
-                        ],
-                    })->get_column('id')->all;
-
-                    last unless $search->{'me.id'};
-                    $i += 500;
-                }
-
-                foreach my $id (@ids)
-                {
-                    push @foundin, {
-                        view    => $view,
-                        id      => $id,
-                        user_id => $user && $user->id,
-                    };
-                }
-            }
-            else {
-                # No filter, definitely in view
+            {   # No filter, definitely in view
                 push @foundin, {
                     view    => $view,
                     user_id => $user && $user->id,
                     id      => $_,
-                } foreach @$current_ids;
+                } for @$current_ids;
+                next;
+            }
+
+            my %search = (
+                'me.instance_id' => $self->sheet->id,
+                $self->_search_construct($decoded, $self->layout, ignore_perms => 1, user => $user),
+                (map %$_, $self->record_later_search(linked => 1, search => 1)),
+            );
+
+            my $i = 0; my @ids;
+            while ($i < @$current_ids)
+            {
+                # See comment above about searching for all current_ids
+                unless (@$current_ids == $self->count)
+                {
+                    my $max = $i + 499;
+                    $max = @$current_ids-1 if $max >= @$current_ids;
+                    $search{'me.id'} = [ @{$current_ids}[$i..$max] ];
+                }
+
+                push @ids, $::db->search(Current => \%search,{
+                    join => [
+                        [$self->linked_hash(search => 1)],
+                        {
+                            'record_single' => [
+                                $self->jpfetch(search => 1),
+                                'record_later',
+                            ],
+                        },
+                    ],
+                })->get_column('id')->all;
+
+                last unless $search{'me.id'};
+                $i += 500;
+            }
+
+            foreach my $id (@ids)
+            {
+                push @foundin, {
+                    view    => $view,
+                    id      => $id,
+                    user_id => $user && $user->id,
+                };
             }
         }
     }
@@ -752,25 +738,15 @@ sub _cid_search_query
     # then we would be creating some very big queries with the sub-query, and
     # therefore performance (Pg at least) has been shown to be better if we run
     # the ID subquery first and only pass the IDs in to the main query
-    if ($self->is_group || $options{aggregate})
-    {
-        $search->{'me.id'} = { -in => $self->_current_ids_rs(%options)->as_query };
-    }
-    else {
-        $search->{'me.id'} = $self->current_ids;
-    }
+    $search->{'me.id'}
+      = $self->is_group || $options{aggregate}
+      ? +{ -in => $self->_current_ids_rs(%options)->as_query }
+      : $self->current_ids;
 
     my $record_single = $self->record_name(linked => 0);
     $search->{"$record_single.created"} = { '<' => $self->rewind_formatted }
         if $self->rewind;
     $search;
-}
-
-sub _build_results
-{   my $self = shift;
-    return $self->_build_group_results
-        if $self->is_group;
-    $self->_build_standard_results;
 }
 
 sub _build_standard_results
@@ -1373,7 +1349,8 @@ sub _sort_builder
 
     my @sorts;
 
-    my $column_id = $self->layout->column_id;
+    my $layout  = $self->layout;
+    my $row_id  = $layout->column_id->id;
 
     # First, special test where we are retrieving from a date for a number of
     # records until an unknown date. In this case, order by all the date
@@ -1386,9 +1363,9 @@ sub _sort_builder
         foreach my $s (@{$self->sort})
         {
             push @sorts, {
-                id   => $s->{id} || $column_id->id, # Default ID
+                id   => $s->{id} || $row_id,
                 type => $s->{type} || 'asc',
-            } if $self->layout->column($s->{id});
+            } if $layout->column($s->{id});
         }
     }
 
@@ -1396,27 +1373,25 @@ sub _sort_builder
         foreach my $sort (@{$self->view->sorts})
         {
             push @sorts, {
-                id        => $sort->{layout_id} || $column_id->id, # View column is undef for ID
+                id        => $sort->{layout_id} || $row_id, # View column is undef for ID
                 parent_id => $sort->{parent_id},
                 type      => $sort->{type} || 'asc',
             };
         }
     }
 
-    if (!@sorts && $self->default_sort)
-    {
-        push @sorts, {
-            id   => $self->default_sort->{id} || $column_id->id,
-            type => $self->default_sort->{type} || 'asc',
-        } if $self->layout->column($self->default_sort->{id});
+    if(!@sorts && (my $defaults = $self->sheet->sort_defaults))
+    {   push @sorts, +{
+            id   => $defaults->{id},
+            type => $defaults->{type} || 'asc',
+        } if $layout->column($defaults->{id});
     }
 
-    unless (@sorts) {
-        push @sorts, {
-            id   => $column_id->id,
-            type => 'asc',
-        }
+    @sorts or push @sorts, +{
+       id   => $row_id,
+       type => 'asc',
     };
+    
     \@sorts;
 }
 
@@ -1433,38 +1408,37 @@ sub order_by
     foreach my $s (@sorts)
     {
         if ($s->{type} eq 'random')
-        {
-            push @order_by, \$random_sort;
+        {   push @order_by, \$random_sort;
+            next;
         }
-        else
-        {   my $type   = "-$s->{type}";
-            my $column = $self->layout->column($s->{id}, permission => 'read')
-                or next;
-            my $column_parent = $self->layout->column($s->{parent_id});
-            my $cols_main = $column->sort_columns;
-            my $cols_link = $column->link_parent ? $column->link_parent->sort_columns : ();
-            foreach my $col_sort (@$cols_main)
-            {   my $parent = $column_parent || $column->sort_parent;
-                $self->add_join($parent, sort => 1) if $parent;
-                $self->add_join($col_sort, sort => 1, parent => $parent);
-                my $s_table = $self->table_name($col_sort, sort => 1, %options, parent => $parent);
-                my $sort_name;
-                if ($column->link_parent) # Original column, not the sub-column ($col_sort)
-                {
-                    my $col_link = shift @$cols_link;
-                    $self->add_join($col_link, sort => 1);
-                    my $main = "$s_table.".$column->sort_field;
-                    my $link = $self->table_name($col_link, sort => 1, linked => 1, %options).".".$col_link->sort_field;
-                    $sort_name = $::db->resultset('Current')->helper_concat(
-                         { -ident => $main },
-                         { -ident => $link },
-                    );
-                }
-                else
-                {   $sort_name = "$s_table.".$col_sort->sort_field;
-                }
-                push @order_by, +{ $type => $sort_name };
+
+        my $type   = "-$s->{type}";
+        my $column = $self->layout->column($s->{id}, permission => 'read')
+            or next;
+        my $column_parent = $self->layout->column($s->{parent_id});
+        my $cols_main = $column->sort_columns;
+        my $cols_link = $column->link_parent ? $column->link_parent->sort_columns : ();
+        foreach my $col_sort (@$cols_main)
+        {   my $parent = $column_parent || $column->sort_parent;
+            $self->add_join($parent, sort => 1) if $parent;
+            $self->add_join($col_sort, sort => 1, parent => $parent);
+            my $s_table = $self->table_name($col_sort, sort => 1, %options, parent => $parent);
+            my $sort_name;
+            if ($column->link_parent) # Original column, not the sub-column ($col_sort)
+            {
+                my $col_link = shift @$cols_link;
+                $self->add_join($col_link, sort => 1);
+                my $main = "$s_table.".$column->sort_field;
+                my $link = $self->table_name($col_link, sort => 1, linked => 1, %options).".".$col_link->sort_field;
+                $sort_name = $::db->resultset('Current')->helper_concat(
+                     { -ident => $main },
+                     { -ident => $link },
+                );
             }
+            else
+            {   $sort_name = "$s_table.".$col_sort->sort_field;
+            }
+            push @order_by, +{ $type => $sort_name };
         }
     }
 
@@ -1490,15 +1464,15 @@ sub order_by
                         WHEN ($quoted_to > '$date') THEN $quoted_to
                         ELSE NULL END";
                 }
-                else { # to
-                    \"CASE
+                else  # to
+                {   \"CASE
                         WHEN ($quoted_to < '$date') THEN $quoted_to
                         WHEN ($quoted < '$date') THEN $quoted
                         ELSE NULL END";
                 }
             }
-            else {
-                if ($self->limit_qty eq 'from')
+            else
+            {   if ($self->limit_qty eq 'from')
                 {
                     \"CASE
                         WHEN ($quoted > '$date') THEN $quoted
@@ -1533,20 +1507,20 @@ sub order_by
 sub _search_construct
 {   my ($self, $filter, $layout, %options) = @_;
 
-    my $ignore_perms = $options{ignore_perms} || $self->layout->user_permission_override_search;
+    my $ignore_perms = $options{ignore_perms};
     if (my $rules = $filter->{rules})
     {
         # Previous values for a group. This allows previous values to be
         # searched only for a whole group (e.g. to include previous values only
         # between certain edit dates). Construct the whole group as a
         # GADS::Records and return that as a query
-        if ($filter->{previous_values})
+        if($filter->{previous_values})
         {
-            my $encoded = GADS::Filter->new(
-                as_hash => {%$filter, previous_values => 0}
+            my $encoded = Linkspace::Filter->from_hash(
+                +{ %$filter, previous_values => 0 },
             );
 
-            my $view = $sheet->views->view_create(
+            my $view = $sheet->views->view_temporary(
                 filter      => $encoded,
             );
 
@@ -1559,16 +1533,16 @@ sub _search_construct
             my $match = $filter->{previous_values} eq 'negative' ? '-not_in' : '-in';
             return +{ 'me.id' => { $match => $page->_current_ids_rs->as_query } };
         }
+
         # Filter has other nested filters
-        my @final;
-        foreach my $rule (@$rules)
-        {
-            my @res = $self->_search_construct($rule, $layout, %options);
-            push @final, @res if @res;
-        }
-        my $condition = $filter->{condition} && $filter->{condition} eq 'OR' ? '-or' : '-and';
-        return @final ? ($condition => \@final) : ();
+        my @final = map $self->_search_construct($rule, $layout, %options), @$rules;
+        @final or return ();
+
+        my $op    = ($filter->{condition} // 'AND') eq 'OR' ? '-or' : '-and';
+        return ($op => \@final);
     }
+
+    my $fid = $filter->{id} or return; # Used to ignore filter
 
     my %ops = (
         equal            => '=',
@@ -1585,16 +1559,14 @@ sub _search_construct
         is_not_empty     => '!=',
     );
 
-    my %permission = $ignore_perms ? () : (permission => 'read');
     my ($parent_column, $column);
-    $filter->{id} or return; # Used to ignore filter
-    if ($filter->{id} =~ /^([0-9]+)_([0-9]+)$/)
-    {
-        $column        = $layout->column($2, %permission);
-        $parent_column = $layout->column($1, %permission);
+    my %permission = $ignore_perms ? () : (permission => 'read');
+    if(my ($parent, $child) = $fid =~ /^([0-9]+)_([0-9]+)$/)
+    {   $column        = $layout->column($child, %permission);
+        $parent_column = $layout->column($parent, %permission);
     }
     else
-    {   $column   = $layout->column($filter->{id}, %permission);
+    {   $column        = $layout->column($fid, %permission);
     }
 
     $column
@@ -1614,25 +1586,23 @@ sub _search_construct
     # not_equal value of "Foo" will match the new record and therefore return
     # the result, even though the old value should have caused it to not be
     # included
-    my $reverse         = $previous_values && $filter->{operator} =~ /^not/;
+    my $filter_operator = $filter->{operator};
+    my $reverse         = $previous_values && $filter_operator =~ /^not/;
 
     # If testing a comparison but we have no value, then assume search empty/not empty
     # (used during filters on curval against current record values)
-    my $filter_operator = $filter->{operator}; # Copy so as not to affect original hash ref
     $filter_operator = $filter_operator eq 'not_equal' ? 'is_not_empty' : 'is_empty'
-    if $filter_operator !~ /(?:is_empty|is_not_empty)/
-        && (
-            !defined $filter->{value}
+        if $filter_operator !~ /(?:is_empty|is_not_empty)/
+        && (   !defined $filter->{value}
             || $filter->{value} eq ''
             || (ref $filter->{value} && "@{$filter->{value}}" eq '')
-        ); # Not zeros (valid search)
+           ); # Not zeros (valid search)
 
-    $filter_operator = 'equal'
-        if $reverse && $filter_operator eq 'not_equal';
-    $filter_operator = 'begins_with'
-        if $reverse && $filter_operator eq 'not_begins_with';
-    $filter_operator = 'contains'
-        if $reverse && $filter_operator eq 'not_contains';
+    if($reverse)
+    {   $filter_operator = 'equal'       if $filter_operator eq 'not_equal';
+        $filter_operator = 'begins_with' if $filter_operator eq 'not_begins_with';
+        $filter_operator = 'contains'    if $filter_operator eq 'not_contains';
+    }
 
     my $operator = $ops{$filter_operator}
         or error __x"Invalid operator {filter}", filter => $filter_operator;
@@ -1700,7 +1670,7 @@ sub _search_construct
         };
     }
 
-    my $vprefix = ''; my $vsuffix = '';
+    my ($vprefix, $vsuffix) = ('', '');
     if ($operator eq '-like' || $operator eq '-not_like') # Do not apply to "contains" for daterange
     {
         $vprefix = '%'
@@ -1714,47 +1684,47 @@ sub _search_construct
     {
         push @values, $column->string_storage ? (undef, "") : undef;
     }
-    else {
-        my @original_values = ref $filter->{value} ? @{$filter->{value}} : ($filter->{value});
+    else
+    {   my @original_values = ref $filter->{value} ? @{$filter->{value}} : $filter->{value};
 
         foreach (@original_values)
         {
-            $_ = $vprefix.$_.$vsuffix;
+            my $match = "$vprefix$_$vsuffix";
 
             # This shouldn't normally happen, but sometimes we can end up with an
             # invalid search value, such as if the date format has changed and the
             # filters still have the old format. In this case, match nothing rather
             # than matching all or borking.
-            return ( \"0 = 1" ) if !$column->validate_search($_);
+            return ( \"0 = 1" ) if !$column->validate_search($match);
 
             # Sub-in current date as required. Ideally we would use the same
             # code here as the calc/rag fields, but this can be accessed by
             # any user, so should be a lot tighter.
-            if ($_ && $_ =~ /CURDATE/)
-            {   my $vdt = GADS::Filter->parse_date_filter($_);
-                $_ = $::db->format_date($vdt);
+            if($match && $match =~ /CURDATE/)
+            {   my $vdt = GADS::Filter->parse_date_filter($match);
+                $match = $::db->format_date($vdt);
             }
-            elsif ($transform_date || ($column->return_type eq 'date' && $_))
-            {   $_ = $self->_date_for_db($column, $_);
+            elsif($transform_date || ($column->return_type eq 'date' && $match))
+            {   $match = $self->_date_for_db($column, $match);
             }
 
-            $_ =~ s/\_/\\\_/g if $operator eq '-like';
+            $match =~ s/\_/\\\_/g if $operator eq '-like';
 
-            if( $_ =~ /\[CURUSER\]/)
+            if($match =~ /\[CURUSER\]/)
             {   my $user = $options{user} || $self->user;
                 if ($column->type eq 'person')
                 {   my $curuser = $user->id || ''
                         or warning "FIXME: user not set for person filter";
-                    $_ =~ s/\[CURUSER\]/$curuser/g;
-                    $conditions[0]->{s_field} = "id";
+                    $match =~ s/\[CURUSER\]/$curuser/g;
+                    $conditions[0]->{s_field} = 'id';
                 }
                 elsif ($column->return_type eq 'string')
                 {   my $curuser = $user->value || ''
                         or warning "FIXME: user not set for string filter";
-                    $_ =~ s/\[CURUSER\]/$curuser/g;
+                    $match =~ s/\[CURUSER\]/$curuser/g;
                 }
             }
-            push @values, $_;
+            push @values, $match;
         }
     }
 
@@ -1774,15 +1744,13 @@ sub _search_construct
         };
     }
 
-    my @final = map {
-        $self->_resolve($column, $_, \@values, 0,
-            parent          => $parent_column,
-            filter          => $filter,
-            previous_values => $previous_values,
-            reverse         => $reverse,
-            %options
-        );
-    } @conditions;
+    my @final = map $self->_resolve($column, $_, \@values, 0,
+        parent          => $parent_column,
+        filter          => $filter,
+        previous_values => $previous_values,
+        reverse         => $reverse,
+        %options,
+    ), @conditions;
 
     my $parent_column_link = $parent_column && $parent_column->link_parent;
     $parent_column_link || $column->link_parent
@@ -1790,15 +1758,13 @@ sub _search_construct
 
     my $link_parent = $parent_column ? $column : $column->link_parent;
 
-    my @final2 = map {
-        $self->_resolve($link_parent, $_, \@values, 1,
-            parent          => $parent_column_link,
-            filter          => $filter,
-            previous_values => $previous_values,
-            reverse         => $reverse,
-            %options
-        );
-    } @conditions;
+    my @final2 = map $self->_resolve($link_parent, $_, \@values, 1,
+        parent          => $parent_column_link,
+        filter          => $filter,
+        previous_values => $previous_values,
+        reverse         => $reverse,
+        %options,
+    ), @conditions;
 
     [ -or => ["-$gate" => \@final], [ "-$gate" => \@final2] ];
 }
@@ -1806,14 +1772,15 @@ sub _search_construct
 sub _resolve
 {   my ($self, $column, $condition, $default_value, $is_linked, %options) = @_;
 
-    my $value = $condition->{values} || $default_value;
+    my $value  = $condition->{values} || $default_value;
+    my $parent = $options{parent};
 
     # If the column is a multivalue, then normally a not_equal would match
     # even if we're not expecting it to (if the record's value contains
     # "foo" and "bar", then a search for "not foo" would still return the
     # "bar" and hence the whole record including "foo".  We therefore have
     # to instead negate the record IDs containing that negative match.
-    my $multivalue = $options{parent} ? $options{parent}->multivalue : $column->multivalue;
+    my $multivalue      = $parent ? $parent->multivalue : $column->multivalue;
     my $reverse         = $options{reverse};
     my $previous_values = $options{previous_values};
     if ($multivalue && $condition->{type} eq 'not_equal' && !$previous_values)
@@ -1821,19 +1788,15 @@ sub _resolve
         # Create a non-negative match of all the IDs that we don't want to
         # match. Use a Records object so that all the normal requirements are
         # dealt with, and pass it the current filter reversed
+        my %filter  = %{$options{filter}};
+        $filter{operator} = 'equal';  # Switch
+
         my $records = GADS::Records->new(
-            schema       => $self->schema,
-            user         => $self->user,
             layout       => $self->layout,
             _view_limits => [], # Don't limit by view this as well, otherwise recursive loop happens
-            view  => GADS::View->new(
-                filter      => { %{$options{filter}}, operator => 'equal' }, # Switch
-                instance_id => $self->layout->instance_id,
-                layout      => $self->layout,
-                schema      => $self->schema,
-                user        => $self->user,
-            ),
+            view          => $sheet->views->view_temporary(filter => \%filter),
         );
+
         return (
             'me.id' => {
                 # We want everything that is *not* those records
@@ -1845,48 +1808,37 @@ sub _resolve
     {
         my %filter = %{$options{filter}};
         delete $filter{previous_values};
-        %filter = ( %filter, operator => $filter{operator} =~ s/^not_//r )
-            if $reverse; # Switch
+        $filter{operator} =~ s/^not_// if $reverse; # Switch
+
         my $records = GADS::Records->new(
-            schema       => $self->schema,
-            user         => $self->user,
             layout       => $self->layout,
             _view_limits => [], # Don't limit by view this as well, otherwise recursive loop happens
             previous_values => 1,
-            view  => GADS::View->new(
-                filter      => \%filter,
-                instance_id => $self->layout->instance_id,
-                layout      => $self->layout,
-                schema      => $self->schema,
-                user        => $self->user,
-            ),
+            view  => $sheet->views->view_temporary(filter => \%filter),
         );
 
-        if ($reverse)
-        {
-            return (
-                'me.id' => {
-                    -not_in => $records->_current_ids_rs->as_query,
-                }
-            );
-        }
-        else {
-            return (
-                'me.id' => {
-                    -in => $records->_current_ids_rs->as_query,
-                }
-            );
-        }
+        return (
+            'me.id' => {
+                ($reverse ? '-not_in' : '-in') => $records->_current_ids_rs->as_query,
+            }
+        );
     }
-    else {
-        my $combiner = $condition->{type} =~ /(is_not_empty|not_equal|not_begins_with)/ ? '-and' : '-or';
+    else
+    {   my $combiner = $condition->{type} =~ /^(?:is_not_empty|not_equal|not_begins_with)$/ ? '-and' : '-or';
         $value    = @$value > 1 ? [ $combiner => @$value ] : $value->[0];
-        my $sq = {$condition->{operator} => $value};
-        $sq = [ $sq, undef ] if $condition->{type} eq 'not_equal'
-            || $condition->{type} eq 'not_begins_with' || $condition->{type} eq 'not_contains';
-        $self->add_join($options{parent}, search => 1, linked => $is_linked, all_fields => $self->curcommon_all_fields)
-            if $options{parent};
-        $self->add_join($column, search => 1, linked => $is_linked, parent => $options{parent}, all_fields => $self->curcommon_all_fields);
+        my $sq = { $condition->{operator} => $value };
+        $sq = [ $sq, undef ]
+            if $condition->{type} eq 'not_equal'
+            || $condition->{type} eq 'not_begins_with'
+            || $condition->{type} eq 'not_contains';
+
+        my $fields = $self->curcommon_all_fields;
+        $self->add_join($parent, search => 1, linked => $is_linked, all_fields => $fields)
+            if $parent;
+
+        $self->add_join($column, search => 1, linked => $is_linked, parent => $parent,
+            all_fields => $fields);
+
         my $s_table = $self->table_name($column, %options, search => 1);
         +( "$s_table.$condition->{s_field}" => $sq );
     }
@@ -1899,9 +1851,8 @@ sub _date_for_db
 
 has _csv => (
     is => 'lazy',
+    builder => sub { Text::CSV::Encoded->new({ encoding  => undef } ) },
 );
-
-sub _build__csv { Text::CSV::Encoded->new({ encoding  => undef }) }
 
 sub csv_header
 {   my $self = shift;
@@ -2208,13 +2159,8 @@ sub _compare_col
 }
 
 has columns_aggregate => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
-
-sub _build_columns_aggregate
-{   my $self = shift;
-    [ grep { $_->aggregate } @{$self->columns_retrieved_no} ];
+    is      => 'lazy',
+    builder => sub { [ grep $_->aggregate, @{$_[0]->columns_retrieved_no} ] },
 }
 
 has aggregate_results => (
@@ -2224,26 +2170,26 @@ has aggregate_results => (
 sub _build_aggregate_results
 {   my $self = shift;
 
-    return undef if ! @{$self->columns_aggregate};
+    my $aggregate = $self->columns_aggregate;
+	@$aggregate or return;
 
-    my @columns = map {
-        +{
-            id       => $_->id,
-            column   => $_,
-            operator => $_->aggregate,
-        }
-    } @{$self->columns_aggregate};
+    my @columns = map +{
+        id       => $_->id,
+        column   => $_,
+        operator => $_->aggregate,
+    } @$aggregate;
 
     my $results = $self->_build_group_results(columns => \@columns, is_group => 1, aggregate => 1);
 
     panic "Unexpected number of aggregate results"
-        if @{$results} > 1;
+        if @$results > 1;
 
-    return $results->[0];
+    $results->[0];
 }
 
 sub _build_group_results
 {   my ($self, %options) = @_;
+    my $aggregate = $options{aggregate};
 
     # Build the full query first, to ensure that all join numbers etc are
     # calculated correctly
@@ -2256,30 +2202,27 @@ sub _build_group_results
 
     my $is_table_group = !$self->isa('GADS::RecordsGraph') && !$self->isa('GADS::RecordsGlobe');
 
-    if ($options{columns})
-    {
-        @cols = @{$options{columns}};
+    if(my $cols = $options{columns})
+    {   @cols = @$cols;
     }
     elsif ($view && $view->is_group && $is_table_group)
     {
         my %view_group_cols = map { $_->layout_id => 1 } @{$view->groups};
-        @cols = map {
-            +{
-                id       => $_->id,
-                column   => $_,
-                operator => $_->numeric ? 'sum' : $view_group_cols{$_->id} ? 'max' : 'distinct',
-                group    => $view_group_cols{$_->id},
-            }
-        } @{$self->columns_view};
+        @cols = map +{
+            id       => $_->id,
+            column   => $_,
+            operator => $_->numeric ? 'sum' : $view_group_cols{$_->id} ? 'max' : 'distinct',
+            group    => $view_group_cols{$_->id},
+        }, @{$self->columns_view};
     }
-    else {
-        @cols = @{$self->columns};
+    else
+    {   @cols = @{$self->columns};
     }
 
     my @parents;
     my %group_cols;
     %group_cols = map { $_->layout_id => 1 } @{$view->groups}
-        if $is_table_group && $view && !$options{aggregate};
+        if $is_table_group && $view && !$aggregate;
 
     foreach my $col (@cols)
     {
@@ -2328,23 +2271,20 @@ sub _build_group_results
     unshift @cols, @parents;
     my @newcols;
     foreach my $col (@cols)
-    {
-        my ($existing) = grep { $self->_compare_col($col, $_) } @newcols;
-        if ($existing)
-        {
-            $existing->{group} ||= $col->{group};
+    {   if(my $existing = first { $self->_compare_col($col, $_) } @newcols) 
+        {   $existing->{group} ||= $col->{group};
         }
-        else {
-            push @newcols, $col;
+        else
+        {   push @newcols, $col;
         }
     }
     @cols = @newcols;
 
     # Add all columns first so that join numbers are correct
     foreach my $col (@cols)
-    {
-        my $column = $col->{column};
+    {   my $column = $col->{column};
         next if $column->internal;
+
         my $parent = $col->{parent};
         # If the column is a curcommon, then we need to make sure that it is
         # included even if it is a multivalue (when it would normally be
@@ -2354,16 +2294,15 @@ sub _build_group_results
         if ($self->dr_column && $self->dr_column == $column->id)
         {
             if ($self->dr_column_parent)
-            {
-                $self->add_drcol($self->dr_column_parent);
+            {   $self->add_drcol($self->dr_column_parent);
                 $self->add_drcol($column, parent => $self->dr_column_parent);
             }
-            else {
-                $self->add_drcol($column);
+            else
+            {   $self->add_drcol($column);
             }
         }
-        else {
-            $self->add_prefetch($column, group => $col->{group}, parent => $parent);
+        else
+        {   $self->add_prefetch($column, group => $col->{group}, parent => $parent);
             $self->add_prefetch($column->link_parent, linked => 1, group => $col->{group}, parent => $parent)
                 if $column->link_parent;
         }
@@ -2373,8 +2312,7 @@ sub _build_group_results
     my $drcol    = !!$self->dr_column;
 
     foreach my $col (@cols)
-    {
-        my $op = $col->{operator};
+    {   my $op     = $col->{operator};
         my $column = $col->{column};
         my $parent = $col->{parent};
 
@@ -2399,7 +2337,7 @@ sub _build_group_results
             # XXX add search query?
             if ($parent)
             {
-                my $f_rs = $self->schema->resultset('Curval')->search({
+                my $f_rs = $::db->search(Curval => {
                     'mecurval.record_id' => {
                         -ident => 'record_single.id'  # Match against main query's records
                     },
@@ -2417,6 +2355,7 @@ sub _build_group_results
                         },
                     },
                 });
+
                 if ($column->numeric && $op eq 'sum')
                 {
                     $select = $f_rs->get_column((ref $column->tjoin eq 'HASH' ? 'value_2' :  $column->field).".".$column->value_field)->sum_rs->as_query;
@@ -2425,8 +2364,8 @@ sub _build_group_results
                 {
                     $select = $f_rs->get_column((ref $column->tjoin eq 'HASH' ? 'value_2' :  $column->field).".".$column->value_field)->max_rs->as_query;
                 }
-                else {
-                    # At the moment we do not expect a distinct count to be
+                else
+                {   # At the moment we do not expect a distinct count to be
                     # necessary for a field from within a curval. We might want
                     # to add this functionality in the future, in which case it
                     # will look something like the next else block
@@ -2459,14 +2398,15 @@ sub _build_group_results
                         },
                     };
                 }
-                $select = $self->schema->resultset('Current')->search(
-                    [-and => $searchq ],
+
+                $select = $::db->search(Current =>
+                    [ -and => $searchq ],
                     {
                         alias => 'mefield',
                         join  => [
                             [$self->linked_hash(search => 1, group => $include_group, alt => 1, extra_column => $column)],
                             {
-                                'record_single_alternative' => [ # The (assumed) single record for the required version of current
+                                record_single_alternative => [ # The (assumed) single record for the required version of current
                                     'record_later_alternative',  # The record after the single record (undef when single is latest)
                                     $self->jpfetch(search => 1, linked => 0, group => $include_group, extra_column => $column, alt => 1),
                                 ],
@@ -2478,40 +2418,32 @@ sub _build_group_results
                         },
                     },
                 );
+
                 my $col_fq = $self->fqvalue($column, as_index => $as_index, search => 1, linked => 0, group => 1, alt => 1, extra_column => $column, drcol => $drcol);
-                if ($column->numeric && $op eq 'sum')
-                {
-                    $select = $select->get_column($col_fq)->sum_rs->as_query;
+                if($column->numeric && $op eq 'sum')
+                {   $select = $select->get_column($col_fq)->sum_rs->as_query;
                     $op = 'max';
                 }
-                elsif ($self->isa('GADS::RecordsGraph') || $self->isa('GADS::RecordsGlobe'))
-                {
-                    $select = $select->get_column($col_fq)->max_rs->as_query;
+                elsif($self->isa('GADS::RecordsGraph') || $self->isa('GADS::RecordsGlobe'))
+                {   $select = $select->get_column($col_fq)->max_rs->as_query;
                 }
-                else {
-                    $select = $select->get_column('sub_query_as')->as_query;
+                else
+                {   $select = $select->get_column('sub_query_as')->as_query;
                     $op = 'max';
                 }
             }
         }
-        # Standard single-value field - select directly, no need for a subquery
-        else {
+        else
+        {   # Standard single-value field - select directly, no need for a subquery
             $select = $self->fqvalue($column, as_index => $as_index, prefetch => 1, group => 1, search => 0, linked => 0, parent => $parent, retain_join_order => 1, drcol => $drcol);
         }
 
-        if ($op eq 'distinct')
-        {
-            $select = {
-                count => { distinct => $select },
-                -as   => $as,
-            };
+        if($op eq 'distinct')
+        {   $select = { count => { distinct => $select }, -as   => $as };
             push @select_fields, $select;
         }
-        else {
-            push @select_fields, {
-                $op => $select,
-                -as => $as,
-            };
+        else
+        {   push @select_fields, { $op => $select, -as => $as };
         }
 
         # Also add linked column if required
@@ -2541,25 +2473,25 @@ sub _build_group_results
             { min => "$field.from", -as => 'start_date'},
             { max => "$field.to", -as => 'end_date'},
         ];
+
         my $search = $self->search_query(search => 1, prefetch => 1, linked => 0);
-        # Include linked field if applicable
-        if ($field_link)
-        {
+        if($field_link)
+        {   # Include linked field
             push @$select, (
                 { min => "$field_link.from", -as => 'start_date_link'},
-                { max => "$field_link.to", -as => 'end_date_link'},
+                { max => "$field_link.to",   -as => 'end_date_link'},
             );
         }
 
         local $GADS::Schema::Result::Record::REWIND = $self->rewind_formatted
             if $self->rewind;
-        my ($result) = $self->schema->resultset('Current')->search(
-            [-and => $search], {
-                select => $select,
+
+        my ($result) = $self->search(Current =>
+            [ -and => $search ],
+            {   select => $select,
                 join   => [
                     $self->linked_hash(search => 1, prefetch => 1),
-                    {
-                        'record_single' => [
+                    {   record_single => [
                             'record_later',
                             $self->jpfetch(search => 1, prefetch => 1, linked => 0),
                         ],
@@ -2573,11 +2505,11 @@ sub _build_group_results
             $result->get_column('start_date'),
             ($field_link ? $result->get_column('start_date_link') : undef)
         );
+
         my $daterange_to = $self->to ? $self->to->clone : $self->_max_date(
             $result->get_column('end_date'),
             ($field_link ? $result->get_column('end_date_link') : undef)
         );
-
 
         if ($daterange_from && $daterange_to)
         {
@@ -2592,42 +2524,39 @@ sub _build_group_results
             my $to_field        = $self->quote("$field.to");
             my $from_field_link = $field_link && $self->quote($field_link.".from");
             my $to_field_link   = $field_link && $self->quote($field_link.".to");
-            my ($dr_y_axis)     = grep { $_->{id} == $self->dr_y_axis_id } @cols;
+            my $dr_y_axis       = first { $_->{id} == $self->dr_y_axis_id } @cols;
             my $col_val         = $self->fqvalue($dr_y_axis->{column}, search => 1, prefetch => 1);
 
-            my $case = $field_link
-                ? "CASE WHEN "
-                  . "($from_field < %s OR $from_field_link < %s) "
-                  . "AND ($to_field >= %s OR $to_field_link >= %s) "
-                  . "THEN %s ELSE 0 END"
-                : "CASE WHEN $from_field"
-                  . " < %s AND $to_field"
-                  . " >= %s THEN %s ELSE 0 END";
+            my $case = $field_link ? <<__CASE_LINK : <<__CASE_NO_LINK;
+CASE WHEN ($from_field < %s OR $from_field_link < %s)
+      AND ($to_field  >= %s OR $to_field_link >= %s)
+THEN %s ELSE 0 END
+__CASE_LINK
+CASE WHEN $from_field < %s AND $to_field >= %s THEN %s ELSE 0 END
+__CASE_NO_LINK
 
             my $pointer = $daterange_from->clone;
+            my $dbh = $::db->schema->storage->dbh;
             while ($pointer->epoch <= $daterange_to->epoch)
             {
                 # Add the required timespan to the CASE statement
-                my $from  = $self->schema->storage->dbh->quote(
-                    $::dt->format_date($pointer->clone->add($increment => 1))
-                );
-                my $to    = $self->schema->storage->dbh->quote(
-                    $::dt->format_date($pointer)
-                );
+                my $next_date = $pointer->clone->add($increment => 1);
+                my $from  = $dbh->quote($::dt->format_date($next_date));
+                my $to    = $dbh->quote($::dt->format_date($pointer));
+
                 my $sum   = $dr_y_axis->{operator} eq 'count' ? 1 : $col_val;
                 my $casef = $field_link
                           ? sprintf($case, $from, $from, $to, $to, $sum)
                           : sprintf($case, $from, $to, $sum);
+
                 # Finally add it to the select, naming it after the epoch of
                 # the time-period start
-                push @select_fields, {
-                    sum => \$casef,
-                    -as => $pointer->epoch,
-                };
+                push @select_fields, { sum => \$casef, -as => $pointer->epoch };
+
                 # Also add link parent field as well if required
-                if ($dr_y_axis->{column}->link_parent)
+                if(my $lp = $dr_y_axis->{column}->link_parent)
                 {
-                    my $col_val_link = $self->fqvalue($dr_y_axis->{column}->link_parent, linked => 1, search => 1, prefetch => 1);
+                    my $col_val_link = $self->fqvalue($lp, linked => 1, search => 1, prefetch => 1);
                     my $sum   = $dr_y_axis->{operator} eq 'count' ? 1 : $col_val_link;
                     my $casef = $field_link
                               ? sprintf($case, $from, $from, $to, $to, $sum)
@@ -2644,48 +2573,44 @@ sub _build_group_results
 
     my @g;
     # Add on the actual columns to group by in the SQL statement
-    foreach (grep { $_->{group} } @cols)
-    {
-        my $col = $self->layout->column($_->{id});
+    foreach my $group (grep $_->{group}, @cols)
+    {   my $current_rs = $::db->resultset('Current');
+        my $col = $self->layout->column($group->{id});
+
         # Whether we need to pluck a particular date value, used to group the
         # x-axis to days, months etc.
-        if (my $pluck = $_->{pluck}) {
+        if(my $pluck = $group->{pluck}) {
+            my $indent = $self->fqvalue($col, search => 1, prefetch => 1);
+            push @g, $current_rs->dt_SQL_pluck({ -ident => $indent }, 'year');
 
-            push @g, $self->schema->resultset('Current')->dt_SQL_pluck(
-                { -ident => $self->fqvalue($col, search => 1, prefetch => 1) }, 'year'
+            push @g, $current_rs->dt_SQL_pluck({ -ident => $indent }, 'month')
+                if $pluck eq 'month' || $pluck eq 'day';
+
+            push @g, $current_rs->dt_SQL_pluck({ -ident => $indent }, 'day_of_month')
+                if $pluck eq 'day';
+
+        }
+        elsif(my $lp = $col->link_parent)
+        {
+            $self->add_group($col);
+            my $main = $self->fqvalue($col, group => 1, search => 0, prefetch => 1, retain_join_order => 1);
+            $self->add_group($lp, linked => 1);
+            my $link = $self->fqvalue($lp, group => 1, search => 0, prefetch => 1, linked => 1, retain_join_order => 1);
+            push @g, $current_rs->helper_concat(
+                +{ -ident => $main },
+                +{ -ident => $link },
             );
-
-            push @g, $self->schema->resultset('Current')->dt_SQL_pluck(
-                { -ident => $self->fqvalue($col, search => 1, prefetch => 1) }, 'month'
-            ) if $pluck eq 'month' || $pluck eq 'day';
-
-            push @g, $self->schema->resultset('Current')->dt_SQL_pluck(
-                { -ident => $self->fqvalue($col, search => 1, prefetch => 1) }, 'day_of_month'
-            ) if $pluck eq 'day';
-
-        } else {
-            if ($col->link_parent)
-            {
-                $self->add_group($col);
-                my $main = $self->fqvalue($col, group => 1, search => 0, prefetch => 1, retain_join_order => 1);
-                $self->add_group($col->link_parent, linked => 1);
-                my $link = $self->fqvalue($col->link_parent, group => 1, search => 0, prefetch => 1, linked => 1, retain_join_order => 1);
-                push @g, $self->schema->resultset('Current')->helper_concat(
-                     { -ident => $main },
-                     { -ident => $link },
-                );
+        }
+        else
+        {   if(my $parent = $group->{parent})
+            {   $self->add_group($parent);
+                $self->add_group($col, parent => $parent);
             }
-            else {
-                if ($_->{parent})
-                {
-                    $self->add_group($_->{parent});
-                    $self->add_group($col, parent => $_->{parent});
-                }
-                else {
-                    $self->add_group($col);
-                }
-                push @g, $self->fqvalue($col, group => 1, search => 0, prefetch => 1, retain_join_order => 1, parent => $_->{parent});
+            else
+            {   $self->add_group($col);
             }
+            push @g, $self->fqvalue($col, group => 1, search => 0, prefetch => 1,
+                retain_join_order => 1, parent => $parent);
         }
     };
 
@@ -2699,11 +2624,11 @@ sub _build_group_results
     my $select = {
         select => \@select_fields,
         join   => [
-            $self->linked_hash(group => 1, prefetch => 1, search => 0, retain_join_order => 1, sort => 0, aggregate => $options{aggregate}, drcol => $drcol),
+            $self->linked_hash(group => 1, prefetch => 1, search => 0, retain_join_order => 1, sort => 0, aggregate => $aggregate, drcol => $drcol),
             {
                 record_single => [
                     'record_later',
-                    $self->jpfetch(group => 1, prefetch => 1, search => 0, linked => 0, retain_join_order => 1, sort => 0, aggregate => $options{aggregate}, drcol => $drcol),
+                    $self->jpfetch(group => 1, prefetch => 1, search => 0, linked => 0, retain_join_order => 1, sort => 0, aggregate => $aggregate, drcol => $drcol),
                 ],
             },
         ],
@@ -2713,8 +2638,8 @@ sub _build_group_results
     local $GADS::Schema::Result::Record::REWIND = $self->rewind_formatted
         if $self->rewind;
 
-    my $result = $self->schema->resultset('Current')->search(
-        $self->_cid_search_query(sort => 0, aggregate => $options{aggregate}), $select
+    my $result = $::db->search(Current =>
+        $self->_cid_search_query(sort => 0, aggregate => $aggregate), $select
     );
 
     return [ $result->all ]

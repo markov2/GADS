@@ -593,10 +593,10 @@ before import_hash => sub {
 
 sub export_hash
 {   my $self = shift;
-    my $hash = $self->SUPER::export_hash;
-    $hash->{end_node_only} = $self->end_node_only;
-    $hash->{tree}          = $self->json; # Not actually JSON
-    $hash;
+    $self->SUPER::export_hash(@_,
+        end_node_only => $self->end_node_only,
+        tree          => $self->json, # Not actually JSON
+    );
 };
 
 sub import_value

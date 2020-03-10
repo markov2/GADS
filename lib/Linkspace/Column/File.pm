@@ -48,6 +48,7 @@ sub remove($)
 
 sub sprefix { 'value' }
 sub tjoin   { +{ $_[0]->field => 'value' } }
+sub string_storage { 1 }
 
 # Convert based on whether ID or name provided
 sub value_field_as_index
@@ -63,12 +64,9 @@ has filesize => (
 after build_values => sub {
     my ($self, $original) = @_;
 
-    $self->string_storage(1);
     $self->value_field('name');
-    my ($file_option) = $original->{file_options}->[0];
-    if ($file_option)
-    {
-        $self->filesize($file_option->{filesize});
+    if(my $file_option = $original->{file_options}->[0])
+    {   $self->filesize($file_option->{filesize});
     }
 };
 
@@ -118,19 +116,18 @@ sub resultset_for_values
 before import_hash => sub {
     my ($self, $values, %options) = @_;
     my $report = $options{report_only} && $self->id;
-    notice __x"Update: filesize from {old} to {new}", old => $self->filesize, new => $values->{filesize}
-        if $report && (
-            (defined $self->filesize xor defined $values->{filesize})
-            || (defined $self->filesize && defined $values->{filesize} && $self->filesize != $values->{filesize})
-        );
-    $self->filesize($values->{filesize});
+    my $old_size = $self->filesize;
+    my $new_size = $value->{filesize};
+
+    notice __x"Update: filesize from {old} to {new}", old => $old_size, new => $new_size
+        if $report && ($old_size // -1) != ($new_size // -1);
+
+    $self->filesize($new_size);
 };
 
 sub export_hash
 {   my $self = shift;
-    my $hash = $self->SUPER::export_hash;
-    $hash->{filesize} = $self->filesize;
-    $hash;
+    $self->SUPER::export_hash(@_, filesize => $self->filesize);
 }
 
 1;

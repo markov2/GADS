@@ -46,11 +46,12 @@ has data => (    # private
 );
 
 has layout => (  # private
-    id      => 'ro',
+    id       => 'ro',
     required => 1,
+    weakref  => 1,
 );
 
-sub _decode_json_utf8($) { decode_json(encode "utf8", $_[0]) }
+sub _decode_json_utf8($) { decode_json(encode utf8 => $_[0]) }
 
 =head2 my $filter = $class->from_json($json, %options);
 =cut
@@ -228,6 +229,29 @@ sub remove_column($)
 {   my ($self, $column) = @_;
     $column or return $self;
     (ref $self)->from_hash(_remove_column_id $self, $column_id);
+}
+
+=head2 my $new_filter = $filter->renumber_columns(\%mapping);
+When a filter gets imported, it contains column numbers from the original
+set-up.  Renumber them to numbers used in the new set-up.
+=cut
+
+sub renumber_columns($)
+{   my ($self, $columns_ext2int) = @_;
+
+    #XXX not cloning yet
+    my $clone = $self->filter;
+
+    # Update any field IDs contained within a filter
+    #XXX need to recurse deeply into the JSON structure.
+    foreach my $f (@{$clone->filters})
+    {
+        $f->{id}    = $columns_ext2int->{$f->{id}}    or panic "Missing ID";
+        $f->{field} = $columns_ext2int->{$f->{field}} or panic "Missing field";
+        delete $f->{column_id}; # may be present by accident
+    }
+
+    $clone;
 }
 
 1;

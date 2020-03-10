@@ -62,18 +62,6 @@ sub find($%) {
     $record ? $class->from_record($record) : undef;
 }
 
-=head2 $site->refresh;
-When you are re-using the site object, you may miss information altered
-by other sessions.  Calling refresh will re-synchronize the site status,
-especially schema changes.
-=cut
-
-sub refresh
-{	my $self = shift;
-    $::linkspace->db->schema->update_fields($self);
-    $self;
-}
-
 =head2 my $site = $class->site_create(%);
 Create a new site object in the database.
 =cut
@@ -94,7 +82,11 @@ __WELCOME_TEXT
 
     my $site_id = $::db->create(Site => \%insert)->id;
     $class->from_id($site_id);
+    $self->changed('meta');
 }
+
+=head2 $self->site_update
+XXX
 
 =head2 $self->site_delete;
 =cut
@@ -103,6 +95,79 @@ sub site_delete()
 {   my $self = @_;
     $self->users->site_unuse($self);
     $self->document->site_unuse($self);
+    $self->changed('meta');
+    $self->delete;
+}
+
+#-------------------------
+=head1 METHODS: Caching
+We like to cache as much information as possible between requests,
+but need to immediately see changes in other processes.  Therefore,
+the database has a table which keeps versions of configuration of
+each of the large components: on any (small) change, the cached object
+structure related to that (large) component get's totally trashed in
+all other processes.
+
+For now, the planned components are 'site', 'users' and 'sheet_$id'.
+
+=head2 $site->refresh;
+When you are re-using the site object, you may miss information altered
+by other sessions.  Calling refresh will re-synchronize the site status,
+especially schema changes.
+=cut
+
+has last_check => (is => 'rw');
+my %_component_loaded;  # global
+
+sub refresh
+{	my $self = shift;
+    $::linkspace->db->schema->update_fields($self);
+
+return;
+    my $now  = time;
+    my @versions = $::db->search(ComponentVersions => {
+        site_id => $self->id,
+        updated => { \'>', $self->last_check },
+    }, { column => 'label' })->all;
+    $self->last_check($now);
+
+    foreach my $change (@versions)
+    {   delete $_component_loaded{$_} or next;
+
+        if($change eq 'user') { undef $self->{users} }
+        elsif($change =~ /^sheet_(\d+)/c) { $doc->sheet_restart($1) }
+    }
+    $self;
+}
+
+=head2 $site->changed($component);
+Flag to other processes that a certain component has changed.  Any change
+will cause a new version, which is simply a timestamp.
+=cut
+
+sub changed($)
+{   my ($self, $component) = @_;
+return;
+    $::db->update_or_create(ComponentVersions => {
+         site => $self->id, component => $component
+    });
+    #XXX to be implemented.  Needs to be done in the database!
+    # ComponentVersions table has
+    # mysql: "last_change TIMESTAMP
+    #      NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP"
+    # on psql via a trigger
+    # https://x-team.com/blog/automatic-timestamps-with-postgresql/
+}
+
+=head2 $site->component_loaded($component);
+Register the time-stamp when certain components were loaded, to be able
+to clear the caches when they get too old. Refreshing will only happen
+at the start of new requests, and may be very blunt.
+=cut
+
+sub component_loaded($)
+{   my ($self, $component) = @_;
+    $component_loaded{$self->id.'_'.$component} = time;
 }
 
 #-------------------------
@@ -112,12 +177,15 @@ The L<Linkspace::Site::Users> class manages Users, Groups and Permissions
 =head2 my $users = $site->users;
 =cut
 
-has users => (
-    is      => 'lazy',
-    builder => sub { Linkspace::Site::Users->new(site => $_[0]) },
+sub users()
+{   $_[0]->{users} ||= do {
+        my $self = shift;
+        $self->component_loaded('users');
+        Linkspace::Site::Users->new(site => $self);
+    };
 );
 
-sub groups { $_[0]->users }
+sub groups { $_[0]->users }    # managed by the same helper object
 
 #-------------------------
 =head1 METHODS: Manage Documents

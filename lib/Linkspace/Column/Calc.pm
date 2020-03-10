@@ -68,18 +68,14 @@ my %format2field = (
 );
 
 sub value_field()  { $format2field{$_[0]->return_type} || 'value_text' }
+sub string_storage { $_[0]->value_field eq 'value_text' }
 
 ### The "Calc" table
-#XXX why a has_many relationship?
 
-has calc => (
-    is      => 'lazy',
-    builder => sub { ($_[0]->calcs)[0] },
-};
-
+sub calc()         { ($_[0]->calcs)[0] )     #XXX why a has_many relationship?
 sub code           { $_[0]->calc->{code} }
 sub decimal_places { $_[0]->calc->{decimal_places} }
-sub return_type    { $_[0]->calc->{return_type}    }
+sub return_type    { $_[0]->calc->{return_type} }
 
 sub extra_update($)
 {   my ($self, $extra) = @_;
@@ -120,10 +116,6 @@ has '+blank_row' => (
     },
 );
 
-has '+string_storage' => (
-    default => sub { $_[0]->value_field eq 'value_text' },
-);
-
 sub resultset_for_values
 {   my $self = shift;
     $self->value_field eq 'value_text' or return;
@@ -139,20 +131,14 @@ sub validate
     :                    1;
 }
 
-before import_hash => sub {
-    my ($self, $values, %options) = @_;
-    $self->extra_update($values, %options);
-}
-
-
 sub export_hash
 {   my $self = shift;
-    my $hash = $self->SUPER::export_hash;
-    my $cals = $self->calc;
-    $hash->{code}           = $calc->{code};
-    $hash->{return_type}    = $calc->{return_type};
-    $hash->{decimal_places} = $calc->{decimal_places};
-    $hash;
+    my $calc = $self->calc;
+    $self->SUPER::export_hash(@_,
+       code           => $calc->{code},
+       return_type    => $calc->{return_type},
+       decimal_places => $calc->{decimal_places},
+    );
 }
 
 # This list of regexes is copied directly from the plotly source code

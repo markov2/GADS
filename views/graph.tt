@@ -9,7 +9,7 @@
                     <h3 class="panel-title">General</h3>
                 </div>
                 <div class="panel-body">
-                    [% IF layout.user_can("layout") OR layout.user_can("view_group") %]
+                    [% IF sheet.user_can("layout") OR sheet.user_can("view_group") %]
                         <div class="form-group">
                             <div class="checkbox">
                                 <label>
@@ -19,10 +19,10 @@
                             <div id="group_id_div">
                                 <label for="group_id">Share with:</label>
                                 <select class="form-control" id="group_id" name="group_id">
-                                    [% IF layout.user_can("layout") %]
+                                    [% IF sheet.user_can("layout") %]
                                         <option value="" [% IF NOT graph.group_id %]selected[% END %]>&lt;All users&gt;</option>
                                     [% END %]
-                                    [% IF layout.user_can("view_group") OR layout.user_can("layout") %]
+                                    [% IF sheet.user_can("view_group") OR sheet.user_can("layout") %]
                                         [% FOREACH group IN user.groups_viewable %]
                                             <option value="[% group.id %]"
                                                 [% IF graph.group_id == group.id %]selected[% END %]>[% group.name | html %]
@@ -164,7 +164,7 @@
                     </div>
                     <div class="form-group">
                         <label for="email">Plot against
-                            [% IF layout.user_can('layout') %]
+                            [% IF sheet.user_can('layout') %]
                                 <a href="/[% layout.identifier %]/metrics">metrics</a>
                             [% ELSE %]
                                 metrics

@@ -32,31 +32,20 @@ has _jp_store => (
 
 sub _all_joins
 {   my ($self, %options) = @_;
-    return $self->_all_joins_recurse($self->_jpfetch(%options));
+    $self->_all_joins_recurse($self->_jpfetch(%options));
 }
 
 sub _all_joins_recurse
 {   my ($self, @joins) = @_;
-    my @return;
-    foreach my $j (@joins)
-    {
-        push @return, $j;
-        push @return, $self->_all_joins_children($j->{children})
-            if $j->{children};
-    }
-    @return;
+    map +($_, $self->_all_joins_children($_->{children})), @joins;
 }
 
 sub _all_joins_children
 {   my ($self, $children) = @_;
-    my @return;
-    foreach (@$children)
-    {
-        push @return, $self->_all_joins_children($_->{children})
-            if $_->{children};
-        push @return, $_
-    }
-    @return;
+	$children && @$children or return ();
+
+    #XXX is the reversed order from _all_joins_recurse() intentional?
+    map +($self->_all_joins_children($_->{children}), $_), @$children;
 }
 
 sub _compare_parents
@@ -129,7 +118,7 @@ sub _add_jp
                 $j->{group}    ||= $options{group};
                 $j->{drcol}    ||= $options{drcol};
                 $self->_add_children($j, $column, %options, already_seen => $already_seen)
-                    if ($column->is_curcommon && $prefetch);
+                    if $column->is_curcommon && $prefetch;
                 trace __x"Found existing, returning";
                 return;
             }
@@ -238,8 +227,8 @@ sub record_later_search
         # being used.
         my %curvals_included;
         foreach ($self->_all_joins(%options, linked => undef))
-        {
-            next if ($li xor $_->{linked}); # Only take same as linked loop
+        {   next if $li xor $_->{linked}; # Only take same as linked loop
+
             # Include a curval field itself, or one of its children (only the child
             # might be searched upon)
             my $is_curcommon = $_->{column}->is_curcommon;
@@ -255,11 +244,7 @@ sub record_later_search
                     || ($options{prefetch} && $_->{prefetch} && !$_->{parent} && @{$_->{children}})
                 )
                 {
-                    unless ($curvals_included{$curcommon_id})
-                    {
-                        $count++;
-                        $curvals_included{$curcommon_id} = 1;
-                    }
+                    $count++ unless $curvals_included{$curcommon_id}++;
                 }
             }
         }
@@ -286,17 +271,16 @@ sub _jpfetch
     # numbered in that order by DBIx::Class. However, sometimes prefetches will
     # be used as joins (during graph creation) in which case we want to retain
     # the order
-    if ($options{retain_join_order})
-    {
-        @jpstore = @{$self->_jp_store};
+    if($options{retain_join_order})
+    {   @jpstore = @{$self->_jp_store};
     }
-    else {
-        @jpstore = grep { !$_->{prefetch} } @{$self->_jp_store};
-        push @jpstore, grep { $_->{prefetch} } @{$self->_jp_store};
+    else
+    {   @jpstore = grep !$_->{prefetch}, @{$self->_jp_store};
+        push @jpstore, grep $_->{prefetch}, @{$self->_jp_store};
     }
 
-    my @jpstore2 = grep { $_->{linked} } @jpstore;
-    push @jpstore2, grep { !$_->{linked} } @jpstore;
+    my @jpstore2 =  grep  $_->{linked}, @jpstore;
+    push @jpstore2, grep !$_->{linked}, @jpstore;
 
     foreach (@jpstore2)
     {
@@ -307,32 +291,26 @@ sub _jpfetch
         next if exists $options{prefetch} && !$options{prefetch} && $_->{prefetch} && !$options{group} && !$options{drcol};
         $self->_jpfetch_add(options => \%options, join => $_, return => $joins);
     }
+
     my @return;
-    if ($options{limit} && @$joins)
-    {
-        my @joins = @$joins;
+    if($options{limit} && @$joins)
+    {   my @joins  = @$joins;
         my $offset = ($options{page} - 1) * $options{limit};
         return if @joins < $offset;
-        my $end = $options{limit}-1+$offset ;
+
+        my $end = $options{limit}-1 +$offset;
         $end = @joins-1 if $end > @joins-1;
-        push @return, grep { $_->{search} } @joins[0..$offset-1] if $options{search};
+        push @return, grep $_->{search}, @joins[0..$offset-1] if $options{search};
         push @return, @joins[$offset..$end];
-        push @return, grep { $_->{search} } @joins[$end+1..@joins-1] if $options{search};
+        push @return, grep $_->{search}, @joins[$end+1..@joins-1] if $options{search};
     }
-    else {
-        @return = @$joins;
+    else
+    {   @return = @$joins;
     }
-    my @return2;
-    foreach (@return)
-    {
-        if (defined $options{linked})
-        {
-            next if !$options{linked} && $_->{linked};
-            next if $options{linked} && !$_->{linked};
-        }
-        push @return2, $_;
-    }
-    return @return2;
+
+      ! defined $options{linked} ? @return
+    : $options{linked}           ? grep  $_->{linked}, @return
+    :                              grep !$_->{linked}, @return;
 }
 
 sub _jpfetch_add
@@ -365,7 +343,8 @@ sub _jpfetch_add
             my @children = @$children;
             @children = grep { $_->{search} || $_->{sort} || !$_->{column}->multivalue || $options->{include_multivalue} || $_->{group} || $_->{drcol} } @$children
                 if $options->{prefetch};
-            push @$return, {
+
+            push @$return, +{
                 parent    => $parent,
                 column    => $join->{column},
                 join      => $join->{column}->make_join(map {$_->{join}} @children),
@@ -379,8 +358,8 @@ sub _jpfetch_add
                 children  => \@children,
             };
         }
-        else {
-            push @$return, $join;
+        else
+        {   push @$return, $join;
         }
     }
 }
@@ -390,22 +369,19 @@ sub _to_alt
 {   my $join = shift;
     panic "Missing join" if !$join;
     return $join."_alternative" if !ref $join;
+
     return [ map _to_alt($_), @$join ]
         if ref $join eq 'ARRAY';
-    my @keys = keys %$join;
-    panic "Unexpected number of keys for join ".Dumper $join if @keys > 1;
-    my $j1 = $keys[0];
-    my $j2 = $join->{$j1};
-    #my ($j1, $j2) = each %$join;
-    return { _to_alt($j1) => _to_alt($j2) };
+
+    panic "Unexpected number of keys for join ".Dumper $join if keys %$join > 1;
+    my ($j1, $j2) = keys %$join;
+    +{ _to_alt($j1) => _to_alt($j2) };
 }
 
 sub jpfetch
 {   my ($self, %options) = @_;
-    my @joins = map { $_->{join} } $self->_jpfetch(%options);
-    @joins = map { _to_alt($_) } @joins
-        if $options{alt};
-    return @joins;
+    my @joins = map $_->{join}, $self->_jpfetch(%options);
+    $options{alt} ? map(_to_alt($_), @joins) : @joins;
 }
 
 sub columns_fetch
@@ -414,22 +390,22 @@ sub columns_fetch
     foreach my $jp ($self->_jpfetch(prefetch => 1, %options))
     {
         my $column = $jp->{column};
-        my $table = $self->table_name($column, prefetch => 1, %options);
+        my $table  = $self->table_name($column, prefetch => 1, %options);
         my @values = (@{$column->retrieve_fields}, 'id');
-        push @prefetch, {$column->field.".$_" => "$table.$_"} foreach @values; # unless $column->is_curcommon;
+        push @prefetch, {$column->field.".$_" => "$table.$_"} for @values; # unless $column->is_curcommon;
         push @prefetch, $column->field.'.child_unique'
             if $column->userinput;
-        if ($jp->{children})
+
+        my $children = $jp->{children}
+            or next;
+
+        foreach my $child (@$children)
         {
-            foreach my $child (@{$jp->{children}})
-            {
-                my $column2 = $child->{column};
-                my %opt = %options;
-                # delete $opt{search};
-                my $table = $self->table_name($column2, prefetch => 1, %opt, parent => $column);
-                my @values = (@{$column2->retrieve_fields}, 'id');
-                push @prefetch, {$column->field.".".$column2->field.".$_" => "$table.$_"} foreach @values;
-            }
+            my $column2 = $child->{column};
+            #XXX?   delete $options{search};
+            my $table = $self->table_name($column2, prefetch => 1, %options, parent => $column);
+            my @values = (@{$column2->retrieve_fields}, 'id');
+            push @prefetch, {$column->field.".".$column2->field.".$_" => "$table.$_"} foreach @values;
         }
     }
 
@@ -444,23 +420,18 @@ sub record_name
     # will start with that. Otherwise, it will start with record_single as the
     # record will be joined to the Current table.
     if ($options{root_table} && $options{root_table} eq 'record')
-    {
-        return 'me' if !$options{linked};
+    {   return 'me' if !$options{linked};
         $count = 0;
     }
-    elsif ($self->has_linked(%options)) {
-        $count = 1;
+    else
+    {   $count = $self->has_linked(%options) ? 1 : 0;
     }
-    else {
-        $count = 0;
-    }
-    if (!$options{linked})
-    {
-        $count++;
+
+    if(!$options{linked})
+    {   $count++;
         $count += grep { $_->{column}->type eq 'autocur' && $_->{linked} } @store;
     }
-    my $c_offset = $count == 1 ? '' : "_$count";
-    return "record_single$c_offset";
+    $count == 1 ? 'record_single' : "record_single_$count";
 }
 
 =pod
@@ -473,22 +444,19 @@ included, then use
   ->table_name($col, search => 1, prefetch => 1)
 
 =cut
+
 sub table_name
 {   my ($self, $column, %options) = @_;
-    if ($column->internal)
-    {
-        return 'me' if $column->table eq 'Current';
-        if ($column->sprefix eq 'record')
-        {
-            return $self->record_name(%options);
-        }
-        return $column->sprefix;
+    if($column->internal)
+    {   return $column->table eq 'Current' ? 'me'
+          : $column->sprefix eq 'record'   ? $self->record_name(%options)
+          :                                  $column->sprefix;
     }
-    my $jn = $self->_join_number($column, %options);
+
+    my $jn    = $self->_join_number($column, %options);
     my $index = $jn > 1 ? "_$jn" : '';
-    my $tn = $column->sprefix;
-    $tn .= "_alternative" if $options{alt};
-    $tn . $index;
+    my $alt   = $options{alt} ? '_alternative' : '';
+    $column->sprefix . $alt . $index;
 }
 
 sub _join_number
@@ -505,11 +473,10 @@ sub _join_number
     my $stash = {};
 
     if ($options{find_value})
-    {
-        trace "Looking in the store for all joins for find_value";
+    {   trace "Looking in the store for all joins for find_value";
     }
-    else {
-        trace __x"Looking in the store for join number for column {id}", id => $column->id;
+    else
+    {   trace __x"Looking in the store for join number for column {id}", id => $column->id;
     }
 
     foreach my $j (@store)
@@ -596,7 +563,7 @@ sub _find
             }
         }
     }
-    elsif (ref $jp->{join} eq 'ARRAY')
+    elsif(ref $jp->{join} eq 'ARRAY')
     {
         trace "This join is an array";
         foreach (@{$jp->{join}})
@@ -606,14 +573,15 @@ sub _find
             return $n if $n;
         }
     }
-    else {
-        trace "This join is a standard join";
+    else
+    {   trace "This join is a standard join";
         $stash->{$jp->{join}}++;
-        if ($jp->{parent} && !$stash->{parents_included}->{$jp->{parent}->id})
-        {
-            $stash->{value}++ if $jp->{parent}->value_field eq 'value';
-            $stash->{parents_included}->{$jp->{parent}->id} = 1;
+        if(my $parent = $jp->{parent})
+        {   unless($stash->{parents_included}{$parent->id}++)
+            {   $stash->{value}++ if $parent->value_field eq 'value';
+            }
         }
+
         if (!$options{find_value} && $needle->sprefix eq $jp->{join})
         {
             # Single table join
@@ -636,32 +604,33 @@ sub value_next_join
 {   my ($self, %options) = @_;
     my $count = $self->_join_number(undef, %options, find_value => 1);
     $count++; # Add one for the next join, prevent uninit errors
-    my $id = $count == 1 ? '' : "_$count";
-    "value$id";
+    $count == 1 ? 'value' : "value_$count";
 }
 
 # Return a fully-qualified value field for a table
 sub fqvalue
 {   my ($self, $column, %options) = @_;
-    my $as_index = delete $options{as_index};
-    my $tn = $self->table_name($column, %options);
+    my $as_index    = delete $options{as_index};
+    my $tn          = $self->table_name($column, %options);
     my $value_field = $as_index ? $column->value_field_as_index : $column->value_field;
-    "$tn." . $value_field;
+    "$tn.$value_field";
 }
 
 sub _dump_child
 {   my ($self, $dd, $child, $indent) = @_;
     no warnings 'uninitialized';
-    $dd->Values([$child->{join}]);
+    $dd->Values( [$child->{join}] );
+
     my $children;
-        if (ref $child->{children})
-        {
-            $children .= $self->_dump_child($dd, $_, $indent + 1)
-                foreach @{$child->{children}};
-        }
+    if(ref $child->{children})
+    {   $children = join '',
+            map $self->_dump_child($dd, $_, $indent + 1), @{$child->{children}};
+    }
+
     my $join = ref $child->{join} ? $dd->Dump : $child->{join};
     chomp $join;
     my $parent_id = $child->{parent}->id;
+
 my $ret = "
 child is ".$child->{column}->id." (".$child->{column}->name.") => {
     join     => $join,
@@ -675,13 +644,13 @@ child is ".$child->{column}->id." (".$child->{column}->name.") => {
     children => $children
 },";
     my $space = '    ' x $indent;
-    $ret =~ s/^(.*)$/$space$1/mg;
+    $ret =~ s/^/$space/mg;
     $ret;
 }
 
 sub _dump_jp_store
 {   my $self = shift;
-    return;
+    return;   #XXX
     my $dumped = "Going to dump the jp store:\n";
     my $dd = Data::Dumper->new([]);
     $dd->Indent(0);
@@ -689,10 +658,9 @@ sub _dump_jp_store
     foreach my $jp (@{$self->_jp_store})
     {
         my $children;
-        if (ref $jp->{children})
-        {
-            $children .= $self->_dump_child($dd, $_, 3)
-                foreach @{$jp->{children}};
+        if(ref $jp->{children})
+        {   $children = join '',
+                map $self->_dump_child($dd, $_, 3), @{$jp->{children}};
         }
         $dd->Values([$jp->{join}]);
         my $join = ref $jp->{join} ? $dd->Dump : $jp->{join};
