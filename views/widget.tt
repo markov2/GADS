@@ -75,18 +75,20 @@
             [% IF NOT widget.graph_id %]
                 <option></option>
             [% END %]
-            [% IF graphs.all_personal.size %]
+            [% personal_graphs = graphs.user_graphs(shared => 0) %]
+            [% IF personal_graphs.size %]
                 <optgroup label="Personal graphs">
-                    [% FOREACH graph IN graphs.all_personal %]
+                    [% FOREACH graph IN personal_graphs %]
                         <option value="[% graph.id %]" [% IF widget.graph_id == graph.id %]selected[% END %]>
                             [% graph.title | html %]
                         </option>
                     [% END %]
                 </optgroup>
             [% END %]
-            [% IF graphs.all_shared.size %]
+            [% shared_graphs = graphs.user_graphs(shared => 1) %]
+            [% IF shared_graphs.size %]
                 <optgroup label="Shared graphs">
-                    [% FOREACH graph IN graphs.all_shared %]
+                    [% FOREACH graph IN shared_graphs %]
                         <option value="[% graph.id %]" [% IF widget.graph_id == graph.id %]selected[% END %]>
                             [% graph.title | html %]
                         </option>

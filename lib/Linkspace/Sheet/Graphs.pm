@@ -45,83 +45,48 @@ sub purge
 
 #--------------------
 =head1 METHODS: Manage Graphs
+
+=head2 my @graphs = $graphs->all_graphs;
+Returns all graphs for this sheet.
 =cut
 
-#XXX all graphs for this user
-has user_graphs => (
-    is      => 'lazy',
+has _graphs_index => (
+	is      => 'lazy',
+    builder => sub {
+       index_by_id $::db->search(Graph => { instance_id => $_[0]->sheet->id })->all;
 );
 
-sub _build_user_graphs()
-{   my $self     = shift;
-    my $user_id  = $::session->user;
-    my $sheet_id = $self->sheet->id;
-
-    # First create a hash of all the graphs the user has selected
-    my %user_selected = index_by_id
-        $::db->search(Graph => {
-            'user_graphs.user_id' => $user_id,
-            instance_id           => $sheet_id,
-        },{
-            join => 'user_graphs',
-        })->all;
-
-    # Now get all graphs, and use the previous hash to see
-    # if the user has this graph selected
-    my @all_graph_ids = $::db->search(Graph => {
-    {
-        instance_id => $sheet_id,
-        -or         => [
-            {
-                'me.is_shared' => 1,
-                'me.group_id'  => undef,
-            },
-            {
-                'me.is_shared' => 1,
-                'user_groups.user_id' => $user_id,
-            },
-            {
-                'me.user_id'   => $user_id,
-            },
-        ],
-    },{
-        join       => { group => 'user_groups' },
-        collapse   => 1,
-        order_by   => 'me.title',
-        result_set => 'HASH',
-    })->get_column('id')->all;
-
-    #XXX merging 'selected' in here is bad for caching.
-    my @graphs = map $self->graph($_, selected => $user_selected{$_}),
-        @all_graph_ids;
-
-    \@graphs;
-}
-
-sub all_shared   { [ grep  $_->is_shared, @{$_[0]->user_graphs} ] }
-sub all_personal { [ grep !$_->is_shared, @{$_[0]->user_graphs} ] }
-
-has all_all_users => (
-    is => 'lazy',
-);
-
-#XXX should maybe be merged in user_graphs when user->is_admin
-sub _build_all_all_users
+sub all_graphs()
 {   my $self = shift;
-
-    my @all_graph_ids = $::db->search(Graph => { instance_id => $self->sheet->id })
-        ->get_column('id')->all;
-
-    [ map $self->graph($_), @all_graph_ids ];
+    [ map $self->graph($_), values %{$self->_graphs_index} ];
 }
 
-sub graphs_using_column($)
-{   my ($self, $which) = @_;
-    my $col_id = ! defined $which ? return : blessed $which ? $which->id : $which;
+=head2 my $graphs = $graphs->user_graphs(%options);
+Returns the graphs where the session user has access to, ordered by title.
+With the C<shared> option, you can restrict to getting personal or shared
+graphs.
+=cut
 
-    [ grep $_->x_axis_id==$col_id || $_->y_axis_id==$col_id || $_->group_by_id==$col_id,
-        @{$self->user_graphs} ];
+sub user_graphs(%)
+{   my ($self, %args) = @_;
+    my $user_id = $::session->user->id;
+
+    my @mine = grep
+     +( $_->is_shared
+      ? ( ! $_->group_id || $user->in_group($_->group_id) )
+      : $_->user_id==$user_id
+      ), values %{$self->_graph_index};
+
+    @mine = grep !!$args{shared} == !!$_->is_shared, @mine
+        if exists $args{shared};
+
+    [ map $self->graph($_), sort { $a->title cmp $b->title } @mine ];
 }
+
+=head2 $graphs->graph_delete($which);
+Remove a graph, which is specified as object or by id.  All referenced to the
+graph will be removed as well.
+=cut
 
 sub graph_delete($)
 {   my ($self, $which) = @_;
@@ -134,7 +99,12 @@ sub graph_delete($)
     $::db->update(Widget => { graph_id => $graph_id }, { graph_id => undef });
     $::db->delete(UserGraph => { graph_id => $graph_id });
     $::db->delete(Graph => $graph_id);
+    $self;
 }
+
+=head2 my $graph = $graphs->graph($graph_id);
+Returns an object based on L<Linkspace::Graph>.
+=cut
 
 sub graph($)
 {   my ($self, $graph_id) = @_;
@@ -143,6 +113,8 @@ sub graph($)
     my $record = $self->_graphs_index->{$graph_id};
     $record->isa('Linkspace::Graph')
         or Linkspace::Graph->from_record($record);
+
+    $record;
 }
 
 #--------------------
@@ -155,9 +127,7 @@ Returns the metric groups for this sheet.
 sub metric_groups()
 {   my ($self) = @_;
 
-GADS::MetricGroups->new(
-            instance_id => session('persistent')->{instance_id},
-        )->all;
+GADS::MetricGroups->new( instance_id => $sheet->id)->all;
 
 }
 

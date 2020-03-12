@@ -23,11 +23,12 @@ use HTML::Entities qw/encode_entities/;
 use JSON qw(encode_json);
 use GADS::Graph::Data;
 use Log::Report 'linkspace';
+use List::Util   qw/min max/;
+use Scalar::Util qw/blessed/;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
-use List::Util  qw(min max);
-use Scalar::Util qw/blessed/;
 
 use constant {
     AT_BIGBANG  => DateTime::Infinite::Past->new,
@@ -81,25 +82,19 @@ has retrieved_from => (
     is      => 'rwp',
     isa     => Maybe[DateAndTime],
     # Do not set to an infinite value, should be undef instead
-    coerce  => sub { return undef if ref($_[0]) =~ /Infinite/; $_[0] },
+    coerce  => sub { (ref $_[0]) =~ /Infinite/ ? undef : $_[0] },
 );
 
 has retrieved_to => (
     is      => 'rwp',
     isa     => Maybe[DateAndTime],
     # Do not set to an infinite value, should be undef instead
-    coerce  => sub { return undef if ref($_[0]) =~ /Infinite/; $_[0] },
+    coerce  => sub { (ref $_[0]) =~ /Infinite/ ? undef : $_[0] },
 );
 
 has records => (
     is      => 'ro',
 );
-
-sub clear
-{   my $self = shift;
-    $self->records->clear;
-    $self->clear_items;
-}
 
 has _all_items_index => (
     is      => 'ro',
@@ -108,7 +103,6 @@ has _all_items_index => (
 
 has items => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 has graph => (
@@ -117,15 +111,6 @@ has graph => (
 
 # from DateTime to miliseconds
 sub _tick($) { shift->epoch * 1000 }
-
-# Need a Graph::Data instance to get relevant colors
-sub _build_graph
-{   my $self = shift;
-    GADS::Graph::Data->new(
-        schema  => $self->records->schema,
-        records => undef,
-    );
-}
 
 sub _build_items
 {   my $self = shift;
@@ -176,7 +161,7 @@ sub _build_items
         @groups_to_add
             or push @groups_to_add, undef;
 
-        if ($self->group_col_id)
+        if($self->group_col_id)
         {
             # If the grouping value is blank for this record, then set it to a
             # suitable textual value, otherwise it won't be rendered on the
@@ -313,7 +298,7 @@ sub _build_items
 
                 my $cid = $d->{current_id} || $record->current_id;
 
-                if ($self->type eq 'calendar')
+                if($self->type eq 'calendar')
                 {   push @items, +{
                         url   => "/record/$cid",
                         color => $d->{color},

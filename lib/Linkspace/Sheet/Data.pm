@@ -339,13 +339,6 @@ has _plus_select => (
     default => sub { [] },
 );
 
-sub clear_sorts
-{   my $self = shift;
-    $self->_clear_sorts;
-    $self->_clear_sorts_limit;
-    $self->clear_sort_first;
-}
-
 # Internal list of all sorts for this resultset. Generated from any of the means
 # of setting a sort, or returns default if required
 has _sorts => (
@@ -710,8 +703,7 @@ sub _current_ids_rs
         if $page && $page > 1 && $page > $self->pages;
 
     if (!$self->is_group && !$options{aggregate})
-    {
-        $select->{rows} = $self->rows if $self->rows;
+    {   $select->{rows} = $self->rows if $self->rows;
         $select->{page} = $page if $page;
         $select->{rows} ||= $self->max_results
             if $self->max_results;
@@ -729,7 +721,8 @@ sub _current_ids_rs
 # already been set by the calling function.
 sub _cid_search_query
 {   my ($self, %options) = @_;
-    my $search = { map { %$_ } $self->record_later_search(prefetch => 1, sort => 1, linked => 1, group => 1, %options) };
+
+    my $search = { map %$_, $self->record_later_search(prefetch => 1, sort => 1, linked => 1, group => 1, %options) };
 
     # If this is a group query then we will not be limiting by number of
     # records (but will be reducing number of results by group), and therefore
@@ -757,8 +750,8 @@ sub _build_standard_results
     my $search_query = $self->search_query(search => 1, sort => 1, linked => 1); # Need to call first to build joins
 
     my @prefetches = $self->jpfetch(prefetch => 1, linked => 0);
+    my $rec1 = @prefetches ? +{ record_single => \@prefetches } : 'record_single';
 
-    my $rec1 = @prefetches ? { record_single => \@prefetches } : 'record_single';
     # Add joins for sorts, but only if they're not already a prefetch (otherwise ordering can be messed up).
     # We also add the join for record_later, so that we can take only the latest required record
     my @j = $self->jpfetch(sort => 1, prefetch => 0, linked => 0);

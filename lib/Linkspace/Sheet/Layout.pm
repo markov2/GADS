@@ -630,11 +630,11 @@ sub column_delete($)
             l => [ map $_->name_long, @$childs ];
     }
 
-    my $graphs = $self->sheet->graphs->graphs_using_column($column);
-    if(@$graphs)
+    my @graphs = grep $_->uses_column($column), @{$self->sheet->graphs->all_graphs};
+    if(@graphs)
     {
         error __x"The following graphs references this field: {graph}. Please update them before deletion.",
-            graph => [ map $_->title, @$graphs ]; 
+            graph => [ map $_->title, @graphs ]; 
     }
 
     my $guard = $::db->begin_work;

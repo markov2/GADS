@@ -3,7 +3,7 @@
 [% ELSE %]
     [% count = 0 %]
     [% FOREACH graph IN graphs %]
-        [% NEXT UNLESS graph.selected %]
+        [% NEXT UNLESS user.graph_is_selected(graph) %]
         <div>
             <h3>[% graph.title | html_entity %]</h3>
             [% IF graph.description %]<p>[% graph.description | html_entity %]</p>[% END %]
@@ -42,7 +42,7 @@
                     };
                     $.jqplot.config.enablePlugins = true;
                     [% FOREACH graph IN graphs %]
-                        [% NEXT UNLESS graph.selected %]
+                        [% NEXT UNLESS user.graph_is_selected(graph) %]
                         var time = (new Date).getTime();
                         var jsonurl = "/[% layout.identifier %]/data_graph/[% graph.id %]/" + time;
                         var plotData = ajaxDataRenderer(jsonurl);

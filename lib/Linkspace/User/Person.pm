@@ -229,7 +229,17 @@ sub _views_delete()
 
 #-----------------------
 =head1 METHODS: Graphs
+Manage the graphs which the user has selected.  It is global: although graphs
+are per sheet, their numbers are unique.
 =cut
+
+has _selected_graphs => (
+    is      => 'lazy',
+    builder => sub
+    {   my $selections = $::db->search(UserGraph => { user_id => $self->id });
+        +{ map +($_ => 1), $selections->column('graph_id')->all };
+    },
+);
 
 =head2 $user->set_graphs($sheet, \@graphs);
 Both C<$sheet> and C<$graph> may be specified by object or id.
@@ -237,25 +247,36 @@ Both C<$sheet> and C<$graph> may be specified by object or id.
 
 sub set_graphs
 {   my ($self, $sheet, $graphs) = @_;
-    my $sheet_id = blessed $sheet ? $sheet->id : $sheet;
+    my $sheet_id  = blessed $sheet ? $sheet->id : $sheet;
     my @graph_ids = map +(blessed $_ ? $_->id : $_), @$graphs;
 
-    foreach my $graph_id (@graph_ids)
-    {
-        $self->search_related(user_graphs => { graph_id => $graph_id })->count
-            or $self->create_related(user_graphs => { graph_id => $graph_id });
-    }
+    my $selected  = $self->_selected_graphs;
+    my $user_id   = $self->id;
 
-    # Delete any graphs that no longer exist
-    my %search = ( 'graph.sheet_id' => $sheet_id );
-    $search{graph_id} = { '!=' => [ -and => @graph_ids ] } if @graph_ids;
+    $::db->create(UserGraph => { graph_id => $_, user_id => $user_id })
+        for grep ! $selected->{$_}, @graph_ids;
 
-    $self->search_related(user_graphs => \%search, { join => 'graph' })->delete;
+    my %graph_ids = map +($_ => 1), @graph_ids;
+    $::db->delete(UserGraph => { graph_id => $_, user_id => $user_id })
+        for grep ! $graph_ids{$_}, keys %$selected;
+
+    $self->_selected_graphs(\%graph_ids);
 }
 
 sub _graphs_delete()
 {   my $self = shift;
-    $self->search_related(user_graphs => {})->delete;
+    $self->_selected_graphs( +{} );
+    $::db->delete(UserGraph => { user_id => $self->id });
+}
+
+=head2 my $is_selected = $user->graph_is_selected($which);
+Return true when the graph (specified as object or by id) is selected by the
+user.
+=cut
+
+sub graph_is_selected($)
+{   my ($self, $which) = @_;
+    $self->_selected_graphs->{blessed $which ? $which->id : $which};
 }
 
 #-----------------------

@@ -32,7 +32,16 @@ my @stack_options    = qw/count sum/;
 my @grouping_options = qw/day month year/;
 
 #----------------
-=head2 METHODS: Constructors
+
+=head1 NAME
+Linkspace::Graph - graph definition
+
+=head1 DESCRIPTION
+Per sheet, a set of graphs can be defined.  They are managed by the
+L<Linkspace::Sheet::Graphs> helper object of the sheet.  Graphs get
+their data from columns and metrics.
+
+=head1 METHODS: Constructors
 =cut
 
 sub from_record($%)
@@ -47,17 +56,18 @@ sub from_id($%)
 }
 
 #----------------
-=head2 METHODS: Generic accessors
+=head1 METHODS: Generic accessors
 =cut
 
 has sheet => (
     is      => 'lazy',
     weakref => 1,
-    builder => sub {  $::session->site->sheet($_[0]->instance_id) },
+    builder => sub { $::session->site->sheet($_[0]->instance_id) },
 );
 
+
 #----------------
-=head2 METHODS: Axis
+=head1 METHODS: Axis
 =cut
 
 ### rename table columns
@@ -86,6 +96,16 @@ sub x_axis_full
     ($link_id ? $link_id.'_' : '') . $self->x_axis_id;
 }
 
+sub uses_column($)
+{   my ($self, $which) = @_;
+    my $col_id = blessed $which ? $which->id : $which;
+    $_->x_axis_id==$col_id || $_->y_axis_id==$col_id || $_->group_by_id==$col_id;
+}
+
+#----------------
+=head1 METHODS: Display
+=cut
+
 # X-axis is undef for graph showing all columns in view
 sub x_axis_name { my $x = $_[0]->x_axis; $x ? $x->name : '' }
 
@@ -99,13 +119,12 @@ sub to_formatted
     $::session->user->dt2local($self->to);
 }
 
-# Legend is shown for secondary groupings. No point otherwise.
 sub showlegend
-{   my $self = shift
-       $graph->group_by_id
-    || $graph->type eq 'pie' || $graph->type eq 'donut'
-    || $graph->trend;
-);
+{   my $self = shift;
+       $self->group_by_id
+    || $self->type eq 'pie' || $self->type eq 'donut'
+    || $self->trend;
+}
 
 # Whether a user has the graph selected. Used by GADS::Graphs
 has selected => (
@@ -116,13 +135,17 @@ has selected => (
 
 sub writable
 {   my $self = shift;
-        $sheet->user_can("layout")
-    || ($self->group_id && $sheet->user_can("view_group"))
-    || ($self->user_id && $::session->user->id == $self->user_id);
+
+        $self->sheet->user_can("layout")
+    || ($self->group_id && $self->sheet->user_can("view_group"))
+    || ($self->user_id  && $::session->user->id == $self->user_id);
 }
 
 sub as_json
 {   my $self = shift;
+
+    # Legend is shown for secondary groupings. No point otherwise.
+
     encode_json {
         type         => $self->type,
         x_axis_name  => $self->x_axis_name,
@@ -172,17 +195,16 @@ sub validate($$$)
             or error __"A field returning a numberic value must be used for the Y-axis when calculating the sum of values ";
     }
 
-    my ($x_axis_link_id, $x_axis_id) = $param->{set_x_axis} =~
-        /^(([0-9]+)_([0-9]+))$/ ? ($2, $3) : (undef, $1);
+    my ($x_axis_link_id, $x_axis_id) = $params->{set_x_axis} =~
+        /^\s*(([0-9]+)_([0-9]+))\s*$/ ? ($2, $3) : (undef, $1);
 
-    my $x_axis_id = $params->{x_axis};
     is_valid_id $x_axis_id
         or error __x"Invalid X-axis value {x_axis_id}", x_axis_id => $x_axis_id;
 
     my $x_axis = $sheet->column($x_axis_id)
         or error __x"Unknown X-axis column {x_axis_id}", x_axis_id => $x_axis_id;
 
-    my $trend = $params->{trend}
+    my $trend = $params->{trend};
     !$trend || _in($trend, @trend_options)
         or error __x"Invalid trend value: {trend}", trend => $trend;
 
@@ -213,9 +235,9 @@ sub validate($$$)
     my $is_shared = $params->{is_shared} || 0;
     my $group_id  = is_valid_id $params->{group_id};
 
-       ! $is_shared
+    ! $is_shared
     || ($sheet->user_can("layout") || ($group_id && $sheet->user_can('view_group')))
-       or error __"You do not have permission to create shared graphs"
+       or error __"You do not have permission to create shared graphs";
 
     my $user_id = $params->{user_id} || $::session->user->id;
 

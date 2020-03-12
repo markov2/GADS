@@ -23,7 +23,7 @@ use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
 
-extends 'GADS::Records';
+extends 'Linkspace::Page';
 
 has '+group_values_as_index' => (
     default => 0,

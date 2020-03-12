@@ -80,7 +80,15 @@ sub _update_csrf_token
 {   session csrf_token => Session::Token->new(length => 32)->get;
 }
 
-my $site;
+my ($site, $sheet);
+
+sub _persistent($;$$)
+{   my $p = session 'persistent';
+    $p = $p->{shift->id} ||= {}
+        if blessed $_[0] && $_[0]->isa('Linkspace::Sheet');
+
+    !@_ ? $p : @_==1 ? $p->{$_[0]} : ($p->{$_[0]} = $_[1]):
+}
 
 hook before => sub {
 
@@ -160,22 +168,18 @@ hook before => sub {
             unless request->uri eq '/aup_text' # Except AUP, which will be in an iframe
                 || request->path eq '/file'; # Or iframe posts for file uploads (hidden iframe used for IE8)
 
-        # Make sure we have suitable persistent hash to update. All these options are
-        # used as hashrefs themselves, so prevent trying to access non-existent hash.
-        my $persistent = session 'persistent';
-
         # Sheet can be addressed by id, short_name, long_name or even table$id
         my $sheet_ref
             = route_parameters->get('layout_name')
            || param('instance')
-           || $persistent->{instance_id}
+           || _persistent('instance_id')
            || $::linkspace->setting(gads => 'default_instance');
 
         $sheet = $site->sheet($sheet_ref);
 
-        if($sheet->id != ($persistent->{instance_id} || 0))
-        {   session 'search' => undef;
-            $persistent->{instance_id} = $sheet->id;
+        if($sheet->id != (_persistent('instance_id') || 0))
+        {   session search => undef;
+            _persistent instance_id => $sheet->id;
         }
     }
 };
@@ -188,11 +192,11 @@ hook before_template => sub {
     my $tokens = shift;
 
     my $base = $tokens->{base} || request->base;
-    $tokens->{url} =
-      { css  => "${base}css",
+    $tokens->{url} = {
+        css  => "${base}css",
         js   => "${base}js",
         page => $base =~ s!.*/!!r, # Remove trailing slash   XXX no
-      };
+    };
     $tokens->{scheme}  ||= request->scheme; # May already be set for phantomjs requests
     $tokens->{hostlocal} = config->{gads}->{hostlocal};
     $tokens->{header}    = config->{gads}->{header};
@@ -205,8 +209,7 @@ hook before_template => sub {
     }
 
     if (logged_in_user)
-    {
-        # var 'instances' not set for 404
+    {   # var 'instances' not set for 404
         my $instances = var('instances') || GADS::Instances->new(user => $user);
         $tokens->{instances}     = $instances->all;
         $tokens->{user}          = $user;
@@ -246,24 +249,15 @@ hook before_template => sub {
 };
 
 hook after_template_render => sub {
-    _update_persistent();
+    $user->update({ session_settings => encode_json _persistent })
+        if $user->is_person;
 };
-
-sub _update_persistent
-{
-    if (my $user = logged_in_user)
-    {
-        $user->update({
-            session_settings => encode_json(session('persistent')),
-        });
-    }
-}
 
 sub _forward_last_table
 {
     forwardHome() if ! $site->remember_user_location;
     my $forward;
-    if(my $l = session('persistent')->{instance_id})
+    if(my $l = _persistent 'instance_id')
     {   $forward = $site->sheet($l)->identifier;
     }
     forwardHome(undef, $forward);
@@ -271,11 +265,14 @@ sub _forward_last_table
 
 get '/' => require_login sub {
 
-    if (my $dashboard_id = query_parameters->get('did'))
-    {   session('persistent')->{dashboard}->{0} = $dashboard_id;
+    my $dashboard_id;
+	#XXX refers to sheet id==0.  When can that be used?
+    if(dashboard_id = query_parameters->get('did'))
+    {   _persistent $sheet0, dashboard => $dashboard_id;
     }
-
-    my $dashboard_id = session('persistent')->{dashboard}->{0};
+    else
+    {   $dashboard_id = _persistent $sheet0, 'dashboard';
+    }
 
     my %params = (
         id     => $dashboard_id,
@@ -318,6 +315,7 @@ any ['get', 'post'] => '/aup' => require_login sub {
     if (param 'accepted')
     {   update_current_user aup_accepted => DateTime->now;
         redirect '/';
+    }
     }
 
     template aup => {
@@ -555,10 +553,8 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
             team_id       => is_valid_id(param 'team_id'),
         );
 
-        if (process( sub { $site->users->user_update({email => $email}, \%update) }))
-        {
-            return forwardHome({ success =>
-                "The account details have been updated" },
+        if(process( sub { $site->users->user_update({email => $email}, \%update) }))
+        {   return forwardHome({ success => "The account details have been updated" },
                 'myaccount' );
         }
     }
@@ -975,7 +971,7 @@ get '/helptext/:id?' => require_login sub {
 get '/file/?' => require_login sub {
 
     $user->is_admin
-        or forwardHome({ danger => "You do not have permission to manage files"}, '');
+        or forwardHome({ danger => "You do not have permission to manage files"});
 
     template 'files' => {
         files       => $site->document->independent_files,
@@ -1226,11 +1222,11 @@ prefix '/:layout_name' => sub {
     get '/?' => require_login sub {
 
         my $dashboard_id;
-        if ($dashboard_id = query_parameters->get('did'))
-        {   session('persistent')->{dashboard}{$sheet->id} = $dashboard_id;
+        if($dashboard_id = query_parameters->get('did'))
+        {   _persistent $sheet, dashboard => $dashboard_id;
         }
         else
-        {   $dashboard_id = session('persistent')->{dashboard}{$sheet->id};
+        {   $dashboard_id = _persistent $sheet, 'dashboard';
         }
 
         my %params = (
@@ -1242,7 +1238,7 @@ prefix '/:layout_name' => sub {
 
         my $dashboard = $::db->resultset('Dashboard')->dashboard(%params);
 
-        # If the shared dashboard is blank for this table then show the site
+        # If the shared dashboard is blank for this table, then show the site
         # dashboard by default
         if ($dashboard->is_shared && $dashboard->is_empty && !$dashboard_id)
         {
@@ -1254,17 +1250,16 @@ prefix '/:layout_name' => sub {
         }
 
         my $params = {
+            page            => 'index',
             readonly        => $dashboard->is_shared && !$sheet->user_can('layout'),
             dashboard       => $dashboard,
             dashboards_json => $::db->resultset('Dashboard')->dashboards_json(%params),
-            page            => 'index',
             breadcrumbs     => [ Crumb($sheet) ],
         };
 
-        if (my $download = param('download'))
-        {
-            $params->{readonly} = 1;
-            if ($download eq 'pdf')
+        if(my $download = param('download'))
+        {   $params->{readonly} = 1;
+            if($download eq 'pdf')
             {
                 my $pdf = _page_as_mech('index', $params, pdf => 1)->content_as_pdf;
                 return send_file(
@@ -1359,7 +1354,7 @@ prefix '/:layout_name' => sub {
         header "Cache-Control" => "max-age=0, must-revalidate, private";
         content_type 'application/json';
 
-        my $tl_options = session('persistent')->{tl_options}{$sheet->id} || {};
+        my $tl_options = (_persistent $sheet, 'tl_options') || {};
         my $timeline = $records->data_timeline(%$tl_options);
         encode_json($timeline->{items});
     };
@@ -1367,7 +1362,7 @@ prefix '/:layout_name' => sub {
     post '/data_timeline' => require_login sub {
 
         my $view               = current_view();
-        my $tl_options         = session('persistent')->{tl_options}{$sheet->id} ||= {};
+        my $tl_options         = (_persistent $sheet)->{tl_options} ||= {};
         $tl_options->{from}    = int(param('from') /1000) if param('from');
         $tl_options->{to}      = int(param('to')   /1000) if param('to');
 
@@ -1382,7 +1377,6 @@ prefix '/:layout_name' => sub {
     };
 
     get '/data_graph/:id/:time' => require_login sub {
-
         my $graph_id = is_valid_id(param 'id');
         my $gdata    = _data_graph($graph_id);
 
@@ -1472,13 +1466,13 @@ prefix '/:layout_name' => sub {
         }
 
         # Setting a new view limit extra
-        if (my $extra = $sheet->user_can('view_limit_extra') && param('extra'))
-        {
-            session('persistent')->{view_limit_extra}{$sheet->id} = $extra;
+        if(my $extra = param 'extra')
+        {   _persistent $sheet, view_limit_extra => $extra
+                if $sheet->user_can('view_limit_extra');
         }
 
         my $new_view_id = param('view');
-        if (param 'views_other_user_clear')
+        if(param 'views_other_user_clear')
         {   session views_other_user_id => undef;
             $new_view_id = $sheet->views->default->id;
         }
@@ -1501,8 +1495,7 @@ prefix '/:layout_name' => sub {
         }
 
         if ($new_view_id)
-        {
-            session('persistent')->{view}{$sheet->id} = $new_view_id;
+        {   _persistent $sheet, view => $new_view_id;
 
             # Save to database for next login.
             # Check that it's valid first, otherwise database will bork
@@ -1515,21 +1508,21 @@ prefix '/:layout_name' => sub {
             session search => '';    # And remove any search to avoid confusion
         }
 
-        if(my $rows = param('rows'))
+        if(my $rows = param 'rows')
         {   session 'rows' => int $rows;
         }
 
-        if (my $page = param('page'))
+        if(my $page = param 'page')
         {   session 'page' => int $page;
         }
 
         my $viewtype;
         if($viewtype = param('viewtype'))
-        {   session('persistent')->{viewtype}{$sheet->id} = $viewtype
-                if $viewtype =~ /^(graph|table|calendar|timeline|globe)$/;
+        {   _persistent $sheet, viewtype => $viewtype
+                if $viewtype =~ /^(?:graph|table|calendar|timeline|globe)$/;
         }
         else
-        {   $viewtype = session('persistent')->{viewtype}{$sheet->id} || 'table';
+        {   $viewtype = (_persistent $sheet, 'viewtype') || 'table';
         }
 
         my $view       = current_view();
@@ -1537,23 +1530,17 @@ prefix '/:layout_name' => sub {
         my $params = { };
 
         if ($viewtype eq 'graph')
-        {
-            $params->{page}     = 'data_graph';
+        {   $params->{page}     = 'data_graph';
             $params->{viewtype} = 'graph';
             if (my $png = param 'png')
-            {
+            {   $params->{graph_id} = $png;
+
+                my $graph = $sheet->graphs->graph($png);
                 my $gdata = _data_graph($png);
-                my $json  = $gdata->as_json;
-                my $graph = GADS::Graph->new(
-                    id     => $png,
-                    layout => $layout,
-                );
-                my $options_in = $graph->as_json;
-                $params->{graph_id} = $png;
 
                 my $mech = _page_as_mech('data_graph', $params, width => 630, height => 400);
                 $mech->eval_in_page('(function(plotData, options_in){do_plot_json(plotData, options_in)})(arguments[0],arguments[1]);',
-                    $json, $options_in
+                    $gdata->as_json, $graph->as_json
                 );
 
                 my $png= $mech->content_as_png();
@@ -1564,23 +1551,17 @@ prefix '/:layout_name' => sub {
                     content_disposition => 'inline', # Default is attachment
                 );
             }
-            elsif (my $csv = param('csv'))
-            {
-                my $graph = GADS::Graph->new(
-                    id     => $csv,
-                    layout => $layout,
-                    schema => schema
-                );
-                my $gdata       = _data_graph($csv);
-                my $csv_content = $gdata->csv;
+            elsif(my $csv = param 'csv')
+            {   my $graph = $sheet->graphs->graph($csv);
+                my $gdata = _data_graph($csv);
                 return send_file(
-                    \$csv_content,
+                    \$gdata->csv,
                     content_type => 'text/csv',
                     filename     => "graph".$graph->id.".csv",
                 );
             }
-            else {
-                $params->{graphs} = GADS::Graphs->new(current_user => $user, schema => schema, layout => $layout)->all;
+            else
+            {   $params->{graphs} = $sheet->graphs->all_graphs;
             }
         }
         elsif ($viewtype eq 'calendar')
@@ -1589,12 +1570,10 @@ prefix '/:layout_name' => sub {
             my $records = GADS::Records->new(
                 user    => $user,
                 layout  => $layout,
-                schema  => schema,
             );
             my @columns = @{$records->columns_view};
             my @colors;
             my $graph = GADS::Graph::Data->new(
-                schema  => schema,
                 records => undef,
             );
 
@@ -1623,18 +1602,17 @@ prefix '/:layout_name' => sub {
                 rewind              => session('rewind'),
                 view_limit_extra_id => current_view_limit_extra_id(),
             );
-            my $tl_options = session('persistent')->{tl_options}{$sheet_id} ||= {};
-            if (param 'modal_timeline')
-            {
-                $tl_options->{label}   = param('tl_label');
+
+            my $tl_options = (_persistent $sheet)->{tl_options} ||= {};
+            if(param 'modal_timeline')
+            {   $tl_options->{label}   = param('tl_label');
                 $tl_options->{group}   = param('tl_group');
                 $tl_options->{color}   = param('tl_color');
                 $tl_options->{overlay} = param('tl_overlay');
             }
 
             # See whether to restore remembered range
-            if (
-                defined $tl_options->{from}   # Remembered range exists?
+            if (   defined $tl_options->{from}   # Remembered range exists?
                 && defined $tl_options->{to}
                 && ((!$tl_options->{view_id} && !$view) || ($view && $tl_options->{view_id} == $view->id)) # Using the same view
                 && $tl_options->{now} > DateTime->now->subtract(days => 7)->epoch # Within sensible window
@@ -1655,30 +1633,22 @@ prefix '/:layout_name' => sub {
             $params->{viewtype}     = 'timeline';
             $params->{search_limit_reached} = $records->search_limit_reached;
 
-            if (my $png = param('png'))
-            {
-                my $png = _page_as_mech('data_timeline', $params)->content_as_png;
-                return send_file(
-                    \$png,
-                    content_type => 'image/png',
-                );
+            if(param 'png')
+            {   my $png = _page_as_mech('data_timeline', $params)->content_as_png;
+                return send_file(\$png, content_type => 'image/png');
             }
-            if (param('modal_pdf'))
-            {
-                $tl_options->{pdf_zoom} = param('pdf_zoom');
-                my $pdf = _page_as_mech('data_timeline', $params, pdf => 1, zoom => $tl_options->{pdf_zoom})->content_as_pdf;
-                return send_file(
-                    \$pdf,
-                    content_type => 'application/pdf',
-                );
+
+            if(param 'modal_pdf')
+            {   my $zoom = $tl_options->{pdf_zoom} = param 'pdf_zoom';
+                my $pdf  = _page_as_mech('data_timeline', $params, pdf => 1, zoom => $zoom)->content_as_pdf;
+                return send_file(\$pdf, content_type => 'application/pdf');
             }
         }
         elsif ($viewtype eq 'globe')
         {
-            my $globe_options = session('persistent')->{globe_options}->{$layout->instance_id} ||= {};
-            if (param 'modal_globe')
-            {
-                $globe_options->{group} = param('globe_group');
+            my $globe_options = (_persistent $sheet)->{globe_options} ||= {};
+            if(param 'modal_globe')
+            {   $globe_options->{group} = param('globe_group');
                 $globe_options->{color} = param('globe_color');
                 $globe_options->{label} = param('globe_label');
             }
@@ -1687,10 +1657,9 @@ prefix '/:layout_name' => sub {
                 user   => $user,
                 view   => $view,
                 search => session('search'),
-                layout => $layout,
-                schema => schema,
                 rewind => session('rewind'),
             };
+
             my $globe = GADS::Globe->new(
                 group_col_id    => $globe_options->{group},
                 color_col_id    => $globe_options->{color},
@@ -1706,74 +1675,63 @@ prefix '/:layout_name' => sub {
             $params->{search_limit_reached} = $globe->records->search_limit_reached;
             $params->{count}                = $globe->records->count;
         }
-        else {
-            session 'rows' => 50 unless session 'rows';
-            session 'page' => 1 unless session 'page';
-
-            my $rows = defined param('download') ? undef : session('rows');
-            my $page = defined param('download') ? undef : session('page');
+        else
+        {   session rows => 50 unless session 'rows';
+            session page =>  1 unless session 'page';
+            my $is_download = defined param('download');
 
             my @additional;
             foreach my $key (keys %{query_parameters()})
-            {
-                $key =~ /^field([0-9]+)$/
-                    or next;
-                my $fid = $1;
-                my @values = query_parameters->get_all($key);
-                push @additional, {
-                    id    => $fid,
-                    value => [query_parameters->get_all($key)],
+            {   $key =~ /^field([0-9]+)$/ or next;
+                push @additional, +{
+                    id    => $1,
+                    value => [ query_parameters->get_all($key) ],
                 };
             }
 
-            my %params = (
-                user                => $user,
+            # If this is a filter from a group view, then disable the group for
+            # this rendering
+            my $is_group = defined query_parameters->get('group_filter') && @additional
+               ? 0 : $view->is_group;
+
+            my $sort = session 'sort';
+            if(param('sort') && param('sort') =~ /^([0-9]+)(asc|desc)$/)
+            {   my ($col_id, $sort_type) = ($1, $2);
+
+                # Check user has access
+				my $column = $layout->column($col_id);
+                $column && $column->user_can('read')
+                    or forwardHome({ danger => "Invalid column ID for sort" }, $sheet->identifier.'/data');
+
+                $sort = +{ type => $sort_type, id => $col_id };
+                session sort => $sort;
+            }
+
+            my $page = $sheet->data->search(
+                view => $view,
+                rows => $is_download ? undef : session('rows'),
+                page => $is_download ? undef : session('page'),
+                sort => $sort,   #XXX additional sort
                 search              => session('search'),
-                layout              => $layout,
-                schema              => schema,
                 rewind              => session('rewind'),
                 additional_filters  => \@additional,
                 view_limit_extra_id => current_view_limit_extra_id(),
+                is_group            => $is_group,
             );
-            # If this is a filter from a group view, then disable the group for
-            # this rendering
-            $params{is_group} = 0 if defined query_parameters->get('group_filter') && @additional;
-
-            my $records = GADS::Records->new(%params);
-
-            $records->view($view);
-            $records->rows($rows);
-            $records->page($page);
-            $records->sort(session 'sort');
-
-            if (param('sort') && param('sort') =~ /^([0-9]+)(asc|desc)$/)
-            {
-                my $sortcol  = $1;
-                my $sorttype = $2;
-                # Check user has access
-                forwardHome({ danger => "Invalid column ID for sort" }, $sheet->identifier.'/data')
-                    unless $layout->column($sortcol) && $layout->column($sortcol)->user_can('read');
-                my $existing = $records->sort_first;
-                my $type;
-                session 'sort' => { type => $sorttype, id => $sortcol };
-                $records->clear_sorts;
-                $records->sort(session 'sort');
-            }
 
             if (param 'modal_sendemail')
             {
                 forwardHome({ danger => "There are no records in this view and therefore nobody to email"}, $sheet->identifier.'/data')
-                    unless $records->results;
+                    unless $page->results;
 
                 return forwardHome(
                     { danger => 'You do not have permission to send messages' }, $sheet->identifier.'/data' )
                     unless $sheet->user_can("message");
 
-                if(process( sub {
-                    $::linkspace->mailer->message(
+                if(process( sub { $::linkspace->mailer->message(
                     subject => param('subject'),
                     text    => param('text'),
-                    records => $records,
+                    records => $page,
                     col_id  => param('peopcol'),
                 ) }))
                 {
@@ -1782,10 +1740,10 @@ prefix '/:layout_name' => sub {
                 }
             }
 
-            if (defined param('download'))
+            if($is_download)
             {
                 forwardHome({ danger => "There are no records to download in this view"}, $sheet->identifier.'/data')
-                    unless $records->count;
+                    unless $page->count;
 
                 # Return CSV as a streaming response, otherwise a long delay whilst
                 # the CSV is generated can cause a client to timeout
@@ -1800,11 +1758,10 @@ prefix '/:layout_name' => sub {
                         content_type 'text/csv; charset="utf-8"';
 
                         flush; # Required to start the async send
-                        content $records->csv_header;
+                        content $page->csv_header;
 
-                        while ( my $row = $records->csv_line ) {
-                            utf8::encode($row);
-                            content $row;
+                        while(my $row = $page->csv_line) {
+                            content encode('UTF-8', $row);
                         }
                         done;
                     } accept => 'WARNING-'; # Don't collect the thousands of trace messages
@@ -1816,44 +1773,37 @@ prefix '/:layout_name' => sub {
                };
             }
 
-            my $pages = $records->pages;
+            my $pages = $records->pages;   #XXX number_pages
 
-            my $subset = {
-                rows  => session('rows'),
-                pages => $pages,
-                page  => $page,
-            };
-            if ($pages > 50)
-            {
-                my @pnumbers = (1..5);
-                if ($page-5 > 6)
-                {
-                    push @pnumbers, '...';
-                    my $max = $page + 5 > $pages ? $pages : $page + 5;
-                    push @pnumbers, ($page-5..$max);
+            my @pnumbers;
+            if($pages > 50)
+            {   if($page-5 > 6)
+                {   push @pnumbers, 1..5, '...', $page-5 .. min($page+5, $pages);
                 }
-                else {
-                    push @pnumbers, (6..15);
+                else
+                {   push @pnumbers, 1..15;
                 }
-                if ($pages-5 > $page+5)
-                {
-                    push @pnumbers, '...';
-                    push @pnumbers, ($pages-4..$pages);
+
+                if($pages-5 > $page+5)
+                {   push @pnumbers, '...', $pages-4 .. $pages;
                 }
-                elsif ($pnumbers[-1] < $pages)
-                {
-                    push @pnumbers, ($pnumbers[-1]+1..$pages);
+                elsif($pnumbers[-1] < $pages)
+                {   push @pnumbers, $pnumbers[-1]+1 .. $pages;
                 }
-                $subset->{pnumbers} = [@pnumbers];
             }
-            else {
-                $subset->{pnumbers} = [1..$pages];
+            else
+            {   @pnumbers = 1 .. $pages;
             }
 
             my @columns = @{$records->columns_view};
             $params->{user_can_edit}        = $sheet->user_can('write_existing');
             $params->{sort}                 = $records->sort_first;
-            $params->{subset}               = $subset;
+            $params->{subset}               = +{
+                rows     => session('rows'),
+                pages    => $pages,
+                page     => $page,
+                pnumbers => \@pnumbers,
+            };
             $params->{records}              = $records->presentation;
             $params->{aggregate}            = $records->aggregate_presentation;
             $params->{count}                = $records->count;
@@ -1881,9 +1831,9 @@ prefix '/:layout_name' => sub {
             }
         }
 
-        if ( app->has_hook('plugin.data.before_template') ) {
+        if(app->has_hook('plugin.data.before_template') ) {
             # Note: this might modify $params
-            app->execute_hook('plugin.data.before_template', {
+            app->execute_hook('plugin.data.before_template', +{
                 user   => $user,
                 layout => $layout,
                 params => $params,
@@ -1899,7 +1849,7 @@ prefix '/:layout_name' => sub {
         $params->{alerts}            = $sheet->views->alerts;
         $params->{views_other_user}  = $users->user(session 'views_other_user_id');
 
-        $params->{breadcrumbs}              = [
+        $params->{breadcrumbs}        = [
             Crumb($sheet) =>
             Crumb($sheet, '/data' => 'records')
         ];
@@ -2261,7 +2211,7 @@ prefix '/:layout_name' => sub {
             ) } )
             {
                 # Set current view to the one created/edited
-                session('persistent')->{view}{$sheet->id} = $view->id;
+                _persistent $sheet, view => $view->id;
                 session search => ''; # remove any search to avoid confusion
 
                 # And remove any custom sorting, so that sort of view takes effect
@@ -2274,7 +2224,7 @@ prefix '/:layout_name' => sub {
         elsif (param 'delete')
         {
             if(process( sub { $view->view_delete }))
-            {   session('persistent')->{view}{$sheet->id} = undef;
+            {   _persistent $sheet, view => undef;
                 return forwardHome(
                     { success => "The view has been deleted successfully" }, $sheet->identifier.'/data' );
             }
@@ -2970,12 +2920,12 @@ __HTML
 }
 
 sub current_view {
-    my $view_id = session('persistent')->{view}{$sheet->id};
+    my $view_id = _persistent $sheet, 'view';
     $sheet->views->view($view_id) || $sheet->views->view_default;
 };
 
 sub current_view_limit_extra()
-{   my $extra_id = session('persistent')->{view_limit_extra}{$sheet->id}
+{   my $extra_id = _persistent $sheet, 'view_limit_extra'
        ||= $sheet->default_view_limit_extra_id;
 
     $sheet->view($extra_id);  # includes check existence
@@ -2990,22 +2940,20 @@ sub forwardHome {
     my ($message, $page, %options) = @_;
 
     if ($message)
-    {
-        my ($type) = keys %$message;
-        my $lroptions = {};
+    {   my ($type, $msg) = %$message;
+        my %lroptions;
         # Check for option to only display to user (e.g. passwords)
-        $lroptions->{to} = 'error_handler' if $options{user_only};
+        $lroptions{to} = 'error_handler' if $options{user_only};
 
-        if ($type eq 'danger')
-        {
-            $lroptions->{is_fatal} = 0;
-            report $lroptions, ERROR => $message->{$type};
+        if($type eq 'danger')
+        {   $lroptions{is_fatal} = 0;
+            report \%lroptions, ERROR => $msg;
         }
-        elsif ($type eq 'notice') {
-            report $lroptions, NOTICE => $message->{$type};
+        elsif($type eq 'notice')
+        {   report \%lroptions, NOTICE => $msg;
         }
-        else {
-            report $lroptions, NOTICE => $message->{$type}, _class => 'success';
+        else
+        {   report \%lroptions, NOTICE => $msg, _class => 'success';
         }
     }
     $page ||= '';
@@ -3023,10 +2971,11 @@ sub _page_as_mech
     $params->{base}         = "file://$public/";
     $params->{page_as_mech} = 1;
     $params->{zoom}         = (int $options{zoom} || 100) / 100;
-    my $timeline_html       = template $template, $params;
+
     my ($fh, $filename)     = tempfile(SUFFIX => '.html');
-    print $fh $timeline_html;
+    print $fh template($template, $params);
     close $fh;
+
     my $mech = WWW::Mechanize::PhantomJS->new;
     if ($options{pdf})
     {
@@ -3038,8 +2987,8 @@ sub _page_as_mech
             };
         ");
     }
-    elsif ($options{width} && $options{height}) {
-        $mech->eval_in_phantomjs("
+    elsif($options{width} && $options{height})
+    {   $mech->eval_in_phantomjs("
             this.viewportSize = {
                 width: $options{width},
                 height: $options{height},
@@ -3059,17 +3008,15 @@ sub _page_as_mech
 sub _data_graph
 {   my $id = shift;
 
-    my $records = GADS::RecordsGraph->new(
+    my $page = $sheet->data->search(
         search              => session('search'),
         view_limit_extra_id => current_view_limit_extra_id(),
         rewind              => session('rewind'),
+        group_values_as_index => 0,
+        view                => current_view(),
     );
 
-    GADS::Graph::Data->new(
-        id      => $id,
-        records => $records,
-        view    => current_view(),
-    );
+    $page->make_graph($graph, $page);
 }
 
 sub _process_edit
