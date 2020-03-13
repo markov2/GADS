@@ -18,13 +18,32 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Graph;
 
-use JSON qw(decode_json encode_json);
 use Log::Report 'linkspace';
+use JSON            qw(decode_json encode_json);
 use Linkspace::Util qw(is_valid_id);
+use List::Util      qw(any);
 
 use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
 use namespace::clean;
+extends 'Linkspace::DB::Table';
+
+### 2020-03-13: columns in GADS::Schema::Result::Graph
+# id              description     stackseries     x_axis_range
+# instance_id     from            to              y_axis
+# title           group_by        trend           y_axis_label
+# type            group_id        x_axis          y_axis_stack
+# user_id         is_shared       x_axis_grouping
+# as_percent      metric_group    x_axis_link
+
+sub db_table { 'Graph' }
+
+sub db_field_rename
+{  +{ group_by    => 'group_by_id',
+      x_axis      => 'x_axis_id',
+      x_axis_link => 'x_axis_link_id',
+      y_axis      => 'y_axis_id',
+    };
+}
 
 my @graph_types      = qw/bar line donut scatter pie/;
 my @trend_options    = qw/aggregate individual/;
@@ -41,54 +60,13 @@ Per sheet, a set of graphs can be defined.  They are managed by the
 L<Linkspace::Sheet::Graphs> helper object of the sheet.  Graphs get
 their data from columns and metrics.
 
-=head1 METHODS: Constructors
-=cut
-
-sub from_record($%)
-{   my ($class, $record, %args) = @_;
-    bless $record, $class;
-}
-
-sub from_id($%)
-{   my ($class, $id) = (shift, shift);
-    my $record = $::db->get_record(Graph => $id);
-	$class->from_record($record, @_);
-}
-
-#----------------
-=head1 METHODS: Generic accessors
-=cut
-
-has sheet => (
-    is      => 'lazy',
-    weakref => 1,
-    builder => sub { $::session->site->sheet($_[0]->instance_id) },
-);
-
-
-#----------------
 =head1 METHODS: Axis
 =cut
 
-### rename table columns
-sub x_axis_id      { $_[0]->SUPER::x_axis }
-sub x_axis_link_id { $_[0]->SUPER::x_axis_link }
-sub group_by_id    { $_[0]->SUPER::group_by }
-
-has x_axis => (
-    lazy    => 1,
-    builder => sub { $_[0]->sheet->column($_[0]->x_axis_id) }
-);
-
-has x_axis_link => (
-    lazy    => 1,
-    builder => sub { $_[0]->sheet->column($_[0]->x_axis_link_id) }
-);
-
-has group_by => (
-    lazy    => 1,
-    builder => sub { $_[0]->sheet->column($_[0]->group_by_id) }
-);
+has x_axis      => (lazy => 1, builder => sub { $_[0]->column($_[0]->x_axis_id)   });
+has x_axis_link => (lazy => 1, builder => sub { $_[0]->column($_[0]->x_axis_link_id) });
+has y_axis      => (lazy => 1, builder => sub { $_[0]->column($_[0]->y_axis_id)   });
+has group_by    => (lazy => 1, builder => sub { $_[0]->column($_[0]->group_by_id) });
 
 sub x_axis_full
 {   my $self = shift;
@@ -126,27 +104,19 @@ sub showlegend
     || $self->trend;
 }
 
-# Whether a user has the graph selected. Used by GADS::Graphs
-has selected => (
-    is     => 'rw',
-    isa    => Bool,
-    coerce => sub { $_[0] ? 1 : 0 },
-);
-
 sub writable
 {   my $self = shift;
 
-        $self->sheet->user_can("layout")
-    || ($self->group_id && $self->sheet->user_can("view_group"))
+        $self->sheet->user_can('layout')
+    || ($self->group_id && $self->sheet->user_can('view_group'))
     || ($self->user_id  && $::session->user->id == $self->user_id);
 }
 
-sub as_json
+sub legend_as_json
 {   my $self = shift;
 
     # Legend is shown for secondary groupings. No point otherwise.
-
-    encode_json {
+    encode_json +{
         type         => $self->type,
         x_axis_name  => $self->x_axis_name,
         y_axis_label => $self->y_axis_label,
@@ -155,9 +125,6 @@ sub as_json
         id           => $self->id,
     };
 }
-
-# Rarely called, so do not build hashes
-sub _in($@) { my $which = shift; first { $which eq $_ } @_ }
 
 sub validate($$$)
 {   my ($class, $graph_id, $sheet, $params) = @_;
@@ -170,7 +137,7 @@ sub validate($$$)
     }
 
     my $type  = $params->{type};
-    _in($type, @graph_types)
+    any { $type eq $_ } @graph_types
         or error __x"Invalid graph type {type}", type => $type;
 
     my $title = $params->{title}
@@ -186,7 +153,7 @@ sub validate($$$)
     my $y_axis_stack = $params->{y_axis_stack}
         or error __"A valid value is required for Y-axis stacking";
 
-    _in($y_axis_stack, @stack_options)
+    any { $y_axis_stack eq $_ } @stack_options
         or error __x"{yas} is not a invalid value for Y-axis", yas => $y_axis_stack;
 
     if($y_axis_stack eq 'sum')
@@ -205,7 +172,7 @@ sub validate($$$)
         or error __x"Unknown X-axis column {x_axis_id}", x_axis_id => $x_axis_id;
 
     my $trend = $params->{trend};
-    !$trend || _in($trend, @trend_options)
+    !$trend || any { $trend eq $_ } @trend_options
         or error __x"Invalid trend value: {trend}", trend => $trend;
 
     my $x_axis_range = $params->{x_axis_range};
@@ -213,7 +180,7 @@ sub validate($$$)
         if $trend && !$x_axis_range;
 
     my $xgroup = $params->{x_axis_grouping};
-    ! defined $xgroup || _in($xgroup, @grouping_options)
+    ! defined $xgroup || any { $xgroup eq $_ } @grouping_options
         or error __x"{xas} is an invalid value for X-axis grouping", xas => $xgroup;
 
     my $group_by_id = $params->{group_by};
@@ -349,32 +316,6 @@ sub show_changes($%)
     notice __x"Updating metric_group_id from {old} to {new} for graph {name}",
         old => $self->metric_group_id, new => $values->{metric_group_id}, name => $name
             if $self->metric_group_id != $values->{metric_group_id};
-}
-
-sub export_hash
-{   my $self = shift;
-    +{
-        title           => $self->title,
-        description     => $self->description,
-        y_axis          => $self->y_axis,
-        y_axis_stack    => $self->y_axis_stack,
-        y_axis_label    => $self->y_axis_label,
-        x_axis          => $self->x_axis,
-        x_axis_link     => $self->x_axis_link,
-        x_axis_grouping => $self->x_axis_grouping,
-        group_by        => $self->group_by,
-        stackseries     => $self->stackseries,
-        trend           => $self->trend,
-        from            => $self->from,
-        to              => $self->to,
-        x_axis_range    => $self->x_axis_range,
-        is_shared       => $self->is_shared,
-        user_id         => $self->user_id,
-        group_id        => $self->group_id,
-        as_percent      => $self->as_percent,
-        type            => $self->type,
-        metric_group_id => $self->metric_group_id,
-    };
 }
 
 1;

@@ -1,0 +1,58 @@
+#!/usr/bin/env perl
+# Convert table information into object extension documentation
+
+use warnings;
+use strict;
+use lib 'lib', '../lib';
+
+use Log::Report 'linkspace';
+use Getopt::Long qw/GetOptions/;
+use List::Util   qw/first max/;
+use POSIX        qw/ceil strftime/;
+
+GetOptions
+   'verbose|v+' => \(my $verbose = 0),
+   'short|s!'   => \(my $short = 0),
+   ;
+
+dispatcher mode => $verbose, 'ALL';
+
+@ARGV==1 or error "One table name expected.";
+my $table = shift @ARGV;
+
+my $pkg = "GADS::Schema::Result::$table";
+
+eval "require $pkg";
+if($@)
+{   error "Table $table does not exist." if $@ =~ / in \@INC/;
+    error "Failed to compile $table:\n$@" if $@;
+}
+
+my $info = $pkg->columns_info;
+
+# List some names first
+my %names = map +($_ => 1), keys %$info;
+my @names;
+delete $names{$_} && push @names, $_ for qw/id instance_id name title type user_id/;
+push @names, sort keys %names;
+
+my $longest_name = max 10, map length, @names;
+
+if($short)
+{   my $nr_cols = int(72/($longest_name+1));
+    my $nr_rows = ceil(@names / $nr_cols);
+    my @rows;
+    for(my $i = 0; $i < @names; $i++)
+    {   $rows[$i % $nr_rows] .= sprintf "%-${longest_name}s ", $names[$i];
+    }
+    my $today = strftime "%Y-%m-%d", localtime();
+    print "### $today: columns in $pkg\n"; 
+    s/^/# /, s/ *$/\n/ for @rows;
+    print @rows;
+}
+else
+{
+    foreach my $name (@names)
+    {   printf "%-${longest_name}s %s\n", $name, $info->{$name}{data_type};
+    }
+}

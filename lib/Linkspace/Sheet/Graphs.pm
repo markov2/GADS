@@ -80,7 +80,7 @@ sub user_graphs(%)
     @mine = grep !!$args{shared} == !!$_->is_shared, @mine
         if exists $args{shared};
 
-    [ map $self->graph($_), sort { $a->title cmp $b->title } @mine ];
+    [ map $self->graph($_->id), sort { $a->title cmp $b->title } @mine ];
 }
 
 =head2 $graphs->graph_delete($which);
@@ -102,19 +102,19 @@ sub graph_delete($)
     $self;
 }
 
-=head2 my $graph = $graphs->graph($graph_id);
-Returns an object based on L<Linkspace::Graph>.
+=head2 my $graph = $graphs->graph($which);
+Returns an object based on L<Linkspace::Graph>.  You may specify a graph by id,
+record, or object.
 =cut
 
 sub graph($)
-{   my ($self, $graph_id) = @_;
-    $graph_id or return;
+{   my ($self, $which) = @_;
+    $which or return;
 
-    my $record = $self->_graphs_index->{$graph_id};
-    $record->isa('Linkspace::Graph')
-        or Linkspace::Graph->from_record($record);
+    my $record = blessed $which ? $which : $self->_graphs_index->{$which};
+    return $record if $record->isa('Linkspace::Graph');
 
-    $record;
+    $self->_graphs_index->{$graph} = Linkspace::Graph->from_record($record);
 }
 
 #--------------------

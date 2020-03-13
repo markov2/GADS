@@ -97,14 +97,12 @@ __PACKAGE__->belongs_to(
 
 sub tl_options_inflated
 {   my $self = shift;
-    return undef if !$self->tl_options;
-    decode_json $self->tl_options;
+    $self->tl_options ? decode_json $self->tl_options : undef;
 }
 
 sub globe_options_inflated
 {   my $self = shift;
-    return undef if !$self->globe_options;
-    decode_json $self->globe_options;
+    $self->globe_options ? decode_json $self->globe_options : undef;
 }
 
 sub before_create
@@ -140,9 +138,8 @@ sub html
         title => $self->title,
     };
 
-    if ($self->type eq 'notice')
-    {
-        $params->{content} = $self->content;
+    if($self->type eq 'notice')
+    {   $params->{content} = $self->content;
     }
     else
     {
@@ -184,7 +181,7 @@ panic;
 
             $params->{graph_id}     = $self->graph_id;
             $params->{plot_data}    = $plot_data;
-            $params->{plot_options} = encode_base64 $graph->as_json, '';
+            $params->{plot_options} = encode_base64 $graph->legend_as_json, '';
         }
         elsif ($self->type eq 'timeline')
         {

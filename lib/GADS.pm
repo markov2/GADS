@@ -1540,7 +1540,7 @@ prefix '/:layout_name' => sub {
 
                 my $mech = _page_as_mech('data_graph', $params, width => 630, height => 400);
                 $mech->eval_in_page('(function(plotData, options_in){do_plot_json(plotData, options_in)})(arguments[0],arguments[1]);',
-                    $gdata->as_json, $graph->as_json
+                    $gdata->as_json, $graph->legend_as_json
                 );
 
                 my $png= $mech->content_as_png();
@@ -1953,9 +1953,9 @@ prefix '/:layout_name' => sub {
         {
             my $msg;
             if(process sub {
-                my $data = Linkspace::Graph->validate($group_id, $sheet, params);
+                my $data = Linkspace::Graph->validate($graph_id, $sheet, params);
                 if($graph_id)
-                {   $graph = $graphs->graph_update($graph, $data);
+                {   $graph = $graphs->graph_update($graph_id, $data);
                     $msg = "Graph has been updated successfully";
                 }
                 else
