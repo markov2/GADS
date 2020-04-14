@@ -52,10 +52,10 @@
                 <td>[% group.name | html_entity %]</td>
                 <td>
                     [% FOREACH column IN layout.all %]
-                        [% col_id = column.id %]
-                        [% IF group.columns.$col_id %]
+                        [% col_id = column.id; perms = group.colid2perms %]
+                        [% IF perms.$col_id %]
                             <strong>[% layout.column(col_id).name %]</strong>
-                            ([% group.columns.$col_id.join(', ') %])
+                            ([% perms.$col_id.join(', ') %])
                             <br>
                         [% END %]
                     [% END %]

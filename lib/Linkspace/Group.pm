@@ -22,77 +22,49 @@ use Log::Report 'linkspace';
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
-extends 'GADS::Schema::Result::Group';
+extends 'Linkspace::DB::Table';
 
-=head1 INHERITED
-  id()
-  site_id()            groups are site-wide
+sub db_table { 'Group' }
 
-  name()
-  default_read()
-  default_write_new()
-  default_write_existing()
-  default_approve_new()
-  default_approve_existing()
-  default_write_new_no_approval()
-  default_write_existing_no_approval()
-  layout_groups()      collect from LayoutGroup
-  user_groups()        collect from UserGroup
-  instance_groups()    collect from InstanceGroup
+sub db_rename {
+    +{ map +($_ => "default_$_"), GADS::Type::Permissions->all_shorts };
+}
 
-Do not use:
-  site()
+### 2020-03-17: columns in GADS::Schema::Result::Group
+# id                                 default_read
+# name                               default_write_existing
+# site_id                            default_write_existing_no_approval
+# default_approve_existing           default_write_new
+# default_approve_new                default_write_new_no_approval
+
+=head1 NAME
+Linkspace::Group - groups of Users
+
+=head1 DESCRIPTION
+The term 'group' is used in few different contexts for different purposes, but
+in most parts of the program it means 'group of Users'.
+
+It is a bit inconvenient that the names of the columns do not match the
+names of the permissions.  But prepending "default_" does more clearly
+express what their effect is on the users in the group: setting overrulable
+defaults.
+
+=head1 METHODS: Other
+
+=head2 \%table = $groups->colid2perms;
+Returns a HASH which contains all column_ids this group has explicit permissions
+to, with an array of permission objects for that column. (Used in template C<group.tt>)
 =cut
 
-has columns => (
-    is  => 'lazy',
-    isa => HashRef,
-);
-
-sub _build_columns
+sub colid2perms()
 {   my $self = shift;
-    my @perms = $::db->search(LayoutGroup => { group_id => $self->id })->all;
+    my @selected = $::db->search(LayoutGroup => { group_id => $self->id })->all;
     my %columns;
-    foreach my $perm (@perms)
-    {
-        $columns{$perm->layout_id} ||= [];
-        push @{$columns{$perm->layout_id}}, GADS::Type::Permission->new(
-            short => $perm->permission,
-        );
+    foreach my $selected (@selected)
+    {   push @{$columns{$selected->layout_id}},
+            GADS::Type::Permission->new(short => $selected->permission);
     }
     \%columns;
-}
-
-# Populate from the database by role ID
-sub from_id
-{   my ($self, $id) = @_;
-
-    $id or return;
-
-    my $group = $::db->get_record(Group => $id)
-        or return;
-
-    $self->_set__rset($group);
-    $self->name($group->name);
-    foreach my $perm (GADS::Type::Permissions->all)
-    {
-        my $name = "default_".$perm->short;
-        $self->$name($group->$name);
-    }
-    $self->_set_id($id);
-}
-
-# Write (updated) values to the database
-sub write
-{   my $self = shift;
-    my $newgroup;
-    $newgroup->{name} = $self->name or error __"Please enter a name";
-    foreach my $perm (GADS::Type::Permissions->all)
-    {
-        my $name = "default_".$perm->short;
-        $newgroup->{$name} = $self->$name;
-    }
-    $self->_rset->update($newgroup);
 }
 
 1;

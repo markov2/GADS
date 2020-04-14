@@ -33,7 +33,8 @@ my $info = $pkg->columns_info;
 # List some names first
 my %names = map +($_ => 1), keys %$info;
 my @names;
-delete $names{$_} && push @names, $_ for qw/id instance_id name title type user_id/;
+delete $names{$_} && push @names, $_
+   for qw/id instance_id name site_id title type user_id value/;
 push @names, sort keys %names;
 
 my $longest_name = max 10, map length, @names;

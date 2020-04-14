@@ -64,7 +64,11 @@ for the created object, processed Moo style.
 
 sub from_record($%)
 {   my ($class, $record) = (shift, shift);
-    $record->isa($self->db_result_class) or panic "wrong record of type";
+    defined $record or return;
+
+    $record->isa($self->db_result_class)
+        or panic "wrong record of type, ".(ref $record);
+
     $record ?  $class->new(@_, _record => $record) : undef;
 }
 
@@ -143,5 +147,18 @@ sub export_hash()
     delete $h{id};
     \%h;
 }
+
+=head2 $obj->delete;
+Remove the related record from the database.
+=cut
+
+sub delete() { $_[0]->_record->delete }
+
+=head2 $obj->update(\%insert);
+Change the database fields for the record.
+=cut
+
+sub update($) { $_[0]->_record->update($_[1]) }
+
 
 1;

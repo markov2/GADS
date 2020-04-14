@@ -5,10 +5,24 @@ use strict;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-extends 'Linkspace::User', 'GADS::Schema::Result::User';
+extends 'Linkspace::DB::Object', 'Linkspace::User';
 
 use Log::Report 'linkspace';
 use Scalar::Util qw(blessed);
+
+### 2020-03-13: columns in GADS::Schema::Result::User
+# id                    email                 organisation
+# title                 failcount             password
+# value                 firstname             pwchanged
+# account_request       freetext1             resetpw
+# account_request_notes freetext2             session_settings
+# aup_accepted          lastfail              site_id
+# created               lastlogin             stylesheet
+# debug_login           lastrecord            surname
+# deleted               lastview              team_id
+# department_id         limit_to_view         username
+
+sub db_table { 'User' }
 
 =head1 NAME
 Linkspace::User::Person - someone via the web interface
@@ -21,17 +35,7 @@ of these users is managed by L<Linkspace::Users>.
 
 =head1 METHODS: Constructors
 
-=head2 my $user = $class->from_record(\%data);
-Upgrades a raw database record of type L<GADS::Schema::Result::User> into
-a qualified Linkspace user (by blessing).
-=cut
-
-sub from_record
-{   my ($class, $record) = @_;
-
-    #XXX Probably more work to do here, later
-    bless $data, $class;
-}
+=head1 METHODS: Other
 
 =head2 $person->retire(%options);
 =cut
@@ -67,14 +71,6 @@ sub retire(%)
 
 #--------------------------
 =head1 METHODS: Accessors
-
-=cut
-
-has document => (
-    is       => 'ro',
-    required => 1,
-    weakref  => 1,
-);
 
 =head2 my $msg = $user->update_relations(%options);
 =cut
@@ -112,10 +108,10 @@ has groups_viewable => (
     is      => 'lazy',
 );
 
-sub _builder_groups_viewable
+sub _build_groups_viewable
 {   my $self = shift;
 
-    return @{$::session->site->groups}
+    return $::session->site->groups
         if $self->is_admin;
 
     # Layout admin, all groups in their layout(s)
@@ -139,26 +135,27 @@ sub _builder_groups_viewable
     [ values %groups ];
 }
 
-=head2 \@group = $user->groups;
-Returns group records.
-=cut
-
-sub groups { [ map $_->group, $_[0]->user_groups ] }
-
-=head2 my $member_of = $user->in_group($group);
-
-=head2 my $member_of = $user->in_group($group_id);
+=head2 my $member_of = $user->in_group($which);
+Returns true when the user is member of the groups which is specified as
+group_id or object.
 =cut
 
 has _in_group => (
     is      => 'lazy',
-    builder => sub { +{ map +($_->group_id => 1), @{$_[0]->user_groups} },
+    builder => sub { +{ map +($_->group_id => $_), @{$_[0]->user_groups} },
 }
 
 sub in_group($)
-{   my $self = shift;
-    $self->_in_group->{blessed $_[0] ? shift->id : shift};
+{   my ($self, $which) = @_;
+    my $group_id = blessed $which ? $which->id : $which;
+    $self->_in_group->{$which};
 }
+
+=head2 \@group = $user->groups;
+Returns group records.
+=cut
+
+sub groups { [ map $_->group, values %{$_[0]->_in_group} ] }
 
 # $user->_set_group_ids(\@group_ids);
 sub _set_group_ids
@@ -219,12 +216,7 @@ sub _set_view_limits
 
 sub _views_delete()
 {   my $self = shift;
-
-    my $site     = $::session->site;
-    my $views_rs = $self->search_related(views => {})
-
-    $site->sheet($_->{instance_id})->views->view_delete($_->{view_id})
-        for $views_rs->all;
+    $::db->delete(View => { user_id => $self->id });
 }
 
 #-----------------------
@@ -322,7 +314,7 @@ has _sheet_perms => (
 
 sub sheet_permissions($) { $_[0]->_sheet_perms->{$_[1]->id} }
 
-=head2 \%perm = $user->column_permissions($column);
+=head2 \%perm = $user->column_permissions($which);
 Returns the permissions this user has for the columns.
 =cut
 
@@ -354,9 +346,13 @@ has _col_perms = (
 }
 
 sub column_permissions($)
-{   my ($self, $column) = @_;
-    $self->_col_perms->{$column->id} || {};
+{   my ($self, $which) = @_;
+    my $col_id = blessed $which ? $which->id : $which;
+    $self->_col_perms->{$col_id} || {};
 }
+
+=head2 my $can = $user->can_access_column($column);
+=cut
 
 sub can_access_column($$)
 {   my ($self, $column, $perm) = @_;
