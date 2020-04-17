@@ -33,8 +33,9 @@ use Tree::DAG_Node;
 __PACKAGE__->register_type;
 
 sub can_multivalue { 1 }
-sub has_filter_typeahead { 1 }
 sub fixedvals      { 1 }
+sub form_extras    { [ 'end_node_only' ], [] }
+sub has_filter_typeahead { 1 }
 sub retrieve_fields{ [ qw/id value/ ] }
 sub table          { 'Enum' }
 
@@ -173,7 +174,7 @@ sub write_special
     return ();
 };
 
-sub validate
+sub valid_value($%)
 {   my ($self, $value, %options) = @_;
     return 1 if !$value;
 

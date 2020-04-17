@@ -868,12 +868,12 @@ sub fetch_multivalues
     {
         my @cols = ($column);
         if ($column->type eq 'curval')
-        {   my $multivals = $column->curval_fields_multivalue;
-            push @cols, @$multivals;
+        {   my @multivals = grep $_->is_multivalue, @{$column->curval_fields};
+            push @cols, @multivals;
 
             # Flag any curval multivalue fields as also requiring fetching
             push @{$curval_fields{$_->field}}, $column->field
-                for @$multivals;
+                for @multivals;
         }
 
         foreach my $col (@cols)

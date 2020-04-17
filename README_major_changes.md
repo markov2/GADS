@@ -83,7 +83,7 @@ result in Pages of sheet data.
   GADS::Alert -> Linkspace::View::Alert
 
 ### Class Linkspace::Filter (was GADS::Filter)
-Used by View, DisplayField, and Column objects.
+Stored as JSON in a view.
 
 ### Class Linkspace::Page::Row (was GADS::Record)
 

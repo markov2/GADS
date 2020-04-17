@@ -31,6 +31,7 @@ extends 'Linkspace::Column';
 __PACKAGE__->register_type;
 
 sub can_multivalue      { 1 }
+sub form_extras         { [ qw/textbox force_regex/ ], [] }
 sub has_multivalue_plus { 1 }
 
 ###

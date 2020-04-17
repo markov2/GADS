@@ -138,24 +138,22 @@ sub sheet_update($%)
     $self->_sheet_indexes_update($sheet => undef);
     $sheet->update(%changes);
 
-    my $new = Linkspace::Sheet->from_id($sheet->id,
-        document => $self->document
-    );
-    $self->_sheet_indexes_update($new);
-
-    $new;
+    my $fresh = Linkspace::Sheet->from_id($sheet->id, document => $self);
+    $self->_sheet_indexes_update($fresh);
+    $fresh;
 }
 
 =head2 my $sheet = $doc->sheet_create(%insert);
 =cut
 
 sub sheet_create(%)
-{   my ($self, %insert) = @_;
-    my $report_only = delete $insert{report_only};
-    my $sheet       = Linkspace::Sheet->sheet_create(%insert);
+{   my $self   = shift;
+    my $insert = @_==1 ? shift : +{ @_ };
+    my $sheet_id = Linkspace::Sheet->sheet_create($insert);
+    my $sheet    = Linkspace::Sheet->from_id($sheet_id, document => $self);
 
     $self->_sheet_indexes_update($sheet);
-    $self->sheet($sheet->id);
+    $sheet;
 }
 
 =head2 my $sheet = $doc->first_homepage

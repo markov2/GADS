@@ -31,6 +31,7 @@ extends 'Linkspace::Column';
 
 sub can_multivalue  { 1 }
 sub retrieve_fields { [ qw/name mimetype id/ ] }
+sub form_extras     { [ 'filesize' ], [] }
 
 ###
 ### Class
@@ -70,7 +71,7 @@ after build_values => sub {
     }
 };
 
-sub validate
+sub valid_value($%)
 {   my ($self, $value, %options) = @_;
     return 1 if !$value;
 
@@ -85,7 +86,14 @@ sub validate
 }
 
 # Any value is valid for a search, as it can include begins_with etc
-sub validate_search {1};
+sub validate_search {1}
+
+sub _collect_form_extra
+{   my ($class, $params) = @_;
+    my $extra = $class->SUPER::_collect_form_extra($params);
+    $extra->{filesize} = $params->{filesize};
+    $extra;
+}
 
 sub write_special
 {   my ($self, %options) = @_;

@@ -90,6 +90,22 @@ sub sheet_update($)
     $self->update(\%changes);
 }
 
+=head2 my $changes = $class->validate(\%data);
+=cut
+
+sub validate($)
+{   my ($class, $insert) = @_;
+    my $slid = $insert->{sort_layout_id};
+    ! defined $slid || is_valid_id $slid
+        or error __x"Invalid sheet sort_layout_id '{id}'", id => $slid;
+
+    my $st = $insert->{sort_type};
+    ! defined $st || $st eq 'asc' || $st eq 'desc'
+        error __x"Invalid sheet sort type {type}", type => $st;
+
+    $insert;
+}
+
 #--------------------
 =head1 METHODS: Generic accessors
 
@@ -102,6 +118,11 @@ has document => (
     is       => 'rw',
     weak_ref => 1,
 );
+
+=head2 my $label = $sheet->identifier;
+=cut
+
+sub identifier { $_[0]->name_short || 'table'.$_[0]->id }
 
 #--------------------
 =head1 METHODS: the Sheet itself

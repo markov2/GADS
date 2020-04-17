@@ -18,13 +18,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Column::Curval;
 
+use Log::Report 'linkspace';
+use Linkspace::Util qw/uniq_objects/;
+use Scalar::Util    qw/blessed/;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
 extends 'Linkspace::Column::Curcommon';
-
-use Log::Report 'linkspace';
-use Linkspace::Util qw/uniq_objects/;
 
 my @option_names = qw/override_permissions value_selector show_add delete_not_used/;
 
@@ -35,6 +36,7 @@ my @option_names = qw/override_permissions value_selector show_add delete_not_us
 __PACKAGE__->register_type;
 
 sub option_names { shift->SUPER::option_names(@_, @option_names) }
+sub form_extras { [ qw/refers_to_instance_id filter/ ], [ 'curval_field_ids' ] }
 
 ###
 ### Class
@@ -46,7 +48,7 @@ sub option_names { shift->SUPER::option_names(@_, @option_names) }
 
 has value_selector => (
     is      => 'rw',
-    isa     => sub { $_[0] =~ /^(typeahead|dropdown|noshow)$/ or panic "Invalid value_selector: $_[0]" },
+    isa     => sub { $_[0] =~ /^(?:typeahead|dropdown|noshow)$/ or panic "Invalid value_selector: $_[0]" },
     lazy    => 1,
     coerce => sub { $_[0] || 'dropdown' },
     builder => sub {
@@ -205,13 +207,12 @@ sub write_special
     return ();
 };
 
-sub validate
+sub valid_value($%)
 {   my ($self, $value, %options) = @_;
     return 1 if !$value;
     my $fatal = $options{fatal};
     if ($value !~ /^[0-9]+$/)
-    {
-        return 0 if !$fatal;
+    {   return 0 if !$fatal;
         error __x"Value for {column} must be an integer", column => $self->name;
     }
 
@@ -380,6 +381,12 @@ sub field_values($$%)
 
     map +{ value => $_ },
         @values ? @values : (undef);
+}
+
+sub refers_to_sheet($)
+{   my ($self, $which) = @_;
+    my $sheet_id = blessed $which ? $which->id : $which;
+    grep $_->child->sheet_id != $sheet_id, $self->curval_fields_parents;
 }
 
 1;

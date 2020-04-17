@@ -26,12 +26,17 @@ use namespace::clean;
 
 with 'GADS::Role::Presentation::Datum';
 
-use overload 'bool' => sub { 1 }, '""'  => 'as_string', '0+' => 'as_integer', fallback => 1;
+use overload
+    bool  => sub { 1 },
+    '""'  => 'as_string',
+    '0+'  => 'as_integer',
+    fallback => 1;
 
 sub set_value
 {   my ($self, $value, %options) = @_;
     error __"Cannot set this value as it is a parent value"
-        if !$options{is_parent_value} && !$self->column->can_child && $self->record && $self->record->parent_id;
+        if !$options{is_parent_value} && !$self->column->can_child
+        && $self->record && $self->record->parent_id;
     $self->clear_for_code;
 }
 
@@ -85,14 +90,12 @@ has blank => (
     isa     => Bool,
     lazy    => 1,
     builder => 1,
-    clearer => 1,
     coerce  => sub { $_[0] ? 1 : 0 },
 );
 
 # Used to seed the value from the database
 has init_value => (
     is        => 'ro',
-    clearer   => 1,
     predicate => 1,
 );
 
@@ -132,92 +135,68 @@ has is_awaiting_approval => (
     default => 0,
 );
 
-sub text_all
-{   my $self = shift;
-    [$self->as_string];
-}
-
-sub html
-{   my $self = shift;
-    encode_entities $self->as_string;
-}
-
-sub html_form
-{   my $self = shift;
-    [ defined $self->value ? $self->value : '' ];
-}
-
-sub filter_value
-{   my $self = shift;
-    $self->html_form->[0];
-}
+sub text_all     { [ $_[0]->as_string ] }
+sub html         { encode_entities $_[0]->as_string }
+sub html_form    { [ $_[0]->value // ''] }
+sub filter_value { $_[0]->html_form->[0] }
 
 # The values needed to pass to the set_values function of a datum. Normally the
 # same as the HTML fields, but overridden where necessary
-sub set_values { shift->html_form }
+sub set_values   { shift->html_form }
 
 # The value to search for unique values
-sub search_values_unique
-{   shift->html_form;
-}
+sub search_values_unique { $_[0]->html_form }
 
 # Overridden where applicable
 sub html_withlinks { $_[0]->html }
 
 # Not lazy, otherwise changes in display_field will not update this
 sub dependent_not_shown
-{   my $self = shift;
+{   my $self    = shift;
+    my $column  = $self->column;
+    my $filters = $column->display_fields->filters;
+    my @$filters or return 0;
 
-    my @filters = @{$self->column->display_fields->filters}
-        or return 0;
+    my $display_condition = $column->display_condition;
+    my $fields = $self->record->fields;
 
-    my $display_condition = $self->column->display_condition;
+#XXX must move to filter object
 
     my $shown = 0;
-
-    my $fields = $self->record->fields;
-    foreach my $filter (@{$self->column->display_fields->filters})
-    {
-        my $display_field_id = $filter->{column_id};
-        my $display_regex = $filter->{value};
-
-        if (!$fields->{$display_field_id})
-        {
-            $shown = 1;
+    foreach my $filter (@$filters)
+    {   my $field = $fields->{$filter->{column_id}};
+        if(!$field)
+        {   $shown = 1;
             next;
         }
 
-        my $matchtype = $filter->{operator};
-        $display_regex = '^'.$display_regex.'$'
+        my $matchtype     = $filter->{operator};
+        my $display_regex = $filter->{value};
+        $display_regex = "^$display_regex\$"
             if $matchtype =~ /equal/;
-        my $values = $fields->{$display_field_id}->value_regex_test;
+
+        my $values = $field->value_regex_test;
+        $values = [ '' ] if !@$values;
+
         my $this_not_shown = $matchtype =~ /not/ ? 0 : 1;
-        $values = [''] if !@$values;
-        foreach my $value (@$values)
-        {
-            if ($matchtype =~ /not/) {
-                $this_not_shown = 1 if $value =~ /$display_regex/;
-            } else {
-                $this_not_shown = 0 if $value =~ /$display_regex/;
-            }
+        if(grep /$display_regex/, @$values)
+        {   $this_not_shown = $matchtype =~ /not/ ? 1 : 0;
         }
 
         $shown = 1 if !$this_not_shown;
 
-        if ($display_condition)
-        {
-            if ($display_condition eq 'OR')
-            {
-                last if $shown;
-            }
-            else {
-                $shown = 0 if $this_not_shown;
-                last if !$shown;
-            }
+        $display_condition or next;  #XXX not the same as OR?
+
+        if($display_condition eq 'OR')
+        {   last if $shown;
+        }
+        else
+        {   $shown = 0 if $this_not_shown;
+            last if !$shown;
         }
     }
 
-    return !$shown;
+    !$shown;
 }
 
 sub clone
@@ -240,13 +219,7 @@ sub clone
 has already_seen_code => (
     is      => 'rw',
     lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        +{
-            $self->column->id => 1,
-        }
-    },
+    builder => sub { +{ $_[0]->column->id => 1 } },
 );
 
 # Associated with already_seen_code, this is the current level we are at whilst
@@ -254,18 +227,15 @@ has already_seen_code => (
 has already_seen_level => (
     is      => 'rw',
     lazy    => 1,
-    clearer => 1,
     builder => sub { 1 },
 );
 
 has for_code => (
     is      => 'lazy',
-    clearer => 1,
 );
 
-sub _build_for_code
-{   my $self = shift;
-    $self->as_string; # Default
+sub _build_for_code   # Default
+{   $_[0]->as_string;
 }
 
 sub _date_for_code
@@ -284,4 +254,3 @@ sub _date_for_code
 }
 
 1;
-

@@ -165,7 +165,7 @@ has has_children => (
 # calculated/rag fields, plus any fields that they depend on
 sub col_ids_for_cache_update
 {   my $self = shift;
-    my $sheet_id = shift->sheet->id;
+    my $sheet_id = $self->sheet->id;
 
     # First all the "parent" fields (the calc/rag fields)
     my %cols = map +($_ => 1), $::db->search(LayoutDepend => {
@@ -201,21 +201,21 @@ sub columns_for_filter
     my @columns;
     my %restriction = (include_internal => 1);
     $restriction{user_can_read} = 1 unless $options{override_permissions};
-    foreach my $col ($self->all(%restriction))
-    {
-        push @columns, $col;
-        if ($col->is_curcommon)
-        {
-            foreach my $c ($col->layout_parent->all(%restriction))
-            {
-                # No point including autocurs for a filter - it just refers
-                # back to the same record, so the filter should be done
-                # directly on it instead
-                next if $c->type eq 'autocur';
-                $c->filter_id($col->id.'_'.$c->id);
-                $c->filter_name($col->name.' ('.$c->name.')');
-                push @columns, $c;
-            }
+
+    foreach my $col ( @{$self->columns(%restriction)} )
+    {   push @columns, $col;
+        $col->is_curcommon or next;
+
+        my $parent_columns = $col->layout_parent->columns(%restriction);
+        foreach my $c (@$parent_columns)
+        {   # No point including autocurs for a filter - it just refers
+            # back to the same record, so the filter should be done
+            # directly on it instead
+            next if $c->type eq 'autocur';
+
+            $c->filter_id($col->id.'_'.$c->id);
+            $c->filter_name($col->name.' ('.$c->name.')');
+            push @columns, $c;
         }
     }
     @columns;
@@ -226,11 +226,13 @@ has max_width => (
     builder => sub { max map $_->width, $_[0]->all_columns },
 );
 
-sub position
+sub reposition
 {   my ($self, @column_ids) = @_;
     my $col_nr = 0;
-    $::db->update(Layout => $_, { position => ++$col_nr })
-        for @column_ids;
+    foreach my $col_id (@column_ids)
+    {   $::db->update(Layout => $_, { position => ++$col_nr });
+        $self->column($col_id)->position($col_nr);
+    }
 }
 
 sub contains_column($)
@@ -438,10 +440,13 @@ sub column($)
 
 sub column_create($)
 {   my ($self, %insert) = @_;
+    my $impl_class = delete $insert{impl_class}
+      || Linkspace::Column->type2class($insert{type});
+
     $insert{instance_id} = $self->sheet->id;
 
     $::db->begin_work;
-    my $column_id = Linkspace::Column->create_column(\%insert);
+    my $column_id = $impl_class->column_create(\%insert);
     my $column    = Linkspace::Column->from_id($column_id, layout => $self);
     $::db->commit;
 
@@ -491,7 +496,7 @@ sub _order_dependencies
 {   my ($self, @columns) = @_;
     @columns or return;
 
-    my %deps  = map +($_->id => $_->dependencies), @columns;
+    my %deps  = map +($_->id => $_->dependencies_ids), @columns;
     my $source = Algorithm::Dependency::Source::HoA->new(\%deps);
     my $dep    = Algorithm::Dependency::Ordered->new(source => $source)
         or die 'Failed to set up dependency algorithm';
@@ -557,35 +562,45 @@ sub columns
 
         my @new; my $previous_topic_id = 0; my %done;
         foreach my $col (@columns)
-        {
-            next if $done{$col->id};
-            $done{$col->id} = 1;
-            if ($col->topic_id && $col->topic_id != $previous_topic_id)
+        {   next if $done{$col->id}++;
+            if($col->topic_id && $col->topic_id != $previous_topic_id)
             {   foreach (@{$topics{$col->topic_id}})
                 {   push @new, $_;
-                    $done{$_->id} = 1;
+                    $done{$_->id}++;
                 }
             }
-            else {
-                push @new, $col;
-                $done{$col->id} = 1;
+            else
+            {   push @new, $col;
             }
             $previous_topic_id = $col->topic_id || 0;
         }
-        @columns = @new;
+        return \@new;
     }
+
+    return [ sort { $a->position <=> $b->position } @columns ]
+        if $options{sort_by_position};
 
     \@columns;
 }
 
-=head2 $layout->column_unuse($column);
+=head2 my $last = $layout->highest_position;
+Returns the highest position number in use.
+=cut
+
+sub highest_position()
+{   my $columns = shift->columns(include_hidden => 1, sort_by_position => 1) || [];
+    @$columns ? $columns->[-1]->position : 0;
+}
+
+=head2 $layout->column_unuse($which);
 Remove all kinds of usage for this column, maybe to delete it later.
 =cut
 
 sub column_unuse($)
-{   my ($self, $column) = @_;
+{   my ($self, $which) = @_;
+    my $col_id = blessed $which ? $which->id : $which;
 
-    my $col_ref = {layout_id => $column->id};
+    my $col_ref = { layout_id => $col_id };
     $::db->delete($_ => $col_ref)
         for qw/DisplayField LayoutDepend LayoutGroup/;
     $self;
@@ -608,7 +623,7 @@ sub column_delete($)
             Please remove these conditions before deletion.", dep => \@names;
     }
 
-    my $depending = $doc->columns($column->depended_by);
+    my $depending = $doc->columns($column->depended_by_ids);
     if(@$depending)
     {   error __x"The following fields contain this field in their formula: {dep}.
             Please remove these before deletion.",

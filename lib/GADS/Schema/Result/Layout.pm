@@ -553,61 +553,6 @@ __PACKAGE__->has_many(
   { cascade_copy => 0, cascade_delete => 0 },
 );
 
-=head2 instance
-
-Type: belongs_to
-
-Related object: L<GADS::Schema::Result::Instance>
-
-=cut
-
-__PACKAGE__->belongs_to(
-  "instance",
-  "GADS::Schema::Result::Instance",
-  { id => "instance_id" },
-  {
-    is_deferrable => 1,
-    join_type     => "LEFT",
-    on_delete     => "NO ACTION",
-    on_update     => "NO ACTION",
-  },
-);
-
-=head2 topic
-
-Type: belongs_to
-
-Related object: L<GADS::Schema::Result::Topic>
-
-=cut
-
-__PACKAGE__->belongs_to(
-  "topic",
-  "GADS::Schema::Result::Topic",
-  { id => "topic_id" },
-  {
-    is_deferrable => 1,
-    join_type     => "LEFT",
-    on_delete     => "NO ACTION",
-    on_update     => "NO ACTION",
-  },
-);
-
-=head2 instances
-
-Type: has_many
-
-Related object: L<GADS::Schema::Result::Instance>
-
-=cut
-
-__PACKAGE__->has_many(
-  "instances",
-  "GADS::Schema::Result::Instance",
-  { "foreign.sort_layout_id" => "self.id" },
-  { cascade_copy => 0, cascade_delete => 0 },
-);
-
 =head2 intgrs
 
 Type: has_many
@@ -621,121 +566,6 @@ __PACKAGE__->has_many(
   "GADS::Schema::Result::Intgr",
   { "foreign.layout_id" => "self.id" },
   { cascade_copy => 0, cascade_delete => 0 },
-);
-
-=head2 layout_depend_layouts
-
-Type: has_many
-
-Related object: L<GADS::Schema::Result::LayoutDepend>
-
-=cut
-
-__PACKAGE__->has_many(
-  "layout_depend_layouts",
-  "GADS::Schema::Result::LayoutDepend",
-  { "foreign.layout_id" => "self.id" },
-  { cascade_copy => 0, cascade_delete => 0 },
-);
-
-=head2 layout_groups
-
-Type: has_many
-
-Related object: L<GADS::Schema::Result::LayoutGroup>
-
-=cut
-
-__PACKAGE__->has_many(
-  "layout_groups",
-  "GADS::Schema::Result::LayoutGroup",
-  { "foreign.layout_id" => "self.id" },
-  { cascade_copy => 0, cascade_delete => 0 },
-);
-
-=head2 layout_link_parents
-
-Type: has_many
-
-Related object: L<GADS::Schema::Result::Layout>
-
-=cut
-
-__PACKAGE__->has_many(
-  "layout_link_parents",
-  "GADS::Schema::Result::Layout",
-  { "foreign.link_parent" => "self.id" },
-  { cascade_copy => 0, cascade_delete => 0 },
-);
-
-=head2 layouts
-
-Type: has_many
-
-Related object: L<GADS::Schema::Result::Layout>
-
-=cut
-
-__PACKAGE__->has_many(
-  "layouts",
-  "GADS::Schema::Result::Layout",
-  { "foreign.display_field" => "self.id" },
-  { cascade_copy => 0, cascade_delete => 0 },
-);
-
-=head2 layouts_depend_depends_on
-
-Type: has_many
-
-Related object: L<GADS::Schema::Result::LayoutDepend>
-
-=cut
-
-__PACKAGE__->has_many(
-  "layouts_depend_depends_on",
-  "GADS::Schema::Result::LayoutDepend",
-  { "foreign.depends_on" => "self.id" },
-  { cascade_copy => 0, cascade_delete => 0 },
-);
-
-=head2 link_parent
-
-Type: belongs_to
-
-Related object: L<GADS::Schema::Result::Layout>
-
-=cut
-
-__PACKAGE__->belongs_to(
-  "link_parent",
-  "GADS::Schema::Result::Layout",
-  { id => "link_parent" },
-  {
-    is_deferrable => 1,
-    join_type     => "LEFT",
-    on_delete     => "NO ACTION",
-    on_update     => "NO ACTION",
-  },
-);
-
-=head2 related_field
-
-Type: belongs_to
-
-Related object: L<GADS::Schema::Result::Layout>
-
-=cut
-
-__PACKAGE__->belongs_to(
-  "related_field",
-  "GADS::Schema::Result::Layout",
-  { id => "related_field" },
-  {
-    is_deferrable => 1,
-    join_type     => "LEFT",
-    on_delete     => "NO ACTION",
-    on_update     => "NO ACTION",
-  },
 );
 
 =head2 people
@@ -809,21 +639,6 @@ Related object: L<GADS::Schema::Result::String>
 __PACKAGE__->has_many(
   "strings",
   "GADS::Schema::Result::String",
-  { "foreign.layout_id" => "self.id" },
-  { cascade_copy => 0, cascade_delete => 0 },
-);
-
-=head2 view_layouts
-
-Type: has_many
-
-Related object: L<GADS::Schema::Result::ViewLayout>
-
-=cut
-
-__PACKAGE__->has_many(
-  "view_layouts",
-  "GADS::Schema::Result::ViewLayout",
   { "foreign.layout_id" => "self.id" },
   { cascade_copy => 0, cascade_delete => 0 },
 );

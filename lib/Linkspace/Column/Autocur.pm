@@ -30,10 +30,11 @@ extends 'Linkspace::Column::Curcommon';
 
 __PACKAGE__->register_type;
 
+sub form_extras    { [ qw/related_field_id/ ], [ 'curval_field_ids' ] }
+sub option_names   { shift->SUPER::option_names(@_, qw/override_permissions/ ) }
 sub userinput      { 0 }
 sub value_to_write { 0 }
 sub value_field    { 'id' }
-sub option_names   { shift->SUPER::option_names(@_, qw/override_permissions/ ) }
 
 ###
 ### Class

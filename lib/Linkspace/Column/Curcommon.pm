@@ -153,9 +153,6 @@ has curval_field_ids_index => (
     builder => sub { +{ map +($_ => undef), @{$_[0]->curval_field_ids} } },
 );
 
-# All the curval fields that are multivalue
-sub curval_fields_multivalue() { [ grep $_->is_multivalue, @{$_[0]->curval_fields} ] }
-
 has curval_field_ids_all => (
     is      => 'lazy',
     builder => sub
@@ -203,24 +200,19 @@ sub sort_columns
     [ map $_->sort_columns, @{$self->curval_fields} ];
 }
 
-# Does this column reference the field?
+#XXX Does this column reference the field?
 sub has_curval_field
 {   my ($self, $field) = @_;
     exists $self->curval_field_ids_index->{$field};
 }
 
 has all_ids => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
-
-sub _build_all_ids
-{   my $self = shift;
-    [
-        $::db->search(Current => {
-            instance_id => $self->related_sheet_id,
-        })->get_column('id')->all
-    ];
+    is      => 'lazy',
+    isa     => ArrayRef,
+    builder => sub
+    {  [ $::db->search(Current => { instance_id => $self->related_sheet_id })
+          ->get_column('id')->all ];
+    },
 }
 
 has filtered_values => (
@@ -489,8 +481,7 @@ sub values_beginning_with
     push @rules, $self->view->filter->as_hash
         if $self->view;
 
-    my $filter = GADS::Filter->new(
-        as_hash => {
+    my $filter = Linkspace::Filter->from_hash( +{
             condition => 'AND',
             rules     => \@rules,
         },

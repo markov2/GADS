@@ -342,28 +342,6 @@ __PACKAGE__->has_many(
 #    filter_from_storage => '_scrub',
 #});
 
-sub identifier
-{   my $self = shift;
-    $self->name_short || "table".$self->id;
-}
-
-sub delete
-{   my $self = shift;
-    $self->result_source->schema->resultset('Layout')->search({
-        instance_id => $self->id,
-    })->count
-        and error __"All fields must be deleted from this table before it can be deleted";
-    $self->next::method(@_);
-}
-
-sub validate {
-    my $self = shift;
-    !defined $self->sort_layout_id || $self->sort_layout_id =~ /^[0-9]+$/
-        or error __x"Invalid sort_layout_id {id}", id => $self->sort_layout_id;
-    !defined $self->sort_type || $self->sort_type eq 'asc' || $self->sort_type eq 'desc'
-        or error __x"Invalid sort type {type}", type => $self->sort_type;
-}
-
 sub _scrub
 {   my ($self, $html) = @_;
     my $scrubber = HTML::Scrubber->new(

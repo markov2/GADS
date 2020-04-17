@@ -23,6 +23,7 @@ use Log::Report        'linkspace';
 use DateTime;
 use Date::Holidays::GB qw/is_gb_holiday gb_holidays/;
 use Linkspace::Util    qw/index_by_id/;
+use List::Utils        qw/uniq/;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -155,12 +156,16 @@ sub params
 
 sub param_columns
 {   my ($self, %options) = @_;
+    my $sheet_id = $self->sheet_id;
+    my $layout   = $self->layout;
+
     grep $_, map {
-        my $col = $self->layout->column_by_name_short($_)
+        my $col = $layout->column($_)
             or $options{is_fatal} && error __x"Unknown short column name \"{name}\" in calculation", name => $_;
-        $col->instance_id == $self->instance_id
+
+        $col->sheet_id == $sheet->id
             or $options{is_fatal} && error __x"It is only possible to use fields from the same table ({table1}). \"{name}\" is from {table2}.",
-                name => $_, table1 => $self->layout->name, table2 => $col->layout->name;
+                name => $_, table1 => $self->sheet->name, table2 => $col->sheet->name;
         $col;
     } $self->params;
 }
@@ -358,25 +363,24 @@ sub write_special
 
     my %return_options;
     my $changed = $self->write_code($id, %options); # Returns true if anything relevant changed
-    my $update_deps = exists $options{update_dependents} ? $options{update_dependents} : $changed;
-    if ($update_deps)
+
+    if($options{update_dependents} || $changed)
     {
         $return_options{no_alerts} = 1 if $new;
 
-        # Stop duplicates
-        my %depends_on = index_by_id grep !$_->internal,
+        my @depends_on_ids = map $_->id, grep !$_->internal,
             $self->param_columns(is_fatal => $options{override} ? 0 : 1);
 
         $::db->delete(LayoutDepend => { layout_id => $id });
 
         $::db->create(LayoutDepend => { layout_id => $id, depends_on => $_ })
-            for keys %depends_on;
+            for uniq @depends_on_ids;
     }
     else
     {   $return_options{no_cache_update} = 1;
     }
     %return_options;
-};
+}
 
 # We don't really want to do this within a transaction as it can take a
 # significantly long time, so do once the transaction has completed

@@ -41,6 +41,12 @@ sub import(%)
 sub { \@_==1 or panic "read-only accessor ${class}::$attr"; \$_[0]->_record->$acc }
 __ACCESSOR
     }
+
+    foreach my $acc ($class->db_fields_unused)
+    {   *{"${class}::$acc"} = eval <<__STUMB;
+sub { panic "field $attr in $table not expected to be used" }
+    }
+__STUMB
 }
 
 # To be overwritten
@@ -52,6 +58,7 @@ sub db_result_class { 'GADS::Schema::Result::' . $_[0]->db_table }
 # themselves, but that's quite some effort.  Explicitly: rename all fields which
 # accidentally lack a _id but are numeric identifiers.
 sub db_field_rename { +{} }
+sub db_fields_unused { () }
 
 #-----------------------
 =head1 METHODS: Constructors
@@ -113,9 +120,9 @@ has _get_column => (
     }
 );
 
-sub column($) { $_[0]->get_column->($_[1]) }
+sub column($) { $_[0]->_get_column->($_[1]) }
 
-=head2 $obj->sheet;
+=head2 my $sheet = $obj->sheet;
 Returns the Sheet where the object belongs to, if defined.  Often this
 is passed explicitly when the object get's created... but can also be
 looked-up under fly.
@@ -130,6 +137,13 @@ has sheet => (
         $::session->site->sheet($_[0]->sheet_id) } : undef;
     },
 );
+
+=head2 my $layout = $obj->layout;
+Returns a L<Linkspace::Sheet::Layout> object, which administers the columns
+in the active sheet.
+=cut
+
+sub layout { $_[0]->sheet->layout }
 
 #-----------------------
 =head1 METHODS: Other methods

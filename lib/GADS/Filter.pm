@@ -22,6 +22,7 @@ use Encode;
 use JSON qw(decode_json encode_json);
 use Log::Report 'linkspace';
 use MIME::Base64;
+use Scalar::Util qw(blessed);
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -226,8 +227,9 @@ sub _remove_column_id($$)
 }
 
 sub remove_column($)
-{   my ($self, $column) = @_;
-    $column or return $self;
+{   my ($self, $which) = @_;
+    $which or return $self;
+    my $column_id = blessed $which ? $which->id : $which;
     (ref $self)->from_hash(_remove_column_id $self, $column_id);
 }
 

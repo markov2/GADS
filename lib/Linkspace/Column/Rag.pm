@@ -41,8 +41,9 @@ my %rag_id2string = map @$_, @filter_values;
 
 __PACKAGE__->register_type;
 
-sub table     { 'Ragval' }
-sub fixedvals { 1 }
+sub table       { 'Ragval' }
+sub fixedvals   { 1 }
+sub form_extras { [ qw/code_rag no_alerts_rag no_cache_update_rag/ ], [] }
 
 ### for Rag presentation only
 

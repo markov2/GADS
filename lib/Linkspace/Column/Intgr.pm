@@ -65,7 +65,7 @@ has show_calculator => (
     trigger => sub { $_[0]->reset_options },
 );
 
-sub validate
+sub valid_value($%)
 {   my ($self, $value, %options) = @_;
 
     foreach my $v (ref $value ? @$value : $value)

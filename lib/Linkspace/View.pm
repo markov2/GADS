@@ -19,14 +19,29 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::View;
 
 use Log::Report 'linkspace';
-use GADS::Alert;
-use GADS::Filter;
 use MIME::Base64;
 use String::CamelCase qw(camelize);
+
 use List::Util qw(first);
+use Linkspace::View::Alert;
+use Linkspace::Filter;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
+extends 'Linkspace::DB::Table';
+
+sub db_table { 'View' }
+sub db_field_rename { +{
+    filter      => 'filter_json',
+    instance_id => 'sheet_id',
+    global      => 'is_global',
+} };
+
+### 2020-04-16: columns in GADS::Schema::Result::View
+# id             user_id        group_id
+# instance_id    filter         is_admin
+# name           global         is_limit_extra
+
 use namespace::clean;
 
 =head1 NAME
@@ -68,15 +83,9 @@ sub from_id($%)
 	$class->new(%$record);
 }
 
-# Whether the logged-in user has the layout permission
-has user_can_layout => (
-    is => 'ro',
-);
-
 has filter => (
     is      => 'rw',
     lazy    => 1,
-    clearer => 1,
     coerce  => sub {
         my $value = shift;
         if (ref $value ne 'GADS::Filter')
@@ -159,7 +168,7 @@ has owner => (
 sub has_access_via_global($)
 {   my ($self, $victim) = @_;
     my $gid = $self->group_id;
-    $gid && $self->global ? $victim->in_group($gid) : 0;
+    $gid && $self->is_global ? $victim->in_group($gid) : 0;
 }
 
 sub _is_writable($;$)
@@ -173,7 +182,7 @@ sub _is_writable($;$)
     if($self->is_admin)
     {   return 1 if $sheet->user_can(sheet => $victim);
     }
-    elsif($self->global)
+    elsif($self->is_global)
     {   return 1 if !$self->group_id && $sheet->user_can(sheet => $victim);
         return 1 if  $self->group_id && $sheet->user_can(view_group => $victim);
     }
@@ -192,7 +201,7 @@ sub _sorts($$)
 #TODO move code from write() here
 }
 
-sub update
+sub view_update
 {   my ($self, %update) = @_;
 
     length $update{name} < 128
@@ -204,26 +213,26 @@ sub update
     my $sheet   = delete $update{sheet};
     $update{instance_id} = $sheet->id;
 
-    if ($update{global} || $update{is_admin})
+    if($update{global} || $update{is_admin})
     {   $update{user_id} = undef;
     }
-    elsif(!$self->user_id)
-    {    # Preserve owner if editing other user's view
+    elsif(! $self->user_id && $sheet->user_can('layout'))
+    {   # Preserve owner if editing other user's view
         $update{user_id} = $::session->user->id
-             if ! $self->user_id && $sheet->user_can('layout');
     }
 
-    $update{filter} = $self->filter->as_json($update{filter});
+    my $filter = Linkspace::Filter->from_json($update{filter}, view => $self);
+    $update{filter} = $filter->as_json if $filter;
+
+    $::session->user->isa('Linkspace::User::Person')
+        or $update{global} = 1;
 
     my $guard = $::db->begin_work;
 
     $self->_update_column_ids($col_ids);
     $self->_sorts(delete $update{sortfields}, $update{sorttypes});
     $self->_groups(delete $update{groups});
-    $self->_filter(delete $update{filter});
-
-    $::session->user->isa('Linkspace::User::Person')
-        or $update{global} = 1;
+    $self->_filter($filter);
 
     $::db->update(View => $self->id, \%update);
     $guard->commit;
@@ -241,7 +250,7 @@ sub write
     length $self->name < 128
         or error __"View name must be less than 128 characters";
 
-    my $global   = ! $sheet->user ? 1 : $self->global;
+    my $global   = ! $sheet->user ? 1 : $self->is_global;
 
     my $vu = {
         name        => $self->name,
@@ -252,33 +261,30 @@ sub write
         group_id    => $self->group_id,
     };
 
-    if ($global || $self->is_admin)
-    {
-        $vu->{user_id} = undef;
+    if($global || $self->is_admin)
+    {   $vu->{user_id}  = undef;
     }
-    elsif(! $self->user_id) { # preserve owner if editing other user's view
-        $vu->{user_id} = $::session->user->id;
-             if $self->user_can_layout;
+    elsif(! $self->user_id && $self->user_can('layout'))
+    {   $vu->{user_id} = $::session->user->id;
     }
 
     # Get all the columns in the filter. Check whether the user has
     # access to them.
     foreach my $filter (@{$self->filter->filters})
-    {
-        my $col   = $self->layout->column($filter->{column_id})
-            or error __x"Field ID {id} does not exist", id => $filter->{column_id};
+    {   my $col_id = $filter->{column_id};
+        my $col    = $self->column($col_id)
+            or error __x"Field ID {id} does not exist", id => $col_id
         my $val   = $filter->{value};
         my $op    = $filter->{operator};
         my $rtype = $col->return_type;
         if ($rtype eq 'daterange')
-        {
-            if ($op eq 'equal' || $op eq 'not_equal')
+        {   if ($op eq 'equal' || $op eq 'not_equal')
             {
                 # expect exact daterange format, e.g. "yyyy-mm-dd to yyyy-mm-dd"
                 $col->validate_search($val, fatal => $fatal, full_only => 1); # Will bork on failure
             }
-            else {
-                $col->validate_search($val, fatal => $fatal, single_only => 1); # Will bork on failure
+            else
+            {   $col->validate_search($val, fatal => $fatal, single_only => 1); # Will bork on failure
             }
         }
         elsif($op ne 'is_empty' && $op ne 'is_not_empty')
@@ -288,10 +294,10 @@ sub write
 
         my $has_value = $val && (ref $val ne 'ARRAY' || @$val);
         error __x "No value can be entered for empty and not empty operators"
-            if ($op eq 'is_empty' || $op eq 'is_not_empty') && $has_value;
+            if $has_value && ($op eq 'is_empty' || $op eq 'is_not_empty');
 
         $col->user_can('read')
-             or error __x"Invalid field ID {id} in filter", id => $filter->{column_id};
+             or error __x"Invalid field ID {id} in filter", id => $col->id;
     }
 
     my $user = $::session->user;
@@ -372,7 +378,7 @@ XXX caller must reinstate full View.
     my @all_filters = @{$self->filter->filters};
     foreach my $filter (@all_filters)
     {
-        unless (grep { $_->layout_id == $filter->{column_id} } @existing)
+        unless (grep $_->layout_id == $filter->{column_id}, @existing)
         {
             # Unable to add internal columns to filter table, as they don't
             # reference any columns from the layout table
@@ -561,15 +567,19 @@ Options: C<page> (starting from 1), C<rows> max to return, C<from> DateTime.
 
 sub search(%) { ... }
 
-=head2 $view->filters_remove_column($column);
+
+=head2 $view->filter_remove_column($column);
+Remove the use of C<$column> from the filter.
 =cut
 
-sub filters_remove_column($)
+sub filter_remove_column($)
 {   my ($self, $column) = @_;
-...
-#   $_->remove_column($column) for $self->filters;
+    my $stripped = $self->filter->remove_column($column);
+    $self->filter($stripped);
+
+    my $json     = encode_json $stripped;
+    $self->update({filter => $json});
+    $self->filter_json($json);
 }
-
-
 
 1;

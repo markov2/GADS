@@ -36,6 +36,7 @@ use List::Util   qw(first);
 __PACKAGE__->register_type;
 
 sub can_multivalue { 1 }
+sub form_extras { [ qw/code_calc no_alerts_calc return_type no_cache_update_calc/ ], [] }
 sub has_filter_typeahead { $_[0]->return_type eq 'string' }
 sub numeric() { my $rt = $_[0]->return_type; $rt eq 'integer' || $rt eq 'numeric' }
 sub table     { 'Calcval' }
@@ -122,7 +123,7 @@ sub resultset_for_values
     $::db->(Calcval => { layout_id => $self->id }, { group_by  => 'me.value_text' });
 }
 
-sub validate
+sub valid_value
 {   my ($self, $value) = @_;
     my $rt = $self->return_type;
       $rt eq 'date'    ? $self->parse_date($value)

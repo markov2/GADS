@@ -674,7 +674,7 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
     }
 
     if(param 'submit')
-    {   my %data = (
+        my %data = (
             name           => param 'name',
             name_short     => param 'name_short',
             sort_layout_id => param 'sort_layout_id',
@@ -684,12 +684,13 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
 
         my $msg;
         if(process(sub {
+            my $changes = Linkspace::Sheet->validate(\%data);
             if($sheet)
-            {   $sheet->sheet_update($sheet, %data);
+            {   $sheet->sheet_update($sheet, $changes);
                 $msg = 'The table has been updated successfully';
             }
             else
-            {   $sheet = $site->documents->sheet_create(%data);
+            {   $sheet = $site->documents->sheet_create($changes);
                 $msg   = 'Your new table has been created successfully';
             }
         }))
@@ -2231,9 +2232,9 @@ prefix '/:layout_name' => sub {
         }
 
         my $page
-            = $is_clone ? 'view/clone'
-            : $is_new   ? 'view/0'
-            :             'view';
+          = $is_clone ? 'view/clone'
+          : $is_new   ? 'view/0'
+          :             'view';
 
         my @breadcrumbs = (
            Crumb($sheet),
@@ -2283,18 +2284,18 @@ prefix '/:layout_name' => sub {
 
         if($col_id || param('submit') || param('update_perms'))
         {
-            my $column;
+            my ($column, $colname);
             if($col_id)
-            {   $column = $layout->column($col_id)
+            {   $column  = $layout->column($col_id)
                     or error __x"Column ID {id} not found", id => $col_id;
+                $colname = $column->name;
             }
 
-            if(param 'delete')
+            if($col_id && param 'delete')
             {   # Provide plenty of logging in case of repercussions of deletion
-                my $colname = $column->name;
                 trace __x"Starting deletion of column {name}", name => $colname;
                 $::session->audit("User '$username' deleted field '$colname'");
-                if (process( sub { $layout->column_delete }))
+                if (process( sub { $layout->column_delete($column) }))
                 {
                     return forwardHome(
                         { success => "The item has been deleted successfully" }, $sheet->identifier.'/layout' );
@@ -2302,64 +2303,15 @@ prefix '/:layout_name' => sub {
             }
 
             if (param 'submit')
-            {
-                my %permissions;
-
-                m/^permission_(.*?)_(\d+)$/ && push @{$permissions{$2}}, $1
-                    for keys %{ params() };
-
-                my $type = param 'type';
-                my %data =
-                  ( permissions    => \%permissions,
-                  , display_fields => param('display_fields'),
-                  );
-
-                $data{$_} = param $_
-                    for Linkspace::Column->attributes_for($type);
-
-                #XXX normalization and validation?
-                my %extra;
-                my $no_alerts;
-                if($type eq 'file')
-                {   $extra{filesize}      = param 'filesize';
-                }
-                elsif($type eq 'rag')
-                {   $extra{code}          = param 'code_rag';
-                    $extra{no_alerts}     = param 'no_alerts_rag';
-                }
-                elsif($type eq 'enum')
-                {   $extra{enumvals}      = [ body_parameters->get_all('enumval') ];
-                    $extra{enumval_ids}   = [ body_parameters->get_all('enumval_id') ];
-                    $extra{ordering}      = param 'ordering';
-                }
-                elsif($type eq 'calc')
-                {   $extra{code}          = param 'code_calc';
-                    $extra{return_type}   = param 'return_type';
-                    $extra{no_alerts}     = param 'no_alerts_calc';
-                }
-                elsif($type eq 'tree')
-                {   $extra{end_node_only} = param 'end_node_only');
-                }
-                elsif($type eq 'string')
-                {   $extra{textbox}       = param 'textbox';
-                    $extra{force_regex}   = param 'force_regex');
-                }
-                elsif($type eq 'curval')
-                {   $extra{refers_to_instance_id} = param 'refers_to_instance_id');
-                    $extra{filter}        = param 'filter';
-                    $extra{curval_field_ids} = [body_parameters->get_all('curval_field_ids' ];
-                }
-                elsif($type eq 'autocur')
-                {   $extra{curval_field_ids} = [ body_parameters->get_all('autocur_field_ids') ];
-                    $extra{related_field_id} = param 'related_field_id';
-                }
-
-                $extra{no_cache_update}   = $type eq 'rag'
-                  ? param 'no_cache_update_rag'
-                  : param 'no_cache_update_calc';
-
-                my $msg;
+            {   my $msg;
                 if(process( sub {
+                    $sheet->user_can('layout')
+                        or error __"You do not have permission to manage fields";
+
+                    # Collecting the data from the params() is quite difficult
+                    # hence in the Column implementation.
+                    my $changes = Linkspace::Column->collect_form($column, $sheet, params);
+
                    if($column)
                    {   $layout->column_update($column, %data);
                        $column->extra_update(\%extra);
@@ -2382,22 +2334,21 @@ prefix '/:layout_name' => sub {
         {   $params->{column} = 0; # New
             push @breadcrumbs, Crumb($sheet, "/layout/0" => 'new field');
         }
-        $params->{groups}             = $site->groups->all_groups;
-        $params->{permissions}        = $groups->all_permissions;
-        $params->{permission_mapping} = GADS::Type::Permissions->permission_mapping;
-        $params->{permission_inputs}  = GADS::Type::Permissions->permission_inputs;
-        $params->{topics}             = $sheet->all_topics;
 
-        if (param 'saveposition')
-        {
-            my @position = body_parameters->get_all('position');
-            if (process( sub { $layout->position(@position) }))
+        if(param 'saveposition')
+        {   my @column_ids = body_parameters->get_all('position');
+            if (process( sub { $layout->reposition(@column_ids) }))
             {
                 return forwardHome(
                     { success => "The ordering has been saved successfully" }, $sheet->identifier.'/layout' );
             }
         }
 
+        $params->{groups}             = $site->groups->all_groups;
+        $params->{permissions}        = $groups->all_permissions;
+        $params->{permission_mapping} = GADS::Type::Permissions->permission_mapping;
+        $params->{permission_inputs}  = GADS::Type::Permissions->permission_inputs;
+        $params->{topics}             = $sheet->all_topics;
         $params->{breadcrumbs} = \@breadcrumbs;
         template layout => $params;
     };

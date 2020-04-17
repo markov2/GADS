@@ -36,8 +36,10 @@ __PACKAGE__->register_type;
 
 sub can_multivalue { 1 }
 sub fixedvals      { 1 }
+sub form_extras    { [ 'ordering' ], [ qw/enumvals enumval_ids/ ] }
 sub has_filter_typeahead { 1 }
 sub retrieve_fields      { [ qw/id value deleted/] }
+
 
 ###
 ### Class
@@ -187,7 +189,7 @@ sub write_special
     return ();
 };
 
-sub validate
+sub valid_value($%)
 {   my ($self, $value, %options) = @_;
     return 1 if !$value || defined $self->enumval($value);
 
@@ -197,7 +199,7 @@ sub validate
 }
 
 # Any value is valid for a search, as it can include begins_with etc
-sub validate_search {1};
+sub validate_search {1}
 
 sub enumval
 {   my ($self, $id) = @_;

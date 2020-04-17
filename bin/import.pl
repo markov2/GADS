@@ -354,7 +354,6 @@ foreach my $l (@all_layouts)
             }
         }
     }
-
 }
 
 foreach my $todo (@columns_todo)
@@ -374,14 +373,14 @@ foreach my $todo (@columns_todo)
     }
 
     if(my $filter = $data->{filter})
-    {   $data->{filter} = Linkspace::Filter->from_json(layout => $any_layout)
+    {   $data->{filter} = Linkspace::Filter->from_json(sheet => $any_sheet)
             ->renumber_columns(\%column_ext2int);
     }
 
-    $layout->column_update($column, $data,
-        report     => $report_only && $todo->{updated},
-        force       => $force
-        no_cache_update => 1,
+    $column->column_update($data,
+        report => $report_only && $todo->{updated},
+        force  => $force
+        no_cache_update   => 1,
         update_dependents => 1,
     );
 
@@ -400,10 +399,9 @@ foreach my $todo (@columns_todo)
     }
 }
 
-if (!$report_only && $update_cached)
-{
-    $_->{column}->can('update_cached') && $_->{column}->update_cached(no_alerts => 1)
-        foreach @columns_todo;
+if(!$report_only && $update_cached)
+{   $_->can('update_cached') && $_->update_cached(no_alerts => 1)
+        for map $_->{column}, @columns_todo;
 }
 
 if($report_only) { $guard->rollback }
