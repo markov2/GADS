@@ -1,17 +1,16 @@
 package Linkspace::Site;
-use parent 'GADS::Schema::Result::Site';
-
-use Moo;
 
 use warnings;
 use strict;
 
 use Log::Report 'linkspace';
+use List::Util   qw(first);
 
 use Linkspace::Site::Users ();
 use Linkspace::Document ();    # only a single document, so no manager object
 
-use List::Util   qw(first);
+use Moo;
+extends 'Linkspace::DB::Table';
 
 =head1 NAME
 Linkspace::Site - manages one Site (set of Documents with Users)
@@ -26,30 +25,32 @@ Manage a single "Site": a set of sheets with data, accessed by users.
 
 There may be more than one separate site in a single Linkspace database
 instance, therefore the top-level tables have a C<site_id> column.
+=cut
+
+sub db_table { 'Site' }
+
+### 2020-04-18: columns in GADS::Schema::Result::Site
+# id                              register_freetext1_name
+# name                            register_freetext2_help
+# created                         register_freetext2_name
+# email_delete_subject            register_notes_help
+# email_delete_text               register_organisation_help
+# email_reject_subject            register_organisation_mandatory
+# email_reject_text               register_organisation_name
+# email_welcome_subject           register_show_department
+# email_welcome_text              register_show_organisation
+# hide_account_request            register_show_team
+# homepage_text                   register_show_title
+# homepage_text2                  register_team_help
+# host                            register_team_mandatory
+# register_department_help        register_team_name
+# register_department_mandatory   register_text
+# register_department_name        register_title_help
+# register_email_help             remember_user_location
+# register_freetext1_help
+
 
 =head1 METHODS: Constructors
-
-=head2 my $site = Linkspace::Site->from_record($record, %options);
-=cut
-
-sub from_record($)
-{   my ($class, $record) = @_;
-    my $self = bless $record, $class;
-
-    # The site may have changed since the last time we used it (while
-    # processing the previous request).
-    $::db->schema->setup_site($self);
-    $self;
-}
-
-=head2 my $site = Linkspace::Site->from_id($id, %options);
-=cut
-
-sub from_id($%)
-{   my ($class, $id) = (shift, shift);
-    my $record = $::db->get_record(Site => $id) or return;
-    $record ? $class->from_record($record) : undef;
-}
 
 =head2 my $site = Linkspace::Site->find($hostname, %options);
 Create the object from the database.  Sites are globally maintained
@@ -121,9 +122,9 @@ my %_component_loaded;  # global
 
 sub refresh
 {	my $self = shift;
-    $::linkspace->db->schema->update_fields($self);
+    $::db->schema->update_fields($self);
 
-return;
+return $self;  #XXX
     my $now  = time;
     my @versions = $::db->search(ComponentVersions => {
         site_id => $self->id,
@@ -189,6 +190,10 @@ sub groups { $_[0]->users }    # managed by the same helper object
 
 #-------------------------
 =head1 METHODS: Manage Documents
+Sheets are grouped into Documents: a set of sheets which belong together
+in a project.  It shares the Users and Group definitions of a department
+but the content is totally independent.  However... this is not supported
+yet: you need to create new Sites for such purpose.
 
 =head2 my $document = $site->document;
 Returns the L<Linkspace::Document> object which manages the sheets for
@@ -197,11 +202,10 @@ this site.
 
 has document => (
     is      => 'lazy',
-    builder => sub { inkspace::Document->new(site => $_[0]) },
+    builder => sub { Linkspace::Document->new(site => $_[0]) },
 );
 
 =head2 my $sheet = $site->sheet($which, %options);
-
 Returns the sheet with that (long or short) name or id.  Have
 a look at L<Linkspace::Document> method C<sheet()> for the C<%options>.
 =cut

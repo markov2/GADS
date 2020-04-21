@@ -25,7 +25,7 @@
 
     <div class="checkbox stored-value">
         <label>
-            <input type="checkbox" name="optional" [% IF column.optional %]checked[% END %]>This field is optional
+            <input type="checkbox" name="optional" [% IF column.is_optional %]checked[% END %]>This field is optional
         </label>
     </div>
 
@@ -132,13 +132,13 @@
     </div>
     <div class="checkbox stored-value">
         <label>
-            <input type="checkbox" name="isunique" [% IF column.isunique %]checked[% END %]>The values for this field must be unique
+            <input type="checkbox" name="isunique" [% IF column.is_unique %]checked[% END %]>The values for this field must be unique
         </label>
     </div>
     [% IF column.can_multivalue %]
         <div class="checkbox">
             <label>
-                <input type="checkbox" name="multivalue" [% IF column.multivalue %]checked[% END %]>Allow multiple values
+                <input type="checkbox" name="multivalue" [% IF column.is_multivalue %]checked[% END %]>Allow multiple values
             </label>
         </div>
     [% END %]
@@ -321,7 +321,7 @@
         </div>
         <div class="form-group">
             <label for="force_regex">Require the field value to be in a particular format: [% whats_this('modalhelp_force_regex') %]</label>
-            <input id="force_regex" class="form-control" type="text" name="force_regex" value="[% column.force_regex | html_entity %]">
+            <input id="force_regex" class="form-control" type="text" name="force_regex" value="[% column.force_regex_string | html_entity %]">
         </div>
     </div>
     <div class="field-options intgr">
@@ -607,7 +607,7 @@
                     [% col.name_short | html_entity %]
                 </td>
                 <td class="drag">
-                    [% col.display_fields_as_text.join(': ') | html_entity %]
+                    [% col.display_field.as_text | html_entity %]
                 </td>
             </tr>
             [% END %]
@@ -716,11 +716,13 @@
                     $('#autocur_instance_' + divid).show();
                 });
 
+                [% fiilter    = column.filter %]
+                [% filter_b64 = filter ? filter.base64(layout) : undef %]
                 [% FOREACH instance_layout IN instance_layouts %]
-                    [% PROCESS builder.tt builder_id = instance_layout.instance_id builder_layout = instance_layout filter_normal = column.filter filter_base64 = column.filter.base64 override_permissions = 1 %]
+                    [% PROCESS builder.tt builder_id = instance_layout.instance_id builder_layout = instance_layout filter_normal = filter filter_base64 = filter_b64 override_permissions = 1 %]
                 [% END %]
                 [% IF column.filter.has_value %]
-                    var data = base64.decode('[% column.filter.base64 %]');
+                    var data = base64.decode('[% filte_rb64 %]');
                     $('#builder[% column.related_sheet_id %]').queryBuilder('setRules',
                         JSON.parse(data)
                     );
@@ -744,8 +746,8 @@
                         {type: 'not_contains',     accept_values: true,  apply_to: ['string']}
                     ]
                 });
-                [% IF column.display_fields.has_value %]
-                    var data = base64.decode('[% column.display_fields.base64 %]');
+                [% IF column.display_field %]
+                    var data = base64.decode('[% column.display_field.base64(layout) %]');
                     $('#displayConditionsBuilder').queryBuilder('setRules',
                         JSON.parse(data)
                     );

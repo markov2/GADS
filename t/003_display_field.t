@@ -63,8 +63,8 @@ $record->find_current_id(3);
 
 # Initial checks
 {
-    is($record->fields->{$string1->id}->as_string, 'Foo', 'Initial string value is correct');
-    is($record->fields->{$integer1->id}->as_string, '50', 'Initial integer value is correct');
+    is($record->field($string1->id)->as_string, 'Foo', 'Initial string value is correct');
+    is($record->field($integer1->id)->as_string, '50', 'Initial integer value is correct');
 }
 
 my @types = (
@@ -130,28 +130,28 @@ foreach my $test (@types)
 
     # Test write of value that should be shown
     {
-        $record->fields->{$string1->id}->set_value($test->{normal});
-        $record->fields->{$integer1->id}->set_value('150');
+        $record->field($string1->id)->set_value($test->{normal});
+        $record->field($integer1->id)->set_value('150');
         $record->write(no_alerts => 1);
 
         $record->clear;
         $record->find_current_id(3);
 
-        is($record->fields->{$string1->id}->as_string, $test->{string_normal} || $test->{normal}, "Updated string value is correct (normal $test->{type})");
-        is($record->fields->{$integer1->id}->as_string, '150', "Updated integer value is correct (normal $test->{type})");
+        is($record->field($string1->id)->as_string, $test->{string_normal} || $test->{normal}, "Updated string value is correct (normal $test->{type})");
+        is($record->field($integer1->id)->as_string, '150', "Updated integer value is correct (normal $test->{type})");
     }
 
     # Test write of value that shouldn't be shown (string)
     {
-        $record->fields->{$string1->id}->set_value($test->{blank});
-        $record->fields->{$integer1->id}->set_value('200');
+        $record->field($string1->id)->set_value($test->{blank});
+        $record->field($integer1->id)->set_value('200');
         $record->write(no_alerts => 1);
 
         $record->clear;
         $record->find_current_id(3);
 
-        is($record->fields->{$string1->id}->as_string, $test->{string_blank} || $test->{blank}, "Updated string value is correct (blank $test->{type})");
-        is($record->fields->{$integer1->id}->as_string, '', "Updated integer value is correct (blank $test->{type})");
+        is($record->field($string1->id)->as_string, $test->{string_blank} || $test->{blank}, "Updated string value is correct (blank $test->{type})");
+        is($record->field($integer1->id)->as_string, '', "Updated integer value is correct (blank $test->{type})");
     }
 }
 
@@ -268,31 +268,31 @@ foreach my $test (@types)
         # Test write of value that should be shown
         if ($value->{normal})
         {
-            $record->fields->{$string1->id}->set_value($value->{normal}->{string1});
-            $record->fields->{$enum1->id}->set_value($value->{normal}->{enum1});
-            $record->fields->{$integer1->id}->set_value('150');
+            $record->field($string1->id)->set_value($value->{normal}->{string1});
+            $record->field($enum1->id)->set_value($value->{normal}->{enum1});
+            $record->field($integer1->id)->set_value('150');
             $record->write(no_alerts => 1);
 
             $record->clear;
             $record->find_current_id(3);
 
-            is($record->fields->{$string1->id}->as_string, $value->{normal}->{string1}, "Updated string value is correct");
-            is($record->fields->{$integer1->id}->as_string, '150', "Updated integer value is correct");
+            is($record->field($string1->id)->as_string, $value->{normal}->{string1}, "Updated string value is correct");
+            is($record->field($integer1->id)->as_string, '150', "Updated integer value is correct");
         }
 
         # Test write of value that shouldn't be shown (string)
         if ($value->{blank})
         {
-            $record->fields->{$string1->id}->set_value($value->{blank}->{string1});
-            $record->fields->{$enum1->id}->set_value($value->{blank}->{enum1});
-            $record->fields->{$integer1->id}->set_value('200');
+            $record->field($string1->id)->set_value($value->{blank}->{string1});
+            $record->field($enum1->id)->set_value($value->{blank}->{enum1});
+            $record->field($integer1->id)->set_value('200');
             $record->write(no_alerts => 1);
 
             $record->clear;
             $record->find_current_id(3);
 
-            is($record->fields->{$string1->id}->as_string, $value->{blank}->{string1}, "Updated string value is correct");
-            is($record->fields->{$integer1->id}->as_string, '', "Updated integer value is correct");
+            is($record->field($string1->id)->as_string, $value->{blank}->{string1}, "Updated string value is correct");
+            is($record->field($integer1->id)->as_string, '', "Updated integer value is correct");
         }
     }
 }
@@ -315,13 +315,13 @@ $layout->clear;
         schema => $schema,
     );
     $record->initialise;
-    $record->fields->{$string1->id}->set_value('foobar');
-    $record->fields->{$integer1->id}->set_value('');
+    $record->field($string1->id)->set_value('foobar');
+    $record->field($integer1->id)->set_value('');
     try { $record->write(no_alerts => 1) };
     like($@, qr/is not optional/, "Record failed to be written with shown mandatory blank");
 
-    $record->fields->{$string1->id}->set_value('foo');
-    $record->fields->{$integer1->id}->set_value('');
+    $record->field($string1->id)->set_value('foo');
+    $record->field($integer1->id)->set_value('');
     try { $record->write(no_alerts => 1) };
     ok(!$@, "Record successfully written with hidden mandatory blank");
 }
@@ -391,23 +391,23 @@ foreach my $field (@fields)
         schema => $schema,
     );
     $record->initialise;
-    $record->fields->{$col->id}->set_value($field->{value_blank});
-    $record->fields->{$integer1->id}->set_value(838);
+    $record->field($col->id)->set_value($field->{value_blank});
+    $record->field($integer1->id)->set_value(838);
     try { $record->write(no_alerts => 1) };
     my $cid = $record->current_id;
     $record->clear;
     $record->find_current_id($cid);
-    is($record->fields->{$integer1->id}->as_string, '', "Value not written for blank regex match (column $field->{field})");
+    is($record->field($integer1->id)->as_string, '', "Value not written for blank regex match (column $field->{field})");
 
     $record->clear;
     $record->initialise;
-    $record->fields->{$col->id}->set_value($field->{value_match});
-    $record->fields->{$integer1->id}->set_value(839);
+    $record->field($col->id)->set_value($field->{value_match});
+    $record->field($integer1->id)->set_value(839);
     try { $record->write(no_alerts => 1) };
     $cid = $record->current_id;
     $record->clear;
     $record->find_current_id($cid);
-    is($record->fields->{$integer1->id}->as_string, '839', "Value written for regex match (column $field->{field})");
+    is($record->field($integer1->id)->as_string, '839', "Value written for regex match (column $field->{field})");
 }
 
 # Test blank value match
@@ -421,13 +421,13 @@ foreach my $field (@fields)
         schema => $schema,
     );
     $record->initialise;
-    $record->fields->{$string1->id}->set_value('');
-    $record->fields->{$integer1->id}->set_value(789);
+    $record->field($string1->id)->set_value('');
+    $record->field($integer1->id)->set_value(789);
     $record->write(no_alerts => 1);
     my $cid = $record->current_id;
     $record->clear;
     $record->find_current_id($cid);
-    is($record->fields->{$integer1->id}->as_string, '789', "Value written for blank regex match");
+    is($record->field($integer1->id)->as_string, '789', "Value written for blank regex match");
 
     $record = GADS::Record->new(
         user   => $sheet->user,
@@ -435,13 +435,13 @@ foreach my $field (@fields)
         schema => $schema,
     );
     $record->initialise;
-    $record->fields->{$string1->id}->set_value('foo');
-    $record->fields->{$integer1->id}->set_value(234);
+    $record->field($string1->id)->set_value('foo');
+    $record->field($integer1->id)->set_value(234);
     $record->write(no_alerts => 1);
     $cid = $record->current_id;
     $record->clear;
     $record->find_current_id($cid);
-    is($record->fields->{$integer1->id}->as_string, '', "Value not written for blank regex match");
+    is($record->field($integer1->id)->as_string, '', "Value not written for blank regex match");
 }
 
 # Test value that depends on tree. Full levels of tree values can be tested
@@ -457,63 +457,63 @@ foreach my $field (@fields)
     $record->find_current_id(3);
 
     # Set value of tree that should blank int
-    $record->fields->{$tree1->id}->set_value(10); # value: tree1
-    $record->fields->{$integer1->id}->set_value('250');
+    $record->field($tree1->id)->set_value(10); # value: tree1
+    $record->field($integer1->id)->set_value('250');
     $record->write(no_alerts => 1);
 
     $record->clear;
     $record->find_current_id(3);
 
-    is($record->fields->{$tree1->id}->as_string, 'tree1', 'Initial tree value is correct');
-    is($record->fields->{$integer1->id}->as_string, '', 'Updated integer value is correct');
+    is($record->field($tree1->id)->as_string, 'tree1', 'Initial tree value is correct');
+    is($record->field($integer1->id)->as_string, '', 'Updated integer value is correct');
 
     # Set matching value of tree - int should be written
-    $record->fields->{$tree1->id}->set_value(12);
-    $record->fields->{$integer1->id}->set_value('350');
+    $record->field($tree1->id)->set_value(12);
+    $record->field($integer1->id)->set_value('350');
     $record->write(no_alerts => 1);
 
     $record->clear;
     $record->find_current_id(3);
 
-    is($record->fields->{$tree1->id}->as_string, 'tree3', 'Updated tree value is correct');
-    is($record->fields->{$integer1->id}->as_string, '350', 'Updated integer value is correct');
+    is($record->field($tree1->id)->as_string, 'tree3', 'Updated tree value is correct');
+    is($record->field($integer1->id)->as_string, '350', 'Updated integer value is correct');
 
     # Same but multivalue - int should be written
-    $record->fields->{$tree1->id}->set_value([10,12]);
-    $record->fields->{$integer1->id}->set_value('360');
+    $record->field($tree1->id)->set_value([10,12]);
+    $record->field($integer1->id)->set_value('360');
     $record->write(no_alerts => 1);
 
     $record->clear;
     $record->find_current_id(3);
 
-    is($record->fields->{$tree1->id}->as_string, 'tree1, tree3', 'Updated tree value is correct');
-    is($record->fields->{$integer1->id}->as_string, '360', 'Updated integer value is correct');
+    is($record->field($tree1->id)->as_string, 'tree1, tree3', 'Updated tree value is correct');
+    is($record->field($integer1->id)->as_string, '360', 'Updated integer value is correct');
 
     # Now test 2 tree levels
     $integer1->display_fields(_filter(col_id => $tree1->id, regex => 'tree2#tree3'));
     $integer1->write;
     $layout->clear;
     # Set matching value of tree - int should be written
-    $record->fields->{$tree1->id}->set_value(12);
-    $record->fields->{$integer1->id}->set_value('400');
+    $record->field($tree1->id)->set_value(12);
+    $record->field($integer1->id)->set_value('400');
     $record->write(no_alerts => 1);
 
     $record->clear;
     $record->find_current_id(3);
 
-    is($record->fields->{$tree1->id}->as_string, 'tree3', 'Tree value is correct');
-    is($record->fields->{$integer1->id}->as_string, '400', 'Updated integer value with full tree path is correct');
+    is($record->field($tree1->id)->as_string, 'tree3', 'Tree value is correct');
+    is($record->field($integer1->id)->as_string, '400', 'Updated integer value with full tree path is correct');
 
     # Same but reversed - int should not be written
-    $record->fields->{$tree1->id}->set_value(11);
-    $record->fields->{$integer1->id}->set_value('500');
+    $record->field($tree1->id)->set_value(11);
+    $record->field($integer1->id)->set_value('500');
     $record->write(no_alerts => 1);
 
     $record->clear;
     $record->find_current_id(3);
 
-    is($record->fields->{$tree1->id}->as_string, 'tree2', 'Tree value is correct');
-    is($record->fields->{$integer1->id}->as_string, '', 'Updated integer value with full tree path is correct');
+    is($record->field($tree1->id)->as_string, 'tree2', 'Tree value is correct');
+    is($record->field($integer1->id)->as_string, '', 'Updated integer value with full tree path is correct');
 
     # Same, but test higher level of full tree path
     $integer1->display_fields(_filter(col_id => $tree1->id, regex => 'tree2#', operator => 'contains'));
@@ -522,18 +522,18 @@ foreach my $field (@fields)
     $record->clear;
     $record->find_current_id(3);
     # Set matching value of tree - int should be written
-    $record->fields->{$tree1->id}->set_value(12);
-    $record->fields->{$integer1->id}->set_value('600');
+    $record->field($tree1->id)->set_value(12);
+    $record->field($integer1->id)->set_value('600');
     $record->write(no_alerts => 1);
 
     $record->clear;
     $record->find_current_id(3);
 
-    is($record->fields->{$tree1->id}->as_string, 'tree3', 'Tree value is correct');
-    is($record->fields->{$integer1->id}->as_string, '600', 'Updated integer value with full tree path is correct');
+    is($record->field($tree1->id)->as_string, 'tree3', 'Tree value is correct');
+    is($record->field($integer1->id)->as_string, '600', 'Updated integer value with full tree path is correct');
 }
 
-# Tests for dependent_not_shown
+# Tests for dependent_shown
 {
     $integer1->display_fields(_filter(col_id => $string1->id, regex => 'Foobar'));
     $integer1->write;
@@ -545,29 +545,29 @@ foreach my $field (@fields)
         schema => $schema,
     );
     $record->initialise;
-    $record->fields->{$string1->id}->set_value('Foobar');
-    $record->fields->{$integer1->id}->set_value('100');
+    $record->field($string1->id)->set_value('Foobar');
+    $record->field($integer1->id)->set_value('100');
     $record->write(no_alerts => 1);
 
     my $current_id = $record->current_id;
     $record->clear;
     $record->find_current_id($current_id);
-    ok(!$record->fields->{$string1->id}->dependent_not_shown, "String shown in view");
-    ok(!$record->fields->{$integer1->id}->dependent_not_shown, "Integer shown in view");
+    ok($record->field($string1->id)->dependent_shown, "String shown in view");
+    ok($record->field($integer1->id)->dependent_shown, "Integer shown in view");
 
-    $record->fields->{$string1->id}->set_value('Foo');
-    $record->fields->{$integer1->id}->set_value('200');
+    $record->field($string1->id)->set_value('Foo');
+    $record->field($integer1->id)->set_value('200');
     $record->write(no_alerts => 1);
-    ok(!$record->fields->{$string1->id}->dependent_not_shown, "String still shown in view");
-    ok($record->fields->{$integer1->id}->dependent_not_shown, "Integer not shown in view");
+    ok($record->field($string1->id)->dependent_shown, "String still shown in view");
+    ok(record->field($integer1->id)->dependent_shown, "Integer not shown in view");
 
-    $record->fields->{$string1->id}->set_value('Foobarbar');
-    $record->fields->{$integer1->id}->set_value('200');
+    $record->field($string1->id)->set_value('Foobarbar');
+    $record->field($integer1->id)->set_value('200');
     $record->write(no_alerts => 1);
-    ok(!$record->fields->{$string1->id}->dependent_not_shown, "String still shown in view");
-    ok($record->fields->{$integer1->id}->dependent_not_shown, "Integer not shown in view");
+    ok($record->field($string1->id)->dependent_shown, "String still shown in view");
+    ok(!$record->field($integer1->id)->dependent_shown, "Integer not shown in view");
 
-    # Although dependent_not_shown is not used in table view, it is still
+    # Although dependent_shown is not used in table view, it is still
     # generated as part of the presentation layer
     my $records = GADS::Records->new(
         user   => $sheet->user,
@@ -578,7 +578,7 @@ foreach my $field (@fields)
     while (my $rec = $records->single)
     {
         # Will always be shown as the column it depends on is not in the view
-        ok(!$rec->fields->{$integer1->id}->dependent_not_shown, "Integer not shown in view");
+        ok($rec->field($integer1->id)->dependent_shown, "Integer not shown in view");
     }
 }
 

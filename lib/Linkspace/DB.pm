@@ -90,7 +90,8 @@ sub search
 =head2 my $result = $db->get_record($table, $which);
 
 =head2 my $result = $db->get_record($table, %which);
-Returns one result HASH.  C<$which> can be an id, a reference to a search or a LIST for search.
+Returns one result HASH.  C<$which> can be an id, a reference to a search
+or a LIST for search.
 =cut
 
 sub get_record($$@)

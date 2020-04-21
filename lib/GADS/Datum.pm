@@ -150,53 +150,10 @@ sub search_values_unique { $_[0]->html_form }
 # Overridden where applicable
 sub html_withlinks { $_[0]->html }
 
-# Not lazy, otherwise changes in display_field will not update this
-sub dependent_not_shown
+sub dependent_shown
 {   my $self    = shift;
-    my $column  = $self->column;
-    my $filters = $column->display_fields->filters;
-    my @$filters or return 0;
-
-    my $display_condition = $column->display_condition;
-    my $fields = $self->record->fields;
-
-#XXX must move to filter object
-
-    my $shown = 0;
-    foreach my $filter (@$filters)
-    {   my $field = $fields->{$filter->{column_id}};
-        if(!$field)
-        {   $shown = 1;
-            next;
-        }
-
-        my $matchtype     = $filter->{operator};
-        my $display_regex = $filter->{value};
-        $display_regex = "^$display_regex\$"
-            if $matchtype =~ /equal/;
-
-        my $values = $field->value_regex_test;
-        $values = [ '' ] if !@$values;
-
-        my $this_not_shown = $matchtype =~ /not/ ? 0 : 1;
-        if(grep /$display_regex/, @$values)
-        {   $this_not_shown = $matchtype =~ /not/ ? 1 : 0;
-        }
-
-        $shown = 1 if !$this_not_shown;
-
-        $display_condition or next;  #XXX not the same as OR?
-
-        if($display_condition eq 'OR')
-        {   last if $shown;
-        }
-        else
-        {   $shown = 0 if $this_not_shown;
-            last if !$shown;
-        }
-    }
-
-    !$shown;
+    my $filter  = $self->column->display_field or return 0;
+    $filter->show_field($self->record->fields, $self);
 }
 
 sub clone

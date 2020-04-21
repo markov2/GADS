@@ -4,18 +4,6 @@ use Moo::Role;
 
 use List::Util qw(first);
 
-sub _presentation_map_columns {
-    my ($self, %options) = @_;
-
-    my @columns = @{delete $options{columns}};
-
-    my @mapped = map {
-        $_->presentation(datum_presentation => $self->fields->{$_->id}->presentation, %options);
-    } @columns;
-
-    return \@mapped;
-}
-
 sub edit_columns
 {   my ($self, %options) = @_;
 
@@ -25,7 +13,7 @@ sub edit_columns
       : $options{new}      ? (user_can_write_new => 1)
       :                      (user_can_readwrite_existing => 1);
 
-    my @columns = $self->sheet->layout->columns(sort_by_topics => 1,
+    my @columns = $self->layout->columns(sort_by_topics => 1,
         can_child => $options{child}, userinput => 1, %permissions);
 
     @columns = grep $_->type ne 'file', @columns
@@ -52,11 +40,10 @@ sub presentation($%) {
     my (%indent, %this_indent, $previous);
     foreach my $col (@columns)
     {
-        if ($col->has_display_field)
-        {
-            foreach my $display_field_id (@{$col->display_field_col_ids})
+        if(my $df = $col->display_field)
+        {   foreach my $display_field_id (@{$df->column_ids})
             {
-                my $seen = first { $_ == $display_field_id } keys %this_indent;
+                my $seen = $this_indent{$display_field_id} ? $display_field_id : undef;
                 if($seen || ($previous && $display_field_id == $previous->id))
                 {
                     $indent{$col->id} = $seen && $indent{$seen} ? ($indent{$seen} + 1) : 1;
@@ -76,12 +63,15 @@ sub presentation($%) {
 
     my $cur_id = $self->current_id;
 
+    my @mapped  = map $_->presentation(datum_presentation =>
+       $self->field($_->id)->presentation, %options), @columns;
+
     return {
         parent_id       => $self->parent_id,
         current_id      => $cur_id,
         record_id       => $self->record_id,
         instance_id     => $sheet->id,
-        columns         => $self->_presentation_map_columns(%options, columns => \@columns),
+        columns         => \@mapped,
         indent          => \%indent,
         deleted         => $self->deleted,
         deletedby       => $self->deletedby,

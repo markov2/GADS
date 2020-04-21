@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column;
 
 use Log::Report   'linkspace';
-use MIME::Base64  qw/encode_base64/;
 use JSON          qw/decode_json encode_json/;
 use List::Compare ();
 
@@ -41,23 +40,28 @@ use Linkspace::Column::Serial;
 use Linkspace::Column::String;
 use Linkspace::Column::Tree;
 
+use Linkspace::Filter::DisplayField;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::DB::Table';
 
 sub db_table { 'Layout' }
+
 sub db_field_rename { +{
-    display_field => 'display_field_json',
-    display_regex => 'display_regex_string',
+    display_field => 'display_field_old',  # free-up display_field attr
+    filter        => 'filter_json',
+    force_regex   => 'force_regex_string',
     internal      => 'is_internal',
     isunique      => 'is_unique',
     link_parent   => 'link_parent_id',
     multivalue    => 'is_multivalue',
-    related_field => 'related_field_id',
+    related_field => 'related_column_id',
 #   permission    => ''   XXX???
     };
 }
-sub db_fields_unused { qw/filter/ }
+
+sub db_fields_unused { qw/display_matchtype display_regex/ }
 
 ### 2020-04-14: columns in GADS::Schema::Result::Layout
 # id                display_field     internal          permission
@@ -100,7 +104,7 @@ sub attributes_for($)
 
 #XXX some of these should have been named is_*()
 sub addable        { 0 }   # support sensible addition/subtraction
-sub can_multivalue { 0 }   #XXX same as multivalue?
+sub can_multivalue { 0 }
 sub fixedvals      { 0 }
 sub form_extras($) { panic } # returns extra scalar and array parameter names 
 sub has_cache      { 0 }   #XXX autodetect with $obj->can(write_cache)?
@@ -108,7 +112,7 @@ sub has_filter_typeahead { 0 } # has typeahead when inputting filter values
 sub has_multivalue_plus  { 0 }
 sub hidden         { 0 }   #XXX?
 sub internal       { 0 }
-sub is_curcommon   { $_[0]->isa('Linkspace::Column::Curcommon') }
+sub is_curcommon   { 0 }
 sub meta_tables    { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] }
 sub multivalue     { 0 }
 sub numeric        { 0 }
@@ -163,7 +167,7 @@ sub string_storage { 0 }
 ### helpers
 sub site           { $::session->site }
 sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
-sub field          { "field".($_[0]->id) }
+sub field_name     { "field".($_[0]->id) }
 
 # $self->valid_value($value, %options)
 # option 'fatal'
@@ -200,91 +204,6 @@ sub _build_can_child
     $self->set_can_child;
 }
 
-has filter => (
-    is      => 'lazy',
-    builder => sub { GADS::Filter->new },
-);
-
-has set_display_fields => (
-    is        => 'rw',
-    predicate => 1,
-);
-
-has display_fields => (
-    is      => 'rw',
-    lazy    => 1,
-    coerce  => sub {
-        my $val = shift;
-        ref $val eq 'Linkspace::Filter' ? $val : Linkspace::Filter->from_json($val);
-    },
-#XXX
-    builder => sub {
-        my $self = shift;
-        my @rules;
-        if ($self->has_set_display_fields)
-        {
-            @rules = map +{
-                id       => $_->{display_field_id},
-                operator => $_->{operator},
-                value    => $_->{regex},
-            }, @{$self->set_display_fields};
-        }
-        else
-        {   foreach my $cond ($::db->search(DisplayField =>{ layout_id => $self->id})->all)
-            {
-                push @rules, {
-                    id       => $cond->display_field_id,
-                    operator => $cond->operator,
-                    value    => $cond->regex,
-                };
-            }
-        }
-        my $as_hash = !@rules ? {} : {
-            condition => $self->display_condition || 'AND',
-            rules     => \@rules,
-        };
-        return GADS::Filter->new(
-            layout  => $self->layout,
-            as_hash => $as_hash,
-        );
-    },
-);
-
-sub display_fields_as_text
-{   my $self = shift;
-    my $df = $self->display_fields_summary
-        or return '';
-    join ': ', @$df;
-}
-
-sub display_fields_summary
-{   my $self = shift;
-    if (my @display = $::db->search(DisplayField => { layout_id => $self->id })->all)
-    {
-        my $conds = join '; ', map { $_->display_field->name." ".$_->operator." ".$_->regex } @display;
-        my $type = $self->display_condition eq 'AND'
-            ? 'Only displayed when all the following are true'
-            : $self->display_condition eq 'OR'
-            ? 'Only displayed when any of the following are true'
-            : 'Only display when the following is true';
-        return [$type, $conds];
-    }
-}
-
-has description => (
-    is  => 'rw',
-    isa => Maybe[Str],
-);
-
-has width => (
-    is  => 'rw',
-    isa => Int,
-);
-
-has widthcols => (
-    is => 'lazy',
-);
-
 sub _build_widthcols
 {   my $self = shift;
     my $multiplus = $self->multivalue && $self->has_multivalue_plus;
@@ -301,24 +220,6 @@ sub topic { $_[0]->sheet->topic($_[0]->topic_id) }
 
 #XXX the actual value is never used
 sub do_group_display() { $_[0]->numeric ? 'sum' : $_[0]->group_display }
-
-### display_field
-
-has has_display_field => (
-    is  => 'lazy',
-    builder => sub { !! @{$self->display_fields->filters} },
-)
-
-has display_field_col_ids => (
-    is      => 'lazy',
-    builder => sub { [ map $_->column_id, @{$_[0]->display_fields->filters} ] },
-);
-
-sub display_fields_b64
-{   my $self = shift;
-    my $json = $self->display_field_json or return undef;
-    encode_base64 $json, ''; # base64 plugin does not like new lines in content
-}
 
 has link_parent => (
     is      => 'lazy',
@@ -360,7 +261,8 @@ has depends_on_ids => (
 
 sub dependencies_ids
 {   my $self = shift;
-    $self->has_display_field ? $self->display_field_col_ids : $self->depends_on_ids;
+    my $df = $self->display_field;
+    $df ? $df->column_ids : $self->depends_on_ids;
 }
 
 # Which columns depend on this field
@@ -447,11 +349,12 @@ sub column_update($%)
     }
 
     # XXX Move to curval class
-    if ($self->type eq 'curval')
+    if($self->type eq 'curval')
     {   $self->set_filter($original->{filter});
         $self->multivalue(1) if $self->show_add && $self->value_selector eq 'noshow';
     }
 
+    $self->display_fields_update(delete $update->{display_fields});
     $self->update($update);
 }
 
@@ -487,9 +390,9 @@ sub fetch_multivalues
     );
 
     if(ref $self->tjoin)
-    {   my ($left, $prefetch) = %{$self->tjoin}; # Prefetch table is 2nd part of join
-        $select{prefetch} = $prefetch;
-        $select{order_by} = "$prefetch.".$self->value_field; # Overrides
+    {   my ($left, $prefetch_table) = %{$self->tjoin};
+        $select{prefetch} = $prefetch_table;
+        $select{order_by} = $prefetch_table . "." .$self->value_field; # overrides
     }
 
     $::db->search($self->table => {
@@ -505,13 +408,11 @@ sub fetch_multivalues
 
 sub filter(;$)
 {   my $self = shift;
-    @_==1 or return Linkspace::Filter->from_json($self->filter_json, column => $self);
+    @_==1 or return Linkspace::Filter->from_json($self->filter_json);
 
     # Via filter object, to ensure validation
     my $set    = shift;
-    my $filter = blessed $set ? $set
-       : Linkspace::Filter->from_json($set, column => $self);
-
+    my $filter = blessed $set ? $set : Linkspace::Filter->from_json($set);
     $self->update({filter => $filter->as_json});
     $filter;
 }
@@ -631,27 +532,6 @@ sub column_create
     $column->display_fields_update($display_field);
     $self->after_write_special(%options);
     #$self->_write_permissions(id => $col_id, %options);
-}
-
-sub display_fields_update($)
-{   my ($self, $display_fields) = @_;
-    my $col_id = $self->id;
-
-    # Write display_fields
-    $::db->delete(DisplayField => { layout_id => $col_id });
-
-    foreach my $cond (@{$display_fields->filters})
-    {
-        $cond->{column_id} == $col_id
-            and error __"Display condition field cannot be the same as the field itself";
-
-        $::db->create(DisplayField => {
-            layout_id        => $col_id,
-            display_field_id => $cond->{column_id},
-            regex            => $cond->{value},
-            operator         => $cond->{operator},
-        });
-    }
 }
 
 sub user_can
@@ -846,7 +726,7 @@ my @simple_export_attributes =
 sub export_hash
 {   my $self = shift;
 
-    my @display_fields = map +{           #XXX move to filter->export_hash()
+    my @display_fields = map +{
         id       => $filter->{column_id},
         value    => $filter->{value},
         operator => $filter->{operator},
@@ -854,7 +734,7 @@ sub export_hash
 
     my %export = (
         display_fields    => \@display_fields,
-        link_parent       => $self->link_parent && $self->link_parent->id,
+        link_parent       => $self->link_parent_id,
         permissions       => $self->permissions_by_group_export,
         @_,                               # from extensions
     };
@@ -868,40 +748,17 @@ sub export_hash
 }
 
 # Subroutine to run after a column write has taken place for an import
-sub import_after_write {};
+sub import_after_write {}
 
 # Subroutine to run after all columns have been imported
 sub import_after_all
 {   my ($self, $values, %options) = @_;
-    my $mapping = $options{mapping};
-    my $report  = $options{report_only};
-
-    if (@{$values->{display_fields}})
-    {
-        my @rules;
-        foreach my $filter (@{$values->{display_fields}})
-        {
-            $filter->{id} = $mapping->{$filter->{id}};
-            push @rules, $filter;
-        }
-        $self->display_fields->as_hash({
-            condition => $values->{display_condition} || 'AND',
-            rules     => \@rules,
-        });
-    }
-    else
-    {   $self->display_fields->as_hash({});
-    }
-
-    notice __x"Update: display_fields has been updated for {name}",
-        name => $self->name
-            if $report && $self->display_fields->changed;
 
     my $new_id = $values->{link_parent} ? $mapping->{$values->{link_parent}} : undef;
     notice __x"Update: link_parent from {old} to {new} for {name}",
         old => $self->link_parent, new => $new_id, name => $self->name
-            if $report && ($self->link_parent || 0) != ($new_id || 0);
-    $self->link_parent($new_id);
+            if ($self->link_parent || 0) != ($new_id || 0);
+    $self->update({ link_parent_id => $new_id });
 }
 
 =head2 $class->how_to_link_to_record($record);
@@ -937,15 +794,31 @@ sub field_values($$%)
 }
 
 ### Only used by Autocur
-#   XXX The 'related_field' contains the id, which makes it hard to give
-#   XXX nice names to the methods.
-sub related_column_id  { $_[0]->related_field }
-sub related_column()   { $_[0]->layout->column($_[0]->related_field) }
+sub related_column()   { $_[0]->column($_[0]->related_column_id) }
 
 sub related_sheet_id() {
     my $column = $_[0]->related_column;
     $column ? $column->sheet_id : undef;
 }
+
+#XXX has to move
+sub display_field_create($)
+{   my ($self, $rules) = @_;
+    Linkspace::Filter::DisplayField->create($self, $rules);
+}
+
+sub display_field_update($)
+{   my ($self, $rules) = @_;
+    $self->display_field->update($self, $rules);
+}
+
+has display_field => (
+    is      => 'lazy',
+    builder => sub { Linkspace::Filter::DisplayField->from_column($_[0]) },
+);
+
+# Only used for String
+sub force_regex { my $re = $_[0]->force_regex_string; qr/^${re}$/ }
 
 1;
 

@@ -1262,7 +1262,7 @@ sub write
         {
             # Do not require value if the field has not been showed because of
             # display condition
-            if (!$datum->dependent_not_shown)
+            if($datum->dependent_shown)
             {
                 if (my $topic = $column->topic && $column->topic->prevent_edit_topic)
                 {
@@ -1844,7 +1844,7 @@ sub set_blank_dependents
     {
         my $datum = $self->field($column);
         $datum->set_value('')
-            if $datum->dependent_not_shown
+            if ! $datum->dependent_shown
             && ($datum->column->can_child || !$self->parent_id);
     }
 }
@@ -2011,7 +2011,7 @@ sub pdf
     my $columns = $self->sheet->layout->columns(user_can_read => 1);
     foreach my $col (@$columns)
     {   my $datum = $self->field($col);
-        next if $datum->dependent_not_shown;
+        $datum->dependent_shown or next;
 
         if ($col->is_curcommon)
         {   my $th   = $col->name;

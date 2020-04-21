@@ -20,23 +20,10 @@ package GADS;
 
 use CtrlO::Crypt::XkcdPassword;
 use Crypt::URandom; # Make Dancer session generation cryptographically secure
-use Data::Dumper;
 use DateTime;
 use File::Temp qw/ tempfile /;
 use GADS::Alert;
 use GADS::Config;
-use GADS::Globe;
-use GADS::Graph;
-use GADS::Graph::Data;
-use GADS::Graphs;
-use GADS::Group;
-use GADS::Import;
-use Linkspace::Layout;
-use GADS::MetricGroup;
-use GADS::MetricGroups;
-use GADS::Record;
-use GADS::Records;
-use GADS::RecordsGraph;
 use GADS::Helper::BreadCrumbs qw(Crumb);
 
 use Linkspace::Audit  ();
@@ -107,10 +94,7 @@ hook before => sub {
     $site->refresh;
     trace __x"Site ID is {id}", id => $site->id;
 
-    $::session = Linkspace::Session::Dancer2->new(
-        site => $site,
-        user => $user,
-    );
+    $::session = Linkspace::Session::Dancer2->new(site => $site, user => $user);
 
     if (request->is_post)
     {
@@ -119,6 +103,7 @@ hook before => sub {
         my $token = query_parameters->get('csrf-token') || body_parameters->get('csrf_token');
         panic __x"csrf-token missing for uri {uri}, params {params}", uri => request->uri, params => Dumper({params})
             if !$token;
+
         error __x"The CSRF token is invalid or has expired. Please try reloading the page and making the request again."
             if $token ne session('csrf_token');
 
@@ -215,7 +200,7 @@ hook before_template => sub {
         $tokens->{user}          = $user;
         $tokens->{search}        = session 'search';
         # Somehow this sets the instance_id session if no persistent session exists
-        $tokens->{instance_id}   = $sheet->id;
+        $tokens->{instance_id}   = $sheet->id
             if session 'persistent';
 
         if($sheet)
@@ -249,8 +234,7 @@ hook before_template => sub {
 };
 
 hook after_template_render => sub {
-    $user->update({ session_settings => encode_json _persistent })
-        if $user->is_person;
+    $user->session_update(_persistent);
 };
 
 sub _forward_last_table
@@ -347,9 +331,7 @@ get '/login/denied' => sub {
 };
 
 any ['get', 'post'] => '/login' => sub {
-
     my $login_change = sub { $::session->audit(@_, type => 'login_change') };
-    my $user  = logged_in_user;
 
     # Don't allow login page to be displayed when logged-in, to prevent
     # user thinking they are logged out when they are not
@@ -359,8 +341,7 @@ any ['get', 'post'] => '/login' => sub {
 
     # Request a password reset
     if (param 'resetpwd')
-    {
-        if (my $username = param 'emailreset')
+    {   if (my $username = param 'emailreset')
         {
             if(email_valid $username)
             {
@@ -480,10 +461,8 @@ any ['get', 'post'] => '/login' => sub {
             {   cookie remember_me => '', expires => '-1d'
             }
             $::session->user_login($victim);
+            session persistent => $victim->session_settings;
 
-            # Load previous settings and forward to previous table if applicable
-            my $session_settings = try { decode_json $user->session_settings };
-            session persistent => ($session_settings || {});
             _forward_last_table();
         }
         else
@@ -1064,7 +1043,7 @@ get '/record_body/:id' => require_login sub {
     my $pointer_id = is_valid_id(param 'id');
     my $row  = $site->document->row(
         pointer_id => $pointer_id,
-        rewind     => session('rewind'),
+        rewind     => (session 'rewind'),
     );
 
     template 'record_body' => {
@@ -1085,7 +1064,7 @@ get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
       : $action eq 'purgehistory' ? 'deleted_recordid'
       :                             'current_id';
 
-    my $row = $doc->row($id_type => $id, rewind => session('rewind'));
+    my $row = $doc->row($id_type => $id, rewind => session 'rewind');
     my $current_id = $row->current_id;
 
     if(defined param('pdf'))
@@ -1337,12 +1316,11 @@ prefix '/:layout_name' => sub {
     };
 
     get '/data_timeline/:time' => require_login sub {
-
         # Time variable is used to prevent caching by browser
         my $fromdt = DateTime->from_epoch( epoch => int (param('from')/1000) );
         my $todt   = DateTime->from_epoch( epoch => int (param('to')  /1000) );
 
-        my $records = GADS::Records->new(
+        my $page = $sheet->data->search(
             from                => $fromdt,
             to                  => $todt,
             exclusive           => param('exclusive'),
@@ -1356,17 +1334,16 @@ prefix '/:layout_name' => sub {
         content_type 'application/json';
 
         my $tl_options = (_persistent $sheet, 'tl_options') || {};
-        my $timeline = $records->data_timeline(%$tl_options);
+        my $timeline   = $page->data_timeline(%$tl_options);
         encode_json($timeline->{items});
     };
 
     post '/data_timeline' => require_login sub {
-
-        my $view               = current_view();
         my $tl_options         = (_persistent $sheet)->{tl_options} ||= {};
         $tl_options->{from}    = int(param('from') /1000) if param('from');
         $tl_options->{to}      = int(param('to')   /1000) if param('to');
 
+        my $view               = current_view();
         $tl_options->{view_id} = $view && $view->id;
         # Note the current time so that we can decide later if it's relevant to
         # load these settings
@@ -1374,7 +1351,7 @@ prefix '/:layout_name' => sub {
 
         # XXX Application session settings do not seem to be updated without
         # calling template (even calling _update_persistent does not help)
-        return template 'index' => {};
+        template index => {};
     };
 
     get '/data_graph/:id/:time' => require_login sub {
@@ -2385,7 +2362,7 @@ prefix '/:layout_name' => sub {
             my $failed;
             my $columns = $cur->edit_columns(new => $approval_of_new, approval => 1);
             foreach my $col (@$columns)
-            {   my $newv = param($col->field) or next;
+            {   my $newv = param($col->field_name) or next;
                 $col->userinput or next; # Not calculated fields
 
                 $failed++
@@ -2483,11 +2460,6 @@ prefix '/:layout_name' => sub {
     };
 
     post '/edits' => require_login sub {
-
-        my $layout = var('layout') or pass;
-
-        my $user   = logged_in_user;
-
         my $records = eval { from_json param('q') };
         if ($@) {
             status 'bad_request';
@@ -2495,57 +2467,41 @@ prefix '/:layout_name' => sub {
         }
 
         my $failed;
-        while ( my($id, $values) = each %$records ) {
-            my $record = GADS::Record->new(
-                user   => $user,
-                layout => $layout,
-                schema => schema,
-            );
+        my $data   = $sheet->data;
+        while(my ($id, $values) = each %$records ) {
+            my $col_id = $values->{column};
+            my $column = $layout->column($col_id);
+            my $row    = $data->find_current_id($values->{current_id});
+            my $datum  = $row->field($col_id);
 
-            $record->find_current_id($values->{current_id});
-            $layout = $record->layout; # May have changed if record from other datasheet
-            if ($layout->column($values->{column})->type eq 'date')
-            {
-                my $to_write = $values->{from};
-                unless (process sub { $record->fields->{ $values->{column} }->set_value($to_write) })
-                {
-                    $failed = 1;
+            if($column->type eq 'date')
+            {   unless(process sub { $datum->set_value($values->{from}) })
+                {  $failed = 1;
                     next;
                 }
             }
-            else {
-                # daterange
-                my $to_write = {
-                    from    => $values->{from},
-                    to      => $values->{to},
-                };
-                # The end date as reported by the timeline will be a day later than
+            else   # daterange
+            {   # The end date as reported by the timeline will be a day later than
                 # expected (it will be midnight the following day instead.
                 # Therefore subtract one day from it
-                unless (process sub { $record->fields->{ $values->{column} }->set_value($to_write, subtract_days_end => 1) })
-                {
-                    $failed = 1;
+                my $to_write = { from => $values->{from}, to => $values->{to} };
+                unless(process sub { $datum->set_value($to_write, subtract_days_end => 1) })
+                {   $failed = 1;
                     next;
                 }
             }
-
-            process sub { $record->write }
-                or $failed = 1;
         }
 
         if ($failed) {
             redirect '/data'; # Errors already written to display
         }
-        else {
-            return forwardHome(
+        else
+        {   return forwardHome(
                 { success => 'Submission has been completed successfully' }, $sheet->identifier.'/data' );
         }
     };
 
     any ['get', 'post'] => '/bulk/:type/?' => require_login sub {
-
-        my $layout = var('layout') or pass;
-
         my $view   = current_view();
         my $type   = param 'type';
 
@@ -2555,49 +2511,37 @@ prefix '/:layout_name' => sub {
         $type eq 'update' || $type eq 'clone'
             or error __x"Invalid bulk type: {type}", type => $type;
 
-        # The dummy record to test for updates
-        my $record = GADS::Record->new(
-            user   => $user,
-            layout => $layout,
-        );
-        $record->initialise;
-
-        # The records to update
-        my %params = (
-            view                 => $view,
-            search               => session('search'),
-            columns              => $layout->column_ids, # Need all columns to be able to write updated records
-            view_limit_extra_id  => current_view_limit_extra_id(),
-        );
-
         my @limit_current_ids = query_parameters->get_all('id');
-        $params{limit_current_ids} = \@limit_current_ids;
-            if @limit_current_ids;
 
-        my $records = GADS::Records->new(%params);
+        my $page = $sheet->data->search(
+            view                => $view,
+            search              => session('search'),
+            view_limit_extra_id => current_view_limit_extra_id(),
+            limit_current_ids   => @limit_current_ids ? \@limit_current_ids : undef,
+        );
 
         if (param 'submit')
         {
             # See which ones to update
             my ($failed_initial, @updated);
-            my $columns = $record->edit_columns(new => 1, bulk => $type);
+            my $columns = $record->edit_columns(new => 1, bulk => 'update');
 
             foreach my $col (@$columns)
-            {
-                my @newv = body_parameters->get_all($col->field);
+            {   my @newv     = body_parameters->get_all($col->field_name);
                 my $included = body_parameters->get('bulk_inc_'.$col->id); # Is it ticked to be included?
-                report WARNING => __x"Field \"{name}\" contained a submitted value but was not checked to be included", name => $col->name
+                report WARNING => __x"Field '{name}' contained a submitted value but was not checked to be included", name => $col->name
                     if join('', @newv) && !$included;
-                next unless body_parameters->get('bulk_inc_'.$col->id); # Is it ticked to be included?
-                my $datum = $record->field($col);
+                $included or next;
+
+                my $datum  = $record->field($col);
                 my $success = process( sub { $datum->set_value(\@newv, bulk => 1) } );
-                push @updated, $col
-                    if $success;
-                $failed_initial = $failed_initial || !$success;
+                push @updated, $col if $success;
+                $failed_initial ||= !$success;
             }
+
             if (!$failed_initial)
             {
-                my ($success, $failures);
+                my ($success, $failures) = (0, 0);
                 while (my $record_update = $records->single)
                 {
                     $record_update->remove_id
@@ -2605,12 +2549,12 @@ prefix '/:layout_name' => sub {
 
                     my $failed;
                     foreach my $col (@updated)
-                    {
-                        my $newv = [ body_parameters->get_all($col->field) ];
-                        last if $failed = !process( sub { $record_update->fields->{$col->id}->set_value($newv, bulk => 1) } );
+                    {   my $newv = [ body_parameters->get_all($col->field_name) ];
+                        last if $failed = !process( sub { $record_update->field($col->id)->set_value($newv, bulk => 1) } );
                     }
+
                     $record_update->field($_)->re_evaluate(force => 1)
-                        foreach @{$layout->columns(has_cache => 1)};
+                        for @{$layout->columns(has_cache => 1)};
 
                     if (!$failed)
                     {
@@ -2622,24 +2566,22 @@ prefix '/:layout_name' => sub {
                         $failures++;
                     }
                 }
-                if (!$success && !$failures)
-                {
-                    notice __"No updates have been made";
+
+                if($failures)
+                {   my $s = __xn"One record was {type}d successfully", "{_count} records were {type}d successfully",
+                        $success, type => $type;
+                    my $f = __xn", one record failed to be {type}d", ", {_count} records failed to be {type}d",
+                        $failures, type => $type;
+                    mistake $s.$f;
                 }
-                elsif ($success && !$failures)
-                {
-                    my $msg = __xn"{_count} record was {type}d successfully", "{_count} records were {type}d successfully",
+                elsif($success)
+                {   my $msg = __xn"One record was {type}d successfully", "{_count} records were {type}d successfully",
                         $success, type => $type;
                     return forwardHome(
                         { success => $msg->toString }, $sheet->identifier.'/data' );
                 }
-                else # Failures, back round the buoy
-                {
-                    my $s = __xn"{_count} record was {type}d successfully", "{_count} records were {type}d successfully",
-                        ($success || 0), type => $type;
-                    my $f = __xn", {_count} record failed to be {type}d", ", {_count} records failed to be {type}d",
-                        ($failures || 0), type => $type;
-                    mistake $s.$f;
+                else
+                {   notice __"No updates have been made";
                 }
             }
         }
@@ -3054,12 +2996,12 @@ sub _process_edit
         {
             my $newv;
             if ($modal)
-            {   next unless defined query_parameters->get($col->field);
-                $newv = [ query_parameters->get_all($col->field) ];
+            {   next unless defined query_parameters->get($col->field_name);
+                $newv = [ query_parameters->get_all($col->field_name) ];
             }
             else
-            {   next unless defined body_parameters->get($col->field);
-                $newv = [ body_parameters->get_all($col->field) ];
+            {   next unless defined body_parameters->get($col->field_name);
+                $newv = [ body_parameters->get_all($col->field_name) ];
             }
 
             $col->userinput && defined $newv # Not calculated fields

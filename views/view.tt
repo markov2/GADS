@@ -201,9 +201,10 @@
                 ' );
             });
         }); 
-        [% INCLUDE builder.tt builder_layout = layout filter_normal = view_edit.filter filter_base64 = view_edit.filter.base64 include_previous = 1 %]
+        [% filter_b64 = view_edit.filter.base64(layout) %]
+        [% INCLUDE builder.tt builder_layout = layout filter_normal = view_edit.filter filter_base64 = filter_b64 include_previous = 1 %]
         [% IF view_edit.filter.has_value %]
-            var data = base64.decode('[% view_edit.filter.base64 %]');
+            var data = base64.decode('[% filter_b64 %]');
             $('#builder').queryBuilder('setRules',
                 JSON.parse(data)
             );

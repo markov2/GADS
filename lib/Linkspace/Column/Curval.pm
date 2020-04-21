@@ -89,35 +89,12 @@ has delete_not_used => (
     trigger => sub { $_[0]->reset_options },
 );
 
-# Used to see whether we can filter yet using any filters defined for the
-# curval field. If the filter contains values of the parent record, then that
-# parent record needs to be set first
-sub filter_view_is_ready
-{   my $self = shift;
-    !!$self->view;
-}
-
-has view => (
-    is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-
-        # Replace any "special" $short_name values with their actual value from the
-        # record. If sub_values fails (due to record not being ready yet), then the
-        # view is not built
-        my $filter = $self->filter->sub_values($self->layout)
-            or return;
-
-        $self->sheet_parent->views->view_temporary(filter => $filter);
-    },
-);
-
 # Whether this field has subbed in values from other parts of the record in its
 # filter
 has has_subvals => (
     is      => 'lazy',
     isa     => Bool,
-    builder => sub { my $c = $_[0]->filter_rules->columns_in_subs; !!@$c },
+    builder => sub { my $c = $_[0]->filter->column_names_in_subs; !!@$c },
 }
 
 # The fields that we need input by the user for this filtered set of values
@@ -127,15 +104,18 @@ has subvals_input_required => (
 
 sub _build_subvals_input_required
 {   my $self   = shift;
-    my $doc    = $self->document
-    my $cols   = $self->filter_rules->columns_in_subs;
+    my $layout = $self->layout;
+    my $col_names = $self->filter->column_names_in_subs;
 
-    foreach my $col (@$cols)
-    {   my @disp_col_ids = map $_->display_field_id,
+    foreach my $col_name (@$col_names)
+    {   my $col = $layout->column($col_name) or next;
+
+        my @disp_col_ids = map $_->display_field_id,
             $::db->search(DisplayField => { layout_id => $col->id })->all;
 
         #XXX permission => 'write' ?
-        push @$cols, $doc->columns(@{$col->depends_on_ids}, @disp_col_ids);
+        push @$cols, map $layout->column($_),
+            @{$col->depends_on_ids}, @disp_col_ids;
     }
 
     [ grep $_->userinput, uniq_objects \@cols ];

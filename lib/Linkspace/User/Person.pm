@@ -5,24 +5,29 @@ use strict;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-extends 'Linkspace::DB::Object', 'Linkspace::User';
+extends 'Linkspace::DB::Table', 'Linkspace::User';
 
 use Log::Report 'linkspace';
 use Scalar::Util qw(blessed);
 
-### 2020-03-13: columns in GADS::Schema::Result::User
-# id                    email                 organisation
+sub db_table { 'User' }
+sub db_field_rename { +{
+    session_settings => 'session_settings_json',
+    organisation     => 'organisation_id',
+} };
+
+### 2020-04-18: columns in GADS::Schema::Result::User
+# id                    department_id         limit_to_view
+# site_id               email                 organisation
 # title                 failcount             password
 # value                 firstname             pwchanged
 # account_request       freetext1             resetpw
 # account_request_notes freetext2             session_settings
-# aup_accepted          lastfail              site_id
-# created               lastlogin             stylesheet
-# debug_login           lastrecord            surname
-# deleted               lastview              team_id
-# department_id         limit_to_view         username
+# aup_accepted          lastfail              stylesheet
+# created               lastlogin             surname
+# debug_login           lastrecord            team_id
+# deleted               lastview              username
 
-sub db_table { 'User' }
 
 =head1 NAME
 Linkspace::User::Person - someone via the web interface
@@ -69,6 +74,16 @@ sub retire(%)
     return;
 }
 
+has session_settings => (
+    is      => 'lazy',
+    builder => sub { decode_json $_[0]->session_settings_json },
+);
+
+sub session_update($)
+{   my ($self, $settings) = @_;
+    $self->update({ session_settings_json => encode_json $settings} );
+}
+
 #--------------------------
 =head1 METHODS: Accessors
 
@@ -88,7 +103,7 @@ sub update_relations(%)
         $self->_set_permissions(@$perms);
     }
 
-    if($view_limits = $args{view_limits_ids))
+    if(my $view_limits = $args{view_limits_ids})
     {   my @view_limits = grep /\S/,
            ref $view_limits eq 'ARRAY' ? @$view_limits : $view_limits;
         $self->_set_view_limits(\@view_limits);
@@ -142,8 +157,8 @@ group_id or object.
 
 has _in_group => (
     is      => 'lazy',
-    builder => sub { +{ map +($_->group_id => $_), @{$_[0]->user_groups} },
-}
+    builder => sub { +{ map +($_->group_id => $_), @{$_[0]->user_groups} } },
+);
 
 sub in_group($)
 {   my ($self, $which) = @_;
@@ -228,7 +243,8 @@ are per sheet, their numbers are unique.
 has _selected_graphs => (
     is      => 'lazy',
     builder => sub
-    {   my $selections = $::db->search(UserGraph => { user_id => $self->id });
+    {   my $self = shift;
+        my $selections = $::db->search(UserGraph => { user_id => $self->id });
         +{ map +($_ => 1), $selections->column('graph_id')->all };
     },
 );
@@ -291,7 +307,7 @@ has _sheet_perms => (
     builder => sub
     {   my $self = shift;
 
-        my $rs = $::db->search(InstanceGroup =>
+        my $rs = $::db->search(InstanceGroup => {
             user_id => $self->id,
         },{
             select => [
@@ -305,12 +321,11 @@ has _sheet_perms => (
         });
 
         my %perms;
-        $perms->{$_->{instance_id}}{$_->{permission}} = 1
+        $perms{$_->{instance_id}}{$_->{permission}} = 1
             for $rs->all;
         \%perms;
-    }
-
-}
+    },
+);
 
 sub sheet_permissions($) { $_[0]->_sheet_perms->{$_[1]->id} }
 
@@ -318,10 +333,11 @@ sub sheet_permissions($) { $_[0]->_sheet_perms->{$_[1]->id} }
 Returns the permissions this user has for the columns.
 =cut
 
-has _col_perms = (
+has _col_perms => (
     is      => 'lazy',
     builder => sub {
-        my $rs = $::db->search(LayoutGroup => {
+        my $self = shift;
+        my $rs   = $::db->search(LayoutGroup => {
             user_id => $self->id,
         }, {
             select => [
@@ -343,7 +359,7 @@ has _col_perms = (
             for $rs->all;
         \%perms;
     },
-}
+);
 
 sub column_permissions($)
 {   my ($self, $which) = @_;
@@ -369,12 +385,9 @@ has _permissions => (
     builder => sub {
         my $self = shift;
         my %all = map +($_->id => $_->name), @{$self->all_permissions};
-
-         +{
-             map +($all{$_->permission_id} => 1), @{$self->user_permissions};
-          };
-    };
-}
+         +{ map +($all{$_->permission_id} => 1), @{$self->user_permissions} };
+    },
+);
 
 sub has_permission($) { $_[0]->_permissions->($_[1]) }
 
@@ -388,7 +401,7 @@ sub _set_permissions
     foreach my $perm (qw/useradmin audit superadmin/)
     {
         my $which = { permission_id => $perm2id{$perm} };
-        if ($warn_perms{$perm})
+        if($want_perms{$perm})
         {   $self->find_or_create_related(user_permissions => $which);
         }
         else
@@ -517,16 +530,10 @@ has all_permissions => (
 has _can_column => (
     is      => 'lazy',
     builder => sub
-    {   my $perms = $::db->search(User => {
-            'me.id'              => $self->id,
-        },
-        {
-            prefetch => {
-                user_groups => {
-                    group => {
-                        layout_groups => 'layout',
-                    },
-                }
+    {   my $self  = shift;
+        my $perms = $::db->search(User => { 'me.id' => $self->id },
+        {   prefetch => {
+                user_groups => { group => { layout_groups => 'layout' } }
             },
             result_class => 'HASH',
         })->single;
@@ -535,7 +542,7 @@ has _can_column => (
 #XXX get it from the groups.
         my %perms;
         foreach my $group (@{$perms->{user_groups}})
-        {   $perms{$_->{layout_id}}->{$_->{permission}} = 1
+        {   $perms{$_->{layout_id}}{$_->{permission}} = 1
                for @{$group->{group}{layout_groups}};
         }
         \%perms;

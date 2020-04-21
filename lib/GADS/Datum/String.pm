@@ -18,8 +18,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Datum::String;
 
-use HTML::FromText;
+use HTML::FromText   qw/text2html/;
 use Log::Report 'linkspace';
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
@@ -29,41 +30,32 @@ with 'GADS::Role::Presentation::Datum::String';
 
 after set_value => sub {
     my ($self, $value) = @_;
-    $value = [$value] if ref $value ne 'ARRAY'; # Allow legacy single values as scalar
-    $value ||= [];
-    my @values = grep {defined $_} @$value; # Take a copy first
-    my $clone = $self->clone;
-    my @text_all = sort @values;
-    my @old_texts = @{$self->text_all};
+    my @values = grep defined, ref $value eq 'ARRAY' ? @$value : $value;
+
+    my $clone     = $self->clone;
+    my @text_all  = sort @values;
+    my $old_texts = $self->text_all;
 
     # Trim entries, but only if changed. Don't use $changed, as the act of
     # trimming could affect whether a value has changed or not
-    if ("@text_all" ne "@old_texts")
-    {
-        s/\h+$// for @values;
+    my $changed = "@text_all" ne "@$old_texts";
+    if($changed)
+    {   s/\h+$// for @values;
     }
-    my $changed = "@text_all" ne "@old_texts";
 
-    if (my $regex = $self->column->force_regex)
-    {
-        foreach my $val (@values)
-        {
-            my $msg = __x"Invalid value \"{value}\" for {field}", value => $val, field => $self->column->name;
-            # Empty values are not checked - these should be done in optional value for field
-            if ($val && $val !~ /^$regex$/)
-            {
-                $changed ? error($msg) : warning($msg);
-            }
+    if(my $regex = $self->column->force_regex)
+    {   foreach my $val (grep length && !m/$regex/, @values)
+        {   my $msg = __x"Invalid value '{value}' for {field}", value => $val, field => $self->column->name;
+            $changed ? error($msg) : warning($msg);
         }
     }
-    if ($changed)
-    {
-        $self->changed(1);
-        $self->_set_values([@values]);
-        $self->_set_text_all([@text_all]);
-        $self->clear_html_form;
-        $self->clear_blank;
+
+    if($changed)
+    {   $self->changed(1);
+        $self->_set_values(\@values);
+        $self->_set_text_all(\@text_all);
     }
+
     $self->oldvalue($clone);
 };
 
@@ -75,21 +67,12 @@ has values => (
         my $self = shift;
         $self->has_init_value or return [];
         my @values = map { ref $_ eq 'HASH' ? $_->{value} : $_ } @{$self->init_value};
-        $self->has_value(!!@values);
-        $self->has_value(1) if @values || $self->init_no_value;
-        [@values];
+        $self->has_value(@values || $self->init_no_value);
+        \@values;
     },
 );
 
-has html_form => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_html_form
-{   my $self = shift;
-    [ map { defined($_) ? $_ : '' } @{$self->values} ];
-}
+sub html_form { [ map $_ // '', @{$_[0]->values} ] }
 
 has text_all => (
     is      => 'rwp',
@@ -101,14 +84,11 @@ has text_all => (
         # By default we return empty strings. These make their way to grouped
         # display as the value to filter for, so this ensures that something
         # like "undef" doesn't display
-        [ sort map { defined $_ ? $_ : '' } @{$self->values} ];
+        [ sort map $_ // '', @{$self->values} ];
     },
 );
 
-sub _build_blank {
-    my $self = shift;
-    ! grep { length $_ } @{$self->values};
-}
+sub _build_blank { ! grep length, @{$_[0]->values} }
 
 around 'clone' => sub {
     my $orig = shift;
@@ -116,22 +96,12 @@ around 'clone' => sub {
     $orig->($self, values => $self->values, text_all => $self->text_all, @_);
 };
 
-sub as_string
-{   my $self = shift;
-    join ', ', @{$self->text_all};
-}
-
+sub as_string  { join ', ', @{$_[0]->text_all} }
 sub as_integer { panic "Not implemented" }
 
 sub html_withlinks
-{   my $self = shift;
-    my $string = $self->as_string;
-    text2html(
-        $string,
-        urls      => 1,
-        email     => 1,
-        metachars => 1,
-    );
+{   my $string = shift->as_string;
+    text2html($string, urls => 1, email => 1, metachars => 1);
 }
 
 sub _build_for_code
@@ -141,8 +111,7 @@ sub _build_for_code
     # tested in Lua easily using "if variable", otherwise empty strings are
     # treated as true in Lua
     my @values = map length $_ ? $_ : undef, @{$self->text_all};
-
-    $self->column->multivalue || @values > 1 ? \@values : $values[0];
+    $self->column->is_multivalue || @values > 1 ? \@values : $values[0];
 }
 
 1;

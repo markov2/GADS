@@ -19,15 +19,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::Curcommon;
 # Extended by ::Autocur and ::Curval
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
-extends 'Linkspace::Column';
-
 use Log::Report 'linkspace';
 use Scalar::Util qw/blessed/;
-
 use Linkspace::Filter ();
+
+use Moo;
+use MooX::Types::MooseLike::Base qw/:all/;
+extends 'Linkspace::Column';
 
 ###
 ### META
@@ -36,6 +34,7 @@ use Linkspace::Filter ();
 sub can_multivalue { 1 }
 sub fixedvals      { 1 }
 sub has_filter_typeahead { 1 }
+sub is_curcommon   { 1 }
 sub is_multivalue  { 1 }
 sub sort_parent    { shift }   # me!
 sub variable_join  { 1 }
@@ -121,8 +120,6 @@ has retrieve_all_columns => (
 );
 
 has curval_field_ids => (
-    is      => 'rw',
-    isa     => ArrayRef,
     lazy    => 1,
     builder => sub {
         my $self = shift;
@@ -133,9 +130,6 @@ has curval_field_ids => (
             order_by => 'child.position',
         })->all;
         [ map $_->child_id, @curval_field_ids ];
-    },
-    trigger => sub {
-        $_[0]->clear_curval_fields;
     },
 );
 
@@ -251,8 +245,8 @@ sub _records_from_db
     my $view;
     if (!$ids && !$options{no_filter})
     {
-        $view = $self->view
-            or return; # record not ready yet for sub_values
+#XXX view from filter
+#XXX       $self->filter->sub_values($layout->record);
     }
 
     my $records = GADS::Records->new(
@@ -289,12 +283,12 @@ sub filter_value_to_text
 {   my ($self, $id) = @_;
     # Check for valid ID (in case search filter is corrupted) - Pg will choke
     # on invalid IDs
+    is_valid_id $id or return '';
 
     # Exceptions are raised if trying to convert an invalid ID into a value.
     # This can happen when a filter has been set up and then its referred-to
     # curval record is deleted
     my $text = try {
-        $id =~ /^[0-9]+$/ or return '';
         my ($row) = $self->ids_to_values([$id]);
         $row->{value};
     };
@@ -463,7 +457,7 @@ sub validate_search
 
 sub values_beginning_with
 {   my ($self, $match) = @_;
-    return if !$self->filter_view_is_ready; # Record not ready yet in sub_values
+
     # First create a view to search for this value in the column.
     my @conditions = map +{
         field    => $_->id,
@@ -478,8 +472,7 @@ sub values_beginning_with
         rules     => \@conditions,
     };
 
-    push @rules, $self->view->filter->as_hash
-        if $self->view;
+    push @rules, $self->filter->sub_values($self->layout->records);
 
     my $filter = Linkspace::Filter->from_hash( +{
             condition => 'AND',

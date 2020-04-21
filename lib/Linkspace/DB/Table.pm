@@ -36,7 +36,7 @@ sub import(%)
     $rename->{instance_id} = 'sheet_id';
 
     foreach my $acc (keys %$info)
-    {   my $attr = $rename{$acc} || $acc;
+    {   my $attr = $rename->{$acc} || $acc;
         *{"${class}::$attr"} = eval <<__ACCESSOR;
 sub { \@_==1 or panic "read-only accessor ${class}::$attr"; \$_[0]->_record->$acc }
 __ACCESSOR
@@ -44,7 +44,7 @@ __ACCESSOR
 
     foreach my $acc ($class->db_fields_unused)
     {   *{"${class}::$acc"} = eval <<__STUMB;
-sub { panic "field $attr in $table not expected to be used" }
+sub { panic "field $acc in $table not expected to be used" }
     }
 __STUMB
 }
@@ -73,7 +73,7 @@ sub from_record($%)
 {   my ($class, $record) = (shift, shift);
     defined $record or return;
 
-    $record->isa($self->db_result_class)
+    $record->isa($class->db_result_class)
         or panic "wrong record of type, ".(ref $record);
 
     $record ?  $class->new(@_, _record => $record) : undef;
@@ -85,8 +85,8 @@ Create the C<$object> which manages a database record.
 
 sub from_id($%)
 {   my ($class, $obj_id) = (shift, shift);
-    my $record = $::db->get_record($self->db_table => $obj_id);
-    $record ? $self->new(@_, _record => $record) : undef;
+    my $record = $::db->get_record($class->db_table => $obj_id);
+    $record ? $class->new(@_, _record => $record) : undef;
 }
 
 #-----------------------
@@ -134,7 +134,7 @@ has sheet => (
     predicate => 1,
     builder   => sub
     {   $_[0]->can('sheet_id') or panic "Object has no sheet";
-        $::session->site->sheet($_[0]->sheet_id) } : undef;
+        $::session->site->sheet($_[0]->sheet_id);
     },
 );
 
@@ -168,11 +168,36 @@ Remove the related record from the database.
 
 sub delete() { $_[0]->_record->delete }
 
-=head2 $obj->update(\%insert);
+=head2 $obj->update(\%update);
 Change the database fields for the record.
+
+As field names, you may either use the names is the record, or their renamed
+versions.  The former are used in the web interface, the latter in other parts
+of the program.  It's a bit tricky, but avoids accidents.  Renames should
+disappear anyway...
 =cut
 
-sub update($) { $_[0]->_record->update($_[1]) }
+sub update($)
+{   my ($self, $update) = @_;
+    my $rename = $self->db_field_rename;
+    $update->{$_} = delete $update->{$rename->{$_}}
+        for grep exists $update->{$rename->{$_}}, keys %rename;
 
+    $self->_record->update($update);
+}
+
+=head2 my $obj_id = $class->create(\%insert);
+Create a new record in the database, in the specific table.
+=cut
+
+sub create($)
+{   my ($class, $create) = @_;
+    my $rename = $class->db_field_rename;
+    $create->{$_} = delete $create->{$rename->{$_}}
+        for grep exists $create->{$rename->{$_}}, keys %rename;
+
+    my $result = $::db->create($class->db_table, $create);
+    $result->id;
+}
 
 1;

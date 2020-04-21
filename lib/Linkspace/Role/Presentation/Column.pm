@@ -48,7 +48,7 @@ sub presentation {
         is_id               => $self->name_short && $self->name_short eq '_id',
         topic               => $self->topic && $self->topic->name,
         topic_id            => $self->topic && $self->topic->id,
-        is_multivalue       => $self->multivalue,
+        is_multivalue       => $self->is_multivalue,
         helptext            => $self->helptext,
         readonly            => $options{new} ? !$self->user_can('write_new') : !$self->user_can('write_existing'),
         data                => $options{datum_presentation},
@@ -93,8 +93,7 @@ sub presentation {
     }
 
     $self->after_presentation($return);
-
-    return $return;
+    $return;
 }
 
 sub after_presentation {}; # Dummy, overridden

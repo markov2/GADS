@@ -101,12 +101,11 @@ foreach my $layout (@instances)
         push @$data, ['Allow multiple values', $field->multivalue ? 'Yes' : 'No'];
         push @$data, ['Permissions', $field->group_summary];
 
-        if (my $df = $field->display_fields_summary)
-        {
-            push @$data, $df;
+        if(my $df = $field->display_field)
+        {   push @$data, $df->summary;
         }
-        else {
-            push @$data, ['Display conditions', 'This field is always displayed'];
+        else
+        {   push @$data, ['Display conditions', 'This field is always displayed'];
         }
 
         push @$data, $field->additional_pdf_export;

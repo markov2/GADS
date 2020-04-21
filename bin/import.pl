@@ -372,14 +372,23 @@ foreach my $todo (@columns_todo)
     {   $data->{curval_field_ids} = map $column_ext2int{$_}, @$curval_ids;
     }
 
-    if(my $filter = $data->{filter})
-    {   $data->{filter} = Linkspace::Filter->from_json(sheet => $any_sheet)
+    if(my $filter_json = $data->{filter})
+    {   $data->{filter} = Linkspace::Filter->from_json($filter_json)
             ->renumber_columns(\%column_ext2int);
     }
 
+    if(my $display_rules = $data->{display_fields})
+    {   my @rules = map +{
+            column_id => $column_ext2int{$_->{id}},
+            regex     => $_->{value},
+            operator  => $_->{operator},
+        }, @$display_rules;
+
+        Linkspace::Filter::DisplayField->create($column, $rules);
+    }
+
     $column->column_update($data,
-        report => $report_only && $todo->{updated},
-        force  => $force
+        force             => $force,
         no_cache_update   => 1,
         update_dependents => 1,
     );

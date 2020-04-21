@@ -1,46 +1,44 @@
+#!/usr/bin/env perl
+
 use Test::More; # tests => 1;
 use strict;
 use warnings;
 
-use GADS::Filter;
+use Linkspace::Filter;
 use JSON qw(decode_json encode_json);
 use Log::Report;
+#use Data::Dumper;
 
-# Set up same hash and JSON
-my $as_hash = {
-    rules => [
-        {
-            id       => 1,
-            type     => 'string',
-            value    => 'string1',
-            operator => 'equal',
-        }
-    ],
+my $rule1 = +{
+   id       => 1,
+   type     => 'string',
+   value    => 'string1',
+   operator => 'equal',
+};
+
+my $as_hash1 = {
+    rules     => [ $rule1 ],
     condition => 'AND',
 };
-my $as_json = encode_json($as_hash);
 
-# Set and compare
-my $filter = GADS::Filter->new(
-    as_json => $as_json,
-);
-# Need to decode otherwise parameters can be in different orders
-is_deeply( $filter->as_hash, $as_hash, "Hash of filter from JSON is correct" );
+my $filter1 = Linkspace::Filter->from_hash($as_hash1);
+ok defined $filter1, 'Created first filter';
+isa_ok $filter1, 'Linkspace::Filter';
+is_deeply $filter1->as_hash, $as_hash1, "construct as HASH1";
 
-# Update by hash
-$filter = GADS::Filter->new(
-    as_hash => $as_hash,
-);
-is_deeply( decode_json($filter->as_json), $as_hash, "JSON of filter from hash is correct" );
+my $filter2 = Linkspace::Filter->from_json(encode_json $as_hash1);
+is_deeply $filter2->as_hash, $as_hash1, "construct as JSON from HASH1";
+ok defined $filter2, 'Created second filter';
+isa_ok $filter2, 'Linkspace::Filter';
 
-# Update by json
-$filter->as_json($as_json);
-is_deeply( $filter->as_hash, $as_hash, "Hash of filter correct after changing by JSON" );
-# Check not changed
-ok( !$filter->changed, "Filter has not changed after updates" );
+my $rules1 = $filter1->filters;
+cmp_ok @$rules1, '==', 1, "found 1 filter";
+is_deeply $rules1->[0], $rule1, "found rule";
+
+is "@{$filter1->column_ids}", "1", "column_ids()";
 
 # Now set different data
-my $as_hash2 = {
+my $as_hash3 = {
     rules => [
         {
             id       => 2,
@@ -52,33 +50,9 @@ my $as_hash2 = {
     condition => 'OR',
 };
 
-my $as_json2 = encode_json($as_hash2);
+my $filter3 = Linkspace::Filter->from_json(encode_json $as_hash3);
+is_deeply $filter3->as_hash, $as_hash3, "Created filter on HASH3";
 
-# Update check and changed
-$filter->as_json($as_json2);
-is_deeply( $filter->as_hash, $as_hash2, "Hash of filter correct after changing to different JSON" );
-ok( $filter->changed, "Filter has changed after update" );
-
-# Check column IDs
-is( "@{$filter->column_ids}", "2", "Column IDs of filter correct" );
-
-# Change back to old values by as_hash
-$filter->as_hash($as_hash);
-is_deeply( decode_json($filter->as_json), $as_hash, "Hash of filter correct after changing to different JSON" );
-ok( $filter->changed, "Filter has changed after second update" );
-
-# Check column IDs
-is( "@{$filter->column_ids}", "1", "Column IDs of filter correct after change" );
-
-# Start with a blank filter, add filter, and check changed
-$filter = GADS::Filter->new;
-$filter->as_json; # Cause build of default
-$filter->as_hash($as_hash2);
-ok( $filter->changed, "Filter has changed after update after new" );
-
-# Check creation of filter and then immediate change
-$filter = GADS::Filter->new(as_json => $as_json);
-$filter->as_json($as_json2);
-ok($filter->changed, "New filter has changed");
+is "@{$filter3->column_ids}", "2", "Column IDs of filter correct";
 
 done_testing();

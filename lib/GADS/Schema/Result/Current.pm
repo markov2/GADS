@@ -367,7 +367,7 @@ sub export_hash
         linked_id => $self->linked_id,
         deleted   => $self->deleted && $self->deleted->datetime,
         deletedby => $self->deletedby && $self->deletedby->id,
-        records   => \@records;
+        records   => \@records,
       };
 }
 
