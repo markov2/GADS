@@ -18,10 +18,52 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Sheet::Layout;
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
+use warnings;
+use strict;
+
 use Log::Report 'linkspace';
 use List::Util  qw/first max/;
+
+use Moo;
+use MooX::Types::MooseLike::Base qw/:all/;
+
+my @internal_columns = (
+    {   name        => 'ID',
+        type        => 'id',
+        name_short  => '_id',
+        is_unique   => 1,
+    },
+    {   name        => 'Last edited time',
+        type        => 'createddate',
+        name_short  => '_version_datetime',
+        is_unique   => 0,
+    },
+    {   name        => 'Last edited by',
+        type        => 'createdby',
+        name_short  => '_version_user',
+        is_unique   => 0,
+    },
+    {   name        => 'Created by',
+        type        => 'createdby',
+        name_short  => '_created_user',
+        is_unique   => 0,
+    },
+    {   name        => 'Deleted by',
+        type        => 'deletedby',
+        name_short  => '_deleted_by',
+        is_unique   => 0,
+    },
+    {   name        => 'Created time',
+        type        => 'createddate',
+        name_short  => '_created',
+        is_unique   => 0,
+    },
+    {   name        => 'Serial',
+        type        => 'serial',
+        name_short  => '_serial',
+        is_unique   => 1,
+    },
+);
 
 #use Linkspace::Column ();
 
@@ -31,11 +73,6 @@ has forget_history => (
 );
 
 has forward_record_after_create => (
-    is      => 'ro',
-    isa     => Bool,
-);
-
-has no_hide_blank => (
     is      => 'ro',
     isa     => Bool,
 );
@@ -62,60 +99,13 @@ has api_index_layout_id => (
 #------------------
 =head1 METHODS: Constructors
 
-=head2 my $layout_id = $class->layout_create(%insert);
+=head2 $layout = $layout->insert_initial_columns;
 =cut
 
-# initial Columns for a new sheet.
-my @internal_columns = (
-    {   name        => 'ID',
-        type        => 'id',
-        name_short  => '_id',
-        isunique    => 1,
-    },
-    {   name        => 'Last edited time',
-        type        => 'createddate',
-        name_short  => '_version_datetime',
-        isunique    => 0,
-    },
-    {   name        => 'Last edited by',
-        type        => 'createdby',
-        name_short  => '_version_user',
-        isunique    => 0,
-    },
-    {   name        => 'Created by',
-        type        => 'createdby',
-        name_short  => '_created_user',
-        isunique    => 0,
-    },
-    {   name        => 'Deleted by',
-        type        => 'deletedby',
-        name_short  => '_deleted_by',
-        isunique    => 0,
-    },
-    {   name        => 'Created time',
-        type        => 'createddate',
-        name_short  => '_created',
-        isunique    => 0,
-    },
-    {   name        => 'Serial',
-        type        => 'serial',
-        name_short  => '_serial',
-        isunique    => 1,
-    },
-);
-
-sub layout_create(%)
-{    my ($class, %insert) = @_;
-     my $sheet_id = delete $insert{sheet_id};
-
-     foreach my $col (@internal_columns)
-     {   $::db->create(Layout => {
-             %$col,
-             can_child   => 0,
-             internal    => 1,
-             instance_id => $sheet_id,
-         });
-     }
+sub insert_initial_columns()
+{    my ($self) = @_;
+     $self->column_create({ %$_, can_child => 0, is_internal => 1 })
+         for @internal_columns;
 }
 
 sub layout_update($)
@@ -129,27 +119,9 @@ sub layout_update($)
     $self;
 }
 
-=head2 my @cols = $class->load_columns;
-Initially load all column information for a certain site.  For the whole
-site!  This is required because sheets do interlink.  For instance,  we
-need to be able to lookup columns names in Filters.
+#-------------
+=head1 METHODS: Generic Accessors
 =cut
-
-sub load_columns($)
-{   my ($class, $site) = @_;
-
-    my $cols = $::db->search(Layout => {
-        'instance.site_id' => $site->id,
-    },{
-        select   => 'me.*',
-        join     => 'instance',
-#XXX do not prefetch for performance?
-        prefetch => [ qw/calcs rags link_parent display_fields/ ],
-        result_class => 'HASH',
-    });
-
-    [ $cols->all ];
-}
 
 has has_globe => (
     is      => 'lazy',
@@ -440,15 +412,7 @@ sub column($)
 
 sub column_create($)
 {   my ($self, %insert) = @_;
-    my $impl_class = delete $insert{impl_class}
-      || Linkspace::Column->type2class($insert{type});
-
-    $insert{instance_id} = $self->sheet->id;
-
-    $::db->begin_work;
-    my $column_id = $impl_class->column_create(\%insert);
-    my $column    = Linkspace::Column->from_id($column_id, layout => $self);
-    $::db->commit;
+    my $column    = Linkspace::Column->column_create($layout, \%insert);
 
     $self->sheet->document->publish_column($column);
 
@@ -673,5 +637,27 @@ sub topic_unuse($)
     $::db->update(Layout => { topic_id => $topic->id }, { topic_id => undef });
 }
 
-1;
+#-----------------------
+=head1 METHODS: for Document
 
+=head2 my @cols = $class->load_columns;
+Initially load all column information for a certain site.  For the whole
+site!  This is required because sheets do interlink.  For instance,  we
+need to be able to lookup columns names in Filters.
+=cut
+
+sub load_columns($)
+{   my ($class, $site) = @_;
+
+    my $cols = $::db->search(Layout => {
+        'instance.site_id' => $site->id,
+    },{
+        select   => 'me.*',
+        join     => 'instance',
+        result_class => 'HASH',
+    });
+
+    [ $cols->all ];
+}
+
+1;

@@ -28,6 +28,7 @@ our @EXPORT_OK = qw/
     index_by_id
     iso2datetime
     is_valid_id
+    list_diff
     parse_duration
     scan_for_plugins
     uniq_objects
@@ -167,5 +168,20 @@ sub uniq_objects
     grep ! $seen{$_->id}++, (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_);
 }
  
+=head2 my ($added, $deleted, $both) = list_diff $from, $to;
+Returns three ARRAYs, which contain the changes in between ARRAYs C<$from>
+and C<$to>.
+=cut
+
+sub list_diff($$)
+{   my ($from, $to) = @_;
+    my %from = map +($_ => 1), @{$from || []};
+    my %to   = map +($_ => 1), @{$to   || []};
+    my @both = grep exists $to{$_}, keys %from;
+    delete @from{@both};
+    delete @to{@both};
+    ( [ keys %to ], [ keys %from ], \@both );
+}
+
 1;
 

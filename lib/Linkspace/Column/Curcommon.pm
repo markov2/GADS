@@ -105,7 +105,7 @@ sub column_update($)
 sub tjoin
 {   my ($self, %options) = @_;
     $self->make_join(map $_->tjoin,
-        grep !$_->internal, @{$self->curval_fields_retrieve(%options)});
+        grep !$_->is_internal, @{$self->curval_fields_retrieve(%options)});
 }
 
 has layout_parent => (

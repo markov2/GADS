@@ -24,16 +24,31 @@ use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
 
 use Linkspace::Sheet::Layout ();
+use Linkspace::Sheet::Data   ();
 use Linkspace::Sheet::Views  ();
 use Linkspace::Sheet::Graphs ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-extends 'GADS::Schema::Result::Instance';
+extends 'Linkspace::DB::Table';
 
 ###!!!!  The naming is confusing, because that's legacy.
 ###  table Instance      contains Sheet data
 ###  table InstanceGroup relates Sheets to Users
+
+sub db_table { 'Instance' }
+
+sub db_fields_unused { qw/no_overnight_update/ }
+#XXX no_hide_blank cannot be changed
+
+### 2020-04-22: columns in GADS::Schema::Result::Instance
+# id                          homepage_text
+# name                        homepage_text2
+# site_id                     name_short
+# api_index_layout_id         no_hide_blank
+# default_view_limit_extra_id no_overnight_update
+# forget_history              sort_layout_id
+# forward_record_after_create sort_type
 
 =head1 NAME
 Linkspace::Sheet - manages one sheet: one table with a Layout
@@ -60,7 +75,6 @@ Required is a C<document>.
 sub from_record($%)
 {   my ($class, $record, %args) = @_;
     my $self = bless $record, $class;
-	$self->document($args{document} or panic);
     $self;
 }
 
@@ -115,7 +129,8 @@ into Documents (at the moment, only one Document per Site is supported)
 =cut
 
 has document => (
-    is       => 'rw',
+    is       => 'ro',
+    required => 1,
     weak_ref => 1,
 );
 
@@ -158,52 +173,39 @@ initial C<%settings>.
 sub sheet_create($%)
 {   my ($class, %insert) = @_;
     my $document      = delete $insert{document};
-    my $insert_layout = delete $insert{layout};
-    my $insert_data   = delete $insert{data};
 
-    my $guard = $::db->begin_work;
+    my $sheet_id   = $class->create(\%insert);
+    my $sheet      = $class->from_id($sheet_id, document => $document);
 
-    my $sheet_id   = $::db->create(Instance => \%insert)->id;
-
-    $_->{sheet_id} = $sheet_id
-        for $insert_layout, $insert_data;
-
-    $insert_layout->{columns} = $document->columns_for_sheet($sheet_id);
-	my $layout_id  = $class->_layout_create($insert_layout);
-
-	my $data_id    = $class->_data_create($insert_data);
-
-    $guard->commit;
-
-    # Start with a clean sheet
-    $class->from_id($sheet_id);
+    $sheet->layout->insert_initial_columns;
+    $sheet;
 }
 
 #--------------------
-=head1 METHODS: Sheet layout
+=head1 METHODS: Sheet Layout
+Each Sheet has a Layout object which manages the Columns.  It is a management
+object without its own database table; table 'Layout' contains Columns.
 
 =head2 my $layout = $sheet->layout;
-Each Sheet has a Layout which contains the Column descriptions.
 =cut
 
 has layout => (
     is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-        Linkspace::Sheet::Layout->new(
-            sheet   => $self,
-            columns => $self->document->columns_for_sheet($self),
-        ),
-    },
+    builder => sub { Linkspace::Sheet::Layout->new(sheet => $_[0]) },
 );
-
-sub _layout_create($%)
-{   my ($class, $insert, %args) = @_;
-    Linkspace::Sheet::Layout->layout_create($insert);
-}
 
 #--------------------
 =head1 METHODS: Sheet Data, Keeping records
+Each Sheet has a Data object to maintain it's data.  It does not have it's
+own table but maintains the 'Records' table.
+
+=head2 my $data = $sheet->data;
+=cut
+
+has data => (
+    is      => 'lazy',
+    builder => sub { Linkspace::Sheet::Data->new(sheet => $_[0]) },
+);
 
 =head2 $sheet->blank_fields(%search);
 Find columns which match the C<%search>, and set those values to blank ('').
@@ -403,6 +405,12 @@ sub topic_delete($)
     $self->layout->topic_unuse($topic);
     $topic->delete;
 }
+
+#----------------------
+=head1 METHODS: Visualization
+=cut
+
+sub hide_blanks { ! $_[0]->sheet->no_hide_blank }
 
 #----------------------
 =head1 METHODS: Other

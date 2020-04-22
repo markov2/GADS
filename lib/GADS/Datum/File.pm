@@ -38,43 +38,38 @@ after set_value => sub {
     {
         # Files should normally only be submitted by IDs. Allow submission by
         # hashref for tests etc
-        if (ref $val eq 'HASH')
-        {
-            my $file = $self->schema->resultset('Fileval')->create({
+        if(ref $val eq 'HASH')
+        {   my $file = $::db->create(Fileval => {
                 name     => $val->{name},
                 mimetype => $val->{mimetype},
                 content  => $val->{content},
             });
             push @values, $file->id;
         }
-        else {
-            push @values, $val;
+        else
+        {   push @values, $val;
         }
     }
 
     my @old    = sort @{$self->ids};
     my $changed = "@values" ne "@old";
 
-    if ($changed)
-    {
-        foreach (@values)
-        {
-            $self->column->validate($_, fatal => 1);
-        }
+    if($changed)
+    {   my $column = $self->column;
+        $column->validate($_, fatal => 1) for @values;
+
         # Simple test to see if the same file has been uploaded. Only works for
         # single files.
-        if (@values == 1 && @old == 1)
-        {
-            my $old_content = $self->schema->resultset('Fileval')->find($old[0])->content;
-            $changed = 0 if $self->schema->resultset('Fileval')->search({
+        if(@values == 1 && @old == 1)
+        {   my $old_content = $::db->get_record(Fileval => $old[0])->content;
+            $changed = 0 if $::db->search(Fileval => {
                 id      => $values[0],
                 content => $old_content,
             })->count;
         }
     }
-    if ($changed)
-    {
-        $self->clear_files;
+    if($changed)
+    {   $self->clear_files;
         $self->clear_init_value;
     }
     $self->changed($changed);
@@ -83,21 +78,8 @@ after set_value => sub {
     $self->ids(\@values);
 };
 
-has ids => (
-    is      => 'rw',
-    lazy    => 1,
-    coerce  => sub { ref $_[0] eq 'ARRAY' ? $_[0] : [$_[0]] },
-    trigger => sub {
-        my $self = shift;
-        $self->clear_blank;
-    },
-    builder => sub {
-        my $self = shift;
-        [ map { $_->{id} } @{$self->files} ];
-    },
-);
-
-sub _build_blank { @{$_[0]->ids} ? 0 : 1 }
+sub ids      { [ map $_->{id}, @{$_[0]->files} ] }
+sub is_blank { ! @{$_[0]->ids} }
 
 has has_ids => (
     is  => 'rw',
@@ -106,12 +88,9 @@ has has_ids => (
 
 sub value {
     my $self = shift;
-    if ($self->column->multivalue) {
-        return [ map { $_->{name} } @{$self->files} ];
-    }
-    else {
-        $self->as_string || undef;
-    }
+    return [ map $_->{name}, @{$self->files} ] if $self->column->is_multivalue;
+    my $s = $self->as_string;
+    length $s ? $s : undef;
 }
 
 has value_hash => (
@@ -125,67 +104,42 @@ sub has_value { $_[0]->has_ids }
 has files => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 sub _build_files
 {   my $self = shift;
 
-    my @return;
+    $self->has_init_value
+       or return [ $self->_ids_to_files($self->ids) ];
 
-    if ($self->has_init_value)
-    {
-        # XXX - messy to account for different initial values. Can be tidied once
-        # we are no longer pre-fetching multiple records
-        my @init_value = $self->has_init_value ? @{$self->init_value} : ();
-        my @values     = map { ref $_ eq 'HASH' && exists $_->{record_id} ? $_->{value} : $_ } @init_value;
+    # XXX - messy to account for different initial values. Can be tidied once
+    # we are no longer pre-fetching multiple records
+    my @init_value = $self->has_init_value ? @{$self->init_value} : ();
+    my @values = map { ref $_ eq 'HASH' && exists $_->{record_id} ? $_->{value} : $_ } @init_value;
 
-        @return = map {
-            ref $_ eq 'HASH'
-            ? +{
-                id       => $_->{id},
-                name     => $_->{name},
-                mimetype => $_->{mimetype},
-            } : $self->_ids_to_files($_)
-        } grep { ref $_ eq 'HASH' ? $_->{id} : $_ } @values;
-        $self->has_ids(1) if @values || $self->init_no_value;
-    }
-    elsif ($self->has_ids) {
-        @return = $self->_ids_to_files(@{$self->ids});
-    }
+    my @return = map {
+          ref $_ eq 'HASH'
+        ? +{ id => $_->{id}, name => $_->{name}, mimetype => $_->{mimetype} }
+        : $self->_ids_to_files($_)
+    } @values;
 
-    return \@return;
+    $self->has_ids(1) if @values || $self->init_no_value;
+    \@return;
 }
 
 sub _ids_to_files
-{   my ($self, @ids) = @_;
-    map {
-        +{
-            id       => $_->id,
-            name     => $_->name,
-            mimetype => $_->mimetype,
-        };
-    } $self->schema->resultset('Fileval')->search({
-        id => \@ids,
-    },{
-        columns => [qw/id name mimetype/],
-    })->all;
+{   my ($self, $ids) = @_;
+    my @ids = ref $ids eq 'ARRAY' ? @$ids : $ids;
+    @ids or return [];
+
+    my $files_rs = $::db->search(Fileval => { id => \@ids },
+       { columns => [qw/id name mimetype/] }
+    );
+
+    map +{ id => $_->id, name => $_->name, mimetype => $_->mimetype }, $files_rs->all;
 }
 
-sub search_values_unique
-{   my $self = shift;
-    [ map { $_->{name} } @{$self->files} ]
-}
-
-# Needed in case this is unattached file, in which case schema
-# is not in column property
-has schema => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        $_[0]->column->schema;
-    },
-);
+sub search_values_unique { [ map $_->{name}, @{$_[0]->files} ] }
 
 has _rset => (
     is => 'lazy',
@@ -193,22 +147,21 @@ has _rset => (
 
 sub _build__rset
 {   my $self = shift;
-    my $ids = $self->ids or return;
+    my $ids = $self->ids || [];
     @$ids or return;
+
     @$ids > 1
         and error "Only one file can be returned, and this value contains more than one file";
     my $id = shift @$ids;
-    $self->column->user_can('read') or error __x"You do not have access to file ID {id}", id => $id
-        if $self->column;
+    !$self->column || $self->column->user_can('read')
+        or error __x"You do not have access to file ID {id}", id => $id
+
     $self->schema->resultset('Fileval')->find($id);
 }
 
 has content => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        $_[0]->_rset && $_[0]->_rset->content;
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->_rset && $_[0]->_rset->content },
 );
 
 around 'clone' => sub {
@@ -222,22 +175,9 @@ around 'clone' => sub {
 };
 
 
-sub as_string
-{   my $self = shift;
-    my @files = @{$self->files}
-        or return '';
-    return join ', ', map { $_->{name} } @files;
-}
-
-sub as_integer
-{   my $self = shift;
-    panic "Not implemented";
-}
-
-sub html_form
-{   my $self = shift;
-    return $self->ids;
-}
+sub as_string  { join ', ', map $_->{name}, @{$self->files || []} }
+sub as_integer { panic "Not implemented" }
+sub html_form  { $_[0]->ids }
 
 1;
 

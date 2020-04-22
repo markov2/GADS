@@ -72,32 +72,21 @@ has values => (
     },
 );
 
-sub html_form { [ map $_ // '', @{$_[0]->values} ] }
+# By default we return empty strings. These make their way to grouped
+# display as the value to filter for, so this ensures that something
+# like "undef" doesn't display
+sub html_form  { [ map $_ // '', @{$_[0]->values} ] }
+sub text_all   { [ sort @{$_[0]->html_form} ] }
+sub is_blank   { ! grep length, @{$_[0]->values} }
 
-has text_all => (
-    is      => 'rwp',
-    isa     => ArrayRef,
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        $self->values;
-        # By default we return empty strings. These make their way to grouped
-        # display as the value to filter for, so this ensures that something
-        # like "undef" doesn't display
-        [ sort map $_ // '', @{$self->values} ];
-    },
-);
-
-sub _build_blank { ! grep length, @{$_[0]->values} }
+sub as_string  { join ', ', @{$_[0]->text_all} }
+sub as_integer { panic "Not implemented" }
 
 around 'clone' => sub {
     my $orig = shift;
     my $self = shift;
     $orig->($self, values => $self->values, text_all => $self->text_all, @_);
 };
-
-sub as_string  { join ', ', @{$_[0]->text_all} }
-sub as_integer { panic "Not implemented" }
 
 sub html_withlinks
 {   my $string = shift->as_string;

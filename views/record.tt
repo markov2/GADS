@@ -33,7 +33,7 @@
         [% END %]
     </ul>
 </div>
-[% UNLESS layout.no_hide_blank %]
+[% IF sheet.hide_blanks %]
     <button class="btn btn-default pull-right click-to-view-blank" type="button" aria-expanded="false">Show blank values</button>
 [% END %]
 

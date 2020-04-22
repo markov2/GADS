@@ -53,7 +53,7 @@ sub convert_value
 
     my $column = $self->column;
 
-    my @values = $column->multivalue && ref $in->{return} eq 'ARRAY'
+    my @values = $column->is_multivalue && ref $in->{return} eq 'ARRAY'
         ? @{$in->{return}} : $in->{return};
 
     {  local $Data::Dumper::Indent = 0;
@@ -168,32 +168,18 @@ sub equal
 
 sub _build_for_code
 {   my $self = shift;
-    my $rt = $self->column->return_type;
-    my @return;
-    foreach my $val (@{$self->value})
-    {
-        if ($rt eq 'date')
-        {
-            push @return, $self->_date_for_code($val);
-        }
-        elsif ($rt eq 'numeric')
-        {
-            # Ensure true numeric value passed to Lua, otherwise "attempt to
-            # compare number with string" errors are encountered
-            push @return, $self->as_string + 0;
-        }
-        elsif ($rt eq 'integer')
-        {
-            push @return, defined $val ? int $val : undef;
-        }
-        else {
-            push @return, defined $val ? "$val" : undef;
-        }
-    }
+    my $rt   = $self->column->return_type;
+    my $v    = $self->value;
 
-    $self->column->multivalue ? \@return : $return[0];
+    my @return
+      = $rt eq 'date'    ? map $self->_date_for_code($_), @$v
+      : $rt eq 'numeric' ? map $self->as_string + 0, @$v   #XXX??
+      : $rt eq 'integer' ? map int($_ // 0), @$v
+      : map +(defined ? "$_" : undef), @v
+
+    $self->column->is_multivalue ? \@return : $return[0];
 }
 
-sub _build_blank { ! length shift->as_string }
+sub is_blank { ! length $_[0]->as_string }
 
 1;

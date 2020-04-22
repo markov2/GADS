@@ -35,13 +35,10 @@ after set_value => sub {
     {
         my @text; my @deleted;
         foreach (@values)
-        {
-            $self->column->validate($_, fatal => 1);
+        {   $self->column->validate($_, fatal => 1);
             push @text, $self->column->enumval($_)->{value};
             push @deleted, $self->column->enumval($_)->{deleted};
         }
-        $self->clear_text;
-        $self->clear_text_all;
         $self->value_hash({
             ids     => \@values,
             text    => \@text,
@@ -50,29 +47,12 @@ after set_value => sub {
     }
     $self->changed($changed);
     $self->oldvalue($clone);
-    $self->id($self->column->multivalue ? \@values : $values[0]);
+    $self->id($self->column->is_multivalue ? \@values : $values[0]);
 };
 
-has text => (
-    is      => 'rw',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        join ', ', @{$self->text_all};
-    },
-);
-
 # Internal text, array ref of all individual text values
-has text_all => (
-    is      => 'rw',
-    isa     => ArrayRef,
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        $_[0]->value_hash->{text} || [];
-    }
-);
+sub text_all { $_[0]->value_hash->{text} || [] }
+sub text     { join ', ', @{$_[0]->text_all} }
 
 has id => (
     is      => 'rw',
@@ -81,37 +61,26 @@ has id => (
         !defined $value and return;
         ref $value ne 'ARRAY' && $value =~ /^[0-9]+/ and return;
         my @values = @$value;
-        my @remain = grep {
-            !defined $_ || $_ !~ /^[0-9]+$/;
-        } @values and panic "Invalid value for ID";
+        my @remain = grep { !defined $_ || $_ !~ /^[0-9]+$/ } @values
+           and panic "Invalid value for ID";
     },
     lazy    => 1,
-    trigger => sub {
-        my $self = shift;
-        $self->clear_blank;
-    },
     builder => sub {
         my $self = shift;
-        $self->column->multivalue
-            ? [ grep { defined $_ } @{$self->value_hash->{ids}} ]
-            : $self->value_hash->{ids}->[0];
+        $self->column->is_multivalue
+        ? [ grep defined, @{$self->value_hash->{ids}} ]
+        : $self->value_hash->{ids}->[0];
     },
 );
 
 sub ids {
     my $self = shift;
-    $self->column->multivalue ? $self->id : [ $self->id ];
+    $self->column->is_multivalue ? $self->id : [ $self->id ];
 }
 
-sub _build_blank
+sub is_blank
 {   my $self = shift;
-    if ($self->column->multivalue)
-    {
-        @{$self->id} == 0 ? 1 : 0;
-    }
-    else {
-        defined $self->id ? 0 : 1;
-    }
+    $self->column->is_multivalue ? @{$self->id}==0 : ! defined $self->id;
 }
 
 has value_hash => (
@@ -161,7 +130,7 @@ has id_hash => (
 
 sub _build_id_hash
 {   my $self = shift;
-    return $self->id ? { $self->id => 1 } : {} if !$self->column->multivalue;
+    return $self->id ? { $self->id => 1 } : {} if !$self->column->is_multivalue;
     return {} if !$self->id;
     +{ map { $_ => 1 } @{$self->id} };
 }
@@ -196,7 +165,7 @@ sub has_value { $_[0]->has_id }
 
 sub html_form
 {   my $self = shift;
-    [ map { $_ || '' } $self->column->multivalue ? @{$self->id} : $self->id ];
+    [ map { $_ || '' } $self->column->is_multivalue ? @{$self->id} : $self->id ];
 }
 
 around 'clone' => sub {
@@ -213,30 +182,19 @@ sub as_string
 sub as_integer
 {   my $self = shift;
     panic "No integer value for multivalue"
-        if $self->column->multivalue;
+        if $self->column->is_multivalue;
     $self->id // 0;
 }
 
 sub _build_for_code
 {   my ($self, %options) = @_;
 
-    my @ids   = @{$self->value_hash->{ids}};
+    my $ids   = $self->value_hash->{ids};
     my @texts = @{$self->value_hash->{text}};
+    my @values = map +{ id => $_, value => pop @texts }, @$ids;
 
-    my @values;
-    foreach my $id (@ids)
-    {
-        push @values, {
-            id    => $id,
-            value => pop @texts,
-        };
-    }
-
-    if (!$self->column->multivalue && @values <= 1)
-    {
-        return undef if $self->blank;
-        return $self->as_string;
-    }
+    return $self->blank ? undef : $self->as_string
+        if !$self->column->is_multivalue && @values <= 1;
 
     +{
         text   => $self->as_string,

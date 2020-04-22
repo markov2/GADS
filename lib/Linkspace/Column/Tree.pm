@@ -198,16 +198,34 @@ sub validate_search {1} # Anything is valid as a search value
 # Get a single node value
 sub node
 {   my ($self, $id) = @_;
-
     $id or return;
-    $self->_nodes->{$id} or return;
 
-    {
-        id    => $id,
-        node  => $self->_nodes->{$id},
+    my $node = $self->_nodes->{$id} or return;
+     +{ id    => $id,
+        node  => $node,
         value => $self->_enumvals_index->{$id}->{value},
-    }
+      };
 }
+
+has ancestors => (
+    lazy    => 1,
+    builder => sub {
+        my $self = shift;
+        my @return;
+        foreach my $node_id (@{$self->ids})
+        {   my $node = $self->node($node_id);
+            my @ancestors = $node->{node} ? $node->{node}{node}->ancestors : ();
+            my @ancs;
+            foreach my $anc (@ancestors)
+            {   my $node     = $self->node($anc->name);
+                my $dag_node = $node->{node}{node};
+                push @ancs, $node if $dag_node && defined $dag_node->mother; # Do not add root node
+            }
+            push @return, \@ancs;
+        }
+        \@return;
+    },
+);
 
 sub _build__tree
 {   my $self = shift;

@@ -326,7 +326,7 @@ sub eval
     # Make sure we're not returning anything funky (e.g. code refs)
     my $ret = $return->{return};
 
-    if($self->multivalue && ref $ret eq 'ARRAY')
+    if($self->is_multivalue && ref $ret eq 'ARRAY')
     {   $ret = [ map "$_", @$ret ];
     }
     elsif(defined $ret)
@@ -368,7 +368,7 @@ sub write_special
     {
         $return_options{no_alerts} = 1 if $new;
 
-        my @depends_on_ids = map $_->id, grep !$_->internal,
+        my @depends_on_ids = map $_->id, grep !$_->is_internal,
             $self->param_columns(is_fatal => $options{override} ? 0 : 1);
 
         $::db->delete(LayoutDepend => { layout_id => $id });

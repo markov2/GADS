@@ -18,9 +18,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package GADS::Datum::Curcommon;
 
-use CGI::Deurl::XS 'parse_query_string';
-use HTML::Entities qw/encode_entities/;
 use Log::Report 'linkspace';
+use CGI::Deurl::XS 'parse_query_string';
+use HTML::Entities  qw/encode_entities/;
+use Scalar::Util    qw/blessed/;
+use List::Util      qw/uniq/;
+
+use Linkspace::Util qw/list_diff is_valid_id/;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
@@ -36,11 +41,16 @@ after set_value => sub {
         if $self->column->type eq 'autocur' && !$options{allow_set_autocur};
 
     my $clone   = $self->clone; # Copy before changing text
-    my @values  = sort grep {$_} ref $value eq 'ARRAY' ? @$value : ($value);
-    my @records = grep { ref $_ eq 'GADS::Record' } @values;
-    @values     = grep { ref $_ ne 'GADS::Record' } @values;
-    my @ids     = grep { $_ =~ /^[0-9]+$/ } @values; # Submitted curval IDs of existing records
-    my @queries = grep { $_ !~ /^[0-9]+$/ } @values; # New curval records or changes to existing ones
+
+    my (@records, @ids, @queries);
+    foreach my $value (grep $_, ref $value eq 'ARRAY' ? @$value : $value)
+    {   my $q = blessed $value && $value->isa('GADS::Record') ? \@records
+              : is_valid_id($value) ? \@ids
+              : \@queries;
+        push @$q, $value;
+    }
+
+    @ids = sort @ids;  #XXX needed?
     my @old_ids = sort @{$self->ids};
 
     panic "Records cannot be mixed with other set values"
@@ -49,12 +59,13 @@ after set_value => sub {
     my $changed;
     $self->clear_values_as_records;
 
-    if (@records)
-    {
-        $self->_set_values_as_records(\@records);
-        @ids = map { $_->current_id } grep { !$_->new_entry } @records;
+    if(@records)
+    {   $self->_set_values_as_records(\@records);
+        @ids = map $_->current_id, grep !$_->is_new_entry, @records;
         # Exclude the parent curval to prevent recursive loops
-        my @queries = map { $_->as_query(exclude_curcommon => 1) } grep { $_->new_entry } @records;
+        my @queries = map $_->as_query(exclude_curcommon => 1),
+            grep $_->is_new_entry, @records;
+
         $self->_set_values_as_query(\@queries);
         $self->clear_values_as_query_records; # Rebuild for new queries
     }
@@ -66,8 +77,9 @@ after set_value => sub {
         $changed = 1 if grep { $_->is_edited } @{$self->values_as_query_records};
         # Remove any updated records from the list of old IDs in order to see
         # what has changed
-        my %updated = map { $_->current_id => 1 } grep { !$_->new_entry } @{$self->values_as_query_records};
-        @old_ids = grep { !$updated{$_} } @old_ids;
+        my %updated = map +($_->current_id => 1),
+            grep !$_->is_new_entry, @{$self->values_as_query_records};
+        @old_ids = grep !$updated{$_}, @old_ids;
     }
 
     $changed ||= "@ids" ne "@old_ids"; #  Also see if IDs have changed
@@ -83,7 +95,6 @@ after set_value => sub {
         $self->clear_init_value;
         $self->_clear_init_value_hash;
         $self->_clear_records;
-        $self->clear_blank;
         $self->clear_already_seen_code;
         $self->clear_already_seen_level;
     }
@@ -102,7 +113,6 @@ after set_value => sub {
 has _init_value_hash => (
     is      => 'lazy',
     isa     => HashRef,
-    clearer => 1,
 );
 
 sub _build__init_value_hash
@@ -144,105 +154,68 @@ sub _build__init_value_hash
 
 has values => (
     is        => 'lazy',
-    isa       => ArrayRef,
-    clearer   => 1,
     predicate => 1,
 );
 
 sub _build_values
 {   my $self = shift;
-    my @return;
-    if ($self->_init_value_hash->{records})
-    {
-        @return = map { $self->column->_format_row($_) } @{$self->_init_value_hash->{records}};
+    my $column = $self->column;
+
+    if(my $r = $self->_init_value_hash->{records})
+    {   return [ map $column->_format_row($_), @$r ];
     }
-    elsif ($self->values_as_records)
+
+    my @return;
+    if(my $r = $self->values_as_records)
     {
-        foreach my $rec (@{$self->values_as_records})
-        {
-            my $values = $self->column->_format_row($rec)->{values};
+        foreach my $rec (@$r)
+        {   my $values = $column->_format_row($rec)->{values};
             push @return, +{
                 id       => !$rec->new_entry && $rec->current_id,
                 as_query => $rec->new_entry && $rec->as_query,
                 values   => $values,
-                value    => $self->column->format_value(@$values),
+                value    => $column->format_value(@$values),
                 record   => $rec,
             };
         }
     }
-    elsif (@{$self->ids} || @{$self->values_as_query}) {
-        @return = $self->column->ids_to_values($self->ids, fatal => 1);
+    elsif( ! $self->is_blank )
+    {   @return = $column->ids_to_values($self->ids, fatal => 1);
 
         my @records = @{$self->values_as_query_records};
         foreach my $query (@{$self->values_as_query})
-        {
-            my $record = shift @records;
-            my $values = $self->column->_format_row($record)->{values};
+        {   my $record = shift @records;
+            my $values = $column->_format_row($record)->{values};
             push @return, +{
                 id       => $record->current_id,
                 as_query => $query,
                 values   => $values,
-                value    => $self->column->format_value(@$values),
+                value    => $column->format_value(@$values),
                 record   => $record,
             };
         }
     }
-    return \@return;
+    \@return;
 }
 
-sub text_all
-{   my $self = shift;
-    [ map { $_->{value} } @{$self->values} ];
-}
+sub text_all { [ map $_->{value},  @{$_[0]->values} ] }
+sub text     { join '; ', @{$_[0]->text_all} }
+sub _records { [ map $_->{record}, @{$_[0]->values} ] }
 
-has _records => (
-    is      => 'lazy',
-    isa     => Maybe[ArrayRef],
-    clearer => 1,
-);
-
-sub _build__records
-{   my $self = shift;
-    return [ map { $_->{record} } @{$self->values} ];
-}
-
-sub _build_blank
+sub is_blank
 {   my $self = shift;
     @{$self->ids} || @{$self->values_as_query} ? 0 : 1;
 }
 
-has text => (
-    is        => 'rwp',
-    isa       => Str,
-    lazy      => 1,
-    builder   => 1,
-    clearer   => 1,
-    predicate => 1,
-);
-
-sub _build_text
-{   my $self = shift;
-    join '; ', map { $_->{value} } @{$self->values};
-}
 
 has id_hash => (
     is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_id_hash
-{   my $self = shift;
-    +{ map { $_ => 1 } @{$self->ids} };
+    builder => sub { +{ map +($_ => 1), @{$_[0]->ids} } },
 }
 
 has ids => (
-    is      => 'rwp',
-    isa     => Maybe[ArrayRef],
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        $self->_init_value_hash->{ids} || [];
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->_init_value_hash->{ids} || [] },
 );
 
 has ids_removed => (
@@ -254,10 +227,13 @@ has ids_removed => (
 sub _build_ids_removed
 {   my $self = shift;
     return [] if !$self->changed;
-    my %old = map { $_ => 1 } @{$self->oldvalue->ids};
-    delete $old{$_} foreach @{$self->ids};
-    delete $old{$_->current_id} foreach grep { !$_->new_entry } @{$self->values_as_query_records};
-    return [ keys %old ];
+
+    my %old = map +($_ => 1), @{$self->oldvalue->ids};
+    delete $old{$_} for @{$self->ids};
+    delete $old{$_->current_id}
+        for grep !$_->new_entry, @{$self->values_as_query_records};
+
+    [ keys %old ];
 }
 
 # IDs of any records that have been removed and automatically deleted. This is
@@ -269,38 +245,22 @@ has ids_deleted => (
 );
 
 # All relevant ids (old and new)
-has ids_affected => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
-
-sub _build_ids_affected
-{   my $self = shift;
-    my %ids = map { $_ => 1 } $self->oldvalue ?  @{$self->oldvalue->ids} : ();
-    $ids{$_} = 1 foreach @{$self->ids};
-    [ keys %ids ];
+sub ids_affected 
+{  my $self = shift;
+   my $old_ids = $self->oldvalue ? $self->oldvalue->ids : [];
+   [ uniq @$old_ids, @{$self->ids} ];
 }
 
-# ids that have been added or removed
-has ids_changed => (
-    is => 'lazy',
-);
-
-sub _build_ids_changed
+sub ids_changed
 {   my $self = shift;
-    my %old_ids = map { $_ => 1 } $self->oldvalue ?  @{$self->oldvalue->ids} : ();
-    my %new_ids = map { $_ => 1 } @{$self->ids};
-    my %changed = map { $_ => 1 } @{$self->ids_affected};
-    foreach (keys %changed)
-    {
-        delete $changed{$_} if $old_ids{$_} && $new_ids{$_};
-    }
-    [ keys %changed ];
+    my $old_ids = $self->oldvalue ? $self->oldvalue->ids : [];
+    my ($added, $deleted) = list_diff $old_ids, $self->ids;
+    [ @$added, @$deleted ];
 }
 
 sub id
 {   my $self = shift;
-    $self->column->multivalue
+    $self->column->is_multivalue
         and panic "Cannot return single id value for multivalue field";
     $self->ids->[0];
 }

@@ -49,7 +49,7 @@ extends 'Linkspace::DB::Table';
 sub db_table { 'Layout' }
 
 sub db_field_rename { +{
-    display_field => 'display_field_old',  # free-up display_field attr
+    display_field => 'display_field_old',  # unused
     filter        => 'filter_json',
     force_regex   => 'force_regex_string',
     internal      => 'is_internal',
@@ -61,6 +61,8 @@ sub db_field_rename { +{
     };
 }
 
+# 'display_field' is also unused, but we do not want a stub for it: it's
+# method name has a new purpose.
 sub db_fields_unused { qw/display_matchtype display_regex/ }
 
 ### 2020-04-14: columns in GADS::Schema::Result::Layout
@@ -111,10 +113,9 @@ sub has_cache      { 0 }   #XXX autodetect with $obj->can(write_cache)?
 sub has_filter_typeahead { 0 } # has typeahead when inputting filter values
 sub has_multivalue_plus  { 0 }
 sub hidden         { 0 }   #XXX?
-sub internal       { 0 }
+sub internal       { 0 }   # the type is internal, see is_internal() on objects
 sub is_curcommon   { 0 }
 sub meta_tables    { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] }
-sub multivalue     { 0 }
 sub numeric        { 0 }
 sub option_names   { shift; [ @_ ] };
 sub retrieve_fields{ [ $_[0]->value_field ] }
@@ -133,18 +134,20 @@ sub sort_parent   { undef }
 ### Class
 ###
 
-sub column_create(%)
-{   my ($class, $insert) = @_;
-    $self->type2class($insert->{type})->_column_create($insert);
+sub column_create($%)
+{   my ($class, $layout, $insert) = @_;
+    $insert->{sheet_id}    ||= $layout->sheet->id;
+    $insert->{is_internal} ||= $class->internal;
+    $class->type2class($insert->{type})->_column_create($insert);
 }
 
 sub _column_create($)
 {   my ($class, $insert) = @_;
 
-    $insert{related_field} = $insert{related_field}->id
-        if blessed $insert{related_field};
+    $insert{related_field_id} = (delete $insert{related_field})->id
+        if $insert{related_field};
 
-    $self->create($insert)->id;
+    $self->create($insert);
 }
 
 ###
@@ -236,7 +239,6 @@ sub suffix($)
 # Used to provide a blank template for row insertion (to blank existing
 # values). Only used in calc at time of writing
 has blank_row => (
-    is      => 'ro',
     lazy    => 1,
     builder => sub { +{ $_[0]->value_field => undef } },
 );

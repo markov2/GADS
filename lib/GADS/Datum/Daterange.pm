@@ -47,12 +47,9 @@ after set_value => sub {
     }
     my @text_all = sort map $self->_as_string($_), @values;
     if("@text_all" ne "@{$self->text_all}")
-    {
-        $self->changed(1);
+    {   $self->changed(1);
         $self->_set_values(\@values);
         $self->_set_text_all(\@text_all);
-        $self->clear_html_form;
-        $self->clear_blank;
     }
     $self->oldvalue($clone);
 };
@@ -80,10 +77,7 @@ has text_all => (
     },
 );
 
-sub _build_blank
-{   my $self = shift;
-    ! grep { $_->start && $_->end } @{$self->values};
-}
+sub is_blank { ! grep $_->start && $_->end, @{$_[0]->values} }
 
 # Can't use predicate, as value may not have been built on
 # second time it's set
@@ -129,48 +123,40 @@ sub _parse_dt
     $original->{from} || $original->{to}
         or return;
 
+    my $column = $self->column;
     my ($from, $to);
-    if ($source eq 'db')
+    if($source eq 'db')
     {   $from = $::db->parse_date($original->{from});
         $to   = $::db->parse_date($original->{to});
     }
-    else { # Assume 'user'
-        # If it's not a valid value, see if it's a duration instead (only for bulk)
-        my $column = $self->column;
-        if ($column->validate($original, fatal => !$options{bulk}))
-        {   $from = $column->parse_date($original->{from});
-            $to   = $column->parse_date($original->{to});
-        }
-        elsif($options{bulk}) {
-            my $from_duration = parse_duration $original->{from};
-            my $to_duration   = parse_duration $original->{to};
-            if ($from_duration || $to_duration)
-            {
-                if (@{$self->values})
-                {
-                    my @return;
-                    foreach my $value (@{$self->values})
-                    {
-                        $from = $value->start;
-                        $from->add_duration($from_duration) if $from_duration;
-                        $to = $value->end;
-                        $to->add_duration($to_duration) if $to_duration;
-                        push @return, DateTime::Span->from_datetimes(start => $from, end => $to);
-                    }
-                    return @return;
-                }
-                else {
-                    return; # Don't bork as we might be bulk updating, with some blank values
-                }
+    # Assume 'user'. If it's not a valid value, see if it's a duration instead (only for bulk)
+    elsif($column->validate($original, fatal => !$options{bulk}))
+    {   $from = $column->parse_date($original->{from});
+        $to   = $column->parse_date($original->{to});
+    }
+    elsif($options{bulk})
+    {   my $from_duration = parse_duration $original->{from};
+        my $to_duration   = parse_duration $original->{to};
+
+        if($from_duration || $to_duration)
+        {   # Don't bork as we might be bulk updating, with some blank values
+            @{$self->values} or return;
+
+            my @return;
+            foreach my $value (@{$self->values})
+            {   ($from, $to) = ($value->start, $value->end);
+                $from->add_duration($from_duration) if $from_duration;
+                $to->add_duration($to_duration)     if $to_duration;
+                push @return, DateTime::Span->from_datetimes(start => $from, end => $to);
             }
-            else {
-                # Nothing fits, raise fatal error
-                $self->column->validate($original, fatal => 1);
-            }
+            return @return;
         }
+
+        # Nothing fits, raise fatal error
+        $column->validate($original, fatal => 1);
     }
 
-    $to->subtract( days => $options{subtract_days_end} ) if $options{subtract_days_end};
+    $to->subtract(days => $options{subtract_days_end} ) if $options{subtract_days_end};
     (DateTime::Span->from_datetimes(start => $from, end => $to));
 }
 
@@ -181,10 +167,7 @@ sub as_integer
     $self->value && $self->value->start ? $self->value->start->epoch : 0;
 }
 
-sub as_string
-{   my $self = shift;
-    join ', ', @{$self->text_all};
-}
+sub as_string { join ', ', @{$_[0]->text_all} }
 
 sub _as_string
 {   my ($self, $range) = @_;
@@ -198,7 +181,6 @@ sub _as_string
 
 has html_form => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_html_form
@@ -210,17 +192,12 @@ sub _build_html_form
            , $user->dt2local($_->end, $format) ) @{$self->values} ];
 }
 
-sub filter_value
-{   shift->text_all->[0];
-}
-
-sub search_values_unique
-{   shift->text_all;
-}
+sub filter_value   { $_[0]->text_all->[0] }
+sub search_values_unique { $_[0]->text_all }
 
 sub _build_for_code
 {   my $self = shift;
-    return undef if !$self->column->multivalue && $self->blank;
+    return undef if !$self->column->is_multivalue && $self->is_blank;
     my @return = map {
         +{
             from  => $self->_date_for_code($_->start),

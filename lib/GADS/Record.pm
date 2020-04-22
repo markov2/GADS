@@ -174,10 +174,12 @@ has linked_id => (
     builder => sub {
         my $self = shift;
         my $cid     = $self->current_id or return;
-        my $current = $::db->get_record(Current => $cid) or return;
-        $current->linked_id;
+        my $current = $::db->get_record(Current => $cid);
+        $current ? $current->linked_id : undef;
     },
 );
+
+sub forget_history { $_[0]->sheet->forget_history }
 
 # The ID of the parent record that this is a child to, in the
 # case of a child record
@@ -880,7 +882,7 @@ sub _transform_values
     # We must do these columns in dependent order, otherwise the
     # column values may not exist for the calc values.
     foreach my $column (@{$self->columns_retrieved_do})
-    {   next if $column->internal;
+    {   next if $column->is_internal;
 
         my $key = ($self->linked_id && $column->link_parent ? $column->link_parent : $column)->field;
         # If this value was retrieved as part of a grouping, and if it's a sum,
@@ -1202,7 +1204,7 @@ sub write
 
     # See whether this instance is set to not record history. If so, override
     # update_only option to ensure it is only an update
-    $options{update_only} = 1 if $self->layout->forget_history;
+    $options{update_only} = 1 if $self->forget_history;
 
     ! $options{draft} || $self->new_entry
         or error __"Cannot save draft of existing record";
@@ -1253,11 +1255,11 @@ sub write
         if (
                (!$self->parent_id || $column->can_child)
             && !$self->linked_id
-            && !$column->optional
-            && $datum->blank
+            && !$column->is_optional
+            &&  $datum->is_blank
             && !$options{force_mandatory}
             && !$options{draft}
-            && $column->user_can('write')
+            &&  $column->user_can('write')
         )
         {
             # Do not require value if the field has not been showed because of
@@ -1302,7 +1304,7 @@ sub write
         elsif ($self->new_entry)
         {
             error __x"You do not have permission to add data to field {name}", name => $column->name
-                if !$datum->blank && !$column->user_can('write_new');
+                if !$datum->is_blank && !$column->user_can('write_new');
         }
         elsif ($datum->changed && !$column->user_can('write_existing'))
         {
@@ -1311,7 +1313,7 @@ sub write
             # to add a blank field to the child record. If they do, they
             # will land here, so we check for that and only error if they
             # have entered a value.
-            if ($datum->blank && $self->parent_id)
+            if ($datum->is_blank && $self->parent_id)
             {
                 # Force new record to write if this is the only change
                 $need_rec = 1;
@@ -1322,7 +1324,7 @@ sub write
         }
 
         #  Check for no change option, used by onboarding script
-        if ($options{no_change_unless_blank} && !$self->new_entry && $datum->changed && !$datum->oldvalue->blank)
+        if ($options{no_change_unless_blank} && !$self->new_entry && $datum->changed && !$datum->oldvalue->is_blank)
         {
             error __x"Attempt to change {name} from \"{old}\" to \"{new}\" but no changes are allowed to existing data",
                 old => $datum->oldvalue->as_string, new => $datum->as_string, name => $column->name
@@ -1335,8 +1337,8 @@ sub write
         # If the value has been de-selected as unique, the datum will be changed, and it
         # may still have a value in it, although this won't be written.
         if (     $column->isunique
-            &&  !$datum->blank
-            && ( $self->new_entry || $datum->changed)
+            &&  !$datum->is_blank
+            && ( $self->is_new_entry || $datum->changed)
             && (!$self->parent_id || $column->can_child))
         {
             # Check for other columns with this value.
@@ -1406,7 +1408,7 @@ sub write
     my $user_id = $self->user ? $self->user->id : undef;
 
     my $createdby = $options{version_userid} || $user_id;
-    if (!$options{update_only} || $self->layout->forget_history)
+    if (!$options{update_only} || $self->forget_history)
     {
         # Keep original record values when only updating the record, except
         # when the update_only is happening for forgetting version history, in
@@ -1424,7 +1426,7 @@ sub write
         next if !$column->has_cache || !$column->isunique;
         my $datum = $self->field($column);
         if (
-               ! $datum->blank
+               ! $datum->is_blank
             && ($self->new_entry || $datum->changed)
             && (!$self->parent_id # either not a child
                 || grep $_->can_child, $column->param_columns # or is a calc value that may be different to parent
@@ -1453,7 +1455,7 @@ sub write
         {
             error __x"You cannot write to {col} until the following fields have been completed: {fields}",
                 col => $col->name, fields => [ map $_->name, @{$topic->{columns}} ]
-                    if ! $self->field($col)->blank;
+                    if ! $self->field($col)->is_blank;
         }
     }
 
@@ -1520,7 +1522,7 @@ sub write
         $self->record_id_old($self->record_id) if $self->record_id;
         $self->record_id($id);
     }
-    elsif ($self->layout->forget_history)
+    elsif ($self->forget_history)
     {
         $::db->update(Record => $self->record_id, {
             created   => $created_date,
@@ -1572,13 +1574,11 @@ sub write
     $guard->commit;
 }
 
-#XXX Should be discovered during registration of Column types.
-#XXX Is this list still complete?
-my @sub_tables = qw/String Intgr Person Date Daterange File Enum/;
 sub record_in_use($)
 {   my ($self, $record_id) = @_;
 
-    foreach my $table (@sub_tables)
+    my $tables = Linkspace::Column->meta_tables;
+    foreach my $table (@$tables)
     {   return 1 if $::db->search($table => { record_id => $record_id })->count;
     }
     0;
@@ -1701,7 +1701,7 @@ sub write_values
             # Only need to write values that need approval
             next unless $datum->is_awaiting_approval;
             $self->_field_write($column, $datum, approval => 1)
-                if $is_new ? !$datum->blank : $datum->changed;
+                if $is_new ? !$datum->is_blank : $datum->changed;
         }
     }
 

@@ -25,28 +25,12 @@ extends 'GADS::Datum';
 
 has value => (
     is      => 'lazy',
-    clearer => 1,
+    builder => sub { $_[0]->current_id },
 );
 
-sub _build_value
-{   my $self = shift;
-    $self->current_id;
-}
-
-sub _build_blank {
-    my $self = shift;
-    ! $self->value;
-}
-
-sub as_string
-{   my $self = shift;
-    $self->value;
-}
-
-sub as_integer
-{   my $self = shift;
-    $self->value || undef;
-}
+sub is_blank   { ! $_[0]->value }
+sub as_string  { $_[0]->value }
+sub as_integer { $_[0]->value || undef }
 
 sub _build_for_code
 {   my $self = shift;

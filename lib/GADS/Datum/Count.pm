@@ -24,13 +24,8 @@ use Moo;
 extends 'GADS::Datum';
 
 has value => (
-    is      => 'rw',
-    lazy    => 1,
-    trigger => sub { $_[0]->blank(defined $_[1] ? 0 : 1) },
-    builder => sub {
-        my $self = shift;
-        $self->init_value->[0];
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->init_value->[0] },
 );
 
 sub as_string
@@ -40,15 +35,11 @@ sub as_string
 }
 
 sub as_integer
-{   my $self = shift;
-    return if !defined $self->value;
-    int $self->value || 0;
+{   my $v = $_[0]->value;
+    defined $v ? int($v || 0) : undef;
 }
 
-sub _build_blank
-{   my $self = shift;
-    !! defined $self->value;
-}
+sub is_blank { !! defined $_[0]->value }
 
 sub _build_for_code
 {   my $self = shift;

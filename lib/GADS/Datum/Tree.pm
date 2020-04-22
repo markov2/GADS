@@ -27,21 +27,14 @@ extends 'GADS::Datum';
 after set_value => sub {
     my ($self, $value) = @_;
     my $clone = $self->clone; # Copy before changing text
-    my @values = sort grep {$_} ref $value eq 'ARRAY' ? @$value : ($value);
+    my @values = sort grep $_, ref $value eq 'ARRAY' ? @$value : ($value);
     my @old    = sort @{$self->ids};
     my $changed = "@values" ne "@old";
-    if ($changed)
-    {
-        my @text;
-        foreach (@values)
-        {
-            $self->column->validate($_, fatal => 1);
-            push @text, $self->column->node($_)->{value};
-        }
-        $self->clear_text;
-        $self->clear_blank;
-        $self->clear_ancestors;
-        $self->clear_full_path;
+
+    my $column  = $self->column;
+    if($changed)
+    {   $column->validate($_, fatal => 1) for @values;
+        my @text = map $column->node($_)->{value}, @values;
         $self->text_all(\@text);
     }
     $self->changed($changed);
@@ -51,135 +44,72 @@ after set_value => sub {
 
 sub id { panic "id() removed for Tree datum" }
 
-has ids => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        $self->value_hash->{ids} || [];
-    },
-);
-
-sub ids_as_params
-{   my $self = shift;
-    join '&', map { "ids=$_" } @{$self->ids};
-}
-
-sub _build_blank
-{   my $self = shift;
-    ! grep { $_ } @{$self->ids};
-}
+sub ids           { $_[0]->value_hash->{ids} || [] }
+sub ids_as_params { join '&', map "ids=$_", @{$_[0]->ids} }
+sub is_blank      { ! grep $_, @{$_[0]->ids} }
 
 # Make up for missing predicated value property
-sub has_value { !$_[0]->blank || $_[0]->init_no_value }
-
-sub html_form
-{   my $self = shift;
-    [ map { $_ || '' } @{$self->ids} ];
-}
+sub has_value     { ! $_[0]->is_blank || $_[0]->init_no_value }
+sub html_form     { [ map $_||'', @{$_[0]->ids} ] }
 
 has value_hash => (
-    is      => 'rw',
     lazy    => 1,
     builder => sub {
         my $self = shift;
         $self->has_init_value or return {};
-        # XXX - messy to account for different initial values. Can be tidied once
-        # we are no longer pre-fetching multiple records
 
-        my @values = map { ref $_ eq 'HASH' && exists $_->{record_id} ? $_->{value} : $_ } @{$self->init_value};
+        my $column = $self->column;
+
+        # XXX - messy to account for different initial values. Can be tidied
+        # once we are no longer pre-fetching multiple records
+
+        my @values = map { ref $_ eq 'HASH' && $_->{record_id} ? $_->{value} : $_ } @{$self->init_value};
+
         my (@ids, @texts);
         foreach (@values)
-        {
-            if (ref $_ eq 'HASH')
-            {
-                next if !$_->{id};
-                push @ids, $_->{id};
+        {   if(ref $_ eq 'HASH')
+            {   next if !$_->{id};
+                push @ids,   $_->{id};
                 push @texts, $_->{value} || '';
             }
-            else {
-                my $e = $self->column->node($_)
-                    or next;
-                push @ids, $e && $e->{id};
-                push @texts, $e && $e->{value};
+            elsif(my $node = $column->node($_))
+            {   push @ids,   $node->{id};
+                push @texts, $node->{value};
             }
         }
 
         +{
             ids  => \@ids,
             text => \@texts,
-        };
+         };
     },
 );
 
 
-has ancestors => (
-    is      => 'rw',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        my @return;
-        foreach my $id (@{$self->ids})
-        {
-            my $node = $self->column->node($id);
-            my @ancestors = $node->{node} ? $node->{node}->{node}->ancestors : ();
-            my @ancs;
-            foreach my $anc (@ancestors)
-            {
-                my $node     = $self->column->node($anc->name);
-                my $dag_node = $node->{node}->{node};
-                push @ancs, $node if $dag_node && defined $dag_node->mother; # Do not add root node
-            }
-            push @return, \@ancs;
-        }
-        \@return;
-    },
-);
+sub ancestors { $_[0]->column->ancestors }
 
 has full_path => (
     is      => 'lazy',
-    clearer => 1,
     builder => sub {
         my $self = shift;
         my @all;
         my @all_texts = @{$self->text_all};
         foreach my $anc (@{$self->ancestors})
-        {
+        {   my $path = join '#', map $_->{value}, @$anc;
             my $text = shift @all_texts;
-            my @path;
-            push @path, $_->{value}
-                foreach @$anc;
-            my $path = join '#', @path;
-            $path = $path ? "$path#".$text : $text;
-            push @all, $path;
+            push @all, $path ? "$path#".$text : $text;
         }
-        return \@all;
+        \@all;
     },
 );
 
-sub value_regex_test
-{   shift->full_path }
-
-has text => (
-    is      => 'rw',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        join ', ', @{$self->text_all};
-    },
-);
+sub value_regex_test { shift->full_path }
+sub as_string  { $_[0]->text // "" }
+sub as_integer { panic "No integer value" }
 
 # Internal text, array ref of all individual text values
-has text_all => (
-    is      => 'rw',
-    isa     => ArrayRef,
-    lazy    => 1,
-    builder => sub {
-        $_[0]->value_hash->{text} || [];
-    }
-);
+sub text { join ', ', @{$_[0]->text_all} }
+sub text_all { $_[0]->value_hash->{text} || [] }
 
 around 'clone' => sub {
     my $orig = shift;
@@ -191,55 +121,40 @@ around 'clone' => sub {
     );
 };
 
-sub as_string
-{   my $self = shift;
-    $self->text // "";
-}
+sub _code_values($)
+{   my ($self, $column, $node_id) = @_;
 
-sub as_integer
-{   my $self = shift;
-    panic "No integer value";
+    my $node    = $column->node($node_id);
+    my @parents = $node ? $node->{node}{node}->ancestors : ();
+    pop @parents; # Remove root
+
+    my (%parents, $count);
+    foreach my $parent (reverse @parents)
+    {   my $pnode_id = $parent->name;  #XXX name or id?
+        my $pnode    = $column->node($pnode_id);
+
+        # Use text for the parent number, as this will not work in Lua:
+        # value.parents.1
+        $parents->{'parent'.++$count} = $pnode->{value};
+    }
+
+     +{ value   => $self->is_blank ? undef : $node->{value},
+        parents => \%parents,
+      };
 }
 
 sub _build_for_code
-{   my $self = shift;
-    my @values = map {
-        my @parents = $self->column->node($_)
-            ? $self->column->node($_)->{node}->{node}->ancestors
-            : ();
-        pop @parents; # Remove root
-        my $r = {
-            value   => $self->blank ? undef : $self->column->node($_)->{value},
-            parents => {},
-        };
-        my $count;
-        foreach my $parent (reverse @parents)
-        {
-            $count++;
-            my $node_id = $parent->name;
-            my $text    = $self->column->node($node_id)->{value};
-            # Use text for the parent number, as this will not work in Lua:
-            # value.parents.1
-            $r->{parents}->{"parent$count"} = $text;
-        }
-        $r;
-    } @{$self->ids};
+{   my $self   = shift;
+    my $column = $self->column;
+    my @values = map $self->_code_values($column, $_), @{$self->ids};
 
-    if ($self->column->multivalue || @values > 1)
-    {
-        return \@values;
-    }
-    else {
-        # If the value is blank then still return a hash. This makes it easier
-        # to use in Lua without having to test for the existence of a value
-        # first
-        my $ret = $values[0];
-        $ret ||= {
-            value   => undef,
-            parents => {},
-        };
-        return $ret;
-    }
+    return \@values
+       if $column->is_multivalue || @values > 1;
+
+    # If the value is blank then still return a hash. This makes it easier
+    # to use in Lua without having to test for the existence of a value
+    # first
+    $values[0] || +{ value => undef, parents => {} };
 }
 
 1;

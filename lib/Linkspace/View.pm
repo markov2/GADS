@@ -381,7 +381,7 @@ XXX caller must reinstate full View.
         unless (grep $_->layout_id == $filter->{column_id}, @existing)
         {
             # Unable to add internal columns to filter table, as they don't
-            # reference any columns from the layout table
+            # reference any columns from the layout table  XXX old
             next unless $filter->{column_id} > 0;
 
             $::db->create(Filter => {
@@ -460,11 +460,11 @@ my %standard_fields = (
 sub _get_sorts
 {   my $self = shift;
 
-    return [] unless $self->_view;
+    my $_view = $self->_view or return [];
 
     # Sort order is defined by the database sequential ID of each sort
     my @sorts;
-    foreach my $sort ($self->_view->sorts->all)
+    foreach my $sort ($_view->sorts->all)
     {
         # XXX Convert from legacy internal IDs. This can be removed at some
         # point.

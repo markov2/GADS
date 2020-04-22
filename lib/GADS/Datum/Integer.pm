@@ -30,20 +30,19 @@ after set_value => sub {
     ($value) = @$value if ref $value eq 'ARRAY';
     $value = undef if defined $value && !$value && $value !~ /^0+$/; # Can be empty string, generating warnings
     if ($value && $value =~ m!^\h*\(\h*([\*\+\-/])\h*([0-9]+)\h*\)\h*$!)
-    {
-        my $op = $1; my $amount = $2;
+    {   my ($op, $mount) = ($1, $2)
+
         # Still count as valid written if currently blank
         if (defined $self->value)
-        {
-            my $old = $self->value;
+        {   my $old = $self->value;
             $value = eval "$old $op $amount";
         }
-        else {
-            $value = undef;
+        else
+        {   $value = undef;
         }
     }
-    else {
-        $self->column->validate($value, fatal => 1);
+    else
+    {   $self->column->validate($value, fatal => 1);
     }
     $self->changed(1) if (!defined($self->value) && defined $value)
         || (!defined($value) && defined $self->value)
@@ -54,7 +53,6 @@ after set_value => sub {
 has value => (
     is      => 'rw',
     lazy    => 1,
-    trigger => sub { $_[0]->blank(defined $_[1] ? 0 : 1) },
     builder => sub {
         my $self = shift;
         $self->has_init_value or return;
@@ -65,9 +63,7 @@ has value => (
     },
 );
 
-sub _build_blank {
-    defined $_[0]->value && $_[0]->value =~ /.+/ ? 0 : 1;
-}
+sub is_blank { local $_ = $_[0]->value; defined && length }
 
 around 'clone' => sub {
     my $orig = shift;

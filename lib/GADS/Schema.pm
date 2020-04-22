@@ -70,7 +70,7 @@ columns of the sheets.
 
 sub _add_column
 {   my ($self, $rec_class, $raw_col) = @_;
-    return if $raw_col->internal;
+    return if $raw_col->is_internal;
 
     my ($table, $linker) = Linkspace::Column->type2class($raw_col->type)
        ->how_to_link_to_record($self->id);

@@ -31,28 +31,20 @@ extends 'GADS::Datum';
 
 after set_value => sub {
     my ($self, $all, %options) = @_;
-    $all ||= [];
-    $all = [$all] if ref $all ne 'ARRAY';
-    my @all = @$all; # Take a copy first
-    my $clone = $self->clone;
+    my @all = ref $all eq 'ARRAY' ? @$all : defined $all ? $all : ();
     shift @all if @all % 2 == 1 && !$all[0]; # First is hidden value from form
-    my @values;
-    while (@all)
-    {
-        my @dt = $self->_to_dt(shift @all, source => 'user', %options);
-        push @values, @dt if @dt;
+
+    my @values    = map $self->_to_dt($_, source => 'user', %options), @all;
+    my @text_all  = sort map $self->_as_string($_), @values;
+    my $old_texts = $self->text_all;
+
+    if("@text_all" ne "@$old_texts")
+    {   $self->changed(1);
+        $self->_set_values(\@values);
+        $self->_set_text_all(\@text_all);
     }
-    my @text_all = sort map { $self->_as_string($_) } @values;
-    my @old_texts = @{$self->text_all};
-    my $changed = "@text_all" ne "@old_texts";
-    if ($changed)
-    {
-        $self->changed(1);
-        $self->_set_values([@values]);
-        $self->_set_text_all([@text_all]);
-        $self->clear_html_form;
-        $self->clear_blank;
-    }
+
+    my $clone = $self->clone;
     $self->oldvalue($clone);
 };
 
@@ -63,32 +55,32 @@ has values => (
     lazy    => 1,
     coerce  => sub {
         my $values = shift;
+
         # If the timezone is floating, then assume it is UTC (e.g. from MySQL
         # database which do not have timezones stored). Set it as UTC, as
         # otherwise any changes to another timezone will not make any effect
-        $_->time_zone->is_floating && $_->set_time_zone('UTC') foreach @$values;
-        # May want to support other timezones in the future
-        $_->set_time_zone('Europe/London') foreach @$values;
-        return $values;
+        $_->time_zone->is_floating && $_->set_time_zone('UTC') for @$values;
+
+        #XXX May want to support other timezones in the future
+        $_->set_time_zone('Europe/London') for @$values;
+        $values;
     },
     builder => sub {
         my $self = shift;
-        if ($self->record && $self->record->new_entry && $self->column->default_today)
-        {
-            return [DateTime->now];
-        }
-        $self->init_value or return [];
-        my @values = map { $self->_to_dt($_, source => 'db') } @{$self->init_value};
+
+        return [ DateTime->now ]
+            if $self->record && $self->record->new_entry
+            && $self->column->default_today;
+
+        my $iv = $self->init_value or return [];
+        my @values = map $self->_to_dt($_, source => 'db'), @$iv;
+
         $self->has_value(!!@values);
-        [@values];
+        \@values;
     },
 );
 
-sub _build_blank
-{   my $self = shift;
-    ! grep { $_ } @{$self->values};
-}
-
+sub is_blank { ! grep $_, @{$_[0]->values} }
 
 # Can't use predicate, as value may not have been built on
 # second time it's set
@@ -108,39 +100,37 @@ sub _to_dt
     $value = $value->{value} if ref $value eq 'HASH';
     $value or return;
 
-    if(ref $value eq 'DateTime')
-    {   return $value->clone;
-    }
-    elsif($source eq 'db')
-    {   return $value =~ / / ? $::db->parse_datetime($value) : $::db->parse_date($value);
-    }
-    else { # Assume 'user'
-        if (!$self->column->validate($value) && $options{bulk}) # Only allow duration during bulk update
-        {
-            # See if it's a duration and return that instead if so
-            if(my $duration = parse_duration $value)
-            {   return map $_->clone->add_duration($duration), @{$self->values};
-            }
-            else {
-                # Will bork below
-            }
+    return $value->clone
+        if ref $value eq 'DateTime';
+
+    return $value =~ / / ? $::db->parse_datetime($value) : $::db->parse_date($value)
+        if $source eq 'db';
+
+    # Assume 'user'
+    my $column = $self->column;
+
+    if(!$column->validate($value) && $options{bulk}) # Only allow duration during bulk update
+    {
+        # See if it's a duration and return that instead if so
+        if(my $duration = parse_duration $value)
+        {   return map $_->clone->add_duration($duration), @{$self->values};
         }
-        $self->column->validate($value, fatal => 1);
-        $self->column->parse_date($value);
+
+        # Will bork below
     }
+
+    $column->validate($value, fatal => 1);
+    $column->parse_date($value);
 }
 
 has text_all => (
-    is      => 'rwp',
-    isa     => ArrayRef,
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        [ map { $self->_as_string($_) } @{$self->values} ];
-    },
+    is      => 'lazy',
+    builder => sub { [ map $self->_as_string($_), @{$self->values} ] },
 );
 
 sub as_integer { panic "Not implemented" }
+sub as_string { join ', ', @{$_[0]->text_all} }
+sub html_form { $_[0]->text_all }
 
 sub _as_string
 {   my ($self, $value) = @_;
@@ -149,31 +139,14 @@ sub _as_string
        include_time => $self->column->include_time) || '';
 }
 
-sub as_string
-{   my $self = shift;
-    join ', ', @{$self->text_all};
-}
-
-has html_form => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_html_form
-{   my $self = shift;
-    [ map { $self->_as_string($_) } @{$self->values} ];
-}
-
 sub _build_for_code
 {   my $self = shift;
 
-    return undef if !$self->column->multivalue && $self->blank;
+    return undef if !$self->column->is_multivalue && $self->is_blank;
 
-    my @return = map {
-        $self->_date_for_code($_)
-    } @{$self->values};
+    my @return = map $self->_date_for_code($_), @{$self->values};
 
-    $self->column->multivalue || @return > 1 ? \@return : $return[0];
+    $self->column->is_multivalue || @return > 1 ? \@return : $return[0];
 }
 
 1;

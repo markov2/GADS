@@ -94,15 +94,6 @@ has schema => (
     required => 1,
 );
 
-sub _org_to_hash
-{   my $org = shift;
-    $org or return {};
-    +{
-        id   => $org->id,
-        name => $org->name,
-    };
-}
-
 has value_hash => (
     is      => 'rwp',
     lazy    => 1,
@@ -151,135 +142,48 @@ has allow_deleted => (
     is => 'rw',
 );
 
-has email => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        $_[0]->value_hash && $_[0]->value_hash->{email};
-    },
-);
+sub email     { $_[0]->value_hash && $_[0]->value_hash->{email} }
+sub username  { $_[0]->value_hash && $_[0]->value_hash->{username} }
+sub firstname { $_[0]->value_hash && $_[0]->value_hash->{firstname} }
+sub surname   { $_[0]->value_hash && $_[0]->value_hash->{surname} }
+sub freetext1 { $_[0]->value_hash && $_[0]->value_hash->{freetext1} }
+sub freetext2 { $_[0]->value_hash && $_[0]->value_hash->{freetext2} }
 
-has username => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        $_[0]->value_hash && $_[0]->value_hash->{username};
-    },
-);
+sub _from_vh($$$)
+{   my ($self, $table, $key, $id_key) = @_;
+    my $vh = $self->value_hash or return;
 
-has firstname => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        $_[0]->value_hash && $_[0]->value_hash->{firstname};
-    },
-);
-
-has surname => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        $_[0]->value_hash && $_[0]->value_hash->{surname};
-    },
-);
-
-has freetext1 => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        $_[0]->value_hash && $_[0]->value_hash->{freetext1};
-    },
-);
-
-has freetext2 => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        $_[0]->value_hash && $_[0]->value_hash->{freetext2};
-    },
-);
+      ref $vh->{$key} ? $vh->{$key}
+    : $vh->{$id_key}  ? $::db->get_record($table => $vh->{$id_key})
+    : undef;
+}
 
 has organisation => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        # Organisation could be an ID, or a HASH with all details.
-        # Whatever it is, convert to hash ref
-        $self->value_hash && ref $self->value_hash->{organisation} eq 'HASH'
-            ? $self->value_hash->{organisation}
-            : $self->value_hash && $self->value_hash->{organisation}
-            ? _org_to_hash($self->schema->resultset('Organisation')->find($self->value_hash->{organisation}))
-            : undef;
-    },
+    is      => 'lazy',
+    # id not with _id!!!
+    builder => sub { $_[0]->_from_vh(Organisation => 'organisation', 'organisation') },
 );
 
 has department => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        # Department could be an ID, or a HASH with all details.
-        # Whatever it is, convert to hash ref
-        $self->value_hash && ref $self->value_hash->{department} eq 'HASH'
-            ? $self->value_hash->{department}
-            : $self->value_hash && $self->value_hash->{department_id}
-            ? _org_to_hash($self->schema->resultset('Department')->find($self->value_hash->{department_id}))
-            : undef;
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->_from_vh(Department => 'department', 'department_id') },
 );
 
 has team => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        # Team could be an ID, or a HASH with all details.
-        # Whatever it is, convert to hash ref
-        $self->value_hash && ref $self->value_hash->{team} eq 'HASH'
-            ? $self->value_hash->{team}
-            : $self->value_hash && $self->value_hash->{team_id}
-            ? _org_to_hash($self->schema->resultset('Team')->find($self->value_hash->{team_id}))
-            : undef;
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->_from_vh(Team => 'team', 'team_id') },
 );
 
 has title => (
-    is      => 'ro',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        my $self = shift;
-        # Title could be an ID, or a HASH with all details.
-        # Whatever it is, convert to hash ref
-        $self->value_hash && ref $self->value_hash->{title} eq 'HASH'
-            ? $self->value_hash->{title}
-            : $self->value_hash && $self->value_hash->{title_id}
-            ? _org_to_hash($self->schema->resultset('Title')->find($self->value_hash->{title_id}))
-            : undef;
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->_from_vh(Title => 'title', 'title_id') },
 );
 
-sub search_values_unique
-{   [shift->text];
-}
+sub search_values_unique { [ shift->text ] }
 
 has text => (
-    is      => 'rw',
-    lazy    => 1,
-    clearer => 1,
-    builder => sub {
-        $_[0]->value_hash && $_[0]->value_hash->{value};
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->value_hash && $_[0]->value_hash->{value} },
 );
 
 has id => (
@@ -287,13 +191,9 @@ has id => (
     lazy    => 1,
     trigger => sub {
         my ($self, $value) = @_;
-        $self->clear;
         $self->_set_value_hash($self->column->id_to_hash($value));
-        $self->blank(defined $value ? 0 : 1)
     },
-    builder => sub {
-        $_[0]->value_hash && $_[0]->value_hash->{id};
-    },
+    builder => sub { $_[0]->value_hash && $_[0]->value_hash->{id} },
 );
 
 has has_id => (
@@ -301,14 +201,14 @@ has has_id => (
     isa => Bool,
 );
 
-sub ids { [ $_[0]->id ] }
-
-sub value { $_[0]->id }
-
-sub _build_blank { $_[0]->id ? 0 : 1 }
+sub ids        { [ $_[0]->id ] }
+sub value      { $_[0]->id }
+sub is_blank   { ! $_[0]->id }
+sub as_string  { $_[0]->text // "" }
+sub as_integer { $_[0]->id // 0 }
 
 # Make up for missing predicated value property
-sub has_value { $_[0]->has_id }
+sub has_value  { $_[0]->has_id }
 
 around 'clone' => sub {
     my $orig = shift;
@@ -331,15 +231,6 @@ around 'clone' => sub {
     );
 };
 
-sub as_string
-{   my $self = shift;
-    $self->text // "";
-}
-
-sub as_integer
-{   my $self = shift;
-    $self->id // 0;
-}
 
 sub _build_for_code
 {   my $self = shift;

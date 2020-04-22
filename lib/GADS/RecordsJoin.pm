@@ -61,7 +61,7 @@ sub _add_children
     my %existing = map { $_->{column}->id => 1 } @{$join->{children}};
     foreach my $c (@{$column->curval_fields_retrieve(all_fields => $options{all_fields}, already_seen => $options{already_seen})})
     {
-        next if $c->internal;
+        next if $c->is_internal;
         # prefetch and linked match the parent.
         # search and sort are left blank, but may be updated with an
         # additional direct call with just the child and that option.
@@ -447,7 +447,7 @@ included, then use
 
 sub table_name
 {   my ($self, $column, %options) = @_;
-    if($column->internal)
+    if($column->is_internal)
     {   return $column->table eq 'Current' ? 'me'
           : $column->sprefix eq 'record'   ? $self->record_name(%options)
           :                                  $column->sprefix;

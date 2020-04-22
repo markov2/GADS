@@ -2341,7 +2341,7 @@ sub _build_group_results
     foreach my $col (@cols)
     {
         my $column = $col->{column};
-        next if $column->internal;
+        next if $column->is_internal;
         my $parent = $col->{parent};
         # If the column is a curcommon, then we need to make sure that it is
         # included even if it is a multivalue (when it would normally be

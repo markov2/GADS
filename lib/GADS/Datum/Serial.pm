@@ -25,29 +25,14 @@ use MooX::Types::MooseLike::Base qw(:all);
 extends 'GADS::Datum';
 
 has value => (
-    is  => 'lazy',
-    isa => Maybe[Int],
+    is      => 'lazy',
+    isa     => Maybe[Int],
+    builder => sub { $_[0]->record->serial }
 );
 
-sub _build_value
-{   my $self = shift;
-    $self->record->serial;
-}
-
-sub _build_blank {
-    my $self = shift;
-    ! $self->value;
-}
-
-sub as_string
-{   my $self = shift;
-    $self->value;
-}
-
-sub as_integer
-{   my $self = shift;
-    $self->value;
-}
+sub is_blank   { ! $_[0]->value }
+sub as_string  { $_[0]->value }
+sub as_integer { $_[0]->value }
 
 1;
 

@@ -578,8 +578,8 @@
                   #  edit sometimes moves the field instead of opening it for
                   #  editing
                 %]
-                <td [% IF col.internal %]class="drag"[% END %]>
-                    [% IF col.internal %]
+                <td [% IF col.is_internal %]class="drag"[% END %]>
+                    [% IF col.is_internal %]
                         Read-only
                     [% ELSE %]
                         <a href="/[% layout.identifier %]/layout/[% col.id %]">Edit</a>
