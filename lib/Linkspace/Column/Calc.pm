@@ -38,7 +38,7 @@ __PACKAGE__->register_type;
 sub can_multivalue { 1 }
 sub form_extras { [ qw/code_calc no_alerts_calc return_type no_cache_update_calc/ ], [] }
 sub has_filter_typeahead { $_[0]->return_type eq 'string' }
-sub numeric() { my $rt = $_[0]->return_type; $rt eq 'integer' || $rt eq 'numeric' }
+sub is_numeric() { my $rt = $_[0]->return_type; $rt eq 'integer' || $rt eq 'numeric' }
 sub table     { 'Calcval' }
 
 ###

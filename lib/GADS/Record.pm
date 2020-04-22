@@ -891,12 +891,11 @@ sub _transform_values
         # suffice for the moment.
         if ($self->is_group)
         {
-            if ($column->numeric)
-            {
-                $key = $key."_sum";
+            if ($column->is_numeric)
+            {   $key = $key."_sum";
             }
-            elsif (!$self->group_cols->{$column->id}) {
-                $key = $key."_distinct";
+            elsif(!$self->group_cols->{$column->id})
+            {   $key = $key."_distinct";
             }
         }
 
@@ -926,7 +925,7 @@ sub _transform_values
         # this column that there is no need to retrieve any other columns
         $column->retrieve_all_columns(1)
             if $self->curcommon_all_fields && $column->is_curcommon;
-        my $class = $self->is_group && !$column->numeric && !$self->group_cols->{$column->id}
+        my $class = $self->is_group && !$column->is_numeric && !$self->group_cols->{$column->id}
             ? 'GADS::Datum::Count'
             : $column->class;
 

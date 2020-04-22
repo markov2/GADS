@@ -158,7 +158,7 @@ sub validate($$$)
 
     if($y_axis_stack eq 'sum')
     {   $y_axis or error __"Please select a Y-axis";
-        $y_axis->numeric
+        $y_axis->is_numeric
             or error __"A field returning a numberic value must be used for the Y-axis when calculating the sum of values ";
     }
 

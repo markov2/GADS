@@ -176,7 +176,7 @@ sub _sub_filter_single
         }
         else
         {   $datum->re_evaluate if !$col->userinput;
-            $single{value} = $col->numeric ? $datum->value : $datum->as_string;
+            $single{value} = $col->is_numeric ? $datum->value : $datum->as_string;
         }
     }
     \%single;

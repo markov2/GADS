@@ -356,7 +356,7 @@ sub _build_data
 
             no warnings 'numeric', 'uninitialized';
             my $y = int $results->{$x_val}->{$serial};
-            $y = 0 if !$x_axis && !$x->numeric;
+            $y = 0 if !$x_axis && ! $x->is_numeric;
             push @{$series->{$serial}->{data}}, $y;
         }
     }
@@ -547,7 +547,7 @@ sub _records_to_results
             my $val = $line->get_column($fname);
 
             # Add on the linked column from another datasheet, if applicable
-            my $include_linked = ! $x_axis && (!$x->numeric || !$x->link_parent); # Multi x-axis
+            my $include_linked = ! $x_axis && (!$x->is_numeric || !$x->link_parent); # Multi x-axis
             my $val_linked     = $y_axis_stack eq 'sum'
                 && $y_axis->link_parent
                 && $line->get_column("${fname}_link");

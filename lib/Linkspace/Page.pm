@@ -2264,7 +2264,7 @@ sub _build_group_results
             +{
                 id       => $_->id,
                 column   => $_,
-                operator => $_->numeric ? 'sum' : $view_group_cols{$_->id} ? 'max' : 'distinct',
+                operator => $_->is_numeric ? 'sum' : $view_group_cols{$_->id} ? 'max' : 'distinct',
                 group    => $view_group_cols{$_->id},
             }
         } @{$self->columns_view};
@@ -2414,7 +2414,7 @@ sub _build_group_results
                         },
                     },
                 });
-                if ($column->numeric && $op eq 'sum')
+                if ($column->is_numeric && $op eq 'sum')
                 {
                     $select = $f_rs->get_column((ref $column->tjoin eq 'HASH' ? 'value_2' :  $column->field).".".$column->value_field)->sum_rs->as_query;
                 }
@@ -2476,7 +2476,7 @@ sub _build_group_results
                     },
                 );
                 my $col_fq = $self->fqvalue($column, as_index => $as_index, search => 1, linked => 0, group => 1, alt => 1, extra_column => $column, drcol => $drcol);
-                if ($column->numeric && $op eq 'sum')
+                if ($column->is_numeric && $op eq 'sum')
                 {
                     $select = $select->get_column($col_fq)->sum_rs->as_query;
                     $op = 'max';

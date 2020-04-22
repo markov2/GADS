@@ -83,7 +83,7 @@
             <option value="100" [% IF column.width == "100" %]selected[% END %]>Full-width</option>
         </select>
     </div>
-    [% IF column.numeric %]
+    [% IF column.is_numeric %]
         <div class="form-group">
             <label for="aggregate">Aggregate for field in table view:</label>
             <select class="form-control" id="aggregate" name="aggregate">

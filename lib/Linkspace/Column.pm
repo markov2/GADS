@@ -112,7 +112,7 @@ sub form_extras($) { panic } # returns extra scalar and array parameter names
 sub has_cache      { 0 }   #XXX autodetect with $obj->can(write_cache)?
 sub has_filter_typeahead { 0 } # has typeahead when inputting filter values
 sub has_multivalue_plus  { 0 }
-sub hidden         { 0 }   #XXX?
+sub hidden         { 0 }   # column not shown by default (only deletedBy)
 sub internal       { 0 }   # the type is internal, see is_internal() on objects
 sub is_curcommon   { 0 }
 sub meta_tables    { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] }

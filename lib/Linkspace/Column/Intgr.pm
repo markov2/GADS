@@ -34,7 +34,6 @@ my @option_names = qw/show_calculator/;
 
 __PACKAGE__->register_type;
 
-sub numeric      { 1 }
 sub addable      { 1 }
 sub return_type  { 'integer' }
 sub option_names { shift->SUPER::option_names, @option_names }
@@ -51,6 +50,8 @@ sub remove($)
 ###
 ### Instance
 ###
+
+sub is_numeric      { 1 }
 
 has show_calculator => (
     is      => 'rw',

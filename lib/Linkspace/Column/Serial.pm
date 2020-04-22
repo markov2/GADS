@@ -33,7 +33,6 @@ __PACKAGE__->register_type;
 
 sub addable     { 1 }
 sub internal    { 1 }
-sub numeric     { 1 }
 sub return_type { 'integer' }
 sub table       { 'Current' }
 sub userinput   { 0 }
@@ -49,6 +48,7 @@ sub value_field { 'serial' }
 
 sub sprefix     { 'current' }
 sub tjoin       {}
+sub is_numeric  { 1 }
 
 1;
 
