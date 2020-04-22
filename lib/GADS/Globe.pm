@@ -20,6 +20,8 @@ package GADS::Globe;
 
 use GADS::RecordsGlobe;
 use Log::Report 'linkspace';
+use List::Util qw/uniq/;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
@@ -53,40 +55,23 @@ sub _build_layout
     $self->records_options->{layout};
 }
 
-sub clear
-{   my $self = shift;
-    $self->records->clear;
-    $self->clear_data;
-}
-
 has data => (
     is      => 'lazy',
-    clearer => 1,
 );
 
-sub _parse_col
-{   my ($self, $in, $type) = @_;
-    my ($parent_id, $child_id);
-    $in or return undef;
-    if ($in =~ /^([0-9]+)_([0-9]+)$/)
-    {
-        $parent_id = $1;
-        $child_id = $2;
-    }
-    else {
-        $child_id = $in;
-    }
-    return $type eq 'parent' ? $parent_id : $child_id;
+sub _parse_parent { $_[1] =~ /^([0-9]+)_[0-9]+$/ ? $1 : undef }
+sub _parse_child  { $_[1] =~ /^[0-9]+_([0-9]+)$/ ? $1 : $_[1] }
+
+sub _parent($)
+{   my ($self, $ref) = @_;
+    my $parent = $ref =~ /^([0-9]+)_[0-9]+$/ ? $1 : return;
+    $self->column($parent);
 }
 
-sub _parse_parent
-{   my $self = shift;
-    $self->_parse_col(shift, 'parent');
-}
-
-sub _parse_child
-{   my $self = shift;
-    $self->_parse_col(shift, 'child');
+sub _child($)
+{   my ($self, $ref) = @_;
+    my $child = $ref =~ /^[0-9]+_([0-9]+)$/ ? $1 : $ref;
+    $self->column($child);
 }
 
 has group_col_id => (
@@ -94,30 +79,18 @@ has group_col_id => (
 );
 
 has group_col => (
-    is => 'lazy',
+    is      => 'lazy',
+    builder => sub { $_[0]->_child($_[0]->group_col_id) },
 );
-
-sub _build_group_col
-{   my $self = shift;
-    $self->layout->column($self->_parse_child($self->group_col_id));
-}
 
 has group_col_parent => (
-    is => 'lazy',
+    is      => 'lazy',
+    builder => sub { $_[0]->_parent($_[0]->group_col_id) },
 );
 
-sub _build_group_col_parent
-{   my $self = shift;
-    $self->layout->column($self->_parse_parent($self->group_col_id));
-}
-
-has group_col_operator => (
-    is => 'lazy',
-);
-
-sub _build_group_col_operator
-{   my $self = shift;
-    $self->group_col && $self->group_col->numeric ? 'sum' : 'max';
+sub group_col_operator()
+{   my $g = $_[0]->group_col;
+    $g && $g->is_numeric ? 'sum' : 'max';
 }
 
 has color_col_id => (
@@ -126,52 +99,21 @@ has color_col_id => (
 
 has color_col => (
     is => 'lazy',
+    builder => sub { $_[0]->_child($_[0]->color_col_id) },
 );
-
-sub _build_color_col
-{   my $self = shift;
-    $self->layout->column($self->_parse_child($self->color_col_id));
-}
 
 has color_col_parent => (
     is => 'lazy',
+    builder => sub { $_[0]->_parent($_[0]->color_col_id) },
 );
 
-sub _build_color_col_parent
-{   my $self = shift;
-    $self->layout->column($self->_parse_parent($self->color_col_id));
+sub color_col_operator()
+{   my $c = $_[0]->color_col;
+    $c && $c->is_numeric ? 'sum' : 'max';
 }
 
-has color_col_operator => (
-    is => 'lazy',
-);
-
-sub _build_color_col_operator
-{   my $self = shift;
-    $self->color_col && $self->color_col->numeric ? 'sum' : 'max';
-}
-
-has color_col_is_count => (
-    is  => 'lazy',
-    isa => Bool,
-);
-
-sub _build_color_col_is_count
-{   my $self = shift;
-    $self->color_col_id && $self->color_col_id eq '-1' ? 1 : 0;
-}
-
-has has_color_col => (
-    is  => 'lazy',
-    isa => Bool,
-);
-
-sub _build_has_color_col
-{   my $self = shift;
-    return 1 if $self->color_col;
-    return 1 if $self->color_col_is_count;
-    return 0;
-}
+sub color_col_is_count() { $_[0]->color_col_id eq '-1' }
+sub has_color_col() { $_[0]->color_col || $_[0]->color_col_is_count }
 
 has label_col_id => (
     is => 'ro',
@@ -179,54 +121,29 @@ has label_col_id => (
 
 has label_col => (
     is => 'lazy',
+    builder => sub { $_[0]->_child($_[0]->label_col_id) },
 );
-
-sub _build_label_col
-{   my $self = shift;
-    $self->layout->column($self->_parse_child($self->label_col_id));
-}
 
 has label_col_parent => (
-    is => 'lazy',
+    is      => 'lazy',
+    builder => sub { $_[0]->_parent($_[0]->label_col_id) },
 );
 
-sub _build_label_col_parent
+sub has_label_col()
 {   my $self = shift;
-    $self->layout->column($self->_parse_parent($self->label_col_id));
+    $self->label_col || ($self->label_col_id && $self->label_col_id < 0);
 }
 
-has has_label_col => (
-    is  => 'lazy',
-    isa => Bool,
-);
-
-sub _build_has_label_col
+sub is_choropleth()
 {   my $self = shift;
-    return 1 if $self->label_col;
-    return 1 if $self->label_col_id && $self->label_col_id < 0;
-    return 0;
+      ! $self->has_color_col    ? 0
+    : $self->color_col_is_count ? 1 # Choropleth by record count
+    : $self->color_col && $self->color_col->is_numeric;
 }
 
-has is_choropleth => (
-    is  => 'lazy',
-    isa => Bool,
-);
-
-sub _build_is_choropleth
+sub is_group()
 {   my $self = shift;
-    return 0 if !$self->has_color_col;
-    return 1 if $self->color_col_is_count; # Choropleth by record count
-    return $self->color_col && $self->color_col->numeric ? 1 : 0;
-}
-
-has is_group => (
-    is => 'lazy',
-);
-
-sub _build_is_group
-{   my $self = shift;
-    return 1 if $self->has_color_col || $self->group_col || $self->has_label_col;
-    return 0;
+    $self->has_color_col || $self->group_col || $self->has_label_col;
 }
 
 has _columns => (
@@ -246,12 +163,8 @@ sub _build__columns
 
 has _columns_globe => (
     is => 'lazy',
+    builder => sub { [ grep $_->return_type eq 'globe', @{$self->_columns} ] },
 );
-
-sub _build__columns_globe
-{   my $self = shift;
-    [ grep { $_->return_type eq "globe" } @{$self->_columns} ];
-}
 
 has _used_color_keys => (
     is      => 'ro',
@@ -264,11 +177,9 @@ has colors => (
 
 sub _build_colors
 {   my $self = shift;
-    my %keys = %{$self->_used_color_keys};
-    [ map {
-        my $color = $self->graph->get_color($_);
-        +{ key => $_, color => $color };
-    } keys %keys ];
+    my $graph = $self->graph;
+    [ map +{ key => $_, color => $graph->get_color($_) },
+         keys %{$self->_used_color_keys} ];
 }
 
 has graph => (
@@ -278,10 +189,7 @@ has graph => (
 # Need a Graph::Data instance to get relevant colors
 sub _build_graph
 {   my $self = shift;
-    GADS::Graph::Data->new(
-        schema  => $self->records->schema,
-        records => undef,
-    );
+    GADS::Graph::Data->new( records => undef,);
 }
 
 my %tosvg = qw/  > gt   < lt    & amp /;
@@ -290,6 +198,11 @@ sub _to_svg($)
 {   my $s = shift;
     $s =~ s/([<>&])/\&${tosvg{$1}};/g;
     $s;
+}
+
+sub _legenda($)
+{   my $lt = shift;
+    join '<br>', map +($_ eq '_count' ? $lt->{$_} : "$_: $lt->{$_}"), keys %$lt;
 }
 
 sub _build_data
@@ -301,11 +214,13 @@ sub _build_data
     # Add on any extra required columns for labelling etc
     my @extra;
 
-    push @extra, { col => $self->group_col, parent => $self->group_col_parent, operator => $self->group_col_operator, group => !$self->group_col->numeric }
-        if ($self->group_col);
-    push @extra, { col => $self->color_col, parent => $self->color_col_parent, operator => $self->color_col_operator, group => !$self->color_col->numeric }
-        if ($self->color_col);
-    push @extra, { col => $self->label_col, parent => $self->label_col_parent, group => !$self->label_col->numeric }
+    push @extra, { col => $self->group_col, parent => $self->group_col_parent, operator => $self->group_col_operator, group => !$self->group_col->is_numeric }
+        if $self->group_col;
+
+    push @extra, { col => $self->color_col, parent => $self->color_col_parent, operator => $self->color_col_operator, group => !$self->color_col->is_numeric }
+        if $self->color_col;
+
+    push @extra, { col => $self->label_col, parent => $self->label_col_parent, group => !$self->label_col->is_numeric }
         if $self->label_col;
 
     # Messier than it should be, but if there is no globe column in the view
@@ -314,16 +229,17 @@ sub _build_data
 
     if (my $view_id = $records->view && $records->view->id)
     {
-        my %existing = map { $_->{col}->id => 1 } @extra;
-        push @extra, map { +{ col => $_ } } grep { !$existing{$_->id} }
+        my %existing = map +($_->{col}->id => 1), @extra;
+        push @extra, map +{ col => $_ }, grep !$existing{$_->id},
             @{$records->columns_view};
+
         my $gc = $layout->columns(is_globe => 1, user_can_read => 1);
         my $has_globe = first { $_->{col}->return_type eq 'globe' } @extra;
         push @extra, { col => $gc->[0], group => $self->is_group }
             if @$gc == 1 && !$has_globe;
     }
-    else {
-        push @extra, map +{ col => $_ }, @{$layout->columns(user_can_read => 1)};
+    else
+    {   push @extra, map +{ col => $_ }, @{$layout->columns(user_can_read => 1)};
     }
 
     if ($self->is_group)
@@ -331,14 +247,12 @@ sub _build_data
         $_->{group} = 1 for grep $_->{col}->return_type eq 'globe', @extra;
     }
 
-    $records->columns([map {
-        +{
-            id        => $_->{col}->id,
-            parent_id => $_->{parent} && $_->{parent}->id,
-            operator  => $_->{operator} || 'max',
-            group     => $_->{group},
-        }
-    } @extra]);
+    $records->columns([map +{
+        id        => $_->{col}->id,
+        parent_id => $_->{parent} && $_->{parent}->id,
+        operator  => $_->{operator} || 'max',
+        group     => $_->{group},
+    }, @extra]);
 
     # All the data values
     my %countries;
@@ -353,14 +267,13 @@ sub _build_data
             if ($self->has_color_col)
             {
                 if ($self->color_col_is_count)
-                {
-                    $value_color = $record->get_column('id_count');
+                {   $value_color = $record->get_column('id_count');
                 }
                 else
                 {   my $field = $self->color_col->field;
                     $field .= "_sum" if $self->color_col_operator eq 'sum';
                     $value_color = $record->get_column($field);
-                    if (!$self->color_col->numeric)
+                    if (!$self->color_col->is_numeric)
                     {
                         $color = $self->graph->get_color($value_color);
                         $self->_used_color_keys->{$value_color} = 1;
@@ -369,16 +282,14 @@ sub _build_data
             }
 
             if ($self->label_col)
-            {
-                $value_label = $self->label_col->type eq 'curval'
+            {   $value_label = $self->label_col->type eq 'curval'
                     ? $self->_format_curcommon($self->label_col, $record)
                     : $record->get_column($self->label_col->field);
                 $value_label ||= '<blank>';
             }
 
             if ($self->group_col)
-            {
-                my $field = $self->group_col->field;
+            {   my $field = $self->group_col->field;
                 $field .= "_sum" if $self->group_col_operator eq 'sum';
                 $value_group = $self->group_col->type eq 'curval'
                     ? $self->_format_curcommon($self->group_col, $record)
@@ -386,17 +297,12 @@ sub _build_data
             }
 
             foreach my $column (@{$self->_columns_globe})
-            {
-                my $country = $record->get_column($column->field)
-                    or next;
-
-                push @this_countries, $country;
+            {   my $country = $record->get_column($column->field);
+                push @this_countries, $country if $country;
             }
 
             foreach my $this_country (@this_countries)
-            {
-                $countries{$this_country} ||= [];
-                push @{$countries{$this_country}}, {
+            {   push @{$countries{$this_country}}, {
                     id_count    => $record->get_column('id_count'),
                     value_color => $value_color,
                     color       => $color,
@@ -405,31 +311,25 @@ sub _build_data
                 };
             }
         }
-        else {
-            my @titles; my @this_countries;
+        else
+        {   my (@titles, @this_countries);
             foreach my $column (@{$self->_columns})
-            {
-                my $d = $record->fields->{$column->id}
-                    or next;
+            {   my $d = $record->field($column->id) or next;
 
-                # Only show unique items of children, otherwise will be a lot of
-                # repeated entries
+                # Only show unique items of children, otherwise will be a lot
+                # of repeated entries
                 next if $record->parent_id && !$d->child_unique;
 
-                if ($column->return_type eq "globe")
-                {
-                    push @this_countries, $d->as_string;
+                if($column->return_type eq 'globe')
+                {   push @this_countries, $d->as_string;
                 }
-                else {
-                    next if $column->type eq "rag";
-                    push @titles, {col => $column, value => $d->as_string} if $d->as_string;
+                elsif($column->type ne 'rag')
+                {   push @titles, {col => $column, value => $d->as_string} if $d->as_string;
                 }
             }
 
             foreach my $this_country (@this_countries)
-            {
-                $countries{$this_country} ||= [];
-                push @{$countries{$this_country}}, {
+            {   push @{$countries{$this_country}}, {
                     current_id => $record->current_id,
                     titles     => \@titles,
                 };
@@ -447,20 +347,17 @@ sub _build_data
 
         my $values;
         foreach my $item (@items)
-        {
+        {   my $group = $item->{value_group};
+
             # label
-            if ($self->has_label_col)
-            {
-                if ($self->label_col && $self->label_col->numeric)
-                {
-                    $values->{label_sum} ||= 0;
-                    $values->{label_sum} += $item->{value_label} if $item->{value_label};
-                    push @{$values->{group_sums}}, { text => $item->{value_group}, sum => $item->{value_label} }
+            if($self->has_label_col)
+            {   if($self->label_col && $self->label_col->is_numeric)
+                {   $values->{label_sum} += $item->{value_label} || 0;
+                    push @{$values->{group_sums}}, { text => $group, sum => $item->{value_label} }
                         if $self->group_col;
                 }
-                else {
-                    $values->{label_text}->{$item->{value_label} || '_count'} ||= 0;
-                    $values->{label_text}->{$item->{value_label} || '_count'} += $item->{id_count};
+                else
+                {   $values->{label_text}->{$item->{value_label} || '_count'} += $item->{id_count};
                 }
             }
 
@@ -468,32 +365,26 @@ sub _build_data
             if ($self->has_color_col)
             {
                 if ($self->is_choropleth)
-                {
-                    $values->{color_sum} ||= 0;
-                    $values->{color_sum} += $item->{value_color} if $item->{value_color};
-                    $values->{group_sums} ||= [];
+                {   $values->{color_sum} += $item->{value_color} || 0;
+
                     # Add individual group totals, if not already added in previous label
-                    push @{$values->{group_sums}}, { text => $item->{value_group}, sum => $item->{value_color} }
+                    push @{$values->{group_sums}}, { text => $group, sum => $item->{value_color} }
                         if $self->group_col && !($self->label_col && $self->color_col_id eq $self->label_col_id);
                 }
-                else {
-                    $values->{color_text}->{$item->{value_color}} ||= 0;
-                    $values->{color_text}->{$item->{value_color}} += $item->{id_count};
-                    $values->{color} = !$values->{color} || $values->{color} eq $item->{color} ? $item->{color} : 'grey';
+                else
+                {   $values->{color_text}{$item->{value_color}} += $item->{id_count};
+                    $values->{color} = ! $values->{color} || $values->{color} eq $item->{color} ? $item->{color} : 'grey';
                 }
             }
 
             # group
             if ($self->group_col)
             {
-                if ($self->group_col->numeric)
-                {
-                    $values->{group_sum} ||= 0;
-                    $values->{group_sum} += $item->{value_group} if $item->{value_group};
+                if($self->group_col->is_numeric)
+                {   $values->{group_sum} += $group || 0;
                 }
-                else {
-                    $values->{group_text}->{$item->{value_group}} ||= 0;
-                    $values->{group_text}->{$item->{value_group}} += $item->{id_count};
+                else
+                {   $values->{group_text}{$group} += $item->{id_count};
                 }
             }
 
@@ -504,7 +395,8 @@ sub _build_data
                     '<b>' . $_->{col}->name . ':</b> '
                     . _to_svg($_->{value})
                     . '<br>'
-                } grep { $_->{col}->type ne 'file' } @{$item->{titles}};
+                } grep $_->{col}->type ne 'file', @{$item->{titles}};
+
                 $t = "<i>Record ID $item->{current_id}</i><br>$t" if @items > 1;
                 $values->{hover} ||= [];
                 push @{$values->{hover}}, $t;
@@ -514,43 +406,38 @@ sub _build_data
         # If we've grouped by a numeric value, then we will label/hover with
         # the information of how much is in each grouping
         my $group_sums = $values->{group_sums}
-            && join('<br>', map { _to_svg("$_->{text}: $_->{sum}") } @{$values->{group_sums}});
+            && join('<br>', map _to_svg("$_->{text}: $_->{sum}"), @{$values->{group_sums}});
 
         # Hover will depend on the display options
-        my $hover = $self->is_choropleth && $self->group_col # Colour by number, and grouped
-            ? $group_sums
-            : $self->is_choropleth # Colour by number, just that number
-            ? "Total: $values->{color_sum}"
-            : $self->label_col && $self->label_col->numeric && $self->group_col # Numeric label and grouped
-            ? $group_sums
-            : $self->label_col && $self->label_col->numeric # Numeric label, just that on its own
-            ? "Total: $values->{label_sum}"
+        my $hover = $self->is_choropleth
+            ? ($self->group_col ? $group_sums : "Total: $values->{color_sum}")
+            : $self->label_col && $self->label_col->is_numeric
+            ? ($self->group_col ? $group_sums : "Total: $values->{label_sum}")
             : $self->color_col # Colour by text
-            ? join('<br>', map { "$_: $values->{color_text}->{$_}" } keys %{$values->{color_text}})
-            : $self->group_col && $self->group_col->numeric # Group by number
-            ? "Total: $values->{group_sum}"
+            ? _legenda($values->{color_text})
             : $self->group_col
-            ? join('<br>', map { "$_: $values->{group_text}->{$_}" } keys %{$values->{group_text}})
+            ? ( $self->group_col->is_numeric ? "Total: $values->{group_sum}"
+              : _legenda($values->{group_text})
+              )
             : $self->has_label_col # Label by text
-            ? join('<br>', map { $_ eq '_count' ? $values->{label_text}->{$_} : "$_: $values->{label_text}->{$_}" } keys %{$values->{label_text}})
+            ? _legenda($values->{label_text})
             : join('<br>', @{$values->{hover}});
-        my $r = {
+
+        # Only add a label if selected by user
+        my $label
+           = ! $self->has_label_col      ? undef
+           : ! $self->label_col->is_numeric ? _legenda($values->{label_text})
+           : $self->group_col            ? $group_sums
+           : $values->{label_sum};
+
+        push @item_return, +(
             hover    => $hover,
             location => $country,
             index    => $self->color_col ? $count : 1,
             color    => $values->{color},
             z        => $values->{color_sum},
+            label    => $label,
         };
-
-        # Only add a label if selected by user
-        $r->{label}    = $self->group_col && $self->label_col && $self->label_col->numeric
-            ? $group_sums
-            : $self->label_col && $self->label_col->numeric
-            ? $values->{label_sum}
-            : join('<br>', map { $_ eq '_count' ? $values->{label_text}->{$_} : "$_: $values->{label_text}->{$_}" } keys %{$values->{label_text}})
-            if $self->has_label_col;
-
-        push @item_return, $r;
     }
 
     if (!@item_return)
@@ -603,10 +490,7 @@ sub _build_data
     return \@return;
 }
 
-sub uniq_join
-{   my %uniq = map { $_ => 1 } @_;
-    join ', ', keys %uniq;
-}
+sub uniq_join { join ', ', uniq @_ }
 
 sub _format_curcommon
 {   my ($self, $column, $line) = @_;
