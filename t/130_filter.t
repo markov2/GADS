@@ -4,7 +4,6 @@ use Test::More; # tests => 1;
 use strict;
 use warnings;
 
-use Linkspace::Filter;
 use JSON qw(decode_json encode_json);
 use Log::Report;
 #use Data::Dumper;
@@ -20,6 +19,8 @@ my $as_hash1 = {
     rules     => [ $rule1 ],
     condition => 'AND',
 };
+
+use_ok 'Linkspace::Filter';
 
 my $filter1 = Linkspace::Filter->from_hash($as_hash1);
 ok defined $filter1, 'Created first filter';

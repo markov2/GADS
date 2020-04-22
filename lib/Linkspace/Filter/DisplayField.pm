@@ -12,18 +12,32 @@ extends 'Linkspace::Filter';
 # My column is (of course) layout_id.  Refers to display_field_id, which is some
 # other column id and see whether it matches regex.
 
+my %operators = (   # fixed_regex, negate
+    equal        => [ 1, 0 ],
+    contains     => [ 0, 0 ],
+    not_equal    => [ 1, 1 ],
+    not_contains => [ 0, 1 ],
+);
+
 sub from_column($)
 {   my ($class, $column) = @_;
-    $class->new(column => $column);
+    $class->new(
+        column    => $column,
+        condition => $column->display_condition,
+    );
 }
 
 sub column_id { $_[0]->column->id }
-sub condition { $_[0]->column->display_condition || 'AND' }
 
 has column => (
     is       => 'ro'.
     required => 1,
     weakref  => 1,
+);
+
+has condition => (
+    is       => 'ro',
+    default  => sub { 'AND' },
 );
 
 has _rule_rows => (
@@ -52,10 +66,9 @@ has as_hash => (
             value    => $_->regex,
         }, @{$self->_rule_rows};
 
-        (ref $self)->from_hash({
-            condition => $self->condition,
+        +{  condition => $self->condition,
             rules     => \@rules,
-        });
+         };
     },
 );
 
@@ -112,11 +125,13 @@ sub show_field($$)
         my @values = $field->value_regex_test;
 
         my $op     = $rule->operator;
+        my ($fixed, $negate) = @{$operator{$op} or panic};
+
         my $regex_string = $rule->regex;
-        my $regex  = $op =~ /equal/ ? qr/^${regex_string}$/ : qr/$regex_string/;
+        my $regex  = $fixed ? qr/^${regex_string}$/ : qr/$regex_string/;
 
         my $this_matches = ! @$values ? 0 : (grep m/$regex/, @values);
-        my $want   = $op =~ /not/ ? ! $this_matches : $this_matches;
+        my $want   = $negate ? ! $this_matches : $this_matches;
 
         if($condition eq 'AND')
         {   return 0 if ! $want;
