@@ -202,7 +202,7 @@ sub _build_data
     my $columns
        = $x_axis     ? [ $x_axis ]
        : $self->view ? $self->view->columns
-       :               $sheet->layout->columns(user_can_read => 1);
+       :               $sheet->layout->columns_search(user_can_read => 1);
 
     my @columns = map +{
         id        => $_,

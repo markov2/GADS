@@ -800,8 +800,8 @@ sub load_remembered_values
         $self->initialise;
     }
 
-    my @remember = map $_->id, $sheet->layout->columns(remember => 1)
-        or return;
+    my @remember = map $_->id, $sheet->layout->columns_search(remember => 1);
+    @remember or return;
 
     my $lastrecord = $::db->search(UserLastrecord => {
         'me.instance_id'  => $sheet->id,
@@ -836,7 +836,7 @@ sub load_remembered_values
             $child->find_record_id($self->approval_record_id);
 
             my $fields = $self->fields;
-            foreach my $col ($sheet->layout->columns(user_can_write_new => 1, userinput => 1))
+            foreach my $col ($sheet->layout->columns_search(user_can_write_new => 1, userinput => 1))
             {
                 # See if the record above had a value. If not, fill with the
                 # approval record's value
@@ -1031,7 +1031,7 @@ sub values_by_shortname
 sub initialise
 {   my ($self, %options) = @_;
 
-    my $all_columns = $self->sheet->layout->columns(include_internal => 1);
+    my $all_columns = $self->sheet->layout->columns_search(include_internal => 1);
     $self->columns_retrieved_do($all_columns);
 
     my %fields;
@@ -1242,12 +1242,11 @@ sub write
     # Whether any topics cannot be written because of missing fields in
     # other topics
     my %no_write_topics;
-    my $cols = $options{submitted_fields} || $self->sheet->layout->columns(exclude_internal => 1);
+    my $cols = $options{submitted_fields}
+       || $self->sheet->layout->columns_search(exclude_internal => 1);
 
-    foreach my $column (@$cols)
-    {
-        $column->userinput or next;
-        my $datum = $self->field($column)
+    foreach my $column (grep $_->userinput, @$cols)
+    {   my $datum = $self->field($column)
             or next; # Will not be set for child records
 
         # Check for blank value
@@ -1597,7 +1596,7 @@ sub write_values
     my %columns_changed = ($self->current_id => []);
     my (@columns_cached, %update_autocurs);
 
-    my $columns = $self->sheet->layout->columns(order_dependencies => 1, exclude_internal => 1);
+    my $columns = $self->sheet->layout->columns_search(order_dependencies => 1, exclude_internal => 1);
     foreach my $column (@$columns)
     {
         # Prevent warnings when writing incomplete calc values on draft
@@ -1706,7 +1705,7 @@ sub write_values
 
     # Test all internal columns for changes - these will not have been tested
     # during the write above
-    my $internals = $self->sheet->layout->columns(only_internal => 1);
+    my $internals = $self->sheet->layout->columns_search(only_internal => 1);
     foreach my $column (@$internals)
     {   push @{$columns_changed{$self->current_id}}, $column->id
             if $self->field($column)->changed;
@@ -1740,7 +1739,7 @@ sub write_values
             my $child = $self->_sibling_record(user_permission_override => 1);
             $child->find_current_id($child_id);
 
-            my $columns = $self->sheet->layout->columns(order_dependencies => 1, exclude_internal => 1);
+            my $columns = $self->sheet->layout->columns_search(order_dependencies => 1, exclude_internal => 1);
             foreach my $col (@$columns)
             {   $col->userinput or next; # Calc/rag values will be evaluated during write()
 
@@ -1839,7 +1838,7 @@ sub write_values
 sub set_blank_dependents
 {   my $self = shift;
 
-    foreach my $column ($self->layout->columns(exclude_internal => 1))
+    foreach my $column ($self->layout->columns_search(exclude_internal => 1))
     {
         my $datum = $self->field($column);
         $datum->set_value('')
@@ -1966,7 +1965,7 @@ sub restore
 sub as_json
 {   my $self = shift;
     my $return;
-    my $columns = $self->sheet->layout->columns(user_can_read => 1);
+    my $columns = $self->sheet->layout->columns_search(user_can_read => 1);
     foreach my $col (@$columns)
     {   my $short = $col->name_short or next;
         $return->{$short} = $self->field($col)->as_string;
@@ -1977,7 +1976,7 @@ sub as_json
 sub as_query
 {   my ($self, %options) = @_;
     my @queries;
-    my $columns = $self->sheet->layout->columns(userinput => 1);
+    my $columns = $self->sheet->layout->columns_search(userinput => 1);
     foreach my $col (@$columns)
     {   next if $options{exclude_curcommon} && $col->is_curcommon;
         push @queries, $col->field."=".uri_escape_utf8($_)
@@ -2007,7 +2006,7 @@ sub pdf
     $pdf->heading('Last updated by '.$self->createdby->as_string." on $updated", size => 12);
 
     my @data    = ['Field', 'Value'];
-    my $columns = $self->sheet->layout->columns(user_can_read => 1);
+    my $columns = $self->sheet->layout->columns_search(user_can_read => 1);
     foreach my $col (@$columns)
     {   my $datum = $self->field($col);
         $datum->dependent_shown or next;

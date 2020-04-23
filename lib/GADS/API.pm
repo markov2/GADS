@@ -517,7 +517,7 @@ sub _get_dashboard_widget_edit {
 
     if($widget->type ne 'notice')
     {   $params->{user_views}   = $sheet->views->user_views;
-        $params->{columns_read} = [ $sheet->layout->columns(user_can_read => 1) ];
+        $params->{columns_read} = [ $sheet->layout->columns_search(user_can_read => 1) ];
     }
 
     if($widget->type eq 'graph')

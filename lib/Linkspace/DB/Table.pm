@@ -145,6 +145,12 @@ in the active sheet.
 
 sub layout { $_[0]->sheet->layout }
 
+=head2 my $site = $obj->site;
+Returns the active site object.
+=cut
+
+sub site { $::session->site }
+
 #-----------------------
 =head1 METHODS: Other methods
 

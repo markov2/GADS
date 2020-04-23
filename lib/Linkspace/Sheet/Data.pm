@@ -529,7 +529,7 @@ sub _build__search_all_fields
     );
 
     my @columns_can_view;
-    my $columns = $self->layout->columns(user_can_read => 1);
+    my $columns = $self->layout->columns_search(user_can_read => 1);
     foreach my $col (@$columns)
     {   push @columns_can_view, $col->id;
         push @columns_can_view, @{$col->curval_field_ids}
@@ -1173,8 +1173,8 @@ sub _build_columns_retrieved_do
 
 sub _build_columns_retrieved_no
 {   my $self = shift;
-    my %columns_retrieved = map { $_->id => 1 } @{$self->columns_retrieved_do};
-    [ grep $columns_retrieved{$_->id}, @{$self->layout->columns} ];
+    #XXX '_no' pretend negate
+    $self->layout->columns($self->columns_retrieved_do);
 }
 
 sub _build_columns_view
@@ -1191,7 +1191,7 @@ sub _build_columns_view
             if $self->current_group_id;
 
         my $group_display = $view->is_group && !@{$self->additional_filters};
-        @cols = @{$layout->columns(
+        @cols = @{$layout->columns_search(
             user_can_read      => 1,
             group_display      => $group_display,
             include_column_ids => \%view_layouts,
@@ -1201,7 +1201,7 @@ sub _build_columns_view
             if $self->current_group_id;
     }
     else {
-        @cols = @{$self->layout->columns(user_can_read => 1)};
+        @cols = @{$self->layout->columns_search(user_can_read => 1)};
     }
 
     unshift @cols, $self->layout->column_id
@@ -2010,7 +2010,7 @@ sub data_timeline
 
         # Only show the first field, plus all the date fields
         my ($picked, @to_show);
-        my $columns = $overlay->columns(user_can_read => 1);
+        my $columns = $overlay->columns_search(user_can_read => 1);
         foreach my $column (@$columns)
         {
             if($column->returns_date)

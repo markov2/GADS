@@ -553,7 +553,7 @@ sub _build__search_all_fields
     );
 
     my @columns_can_view;
-    my $columns = $self->layout->columns(user_can_read => 1);
+    my $columns = $self->layout->columns_search(user_can_read => 1);
     foreach my $col (@$columns)
     {   push @columns_can_view, $col->id;
         push @columns_can_view, @{$col->curval_field_ids}
@@ -1197,7 +1197,7 @@ sub _build_columns_retrieved_do
 sub _build_columns_retrieved_no
 {   my $self = shift;
     my %columns_retrieved = map { $_->id => undef } @{$self->columns_retrieved_do};
-    my @columns_retrieved_no = grep { exists $columns_retrieved{$_->id} } @{$self->layout->columns};
+    my @columns_retrieved_no = grep exists $columns_retrieved{$_->id}, @{$self->layout->all_columns};
     \@columns_retrieved_no;
 }
 
@@ -1215,7 +1215,7 @@ sub _build_columns_view
             if $self->current_group_id;
 
         my $group_display = $view->is_group && !@{$self->additional_filters};
-        @cols = @{$layout->columns(
+        @cols = @{$layout->columns_search(
             user_can_read      => 1,
             group_display      => $group_display,
             include_column_ids => \%view_layouts,
@@ -1225,7 +1225,7 @@ sub _build_columns_view
             if $self->current_group_id;
     }
     else
-    {   @cols = @{$self->layout->columns(user_can_read => 1)};
+    {   @cols = @{$self->layout->columns_search(user_can_read => 1)};
     }
 
     unshift @cols, $self->layout->column_id
@@ -2064,7 +2064,7 @@ sub data_timeline
 
         # Only show the first field, plus all the date fields
         my ($picked, @to_show);
-        my $columns = $overlay->columns(user_can_read => 1);
+        my $columns = $overlay->columns_search(user_can_read => 1);
         foreach my $column (@$columns)
         {
             if($column->returns_date)
@@ -2253,21 +2253,19 @@ sub _build_group_results
 
     my $is_table_group = !$self->isa('GADS::RecordsGraph') && !$self->isa('GADS::RecordsGlobe');
 
-    if ($options{columns})
+    if($options{columns})
     {
         @cols = @{$options{columns}};
     }
     elsif ($view && $view->is_group && $is_table_group)
     {
         my %view_group_cols = map { $_->layout_id => 1 } @{$view->groups};
-        @cols = map {
-            +{
-                id       => $_->id,
-                column   => $_,
-                operator => $_->is_numeric ? 'sum' : $view_group_cols{$_->id} ? 'max' : 'distinct',
-                group    => $view_group_cols{$_->id},
-            }
-        } @{$self->columns_view};
+        @cols = map +{
+            id       => $_->id,
+            column   => $_,
+            operator => $_->is_numeric ? 'sum' : $view_group_cols{$_->id} ? 'max' : 'distinct',
+            group    => $view_group_cols{$_->id},
+        }, @{$self->columns_view};
     }
     else {
         @cols = @{$self->columns};

@@ -1606,7 +1606,7 @@ prefix '/:layout_name' => sub {
             $params->{colors}       = delete $timeline->{colors};
             $params->{timeline}     = $timeline;
             $params->{tl_options}   = $tl_options;
-            $params->{columns_read} = $layout->columns(user_can_read => 1);
+            $params->{columns_read} = $layout->columns_search(user_can_read => 1);
             $params->{page}         = 'data_timeline';
             $params->{viewtype}     = 'timeline';
             $params->{search_limit_reached} = $records->search_limit_reached;
@@ -2245,7 +2245,7 @@ prefix '/:layout_name' => sub {
 
         my $params = {
             page => defined $col_id && $col_id==0 ? 'layout/0' : 'layout',
-            all_columns => $sheet->layout->columns,
+            all_columns => $sheet->layout->all_columns,
         };
 
         if($col_id)
@@ -2314,7 +2314,7 @@ prefix '/:layout_name' => sub {
 
         if(param 'saveposition')
         {   my @column_ids = body_parameters->get_all('position');
-            if (process( sub { $layout->reposition(@column_ids) }))
+            if (process( sub { $layout->reposition(\@column_ids) }))
             {
                 return forwardHome(
                     { success => "The ordering has been saved successfully" }, $sheet->identifier.'/layout' );
@@ -2554,7 +2554,7 @@ prefix '/:layout_name' => sub {
                     }
 
                     $record_update->field($_)->re_evaluate(force => 1)
-                        for @{$layout->columns(has_cache => 1)};
+                        for @{$layout->columns_search(has_cache => 1)};
 
                     if (!$failed)
                     {
@@ -3036,7 +3036,7 @@ sub _process_edit
             return encode_json ({
                 error   => $message ? 1 : 0,
                 message => $message,
-                values  => +{ map +($_->field => $record->field($_)->as_string), @{$layout->columns},
+                values  => +{ map +($_->field => $record->field($_)->as_string), @{$layout->all_columns},
             });
         }
         elsif ($modal)
@@ -3085,7 +3085,7 @@ sub _process_edit
     # Clear all fields which we may write but not read.
     $record->field($_)->set_value("")
         for grep ! $_->user_can('read'),
-               @{$sheet->layout->columns(user_can_write => 1)};
+               @{$sheet->layout->columns_search(user_can_write => 1)};
 
     my $child_rec = $child && $sheet->user_can('create_child')
         ? is_valid_id(param 'child')

@@ -323,7 +323,7 @@ XXX caller must reinstate full View.
 
     my @colviews = @{$self->column_ids};
 
-    my $columns = $sheet->layout->columns(user_can_read => 1);
+    my $columns = $sheet->layout->columns_search(user_can_read => 1);
     foreach my $c (@$columns)
     {
         my %item = (view_id => $self->id, layout_id => $c->id);

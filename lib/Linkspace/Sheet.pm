@@ -213,7 +213,7 @@ Find columns which match the C<%search>, and set those values to blank ('').
 
 sub blank_records(%)
 {   my $self = shift;
-    $self->data->blank_fields($self->columns(@_));
+    $self->data->blank_fields($self->columns_search(@_));
 }
 
 #----------------------

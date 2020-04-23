@@ -163,11 +163,6 @@ sub col_ids_for_cache_update
     [ keys %cols ];
 }
 
-sub all_with_internal
-{   my $self = shift;
-    $self->columns(@_, include_internal => 1);
-}
-
 sub columns_for_filter
 {   my ($self, %options) = @_;
     my @columns;
@@ -178,7 +173,7 @@ sub columns_for_filter
     {   push @columns, $col;
         $col->is_curcommon or next;
 
-        my $parent_columns = $col->layout_parent->columns(%restriction);
+        my $parent_columns = $col->layout_parent->columns_search(%restriction);
         foreach my $c (@$parent_columns)
         {   # No point including autocurs for a filter - it just refers
             # back to the same record, so the filter should be done
@@ -199,12 +194,10 @@ has max_width => (
 );
 
 sub reposition
-{   my ($self, @column_ids) = @_;
+{   my ($self, $column_ids) = @_;
     my $col_nr = 0;
-    foreach my $col_id (@column_ids)
-    {   $::db->update(Layout => $_, { position => ++$col_nr });
-        $self->column($col_id)->position($col_nr);
-    }
+    $self->column($_)->update({position => ++$col_nr}) for @$column_ids;
+    $self;
 }
 
 sub contains_column($)
@@ -337,12 +330,12 @@ sub purge
     GADS::MetricGroups->new(instance_id => $self->instance_id)->purge;
     GADS::Views->new(instance_id => $self->instance_id, user => undef)->purge;
 
-    $_->delete for reverse
-        @{$self->columns(order_dependencies => 1, include_hidden => 1)};
+    my $columns = $self->columns_search(order_dependencies => 1, include_hidden => 1);
+    $self->column_delete($_) for reverse @$columns;
 
     my %ref_sheet = { instance_id => $self->sheet->id };
 
-    $::db->resultset('UserLastrecord')->delete;   # empty table
+    $::db->resultset('UserLastrecord')->delete;   #XXX empty full table?
 
     $::db->delete(Record        => \%ref_sheet, { join => 'current' });
     $::db->delete(Current       => \%ref_sheet);
@@ -360,7 +353,7 @@ sub has_homepage
 
 #XXX move to Document
 # Returns which field is the newest.
-# Warning: Field ids are strictly sequentially assigned.
+# Warning: Field ids are strictly ordered on age
 sub newest_field_id {
     my ($class, $site) = @_;
     $::db->search(Layout => { internal => 0 })->get_column('id')->max;
@@ -407,6 +400,14 @@ sub column($)
     ! $args{permission} || $column->user_can($args{permission}) ? $column : undef;
 }
 
+=head2 \@columns = $layout->columns(\@which, %options);
+=cut
+
+sub columns(@)
+{   my ($self, $which) = (shift, shift);
+    [ map $self->column($_, @_), @$which ];
+}
+
 =head2 $layout->column_create(%insert)
 =cut
 
@@ -423,7 +424,7 @@ sub column_create($)
     $column;
 }
 
-=head2 \@cols = $layout->columns(%options);
+=head2 \@cols = $layout->columns_search(%options);
 =cut
 
 my %filters_invariant = (
@@ -468,7 +469,7 @@ sub _order_dependencies
     map $self->column_by_id($_), @{$dep->schedule_all};
 }
 
-sub columns
+sub columns_search
 {   my ($self, %options) = @_;
     keys %options or return $self->all_columns;
 
@@ -552,7 +553,7 @@ Returns the highest position number in use.
 =cut
 
 sub highest_position()
-{   my $columns = shift->columns(include_hidden => 1, sort_by_position => 1) || [];
+{   my $columns = shift->columns_search(include_hidden => 1, sort_by_position => 1) || [];
     @$columns ? $columns->[-1]->position : 0;
 }
 
@@ -628,7 +629,7 @@ sub sheet_unuse($)
 {   my ($self, $sheet) = @_;
 
     $self->column_delete($_) for $self->all_columns;
-    # I have no substance
+    # Layout has no substance itself
 }
 
 sub topic_unuse($)

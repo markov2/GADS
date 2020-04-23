@@ -13,7 +13,7 @@ sub edit_columns
       : $options{new}      ? (user_can_write_new => 1)
       :                      (user_can_readwrite_existing => 1);
 
-    my @columns = $self->layout->columns(sort_by_topics => 1,
+    my @columns = $self->layout->columns_search(sort_by_topics => 1,
         can_child => $options{child}, userinput => 1, %permissions);
 
     @columns = grep $_->type ne 'file', @columns

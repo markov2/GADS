@@ -151,7 +151,7 @@ has curval_field_ids_all => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        my $columns = $self->layout_parent->columns(internal => 0);
+        my $columns = $self->layout_parent->columns_search(internal => 0);
 
         #XXX probably, the caller of this wants something else
         [  map $_->id, @$columns ];

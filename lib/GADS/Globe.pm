@@ -233,13 +233,13 @@ sub _build_data
         push @extra, map +{ col => $_ }, grep !$existing{$_->id},
             @{$records->columns_view};
 
-        my $gc = $layout->columns(is_globe => 1, user_can_read => 1);
+        my $gc = $layout->columns_search(is_globe => 1, user_can_read => 1);
         my $has_globe = first { $_->{col}->return_type eq 'globe' } @extra;
         push @extra, { col => $gc->[0], group => $self->is_group }
             if @$gc == 1 && !$has_globe;
     }
     else
-    {   push @extra, map +{ col => $_ }, @{$layout->columns(user_can_read => 1)};
+    {   push @extra, map +{ col => $_ }, @{$layout->columns_search(user_can_read => 1)};
     }
 
     if ($self->is_group)

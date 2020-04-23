@@ -43,7 +43,7 @@ foreach my $site (@{$linkspace->all_sites})
         my %changed;
         while (my $row = $page->row_next)
         {
-            foreach my $column ($layout->columns(order_dependencies => 1, has_cache => 1))
+            foreach my $column ($layout->columns_search(order_dependencies => 1, has_cache => 1))
             {
                 my $datum = $row->field($column);
                 $datum->re_evaluate(no_errors => 1);
