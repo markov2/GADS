@@ -90,5 +90,11 @@ Stored as JSON in a view.
 Each contain a list of Datums.  Each Datum relates to a Column in the
 Layout.
 
+### Render records
 
+A number of objects share common purpose is rendering records.
+
+   GADS::Timeline         Linkspace::Dashboard::Widget::Timeline
+   GADS::Globe            Linkspace::Dashboard::Widget::Globe
+   GADS::RecordsGlobe     Linkspace::Page
 

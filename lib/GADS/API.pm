@@ -425,8 +425,8 @@ sub _get_dashboard_widget_edit
 
     my $params    = {
         widget        => $widget,
-        tl_options    => $widget->tl_options_inflated,
-        globe_options => $widget->globe_options_inflated,
+        tl_options    => $widget->tl_options,
+        globe_options => $widget->globe_options,
     };
 
     my $sheet = $dashboard->sheet;
@@ -472,7 +472,7 @@ sub _put_dashboard_widget_edit
     {   $update{rows}     = query_parameters->get('rows');
     }
     elsif ($widget->type eq 'timeline')
-    {   $update{tl_options} = encode_json +{
+    {   $update{tl_options} = +{
             label   => query_parameters->get('tl_label'),
             group   => query_parameters->get('tl_group'),
             color   => query_parameters->get('tl_color'),
