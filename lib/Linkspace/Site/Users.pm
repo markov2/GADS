@@ -27,7 +27,7 @@ use Text::CSV::Encoded ();
 use File::BOM          qw(open_bom);
 use List::Util         qw(first);
 
-use Linkspace::Util    qw(email_valid iso2datetime);
+use Linkspace::Util    qw(is_valid_email iso2datetime);
 use Linkspace::User;
 use Linkspace::Group;
 use Linkspace::Permission;
@@ -164,7 +164,7 @@ sub _generic_user_validate($)
     my $email = $data->{email}
         or error __"An email address must be specified for the user";
 
-    email_valid $email
+    is_valid_email $email
         or error __"Invalid email address";
 
     length $data->{firstname} <= 128

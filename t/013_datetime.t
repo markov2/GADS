@@ -39,7 +39,7 @@ my $layout = $sheet->layout;
 my $columns = $sheet->columns;
 $sheet->create_records;
 
-my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
+my $showcols = [ map $_->id, $layout->columns(exclude_internal => 1) ];
 
 my $records = GADS::Records->new(
     from    => DateTime->now,

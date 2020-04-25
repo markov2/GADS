@@ -27,7 +27,7 @@ use GADS::Config;
 use GADS::Helper::BreadCrumbs qw(Crumb);
 
 use Linkspace::Audit  ();
-use Linkspace::Util   qw(email_valid);
+use Linkspace::Util   qw(is_valid_email);
 
 use HTML::Entities;
 use HTML::FromText qw(text2html);
@@ -343,7 +343,7 @@ any ['get', 'post'] => '/login' => sub {
     if (param 'resetpwd')
     {   if (my $username = param 'emailreset')
         {
-            if(email_valid $username)
+            if(is_valid_email $username)
             {
                 $login_change->("Password reset request for $username");
 #XXX password_reset_send?  In plugin?

@@ -23,8 +23,7 @@ package Linkspace::Util;
 use parent 'Exporter';
 
 our @EXPORT_OK = qw/
-    configure_util
-    email_valid
+    is_valid_email
     index_by_id
     iso2datetime
     is_valid_id
@@ -47,20 +46,14 @@ Linkspace::Util - collection of useful functions
   # You have to import all functions explicitly
   use Linkspace::Util qw(iso2datetime);
 
-=head2 DESCRIPTION
+=head1 DESCRIPTION
 Collections of functions used all over the place.  Sometimes it is hard
 to decide whether some code should be in a function or as method to an
 object.  Keep it simple!
 
-=head2 FUNCTIONS
-=cut
+=head1 FUNCTIONS
 
-sub configure_util($)
-{   my $config = shift;
-}
-
-
-=head2 email_valid $email or die;
+=head2 is_valid_email $email or die;
 Returns a true value when a C<user@domain.tld> string is passed: not a full
 RFC2822 email address.
 =cut
@@ -69,8 +62,8 @@ RFC2822 email address.
 # We don't use Email::Valid, as that will check for RFC822 address as opposed
 # to pure email address on its own.
 
-sub email_valid($)
-{   $_[0] =~ m/^[=+\'a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,10}$/i;
+sub is_valid_email($)
+{   $_[0] =~ m/^[=+\'a-z0-9._-]+\@[a-z0-9.-]+\.[a-z]{2,10}$/i;
 }
 
 
@@ -170,7 +163,7 @@ sub uniq_objects
  
 =head2 my ($added, $deleted, $both) = list_diff $from, $to;
 Returns three ARRAYs, which contain the changes in between ARRAYs C<$from>
-and C<$to>.
+and C<$to>.  The order in the returned arrays is unspecified.
 =cut
 
 sub list_diff($$)
@@ -180,7 +173,7 @@ sub list_diff($$)
     my @both = grep exists $to{$_}, keys %from;
     delete @from{@both};
     delete @to{@both};
-    ( [ keys %to ], [ keys %from ], \@both );
+    ( [ grep $from{$_}, @from ], [ grep $to{$_}, @to ], \@both)
 }
 
 1;
