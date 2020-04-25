@@ -44,6 +44,9 @@ sub userinput { 0 }
 ### Instance
 ###
 
+# Ignores field in Layout record
+sub can_child { !! @{$_[0]->depends_on_ids} }
+
 use Inline 'Lua' => q{
     function lua_run(string, vars, working_days_diff, working_days_add)
         local env = {}
@@ -389,5 +392,19 @@ sub after_write_special
     $self->update_cached(no_alerts => $options{no_alerts})
         unless $options{no_cache_update};
 }
+
+has depends_on_ids => (
+    is      => 'lazy',
+    builder => sub
+    {   my $self = shift;
+        [ $::db->search(LayoutDepend => { layout_id => $self->id })
+             ->get_column('depends_on')->all ];
+    },
+);
+
+has depends_on_columns => (
+    is      => 'lazy',
+    builder => sub { [ $_[0]->layout->columns($_[0]->depends_on_ids) ] },
+);
 
 1;

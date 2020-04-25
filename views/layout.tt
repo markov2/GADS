@@ -95,8 +95,9 @@
         <div class="form-group">
             <label for="group_display">Display in grouped view:</label>
             <select class="form-control" id="group_display" name="group_display">
-                <option value="" [% IF NOT column.do_group_display %]selected[% END %]>Do not display in grouped views</option>
-                <option value="unique" [% IF column.do_group_display %]selected[% END %]>Display count of unique values in grouped views</option>
+               [% do_group_display = column.is_numeric || column.group_display %]
+                <option value="" [% IF NOT do_group_display %]selected[% END %]>Do not display in grouped views</option>
+                <option value="unique" [% IF do_group_display %]selected[% END %]>Display count of unique values in grouped views</option>
             </select>
         </div>
     [% END %]

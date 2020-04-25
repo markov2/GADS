@@ -71,7 +71,7 @@ after build_values => sub {
     }
 };
 
-sub valid_value($%)
+sub is_valid_value($%)
 {   my ($self, $value, %options) = @_;
     return 1 if !$value;
 

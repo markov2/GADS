@@ -56,7 +56,7 @@ sub db_field_rename { +{
     isunique      => 'is_unique',
     link_parent   => 'link_parent_id',
     multivalue    => 'is_multivalue',
-    related_field => 'related_column_id',
+    related_field => 'related_field_id',
 #   permission    => ''   XXX???
     };
 }
@@ -116,11 +116,10 @@ sub hidden         { 0 }   # column not shown by default (only deletedBy)
 sub internal       { 0 }   # the type is internal, see is_internal() on objects
 sub is_curcommon   { 0 }
 sub meta_tables    { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] }
-sub numeric        { 0 }
 sub option_names   { shift; [ @_ ] };
 sub retrieve_fields{ [ $_[0]->value_field ] }
 sub return_type    { 'string' }
-sub sort_field()   { $_[0]->value_field }
+sub sort_field     { $_[0]->value_field }
 sub userinput      { 1 }
 sub value_field    { 'value' }
 sub value_to_write { 1 }   #XXX only in Autocur, may be removed
@@ -144,8 +143,9 @@ sub column_create($%)
 sub _column_create($)
 {   my ($class, $insert) = @_;
 
-    $insert{related_field_id} = (delete $insert{related_field})->id
-        if $insert{related_field};
+    if(my $rf = delete $insert->{related_field})
+    {   $insert->{related_field_id} = blessed $rf ? $rf->id : $rf;
+    }
 
     $self->create($insert);
 }
@@ -154,8 +154,13 @@ sub _column_create($)
 ### Instance
 ###
 
-sub sprefix        { $_[0]->field }
-sub tjoin          { $_[0]->field }
+sub is_numeric { 0 }
+sub name_long  { $_[0]->name . ' (' . $_[0]->sheet->name . ')' }
+sub sprefix    { $_[0]->field }
+
+#XXX sometimes a ref, sometimes a column name.  Unclear why
+sub tjoin      { $_[0]->field }
+
 sub filter_value_to_text { $_[1] }
 sub value_field_as_index { $_[0]->value_field }
 
@@ -167,62 +172,24 @@ sub sort_columns   { [ $_[0] ] }
 # empty string and null values to test if empty
 sub string_storage { 0 }
 
+###
 ### helpers
-sub site           { $::session->site }
+###
+
 sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
 sub field_name     { "field".($_[0]->id) }
+sub datum_class    { ref $_[0] =~ s/::Column/::Datum/r }
 
-# $self->valid_value($value, %options)
+# $self->is_valid_value($value, %options)
 # option 'fatal'
-sub valid_value   { 1 }   
+sub is_valid_value { 1 }   
 
 has set_values => (
     is      => 'rw',
     trigger => sub { shift->build_values(@_) },
 );
 
-sub name_long() { $_[0]->name . ' (' . $_[0]->sheet->name . ')' }
-
-has can_child => (
-    is      => 'lazy',
-    isa     => Bool,
-    coerce  => sub { $_[0] ? 1 : 0 },
-);
-
-sub _build_can_child
-{   my $self = shift;
-    if (!$self->userinput)
-    {
-        # Code values always have their own child values if the record is a
-        # child, so that we build based on the true values of the child record.
-        # Therefore return true if this is a code value which depends on a
-        # child column
-        return 1 if $::db->search(LayoutDepend => {
-            layout_id => $self->id,
-            'depend_on.can_child' => 1,
-        },{
-            join => 'depend_on',
-        })->next;
-    }
-    $self->set_can_child;
-}
-
-sub _build_widthcols
-{   my $self = shift;
-    my $multiplus = $self->multivalue && $self->has_multivalue_plus;
-    if ($self->layout->max_width == 100 && $self->width == 50)
-    {
-        return $multiplus ? 4 : 6;
-    }
-    else {
-        return $multiplus ? 10 : 12;
-    }
-}
-
 sub topic { $_[0]->sheet->topic($_[0]->topic_id) }
-
-#XXX the actual value is never used
-sub do_group_display() { $_[0]->numeric ? 'sum' : $_[0]->group_display }
 
 has link_parent => (
     is      => 'lazy',
@@ -243,11 +210,6 @@ has blank_row => (
     builder => sub { +{ $_[0]->value_field => undef } },
 );
 
-=head2 my $class = $column->datum_class;
-=cut
-
-sub datum_class() { ref $_[0] =~ s/^Linkspace::Column/Linkspace::Datum/r }
-
 # Which fields this column depends on
 has depends_on_ids => (
     is      => 'lazy',
@@ -267,24 +229,9 @@ sub dependencies_ids
     $df ? $df->column_ids : $self->depends_on_ids;
 }
 
-# Which columns depend on this field
-has depended_by_ids => (
-    is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-        my $depend = $::db->search(LayoutDepend => { depends_on => $self->id });
-        [ map $_->get_column('layout_id'), $depend->all ];
-    },
-);
-
 has dateformat => (
-    is      => 'rw',
-    isa     => Str,
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        $self->layout->config->dateformat;
-    },
+    is      => 'lazy',
+    builder => sub { $_[0]->layout->config->dateformat },
 );
 
 sub parse_date
@@ -362,20 +309,20 @@ sub column_update($%)
 
 #-----------------------
 =head1 METHODS: Filters
+::Layout::columns_for_filter() will change these to include parent information.
+XXX this is a bad idea!
 =cut
 
 # ID for the filter
-has filter_id => (
+sub filter_id {
     is      => 'rw',
-    lazy    => 1,
-    builder => sub { $_[0]->id },
+    default => sub { $_[0]->id },
 );
 
 # Name of the column for the filter
 has filter_name => (
     is      => 'rw',
-    lazy    => 1,
-    builder => sub { $_[0]->name },
+    default => sub { $_[0]->name },
 );
 
 # Generic subroutine to fetch all multivalues for a table. Designed to satisfy
@@ -410,12 +357,12 @@ sub fetch_multivalues
 
 sub filter(;$)
 {   my $self = shift;
-    @_==1 or return Linkspace::Filter->from_json($self->filter_json);
+    @_ or return Linkspace::Filter->from_json($self->filter_json);
 
     # Via filter object, to ensure validation
     my $set    = shift;
     my $filter = blessed $set ? $set : Linkspace::Filter->from_json($set);
-    $self->update({filter => $filter->as_json});
+    $self->update({filter_json => $filter->as_json});
     $filter;
 }
 
@@ -750,18 +697,8 @@ sub export_hash
 }
 
 # Subroutine to run after a column write has taken place for an import
+#XXX
 sub import_after_write {}
-
-# Subroutine to run after all columns have been imported
-sub import_after_all
-{   my ($self, $values, %options) = @_;
-
-    my $new_id = $values->{link_parent} ? $mapping->{$values->{link_parent}} : undef;
-    notice __x"Update: link_parent from {old} to {new} for {name}",
-        old => $self->link_parent, new => $new_id, name => $self->name
-            if ($self->link_parent || 0) != ($new_id || 0);
-    $self->update({ link_parent_id => $new_id });
-}
 
 =head2 $class->how_to_link_to_record($record);
 Tricky part, during schema initiation where methods are produced for fields.
@@ -795,23 +732,14 @@ sub field_values($$%)
     map +{ value => $_ }, @values;
 }
 
-### Only used by Autocur
-sub related_column()   { $_[0]->column($_[0]->related_column_id) }
-
-sub related_sheet_id() {
-    my $column = $_[0]->related_column;
-    $column ? $column->sheet_id : undef;
-}
-
-#XXX has to move
 sub display_field_create($)
 {   my ($self, $rules) = @_;
-    Linkspace::Filter::DisplayField->create($self, $rules);
+    Linkspace::Filter::DisplayField->filter_create($self, $rules);
 }
 
 sub display_field_update($)
 {   my ($self, $rules) = @_;
-    $self->display_field->update($self, $rules);
+    $self->display_field->filter_update($self, $rules);
 }
 
 has display_field => (
@@ -819,8 +747,44 @@ has display_field => (
     builder => sub { Linkspace::Filter::DisplayField->from_column($_[0]) },
 );
 
-# Only used for String
+### Only used by Autocur/Curval
+has related_field => (
+    is      => 'lazy',
+    builder => sub { $_[0]->column($_[0]->related_field_id) },
+);
+
+### Only used for String
 sub force_regex { my $re = $_[0]->force_regex_string; qr/^${re}$/ }
 
-1;
+### Only used for Code
+sub depends_on_columns { [] }
 
+# Code overrides can_child()
+# Code values always have their own child values if the record is a child, so
+# that we build based on the true values of the child record.
+
+### For visualizations only
+
+sub widthcols
+{   my $self = shift;
+    my $multiplus = $self->is_multivalue && $self->has_multivalue_plus;
+    $self->layout->max_width == 100 && $self->width == 50
+    ? ( $multiplus ?  4 :  6)
+    : ( $multiplus ? 10 : 12);
+}
+
+sub related_sheet_id() {
+    my $column = $_[0]->related_field;
+    $column ? $column->sheet_id : undef;
+}
+
+###
+### Datums
+###
+
+sub datum_create($%)
+{   my ($self, $values, %args) = @_;
+    $self->datum_class->datum_create($values, column => $self);
+}
+
+1;

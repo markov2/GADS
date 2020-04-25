@@ -125,7 +125,7 @@ sub multivalue_rs
 
     $::db->search(Curval => {
         'me.record_id' => { -in => $subquery },
-        'me.layout_id' => $self->related_field->id,
+        'me.layout_id' => $self->related_field_id,
         'records.id'   => \@record_ids,
     },{
         prefetch => [
@@ -139,12 +139,12 @@ sub multivalue_rs
 
 sub export_hash
 {   my $self = shift;
-    $self->SUPER::export_hash(@_, related_field_id => $self->related_field);
+    $self->SUPER::export_hash(@_, related_field_id => $self->related_field_id);
 }
 
 sub how_to_link_to_record {
 	my ($self) = @_;
-    my $related_field_id = $self->related_column_id; # "compile"-time
+    my $related_field_id = $self->related_field_id;
 
     my $subquery = $::db->search(Current => {
         'record_later.id' => undef,
@@ -152,6 +152,7 @@ sub how_to_link_to_record {
         join => { record_single => 'record_later' },
     })->get_column('record_single.id')->as_query;
 
+    # Reused
     my $linker = sub { 
         my ($other, $me) = ($_[0]->{foreign_alias}, $_[0]->{self_alias});
 

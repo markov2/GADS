@@ -33,7 +33,7 @@ after set_value => sub {
 
     my $column  = $self->column;
     if($changed)
-    {   $column->validate($_, fatal => 1) for @values;
+    {   $column->is_valid_value($_, fatal => 1) for @values;
         my @text = map $column->node($_)->{value}, @values;
         $self->text_all(\@text);
     }

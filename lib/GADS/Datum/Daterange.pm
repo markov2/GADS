@@ -130,7 +130,7 @@ sub _parse_dt
         $to   = $::db->parse_date($original->{to});
     }
     # Assume 'user'. If it's not a valid value, see if it's a duration instead (only for bulk)
-    elsif($column->validate($original, fatal => !$options{bulk}))
+    elsif($column->is_valid_value($original, fatal => !$options{bulk}))
     {   $from = $column->parse_date($original->{from});
         $to   = $column->parse_date($original->{to});
     }
@@ -153,7 +153,7 @@ sub _parse_dt
         }
 
         # Nothing fits, raise fatal error
-        $column->validate($original, fatal => 1);
+        $column->is_valid_value($original, fatal => 1);
     }
 
     $to->subtract(days => $options{subtract_days_end} ) if $options{subtract_days_end};

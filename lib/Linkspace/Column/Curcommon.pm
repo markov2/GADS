@@ -52,7 +52,7 @@ sub remove($)
 sub _column_create($)
 {   my ($class, $insert) = @_;
 
-    $insert->{related_field}
+    $insert->{related_field_id}
         or error __x"Please select a field that refers to this table";
 
     $class->SUPER::_columns_create($insert);
@@ -94,11 +94,11 @@ sub column_update($)
     }
 
     # Then delete any that no longer exist
-    my $search = { parent_id => $id };
-    $search->{child_id} = { '!=' =>  [ -and => @curval_field_ids ] }
+    my %search = (parent_id => $id);
+    $search{child_id} = { '!=' =>  [ -and => @curval_field_ids ] }
         if @curval_field_ids;
 
-    $::db->delete(CurvalField => $search);
+    $::db->delete(CurvalField => \%search);
 
 }
 
@@ -110,7 +110,7 @@ sub tjoin
 
 has layout_parent => (
     is      => 'lazy',
-    builder => sub { my $p = $_[0]->related_column; $p ? $p->layout : $p } },
+    builder => sub { my $p = $_[0]->related_field; $p ? $p->layout : $p } },
 );
 
 has retrieve_all_columns => (
@@ -123,13 +123,13 @@ has curval_field_ids => (
     lazy    => 1,
     builder => sub {
         my $self = shift;
-        my @curval_field_ids = $::db->search(CurvalField => {
+        my $curval_field_ids = $::db->search(CurvalField => {
             parent_id => $self->id,
         }, {
             join     => 'child',
             order_by => 'child.position',
-        })->all;
-        [ map $_->child_id, @curval_field_ids ];
+        })->get_column('child_id');
+        [ $curval_field_ids->all ];
     },
 );
 
@@ -137,8 +137,7 @@ has curval_fields => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        my $layout = $self->layout_parent;
-        [ map $layout->column($_, permission => 'read'), @{$self->curval_field_ids} ];
+        $self->layout_parent->columns($self->curval_field_ids, permission => 'read');
     },
 );
 

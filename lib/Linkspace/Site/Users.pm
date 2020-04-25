@@ -185,38 +185,38 @@ sub _user_value($)
 }
 
 sub user_create
-{   my ($self, %insert) = @_;
-    $self->_generic_user_validate(\%insert);
+{   my ($self, $insert, %args) = @_;
+    $self->_generic_user_validate(\$insert);
 
-    my $group_ids   = delete $insert{group_ids};
-    my $perms       = delete $insert{permissions};
-    my $view_limits_ids = delete $insert{view_limits_ids};
+    my $group_ids   = delete $insert->{group_ids};
+    my $perms       = delete $insert->{permissions};
+    my $view_limits_ids = delete $insert->{view_limits_ids};
 
-    my $email = $insert{username} = $insert{email};
-    $insert{value}   ||= _user_value \%insert;
-    $insert{created} ||= DateTime->now,
-    $insert{resetpw} ||= Session::Token->new(length => 32)->get;
+    my $email = $insert->{username} = $insert{email};
+    $insert->{value}   ||= _user_value \%insert;
+    $insert->{created} ||= DateTime->now,
+    $insert->{resetpw} ||= Session::Token->new(length => 32)->get;
 
     error __x"User '{email}' already exists", email => $email
         if $self->search_active({email => $email})->count;
 
     my $site  = $self->site;
 
-    $insert{organisation} || ! $site->register_organisation_mandatory
+    $insert->{organisation} || ! $site->register_organisation_mandatory
         or error __x"Please select a {name} for the user", name => $site->organisation_name;
 
-    $insert{team_id} || ! $site->register_team_mandatory
+    $insert->{team_id} || ! $site->register_team_mandatory
         or error __x"Please select a {name} for the user", name => $site->team_name;
 
-    $insert{department_id} || !$site->register_department_mandatory
+    $insert->{department_id} || !$site->register_department_mandatory
         or error __x"Please select a {name} for the user", name => $site->department_name;
 
     my $guard = $::db->begin_work;
 
     # Delete account request user if this is a new account request   #XXX?
-    $self->user_delete($insert{account_request});
+    $self->user_delete($insert->{account_request});
 
-    my $victim_id = $::db->create(User => \%insert)->id;
+    my $victim_id = $::db->create(User => \%insert->)->id;
     my $victim  = $self->user($victim_id);
 
     $victim->update_relations(

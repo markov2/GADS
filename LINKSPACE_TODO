@@ -1,0 +1,64 @@
+
+TODO:
+  - remove all uses of ->site_id
+  - remove all passing on of ->schema
+  - remove GADS::DB
+  - replace all uses of $self->schema by
+         $::session->site->     (which site restricted)
+      or $::
+  - replace all uses of instance_id -> $::session->sheet
+  - logged_in_user -> session->user  or $session->handles_web_request
+    More away from Plugin/Auth/Extensible functions.
+  - $self->schema->storage->datetime_parser->format_date w.r.t to the
+    new $user->local2dt
+  - Users should get their configurable date_pattern
+  - can the date_format of a column be different that the system's
+    date format?
+
+  - replace bin/app.pl with 'linkspace dance start'
+
+  - Add table to the database: ComponentVersions
+  mysql: "last_change TIMESTAMP
+        NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP"
+     + site_id + component TEXT
+  on psql via a trigger
+  https://x-team.com/blog/automatic-timestamps-with-postgresql/
+  Then remove 'return' in Site->changed()
+
+
+=== Structure of tests
+000-099: old tests
+
+110_util   Linkspace::Util
+111_test
+120_db
+   ::DB
+   ::DB::Table
+200_core
+   Linkspace
+   config
+   session
+300_site
+   site
+   document
+400_sheet
+410_users
+    user
+    groups
+    permissions
+410_columns
+430_layout
+   ::Filter
+   ::Filter::DisplayFields
+440_data
+   page
+450_views
+460_graphs
+   alerts
+700_dashboard
+   widget
+   timeline
+   globe
+800_rest_api
+900_dancer2
+

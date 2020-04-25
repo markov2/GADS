@@ -35,7 +35,7 @@ after set_value => sub {
     {
         my @text; my @deleted;
         foreach (@values)
-        {   $self->column->validate($_, fatal => 1);
+        {   $self->column->is_valid_value($_, fatal => 1);
             push @text, $self->column->enumval($_)->{value};
             push @deleted, $self->column->enumval($_)->{deleted};
         }

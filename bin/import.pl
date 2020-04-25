@@ -1,4 +1,4 @@
-#!/usr/bin/perl -CS
+#!/usr/bin/env perl -CS
 
 =pod
 GADS - Globally Accessible Data Store
@@ -384,7 +384,12 @@ foreach my $todo (@columns_todo)
             operator  => $_->{operator},
         }, @$display_rules;
 
-        Linkspace::Filter::DisplayField->create($column, $rules);
+        $data->{display_fields}
+           = Linkspace::Filter::DisplayField->create($column, $rules);
+    }
+
+    if(my $parent_id = delete $data->{link_parent})
+    {   $data->{link_parent_id} = $column_ext2int{$parent_id};
     }
 
     $column->column_update($data,

@@ -42,7 +42,7 @@ after set_value => sub {
         }
     }
     else
-    {   $self->column->validate($value, fatal => 1);
+    {   $self->column->is_valid_value($value, fatal => 1);
     }
     $self->changed(1) if (!defined($self->value) && defined $value)
         || (!defined($value) && defined $self->value)

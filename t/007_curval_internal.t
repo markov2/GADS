@@ -53,4 +53,4 @@ $record->find_current_id(2);
 is($record->fields->{$curval->id}->as_string, "1, 1, foo1", "Curval with ID correct");
 
 
-done_testing();
+done_testing;

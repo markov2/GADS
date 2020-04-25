@@ -63,7 +63,7 @@ sub remove($)
 has show_datepicker => ( is => 'ro', default => sub { 1 } );
 has default_today   => ( is => 'ro', default => sub { 0 } );
 
-sub valid_value($%)
+sub is_valid_value($%)
 {   my ($self, $date, %options) = @_;
     return 1 if !$date || $self->parse_date($date);
 

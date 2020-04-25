@@ -5,7 +5,7 @@ use warnings;
 
 use JSON qw(encode_json);
 use Log::Report;
-use Linkspace::Layout;
+use Linkspace::Sheet::Layout;
 use GADS::Record;
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -50,23 +50,25 @@ sub clear_not_data
     my $columns = $self->columns;
     foreach my $related_id (keys %related)
     {
-        # Find autocur field
-        my $related = $self->schema->resultset('Layout')->find($related_id);
         # Find curval it is related to
         my $f = $::db->search(Layout => {
             instance_id => $sheet->id,
             name        => $related{$related_id}->{related_to},
         })->next;
+
+        # Find autocur field
+        my $related = $::db->get_record(Layout => $related_id);
         $related->update({ related_field => $f->id });
+
         # Find and add related cirval fields
         foreach my $child_name (@{$related{$related_id}->{curval_fields}})
         {
-            my $f = $self->schema->resultset('Layout')->search({
+            my $f = $::db->search(Layout => (
                 instance_id => $self->layout->instance_id,
                 name        => $child_name,
             })->next
                 or next; # Skip if no longer exists - may have been additional temporary column
-            $self->schema->resultset('CurvalField')->create({
+            $::db->create(CurvalField => {
                 parent_id => $related_id,
                 child_id  => $f->id,
             });
@@ -148,24 +150,12 @@ has no_groups => (
 
 has organisation => (
     is => 'lazy',
-);
-
-sub _build_organisation
-{   my $self = shift;
-    $self->schema->resultset('Organisation')->create({
-        name => 'My Organisation',
-    });
+    builder => sub { $::db->create(Organisation => { name => 'My Organisation' });
 }
 
 has department => (
     is => 'lazy',
-);
-
-sub _build_department
-{   my $self = shift;
-    $self->schema->resultset('Department')->create({
-        name => 'My Department',
-    });
+    builder => sub { $::db->create(Department => { name => 'My Department' }) },
 }
 
 has user => (
@@ -193,7 +183,6 @@ has user_useradmin => (
 
 has user_normal1 => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_user_normal1
@@ -234,11 +223,10 @@ sub _build__users
         $count++;
         # Give view create permission as default, so that normal user can
         # create views for tests
-        my $perms = $permission =~ 'normal'
-            ? ['view_create']
-            : $permission eq 'superadmin'
-            ? [qw/superadmin link delete purge view_group/]
-            : [$permission];
+        my $perms
+            = $permission =~ 'normal'     ? ['view_create']
+            : $permission eq 'superadmin' ? [qw/superadmin link delete purge view_group/]
+            : [ $permission ];
         $return->{$permission} = $self->create_user(permissions => $perms, user_id => $count);
     }
     $return;
@@ -263,7 +251,7 @@ sub create_user
         organisation  => $self->organisation->id,
         department_id => $self->department->id,
     });
-    $self->schema->resultset('UserGroup')->find_or_create({ # May already be created for schema
+    $::db->create(UserGroup => )
         user_id  => $user_id,
         group_id => $self->group->id,
     }) if $self->group;
@@ -281,12 +269,9 @@ sub create_user
         elsif (!$self->no_groups) {
             # Create a group for each user/permission
             my $name  = "${permission}_$user_id";
-            my $group = $self->schema->resultset('Group')->search({
-                name => $name,
-            })->next;
-            $group ||= $self->schema->resultset('Group')->create({
-                name => $name,
-            });
+            my $group = $::db->get_record(Group => { name => $name });
+               ||= $::db->create(Group => { name => $name });
+
             $self->schema->resultset('InstanceGroup')->find_or_create({
                 instance_id => $instance_id,
                 group_id    => $group->id,
@@ -491,10 +476,8 @@ sub _build_layout
 
     my $layout = Linkspace::Layout->new(
         user                     => $self->user_layout,
-        schema                   => $self->schema,
         config                   => $self->config,
         instance_id              => $self->instance_id,
-        user_permission_override => $self->user_permission_override,
     );
     $layout->create_internal_columns;
     return $layout;
@@ -504,15 +487,13 @@ sub _build_group
 {   my $self = shift;
     return if $self->no_groups;
     my $group = GADS::Group->new(schema => $self->schema);
-    my $grs = $self->schema->resultset('Group')->search({
-        name => 'group1',
-    });
+    my $grs = $::db->search(Group => { name => 'group1' });
+
     if ($grs->count)
-    {
-        $group->from_id($grs->next->id);
+    {   $group->from_id($grs->next->id);
     }
-    else {
-        $group->from_id;
+    else
+    {   $group->from_id;
     }
     $group->name('group1');
     $group->write;
@@ -534,279 +515,171 @@ sub __build_columns
     my $schema      = $self->schema;
     my $layout      = $self->layout;
     my $instance_id = $self->instance_id;
-    my $permissions = $self->default_permissions,
+    my $permissions = $self->no_groups ? undef
+      : { $self->group->id => $self->default_permissions };
 
     my $columns = {};
 
     my @strings;
     foreach my $count (1..($self->column_count->{string} || 1))
     {
-        my $string = GADS::Column::String->new(
-            optional => $self->optional,
-            schema   => $schema,
-            user     => undef,
-            layout   => $layout,
-        );
-        $string->type('string');
-        $string->name("string$count");
-        $string->name_short("L${instance_id}string$count");
-        $string->multivalue(1) if $self->multivalue && $self->multivalue_columns->{string};
-        $string->set_permissions({$self->group->id => $permissions})
-            unless $self->no_groups;
-        try { $string->write };
-        if ($@)
-        {
-            $@->wasFatal->throw(is_fatal => 0);
-            return;
-        }
+my $string = $layout->create_column(
+    optional      => $self->optional,
+    type          => 'string',
+    name          => "string$count",
+    name_short    => "L${instance_id}string$count",
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{string},
+    permissions   => $permissions,
+);
         push @strings, $string;
     }
 
     my @integers;
     foreach my $count (1..($self->column_count->{integer} || 1))
     {
-        my $integer = GADS::Column::Intgr->new(
-            optional => $self->optional,
-            schema   => $schema,
-            user     => undef,
-            layout   => $layout,
-        );
-        $integer->type('intgr');
-        $integer->name("integer$count");
-        $integer->name_short("L${instance_id}integer$count");
-        $integer->set_permissions({$self->group->id => $permissions})
-            unless $self->no_groups;
-        try { $integer->write };
-        if ($@)
-        {
-            $@->wasFatal->throw(is_fatal => 0);
-            return;
-        }
+my $integer = $layout->create_column(
+    optional      => $self->optional,
+    type          => 'intgr',
+    name          => "integer$count",
+    name_short    => "L${instance_id}integer$count",
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{integer},
+    permissions   => $permissions,
+);
         push @integers, $integer;
     }
 
     my @enums;
     foreach my $count (1..($self->column_count->{enum} || 1))
     {
-        my $enum = GADS::Column::Enum->new(
-            optional => $self->optional,
-            schema   => $schema,
-            user     => undef,
-            layout   => $layout,
-        );
-        $enum->type('enum');
-        $enum->name("enum$count");
-        $enum->name_short("L${instance_id}enum$count");
-        $enum->multivalue(1) if $self->multivalue && $self->multivalue_columns->{enum};
-        $enum->enumvals([
-            {
-                value => 'foo1',
-            },
-            {
-                value => 'foo2',
-            },
-            {
-                value => 'foo3',
-            },
-        ]);
-        $enum->set_permissions({$self->group->id => $permissions})
-            unless $self->no_groups;
-        try { $enum->write };
-        if ($@)
-        {
-            $@->wasFatal->throw(is_fatal => 0);
-            return;
-        }
+my $enum = $layout->create_column(
+    optional      => $self->optional,
+    type          => 'enum',
+    name          => "enum$count",
+    name_short    => "L${instance_id}enum$count",
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{enum},
+    permissions   => $permissions,
+    enumvals      => [
+        { value => 'foo1' },
+        { value => 'foo2' },
+        { value => 'foo3' },
+    ],
+);
         push @enums, $enum;
     }
 
     my @trees;
     foreach my $count (1..($self->column_count->{tree} || 1))
     {
-        my $tree = GADS::Column::Tree->new(
-            optional => $self->optional,
-            schema   => $schema,
-            user     => undef,
-            layout   => $layout,
-        );
-        $tree->type('tree');
-        $tree->name("tree$count");
-        $tree->name_short("L${instance_id}tree$count");
-        $tree->set_permissions({$self->group->id => $permissions})
-            unless $self->no_groups;
-        $tree->multivalue(1) if $self->multivalue && $self->multivalue_columns->{tree};
-        try { $tree->write };
-        my $tree_id = $tree->id;
-        if ($@)
-        {
-            $@->wasFatal->throw(is_fatal => 0);
-            return;
-        }
+my $tree = $layout->create_column(
+    type          => 'tree',
+    name          => "tree$count",
+    name_short    => "L${instance_id}tree$count",
+    optional      => $self->optional,
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{tree},
+    permissions   => $permissions,
+);
+#XXX
         $tree->update([{
-            'children' => [],
-            'data' => {},
-            'text' => 'tree1',
-            'id' => 'j1_1',
+            children => [],
+            data     => {},
+            text     => 'tree1',
+            id       => 'j1_1',
         },
         {
-            'data' => {},
-            'text' => 'tree2',
-            'children' => [
+            data     => {},
+            text     => 'tree2',
+            children => [
                 {
-                    'data' => {},
-                    'text' => 'tree3',
-                    'children' => [],
-                    'id' => 'j1_3'
+                    data     => {},
+                    text     => 'tree3',
+                    children => [],
+                    id       => 'j1_3'
                 },
             ],
-            'id' => 'j1_2',
+            id       => 'j1_2',
         }]);
-        # Reload to get tree built etc
-        $tree = GADS::Column::Tree->new(
-            optional => $self->optional,
-            schema   => $schema,
-            user     => undef,
-            layout   => $layout,
-        );
-        $tree->from_id($tree_id);
+
         push @trees, $tree;
     }
 
     my @dates;
     foreach my $count (1..($self->column_count->{date} || 1))
     {
-        my $date = GADS::Column::Date->new(
-            optional => $self->optional,
-            schema   => $schema,
-            user     => undef,
-            layout   => $layout,
-        );
-        $date->type('date');
-        $date->name("date$count");
-        $date->name_short("L${instance_id}date$count");
-        $date->set_permissions({$self->group->id => $permissions})
-            unless $self->no_groups;
-        $date->multivalue(1) if $self->multivalue && $self->multivalue_columns->{date};
-        try { $date->write };
-        if ($@)
-        {
-            $@->wasFatal->throw(is_fatal => 0);
-            return;
-        }
+my $date = $layout->create_column(
+    type          => 'date',
+    name          => "date$count",
+    name_short    => "L${instance_id}date$count",
+    optional      => $self->optional,
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{date},
+    permissions   => $permissions,
+);
+
         push @dates, $date;
     }
 
     my @dateranges;
     foreach my $count (1..($self->column_count->{date} || 1))
     {
-        my $daterange = GADS::Column::Daterange->new(
-            optional => $self->optional,
-            schema   => $schema,
-            user     => undef,
-            layout   => $layout,
-        );
-        $daterange->type('daterange');
-        $daterange->name("daterange$count");
-        $daterange->name_short("L${instance_id}daterange$count");
-        $daterange->set_permissions({$self->group->id => $permissions})
-            unless $self->no_groups;
-        $daterange->multivalue(1) if $self->multivalue && $self->multivalue_columns->{daterange};
-        try { $daterange->write };
-        if ($@)
-        {
-            $@->wasFatal->throw(is_fatal => 0);
-            return;
-        }
+my $daterange = $layout->create_column(
+    type          => 'daterange',
+    name          => "daterange$count",
+    name_short    => "L${instance_id}daterange$count",
+    optional      => $self->optional,
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{daterange},
+    permissions   => $permissions,
+);
+
         push @dateranges, $daterange;
     }
 
-    my $file1 = GADS::Column::File->new(
-        optional => $self->optional,
-        schema   => $schema,
-        user     => undef,
-        layout   => $layout,
-    );
-    $file1->type('file');
-    $file1->name('file1');
-    $file1->set_permissions({$self->group->id => $permissions})
-        unless $self->no_groups;
-    $file1->multivalue(1) if $self->multivalue && $self->multivalue_columns->{file};
-    try { $file1->write };
-    if ($@)
-    {
-        $@->wasFatal->throw(is_fatal => 0);
-        return;
-    }
+my $file1 = $layout->column_create(
+    type          => 'file',
+    name          => 'file1',
+    optional      => $self->optional,
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{file},
+    permissions   => $permissions,
+);
 
-    my $person1 = GADS::Column::Person->new(
-        optional => $self->optional,
-        schema   => $schema,
-        user     => undef,
-        layout   => $layout,
-    );
-    $person1->type('person');
-    $person1->name('person1');
-    $person1->set_permissions({$self->group->id => $permissions})
-        unless $self->no_groups;
-    try { $person1->write };
-    if ($@)
-    {
-        $@->wasFatal->throw(is_fatal => 0);
-        return;
-    }
+my $person1 = $layout->column_create(
+    type          => 'person',
+    name          => 'person1',
+    permissions   => $permissions,
+);
 
     my @curvals;
     if ($self->curval)
     {
         foreach my $count (1..($self->column_count->{curval} || 1))
         {
-            my $curval = GADS::Column::Curval->new(
-                optional   => $self->optional,
-                schema     => $self->schema,
-                user       => undef,
-                layout     => $self->layout,
-                name_short => "L${instance_id}curval$count",
-            );
             my $refers_to_instance_id = $self->curval;
-            $curval->refers_to_instance_id($refers_to_instance_id);
-            my $curval_field_ids_rs = $self->schema->resultset('Layout')->search({
+            my $curval_field_ids_rs = $::db->search(Layout => {
                 type        => { '!=' => 'autocur' },
                 internal    => 0,
                 instance_id => $refers_to_instance_id,
             });
-            my $curval_field_ids = $self->curval_field_ids || [ map { $_->id } $curval_field_ids_rs->all ];
-            $curval->curval_field_ids($curval_field_ids);
-            $curval->type('curval');
-            $curval->name("curval$count");
-            $curval->multivalue(1) if $self->multivalue && $self->multivalue_columns->{curval};
-            $curval->set_permissions({$self->group->id => $permissions})
-                unless $self->no_groups;
-            try { $curval->write };
-            if ($@)
-            {
-                $@->wasFatal->throw(is_fatal => 0);
-                return;
-            }
+            my $curval_field_ids = $self->curval_field_ids ||
+                [ map $_->id, $curval_field_ids_rs->all ];
+
+my $curval = $layout->column_create(
+    type          => 'curval',
+    name          => 'curval1',
+    name_short    => "L${instance_id}curval$count",
+    optional      => $self->optional,
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{file},
+    permissions   => $permissions,
+    refers_to_instance_id => $refers_to_instance_id,
+    curval_field_ids => $curval_field_ids.
+);
             push @curvals, $curval;
         }
     }
 
-    my $rag1 = GADS::Column::Rag->new(
-        schema => $schema,
-        user   => undef,
-        layout => $layout,
-    );
-    $rag1->code($self->rag_code);
-    $rag1->type('rag');
-    $rag1->name('rag1');
-    $rag1->set_permissions({$self->group->id => $permissions})
-        unless $self->no_groups;
-    try { $rag1->write };
-    if ($@)
-    {
-        $@->wasFatal->throw(is_fatal => 0);
-        return;
-    }
+my $rag1 = $layout->column_create(
+    type          => 'rag',
+    name          => 'rag1',
+    optional      => $self->optional,
+    permissions   => $permissions,
+    code          => $self->rag_code,
 
     # At this point, layout will have been built with current columns (it will
     # have been built as part of creating the RAG column). Therefore, clear it,
@@ -814,36 +687,22 @@ sub __build_columns
     # a reference to the old one.
     $self->layout->clear;
 
-    my $calc1 = GADS::Column::Calc->new(
-        schema => $schema,
-        user   => undef,
-        layout => $self->layout,
-    );
-    $calc1->code($self->calc_code);
-    $calc1->type('calc');
-    $calc1->name('calc1');
-    $calc1->name_short("L${instance_id}calc1");
-    $calc1->return_type($self->calc_return_type);
-    $calc1->set_permissions({$self->group->id => $permissions})
-        unless $self->no_groups;
-    $calc1->multivalue(1) if $self->multivalue && $self->multivalue_columns->{calc};
-    try { $calc1->write };
-    if ($@)
-    {
-        $@->wasFatal->throw(is_fatal => 0);
-        return;
-    }
-
-    # Clear the layout again, otherwise it won't include the calc
-    # column itself (it will have been built as part of its creation)
-    $self->layout->clear;
+my $calc1 = $layout->column_create(
+    type        => 'calc',
+    name        => 'calc1',
+    name_short  => "L${instance_id}calc1",
+    return_type => $self->calc_return_type,
+    code        => $self->calc_code,
+    permissions => $permissions,
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{calc},
+);
 
     # Only add the columns now to the columns hash, as this will lazily build
     # the columns index in the layout, which would otherwise be incomplete.
     # We return the reference to the layout one, in case we change any of
     # the objects properties, which are used by the datums.
     $columns->{$_->name}   = $layout->column($_->id)
-        foreach (@strings, @enums, @curvals, @trees, @integers, @dates, @dateranges);
+        for @strings, @enums, @curvals, @trees, @integers, @dates, @dateranges;
     $columns->{calc1}      = $layout->column($calc1->id);
     $columns->{rag1}       = $layout->column($rag1->id);
     $columns->{file1}      = $layout->column($file1->id);
@@ -874,6 +733,7 @@ sub add_autocur
     })->count;
     $count++;
     $autocur->name("autocur$count");
+
     my $instance_id = $self->layout->instance_id;
     $autocur->name_short("L${instance_id}autocur$count");
     $autocur->related_field_id($options{related_field_id});
@@ -886,12 +746,10 @@ sub add_autocur
 
 sub create_records
 {   my $self = shift;
-
     my $columns = $self->columns;
 
     foreach my $datum (@{$self->data})
-    {
-        my $record = GADS::Record->new(
+    {   my $record = GADS::Record->new(
             user     => $self->user,
             layout   => $self->layout,
             schema   => $self->schema,
@@ -934,9 +792,8 @@ sub create_records
 
         # $record->fields->{$columns->{tree1}->id}->set_value($datum->{tree1});
         # Create users on the fly as required
-        if ($datum->{person1} && !$self->schema->resultset('User')->find($datum->{person1}))
-        {
-            my $user_id = $datum->{person1};
+        if($datum->{person1} && !$::db->get_record(User => $datum->{person1}))
+        {   my $user_id = $datum->{person1};
             my $user = {
                 id       => $user_id,
                 username => "user$user_id\@example.com",
@@ -953,17 +810,12 @@ sub create_records
         }
         # Only set file data if exists in data. Add random data if nothing specified
 
-        if (exists $datum->{file1})
-        {
-            my $file = $datum->{file1};
-            if (!defined $file)
-            {
-                $file = {
-                    name     => 'myfile.txt',
-                    mimetype => 'text/plain',
-                    content  => 'My text file',
-                };
-            }
+        if(exists $datum->{file1})
+        {   my $file = $datum->{file1} || +{
+                name     => 'myfile.txt',
+                mimetype => 'text/plain',
+                content  => 'My text file',
+            };
             $record->fields->{$columns->{file1}->id}->set_value($file);
         }
 
@@ -975,10 +827,8 @@ sub create_records
 sub set_multivalue
 {   my ($self, $value) = @_;
     foreach my $col ($self->layout->all)
-    {
-        if ($self->multivalue_columns->{$col->type})
-        {
-            $col->multivalue($value);
+    {   if($self->multivalue_columns->{$col->type})
+        {   $col->multivalue($value);
             $col->write(override_permissions => 1);
         }
     }
@@ -991,6 +841,7 @@ sub convert_filter
     $filter or return;
     my %new_filter = %$filter; # Copy to prevent changing original
     $new_filter{rules} = []; # Make sure not using original ref in new
+
     foreach my $rule (@{$filter->{rules}})
     {
         next unless $rule->{name};
@@ -1008,18 +859,17 @@ sub convert_filter
 # when required.
 sub dump_data
 {   my $self = shift;
-    foreach my $current ($self->schema->resultset('Current')->search({
+    foreach my $current ($::db->search(Current => {
         instance_id => $self->layout->instance_id,
     })->all)
     {
         print $current->id.': ';
-        my $record_id = $self->schema->resultset('Record')->search({
-            current_id => $current->id
-        })->get_column('id')->max;
+        my $record_id = $::db->search(Record => { current_id => $current->id })
+            ->get_column('id')->max;
 
         foreach my $ct (qw/tree1 enum1/)
         {
-            my $v = $self->schema->resultset('Enum')->search({
+            my $v = $::db->search(Enum => {
                 record_id => $record_id,
                 layout_id => $self->columns->{$ct}->id,
             })->next;

@@ -166,8 +166,7 @@ sub col_ids_for_cache_update
 sub columns_for_filter
 {   my ($self, %options) = @_;
     my @columns;
-    my %restriction = (include_internal => 1);
-    $restriction{user_can_read} = 1 unless $options{override_permissions};
+    my %restriction = (include_internal => 1, user_can_read => 1);
 
     foreach my $col ( @{$self->columns(%restriction)} )
     {   push @columns, $col;
@@ -588,7 +587,7 @@ sub column_delete($)
             Please remove these conditions before deletion.", dep => \@names;
     }
 
-    my $depending = $doc->columns($column->depended_by_ids);
+    my $depending = $doc->columns($column->depends_on);
     if(@$depending)
     {   error __x"The following fields contain this field in their formula: {dep}.
             Please remove these before deletion.",

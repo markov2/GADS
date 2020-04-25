@@ -5,6 +5,9 @@ use Scalar::Util  qw(blessed);
 use Moo;
 extends 'Linkspace::Filter';
 
+### This is a display_field filter management object, so does not extend from
+#   Linkspace::DB::Table
+
 ### 2020-04-20: columns in GADS::Schema::Result::DisplayField
 # id               layout_id        regex
 # display_field_id operator
@@ -22,14 +25,14 @@ my %operators = (   # fixed_regex, negate
 sub from_column($)
 {   my ($class, $column) = @_;
     $class->new(
-        column    => $column,
+        on_column => $column,
         condition => $column->display_condition,
     );
 }
 
-sub column_id { $_[0]->column->id }
+sub on_column_id { $_[0]->on_column->id }
 
-has column => (
+has on_column => (     # method 'column' has global meaning
     is       => 'ro'.
     required => 1,
     weakref  => 1,
@@ -43,10 +46,13 @@ has condition => (
 has _rule_rows => (
     is      => 'lazy',
     builder => sub {
-        my $col_id = shift->column->id;
-        [ $::db->search(DisplayField =>{ layout_id => $col_id)->all ];
+        my $col_id = shift->on_column->id;
+        [ $::db->search(DisplayField => { layout_id => $col_id})->all ];
   , }
 );
+
+#XXX Maybe store layout?
+sub column($) { $_[0]->on_column->layout->column($_[1]) }
 
 sub _show_rule_row {
     my ($self, $rule) = @_;
@@ -74,15 +80,15 @@ has as_hash => (
 
 sub summary
 {   my $self  = shift;
-    my @conds = map $self->_show_rule_row($_), @{$self->_rule_rows};
+    my @rules = map $self->_show_rule_row($_), @{$self->_rule_rows};
+    my $cond  = $self->display_condition;
 
-    my $type = $self->display_condition eq 'AND'
-      ? 'Only displayed when all the following are true'
-      : $self->display_condition eq 'OR'
-      ? 'Only displayed when any of the following are true'
-      : 'Displayed when the following is true';
+    my $type
+      = @rules==1    ? 'Displayed when the following is true'
+      : $dc eq 'AND' ? 'Displayed when all the following are true'
+      :                'Displayed when any of the following are true';
 
-    +[ $type, join('; ', @conds) ];
+    +[ $type, join('; ', @rules) ];
 }
 
 sub as_text
@@ -90,7 +96,7 @@ sub as_text
     @$df ? (join ': ', @$df) : '';
 }
 
-sub create($$)
+sub filter_create($$)
 {   my ($thing, $where, $rules) = @_;
     my $col_id = blessed $where ? $where->id : $where;
 
@@ -108,12 +114,12 @@ sub create($$)
     }
 }
 
-sub update($)
+sub filter_update($)
 {   my ($self, $rules) = @_;
-    my $col_id = $self->column_id;
+    my $col_id = $self->on_column_id;
 
     $::db->delete(DisplayField => { layout_id => $col_id });
-    $self->create($col_id, $rules);
+    $self->filter_create($col_id, $rules);
 }
 
 sub show_field($$)

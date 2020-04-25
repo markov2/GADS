@@ -109,7 +109,7 @@ sub _to_dt
     # Assume 'user'
     my $column = $self->column;
 
-    if(!$column->validate($value) && $options{bulk}) # Only allow duration during bulk update
+    if(!$column->is_valid_value($value) && $options{bulk}) # Only allow duration during bulk update
     {
         # See if it's a duration and return that instead if so
         if(my $duration = parse_duration $value)
@@ -119,7 +119,7 @@ sub _to_dt
         # Will bork below
     }
 
-    $column->validate($value, fatal => 1);
+    $column->is_valid_value($value, fatal => 1);
     $column->parse_date($value);
 }
 

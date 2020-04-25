@@ -117,27 +117,33 @@ by other sessions.  Calling refresh will re-synchronize the site status,
 especially schema changes.
 =cut
 
-has last_check => (is => 'rw');
-my %_component_loaded;  # global
+has last_check => (is => 'rw', default => sub { time });
 
 sub refresh
-{	my $self = shift;
-    $::db->schema->update_fields($self);
+{	my ($self, @components) = @_;
 
-return $self;  #XXX
-    my $now  = time;
-    my @versions = $::db->search(ComponentVersions => {
-        site_id => $self->id,
-        updated => { \'>', $self->last_check },
-    }, { column => 'label' })->all;
-    $self->last_check($now);
-
-    foreach my $change (@versions)
-    {   delete $_component_loaded{$_} or next;
-
-        if($change eq 'user') { undef $self->{users} }
-        elsif($change =~ /^sheet_(\d+)/c) { $doc->sheet_restart($1) }
+    my %c;
+    if(@components)
+    {   $c{$_}++ for @components;
     }
+    else
+    {   # collect changes from abroad
+        my $now  = time;
+#XXX table does not exist yet
+        $c{$_}++ for $::db->search(ComponentVersions => {
+            site_id => $self->id,
+            updated => { \'>', $self->last_check },
+        }, { column => 'component' })->all;
+        $self->last_check($now);
+    }
+
+    if($c{columns})
+    {   $::db->schema->update_fields($self);  # schema changes
+        undef $self->{document};              # affects all sheets
+    }
+
+    undef $self->{users} if $c{users} || $c{groups};
+    $self->document->sheet_refresh($_) for grep /^sheet_/, keys %c;
     $self;
 }
 
@@ -150,12 +156,14 @@ sub changed($)
 {   my ($self, $component) = @_;
 return;
     $::db->update_or_create(ComponentVersions => {
-         site => $self->id, component => $component
+         site      => $self->id,
+         component => $component,
     });
     #XXX to be implemented.  Needs to be done in the database!
     # ComponentVersions table has
     # mysql: "last_change TIMESTAMP
     #      NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP"
+    #   + site_id + component TEXT
     # on psql via a trigger
     # https://x-team.com/blog/automatic-timestamps-with-postgresql/
 }
@@ -187,6 +195,19 @@ sub users()
 );
 
 sub groups { $_[0]->users }    # managed by the same helper object
+
+#-------------------------
+=head1 METHODS: Company information
+Manage tables Organization, Department, Team, and Title: which define
+the working position of a person.
+
+=head2 my $id = $site->workspot_create($set, $name);
+=cut
+
+sub workspot_create($$)
+{   my ($self, $set, $name) = @_;
+    $::db->create(ucfirst $set, { name => $name })->id;
+}
 
 #-------------------------
 =head1 METHODS: Manage Documents

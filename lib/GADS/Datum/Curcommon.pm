@@ -87,8 +87,7 @@ after set_value => sub {
     if ($changed)
     {
         $self->changed(1);
-        $self->column->validate($_, fatal => 1)
-            foreach @ids;
+        $self->column->is_valid_value($_, fatal => 1) for @ids;
         # Need to clear initial values, to ensure new value is built from this new ID
         $self->clear_values;
         $self->clear_text;

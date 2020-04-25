@@ -56,7 +56,7 @@ after set_value => sub {
 
     if($changed)
     {   my $column = $self->column;
-        $column->validate($_, fatal => 1) for @values;
+        $column->is_valid_value($_, fatal => 1) for @values;
 
         # Simple test to see if the same file has been uploaded. Only works for
         # single files.

@@ -741,6 +741,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     my %all_permissions = map { $_->id => $_->name } @{$users->permissions};
     my $login_change    = sub { $::session->audit(@_, type => 'login_change') };
 
+#XXX filled but not used?
     my @show_users;
 
     if (param 'sendemail')
@@ -807,39 +808,31 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     if (param('neworganisation') || param('newtitle') || param('newdepartment') || param('newteam'))
     {
         if(my $org = param 'neworganisation')
-        {
-            if (process( sub { $site->create(Organisation => {name => $org}) }))
-            {
-                $login_change->("Organisation $org created");
+        {   if(process( sub { $site->workspot_create(organisation => $org) }))
+            {   $login_change->("Organisation $org created");
                 success __"The organisation has been created successfully";
             }
         }
 
         if(my $dep = param 'newdepartment')
-        {
-            if (process( sub { $site->create(Department => { name => $dep }) }))
-            {
-                $login_change->("Department $dep created");
+        {   if(process( sub { $site->workspot_create(department => $dep) }))
+            {   $login_change->("Department $dep created");
                 my $depname = lc $site->register_department_name || 'department';
                 success __x"The {dep} has been created successfully", dep => $depname;
             }
         }
 
         if(my $team = param 'newteam')
-        {
-            if (process( sub { $site->create(Team => { name => $team }) }))
-            {
-                $login_change->("Team $team created");
+        {   if(process( sub { $site->workspot_create(Team => $team) }))
+            {   $login_change->("Team $team created");
                 my $teamname = lc $site->register_team_name || 'team';
                 success __x"The {team} has been created successfully", team => $teamname;
             }
         }
 
         if(my $title = param 'newtitle')
-        {
-            if (process( sub { $site->create(Title => { name => $title }) }))
-            {
-                $login_change->("Title $title created");
+        {   if(process( sub { $site->workspot_create(title => $title) }))
+            {   $login_change->("Title $title created");
                 success __"The title has been created successfully";
             }
         }
@@ -847,7 +840,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         # Remember values of user creation in progress.
         # XXX This is a mess (repeated code from above). Need to get
         # DPAE to use a user object
-        my $groups      = param('groups');
+        my $groups      = param 'groups';
         my @groups      = ref $groups ? @$groups : ($groups || ());
         my %groups      = map +($_ => 1) @groups;
         my $view_limits_with_blank = [ map +{ view_id => $_ },
@@ -888,9 +881,8 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         }
     }
 
-    if (defined param 'download')
-    {
-        my $csv = $users->csv;
+    if(defined param 'download')
+    {   my $csv = $users->csv;
         my $header;
         if(my $head = $::linkspace->setting(gads => 'header'))
         {   $csv       = "$head\n$csv";
@@ -1622,41 +1614,44 @@ prefix '/:layout_name' => sub {
                 return send_file(\$pdf, content_type => 'application/pdf');
             }
         }
-        elsif ($viewtype eq 'globe')
-        {
-            my $globe_options = (_persistent $sheet)->{globe_options} ||= {};
+        elsif($viewtype eq 'globe')
+        {   #XXX three different names for group, color, label
+
+            my $globe_options = (_persistent $sheet){globe_options} ||= {};
             if(param 'modal_globe')
-            {   $globe_options->{group} = param('globe_group');
-                $globe_options->{color} = param('globe_color');
-                $globe_options->{label} = param('globe_label');
+            {   $globe_options->{group} = param 'globe_group';
+                $globe_options->{color} = param 'globe_color';
+                $globe_options->{label} = param 'globe_label';
             }
 
-            my $records_options = {
-                user   => $user,
-                view   => $view,
-                search => session('search'),
-                rewind => session('rewind'),
-            };
-
-            my $globe = GADS::Globe->new(
-                group_col_id    => $globe_options->{group},
-                color_col_id    => $globe_options->{color},
-                label_col_id    => $globe_options->{label},
-                records_options => $records_options,
+            my $globe = Linkspace::Render::Globe->new(
+                group_col_id => $globe_options->{group},
+                color_col_id => $globe_options->{color},
+                label_col_id => $globe_options->{label},
+                sheet        => $sheet,
+                selection    => +{
+                    user   => $user,
+                    view   => $view,
+                    search => session('search'),
+                    rewind => session('rewind'),
+                },
             );
-            $params->{globe_data} = encode_base64(encode_json($globe->data), '');
-            $params->{colors}               = $globe->colors;
-            $params->{globe_options}        = $globe_options;
-            $params->{columns_read}         = [$layout->columns_for_filter];
-            $params->{viewtype}             = 'globe';
-            $params->{page}                 = 'data_globe';
-            $params->{search_limit_reached} = $globe->records->search_limit_reached;
-            $params->{count}                = $globe->records->count;
+
+            my $page = $globe->page;
+
+            $params->{globe_data}    = $globe->data_ajax;
+            $params->{colors}        = $globe->colors;
+            $params->{globe_options} = $globe_options;
+            $params->{columns_read}  = [$layout->columns_for_filter];
+            $params->{viewtype}      = 'globe';
+            $params->{page}          = 'data_globe';
+            $params->{count}         = $page->count;
+            $params->{search_limit_reached} = $page->search_limit_reached;
         }
         else
         {   session rows => 50 unless session 'rows';
             session page =>  1 unless session 'page';
-            my $is_download = defined param('download');
+            my $is_download = defined param 'download';
 
             my @additional;
             foreach my $key (keys %{query_parameters()})
