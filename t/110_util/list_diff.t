@@ -1,5 +1,5 @@
 
-use Linkspace::Test;
+use Linkspace::Test connect_db => 0;
 
 use Linkspace::Util 'list_diff';
 

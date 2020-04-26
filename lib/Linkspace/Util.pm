@@ -138,6 +138,7 @@ sub scan_for_plugins($%) {
             next if $pkgs{$pkg};
 
             $pkgs{$pkg} = $filename;
+            $autoload or next;
 
             (my $plugin_base = $filename) =~ s!^\Q$inc/\E!!;
             my $has = first { /\Q$plugin_base\E$/ } keys %INC;
@@ -173,7 +174,7 @@ sub list_diff($$)
     my @both = grep exists $to{$_}, keys %from;
     delete @from{@both};
     delete @to{@both};
-    ( [ grep $from{$_}, @from ], [ grep $to{$_}, @to ], \@both)
+    ( [ keys %to ], [ keys %from ], \@both);
 }
 
 1;
