@@ -29,7 +29,7 @@ extends 'Linkspace::DB::Table';
 
 sub db_table { 'Widget' }
 
-sub db_fields_rename { +{
+sub db_field_rename { +{
     static        => 'is_static',
     tl_options    => 'tl_options_json',
     globe_options => 'glob_options_json',

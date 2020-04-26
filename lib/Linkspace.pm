@@ -9,7 +9,6 @@ use Log::Report 'linkspace';
 
 use YAML             qw(LoadFile);
 
-use Linkspace::Util  qw(configure_util);
 use Linkspace::DB    ();
 use Linkspace::Site  ();
 use Linkspace::Session::System ();
@@ -18,6 +17,9 @@ use Linkspace::Mailer ();
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 use namespace::clean;
+
+my $config_fn = $ENV{LINKSPACE_CONFIG}
+    or error "Environment variable LINKSPACE_CONFIG required";
 
 =head1 NAME
 Linkspace - the Linkspace application
@@ -48,38 +50,34 @@ Options:
 The L<Linkspace::Session::System> object prefers the specific C<site>, otherwise
 only limited database lookups are possible.
 
-=item config FILENAME
-
-Which configuration file to use for everything except the Dancer2 specifics.
-
 =back
 
 =cut
 
+sub BUILD
+{   my ($self, $args) = @_;
+    $::linkspace = $self;
+}
+
 sub start
 {   my $thing = shift;
     my $args  = ref $_[0] eq 'HASH' ? shift : { @_ };
-    my $self  = ref $thing || $thing->new($args);
+    my $self  = ref $thing ? $thing : $thing->new($args);
 
-warn "Starting";
     # This dirty global connects all singletons.  It simplifies the code
     # enormously.
-    $::linkspace = $self;
 
     my $settings = $self->settings;
-    configure_util $settings;
-
-    $::linkspace->db;
+    $self->db;
 
     my $host = $args->{host} || $settings->{default_site}
-        or error __x"No default site found";
+        or error __x"No default_site found";
 
-    my $site = Linkspace::Site->find($host)
+    my $site = Linkspace::Site->from_host($host)
         or error __x"Cannot find default site '{host}'", host => $host;
 
-    $::session = $self->{default_session} = Linkspace::Session::System->new(
-        site => $site,
-    );
+    $::session = $self->{default_session} =
+        Linkspace::Session::System->new(site => $site);
 
     $self;
 }
@@ -95,40 +93,37 @@ used when there is no user request being handled.
 
 sub default_session { $_[0]->{default_session} }
 
-# private
-has config_fn => (
-    is       => 'ro',
-    required => 1,
-);
+=head2 $::linkspace->environment;
+Could be C<testing>, C<development> and C<production>.  The C<testing>
+configuration is (with the exception of the database configuration)
+always the same: needed to produce reproducable results running the
+test scripts.  The C<development> configuration has your personal
+preferred configuration.
+
+=cut
+
+sub environment { $_[0]->settings->{environment} or panic }
 
 =head2 $::linkspace->settings;
 This is I<only> the Linkspace logic specific configuration: the
 Dancer2 plugin configuration is not handled here...
+
+You may set the C<LINKSPACE_CONFIG> environment variable to load a specific
+application set-up.
 =cut
 
 has settings => (
-    is      => 'ro',
-    isa     => HashRef,
+    is      => 'lazy',
     builder => sub {
-        my ($self, $spec) = @_;
+        my $self = shift;
+        -f $config_fn
+            or error __x"Configuration file '{fn}' does not exist", fn => $config_fn;
 
-        if(defined $spec)
-        {   ref $spec eq 'HASH' or panic "settings() expects HASH";
-            return $spec;
-        }
+        $config_fn =~ m/\.yml$/
+            or error __x"Configuration file format of '{fn}' not (yet) supported",
+                 fn => $config_fn;
 
-        my $fn = $self->config_fn;
-        -f $fn or error __x"Configuration file '{fn}' does not exist", fn => $fn;
-
-        $fn =~ m/\.yml$/
-             or error __x"Configuration file format of '{fn}' not (yet) supported",
-                 fn => $fn;
-
-        my $config = LoadFile $fn;
-#use Data::Dumper;
-#warn Dumper $config;
-
-        $config;
+        LoadFile $config_fn;
     },
 );
 
@@ -201,7 +196,7 @@ The usual access to the active site is via C<<session->site>>.
 sub site_for($)
 {   my ($self, $host) = @_;
     $host =~ s/\.$//;
-    $self->{sites}{lc $host} ||= Linkspace::Site->find($host);
+    $self->{sites}{lc $host} ||= Linkspace::Site->from_host($host);
 }
 
 

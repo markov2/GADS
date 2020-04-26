@@ -27,7 +27,7 @@ use Text::CSV::Encoded ();
 use File::BOM          qw(open_bom);
 use List::Util         qw(first);
 
-use Linkspace::Util    qw(is_valid_email iso2datetime);
+use Linkspace::Util    qw(is_valid_email iso2datetime index_by_id);
 use Linkspace::User;
 use Linkspace::Group;
 use Linkspace::Permission;
@@ -67,7 +67,7 @@ Returns all active users.
 =cut
 
 # The index is only used when other users than the session user are addressed.
-has _users_index =>
+has _users_index => (
     is      => 'lazy',
     builder => sub
     {   my $self  = shift;
@@ -78,6 +78,7 @@ has _users_index =>
         });
         index_by_id $users->all;
     },
+);
 
 sub _user_records
 {   sort { $a->surname cmp $b->surname } values %{$_[0]->_users_index};
@@ -85,7 +86,7 @@ sub _user_records
 
 sub all_users()
 {   my $self = shift;
-    [  $_[0]->user($_), $_[0]->_users ];
+    [ map $_[0]->user($_), $_[0]->_users ];
 }
 
 =head2 \@emails = $users->useradmins_emails;
@@ -97,7 +98,7 @@ sub useradmins_emails
 {   my $self = shift;
     my $is_useradmin = sub { first { $_->{name} eq 'useradmin' } @$_ };
     [ map $_->email, grep $is_useradmin->($_->{permission}), $self->_user_records ];
-);
+}
 
 sub account_requestors()
 {   my $self = shift;
@@ -120,7 +121,8 @@ sub user
 {   my ($self, $user_id) = @_;
     $user_id or return;
 
-    if((my $su = $::session->user) && $su->isa('Linkspace::User::Person'))
+    my $su = $::session->user;
+    if($su->isa('Linkspace::User::Person'))
     {   # Do not load all other users when we are only using the session user
         return $su if $user_id == $su->user_id;
     }
@@ -186,14 +188,14 @@ sub _user_value($)
 
 sub user_create
 {   my ($self, $insert, %args) = @_;
-    $self->_generic_user_validate(\$insert);
+    $self->_generic_user_validate($insert);
 
     my $group_ids   = delete $insert->{group_ids};
     my $perms       = delete $insert->{permissions};
     my $view_limits_ids = delete $insert->{view_limits_ids};
 
-    my $email = $insert->{username} = $insert{email};
-    $insert->{value}   ||= _user_value \%insert;
+    my $email = $insert->{username} = $insert->{email};
+    $insert->{value}   ||= _user_value $insert;
     $insert->{created} ||= DateTime->now,
     $insert->{resetpw} ||= Session::Token->new(length => 32)->get;
 
@@ -216,7 +218,7 @@ sub user_create
     # Delete account request user if this is a new account request   #XXX?
     $self->user_delete($insert->{account_request});
 
-    my $victim_id = $::db->create(User => \%insert->)->id;
+    my $victim_id = $::db->create(User => $insert)->id;
     my $victim  = $self->user($victim_id);
 
     $victim->update_relations(
@@ -565,7 +567,7 @@ sub group_create(%)
 {   my ($class, %insert) = @_;
     $insert{site_id} = $::session->site->id;
     $::db->create(Group => \%insert);
-    $self->component_changed;
+    $class->component_changed;
 }
 
 =head2 $users->group_delete($group);
@@ -599,7 +601,7 @@ Returns a L<Linkspace::Group>.  Use C<id> or a C<name>.
 
 has _group_index => (
     is      => 'lazy',
-    builder => sub { index_by_id $_[0]->all_groups } },
+    builder => sub { index_by_id $_[0]->all_groups },
 );
 
 sub group($) { $_[0]->_group_index->{$_[1]} }

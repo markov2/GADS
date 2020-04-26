@@ -23,7 +23,6 @@ package GADS::Record;
 use CtrlO::PDF;
 use DateTime;
 use DateTime::Format::Strptime qw( );
-use Linkspace::Layout;
 use Log::Report 'linkspace';
 use JSON qw(encode_json);
 use PDF::Table 0.11.0; # Needed for colspan feature
@@ -34,6 +33,7 @@ use Scalar::Util  qw(blessed);
 
 use GADS::AlertSend;
 use GADS::Datum::Tree;
+use Linkspace::Sheet::Layout;
 
 use Linkspace::Util qw(index_by_id);
 

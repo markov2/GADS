@@ -27,29 +27,12 @@ the Linkspace logic.
 
 =head2 my $site = $session->site;
 
-=head2 $session->site($site);
-
-Returns the selected website.  Only very little logic does not depend
-on a certain "site"; that code will directly access the database.  Most
-of the database queries, however, will need to be restricted to one
-specific site use.  This is enabled via the L<Linkspace::Site> object
-which is provided via this method.
-
-This replaces the passing around of the schema object, as strategy in GADS.
 =cut
 
-#XXX I don't know how to express the first panic this in Moo
-sub site(;$) {
-    return $_[0]->{site} if @_==1 && $_[0]->{site};  # fast
-
-    # Attempt to use logic which depends on queries which are site
-    # specific, but there is no site selected.
-    panic "A specific site must be selected." if @_==1;
-
-    my ($self, $site) = @_;
-    blessed $site && $site->isa('Linkspace::Site') or panic;
-    $self->{site} = $site;
-}
+has site => (
+    is       => 'ro',
+    required => 1,
+);
 
 
 =head1 METHODS: User related

@@ -26,8 +26,9 @@ use Text::CSV::Encoded;
 use Scalar::Util qw(looks_like_number);
 
 use Moo;
-
 extends 'Linkspace::Graph';
+
+sub _sum(@);
 
 has records => (
     is       => 'rw',
@@ -39,14 +40,12 @@ has view => (
 );
 
 has xlabels => (
-    is      => 'rw',
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub { $_[0]->_data->{xlabels} },
 );
 
 has labels => (
-    is      => 'rw',
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub { $_[0]->_data->{labels} },
 );
 
@@ -56,21 +55,18 @@ sub labels_encoded()
 }
 
 has points => (
-    is      => 'rw',
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub { $_[0]->_data->{points} },
 );
 
 has options => (
-    is      => 'ro',
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub { $_[0]->_data->{options} },
 );
 
 # Function to fill out the series of data that will be plotted on a graph
 has _data => (
-    is      => 'rw',
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub { $_[0]->_build_data },
 );
 
@@ -192,6 +188,8 @@ sub x_axis_time_units
 
 sub _build_data
 {   my $self = shift;
+    my $graph  = $self->graph;
+    my $sheet  = $self->sheet;
     my $x_axis = $graph->x_axis;
 
     # If the x-axis field is one from a curval, make sure we are also
@@ -257,9 +255,9 @@ sub _build_data
         $records->dr_column_parent($link);
         $records->dr_y_axis($self->y_axis);
 
-        $self->records->results # Do now so as to populate dr_from and dr_to
+        $records->results; # Do now so as to populate dr_from and dr_to XXX
 
-        if ($records->dr_from && $records->dr_to)
+        if($records->dr_from && $records->dr_to)
         {
             # If this is a daterange x-axis, then use the start date
             # as calculated by GADS::Records, then interpolate
@@ -302,7 +300,7 @@ sub _build_data
             # The period to retrieve ($x) will be at the beginning of the
             # period. Move to the end of the period, by adding on one unit
             # (e.g. month) and then moving into the previous day by a second
-            my $rewind = $x->clone->add($x_time_step)->subtract(seconds => 1);
+            my $rewind = $x->clone->add(%x_time_step)->subtract(seconds => 1);
             $records->rewind($rewind);
 
             (my $this_results, my $this_series_keys, $datemin, $datemax) = $self->_records_to_results($records,
@@ -331,7 +329,7 @@ sub _build_data
         my $inc = $datemin->clone;
         while($inc->epoch <= $datemax->epoch)
         {   push @xlabels, $self->_time_label($inc);
-            $inc->add($x_time_step);
+            $inc->add(%x_time_step);
         }
     }
     elsif(!$x_axis) # Multiple columns, use column names
@@ -480,9 +478,9 @@ sub _records_to_results
     my $y_axis       = $graph->y_axis;
     my $y_axis_stack = $graph->y_axis_stack;
 
-    my $d2unit       = $self->_dt_format;
+    my $dt_format    = $self->_dt_format;
 
-    my (%results, $series_keys, $datemin, $datemax);
+    my (%results, %series_keys, $datemin, $datemax);
 
     # If we have a specified x-axis range but only a date field, then we need
     # to pre-populate the range of x values. This is not needed with a
@@ -636,16 +634,15 @@ sub _dt_format
       $units eq 'year'
     ? sub { my $v = $_[0]; $v ? DateTime->new(year => $v->year) : undef }
     : $units eq 'month'
-    ? sub { my $v = $_[0]; $v ? DateTime->new(year => $v->year, month => $v->month) : undef };
+    ? sub { my $v = $_[0]; $v ? DateTime->new(year => $v->year, month => $v->month) : undef }
     : $units eq 'day'
     ? sub { my $v = $_[0]; $v ? DateTime->new(year => $v->year, month => $v->month, day => $v->day) : undef }
     : sub { $_[0] };
 }
 
+my %dgf = (day => '%d %B %Y', month => '%B %Y', year  => '%Y');
 sub _time_label($)
 {   my ($self, $date) = @_;
-    static %dgf = (day => '%d %B %Y', month => '%B %Y', year  => '%Y');
-
     my $df = $dgf{$self->x_axis_time_units};
     $date->strftime($df);
 }
@@ -661,7 +658,7 @@ sub _to_percent
     round(($value / $sum) * 100 ) + 0;
 }
 
-sub _sum { sum(map {$_ || 0} @_) }
+sub _sum(@) { sum(map {$_ || 0} @_) }
 
 sub _calculate_range
 {   my $self  = shift;
@@ -672,9 +669,9 @@ sub _calculate_range
     my $graph = shift->graph;
     my $time_units = $self->x_axis_time_units;
 
-    my ($start, $end);
+    my ($start, $end, $from);
 
-    if(my $from = $self->from)
+    if($from = $self->from)
     {   # If we are plotting a trend and have custom dates, round them down to
         # ensure correct sample set is plotted
         $start = $graph->trend
@@ -690,7 +687,7 @@ sub _calculate_range
 
     if(my $to = $self->to)
     {   $end = $self->trend
-           ? $to->clone->truncate(to => $self->x_axis_time_units);
+           ? $to->clone->truncate(to => $self->x_axis_time_units)
            : $to->clone;
     }
     else

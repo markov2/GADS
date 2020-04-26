@@ -412,13 +412,13 @@ sub columns(@)
 
 sub column_create($)
 {   my ($self, %insert) = @_;
-    my $column    = Linkspace::Column->column_create($layout, \%insert);
 
+    my $column = Linkspace::Column->column_create($self, \%insert);
     $self->sheet->document->publish_column($column);
 
     push @{$self->all_columns}, $column;
     my $index = $self->_column_index;
-    $index->{$column_id} = $column;
+    $index->{$column->id} = $column;
     $index->{$column->short_name} = $column;
     $column;
 }

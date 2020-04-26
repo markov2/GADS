@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Document;
+package Linkspace::Site::Document;
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 
@@ -28,7 +28,7 @@ use Linkspace::Sheet ();
 
 =head1 NAME
 
-Linkspace::Document - manages sheets for one site
+Linkspace::Site::Document - manages sheets for one site
 
 =head1 SYNOPSIS
 
@@ -39,7 +39,7 @@ Linkspace::Document - manages sheets for one site
 
 =head1 METHODS: Constructors
 
-=head2 my $doc = Linkspace::Document->new(%options);
+=head2 my $doc = Linkspace::Site::Document->new(%options);
 Required is C<site>.
 =cut
 

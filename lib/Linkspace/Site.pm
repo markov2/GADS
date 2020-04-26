@@ -6,8 +6,8 @@ use strict;
 use Log::Report 'linkspace';
 use List::Util   qw(first);
 
-use Linkspace::Site::Users ();
-use Linkspace::Document ();    # only a single document, so no manager object
+#use Linkspace::Site::Users ();
+#use Linkspace::Site::Document ();  # only a single document, so no manager object
 
 use Moo;
 extends 'Linkspace::DB::Table';
@@ -28,6 +28,7 @@ instance, therefore the top-level tables have a C<site_id> column.
 =cut
 
 sub db_table { 'Site' }
+__PACKAGE__->db_accessors;
 
 ### 2020-04-18: columns in GADS::Schema::Result::Site
 # id                              register_freetext1_name
@@ -52,13 +53,13 @@ sub db_table { 'Site' }
 
 =head1 METHODS: Constructors
 
-=head2 my $site = Linkspace::Site->find($hostname, %options);
+=head2 my $site = Linkspace::Site->from_host($hostname, %options);
 Create the object from the database.  Sites are globally maintained
 
 =cut
 
-sub find($%) {
-	my ($class, $host) = (shift, shift);
+sub from_host($%)
+{   my ($class, $host) = (shift, shift);
 	my $record = $::db->search(Site => { host => $host })->single;
     $record ? $class->from_record($record) : undef;
 }
@@ -81,9 +82,10 @@ click on the following link to retrieve your password:
 [URL]
 __WELCOME_TEXT
 
-    my $site_id = $::db->create(Site => \%insert)->id;
-    $class->from_id($site_id);
-    $self->changed('meta');
+    my $site_id = $class->create(\%insert)->id;
+    my $site    = $class->from_id($site_id);
+    $site->changed('meta');
+    $site;
 }
 
 =head2 $self->site_update
@@ -161,22 +163,11 @@ return;
     });
     #XXX to be implemented.  Needs to be done in the database!
     # ComponentVersions table has
-    # mysql: "last_change TIMESTAMP
-    #      NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP"
+    # mysql: "last_change TIMESTAMP NOT NULL
+    #     CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP"
     #   + site_id + component TEXT
     # on psql via a trigger
     # https://x-team.com/blog/automatic-timestamps-with-postgresql/
-}
-
-=head2 $site->component_loaded($component);
-Register the time-stamp when certain components were loaded, to be able
-to clear the caches when they get too old. Refreshing will only happen
-at the start of new requests, and may be very blunt.
-=cut
-
-sub component_loaded($)
-{   my ($self, $component) = @_;
-    $component_loaded{$self->id.'_'.$component} = time;
 }
 
 #-------------------------
@@ -186,15 +177,8 @@ The L<Linkspace::Site::Users> class manages Users, Groups and Permissions
 =head2 my $users = $site->users;
 =cut
 
-sub users()
-{   $_[0]->{users} ||= do {
-        my $self = shift;
-        $self->component_loaded('users');
-        Linkspace::Site::Users->new(site => $self);
-    };
-);
-
-sub groups { $_[0]->users }    # managed by the same helper object
+sub users() { $_[0]->{users} ||= Linkspace::Site::Users->new(site => $_[0]) }
+sub groups  { $_[0]->users }    # managed by the same helper object
 
 #-------------------------
 =head1 METHODS: Company information
@@ -217,18 +201,18 @@ but the content is totally independent.  However... this is not supported
 yet: you need to create new Sites for such purpose.
 
 =head2 my $document = $site->document;
-Returns the L<Linkspace::Document> object which manages the sheets for
+Returns the L<Linkspace::Site::Document> object which manages the sheets for
 this site.
 =cut
 
 has document => (
     is      => 'lazy',
-    builder => sub { Linkspace::Document->new(site => $_[0]) },
+    builder => sub { Linkspace::Site::Document->new(site => $_[0]) },
 );
 
 =head2 my $sheet = $site->sheet($which, %options);
 Returns the sheet with that (long or short) name or id.  Have
-a look at L<Linkspace::Document> method C<sheet()> for the C<%options>.
+a look at L<Linkspace::Site::Document> method C<sheet()> for the C<%options>.
 =cut
 
 sub sheet($%) { shift->document->sheet(@_) }

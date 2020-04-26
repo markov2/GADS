@@ -12,7 +12,7 @@ cmp_ok scalar keys %$pkg1, '==', 0, 'Found nothing';
 ### Scan, no load
 
 my $pkg2 = scan_for_plugins Command => load => 0;
-cmp_ok ref $pkg2, 'eq', 'HASH', "Scanned 'Command'";
+cmp_ok ref $pkg2, 'eq', 'HASH', "Scanned 'Command' no load";
 cmp_ok scalar keys %$pkg2, '>', 0, '... found something';
 
 ok exists $pkg2->{'Linkspace::Command::Show'}, "Found ::Show";
@@ -29,7 +29,7 @@ ok ! (grep { $_ eq $fn2 } values %INC), '... pm file not loaded';
 ### Scan, with load
 
 my $pkg3 = scan_for_plugins Command => load => 1;
-cmp_ok ref $pkg3, 'eq', 'HASH', "Scanned 'Command'";
+cmp_ok ref $pkg3, 'eq', 'HASH', "Scanned 'Command' with load";
 cmp_ok scalar keys %$pkg3, '>', 0, '... found something';
 
 ok exists $INC{'Linkspace/Command/Show.pm'}, '... namespace loaded';

@@ -22,10 +22,10 @@ C<update()> and C<create()> methods are permitted to write to the table.
 
 =head1 METHODS: Class constructors
 
-=head1 $class->import;
+=head1 $class->db_accessors;
 =cut
 
-sub import(%)
+sub db_accessors(%)
 {   my ($class, %args) = @_;
 
     my $table   = $class->db_table;
@@ -34,6 +34,8 @@ sub import(%)
 
     my $rename = $class->db_field_rename;
     $rename->{instance_id} = 'sheet_id';
+
+    no strict 'refs';
 
     foreach my $acc (keys %$info)
     {   my $attr = $rename->{$acc} || $acc;
@@ -45,8 +47,8 @@ __ACCESSOR
     foreach my $acc ($class->db_fields_unused)
     {   *{"${class}::$acc"} = eval <<__STUMB;
 sub { panic "field $acc in $table not expected to be used" }
-    }
 __STUMB
+    }
 }
 
 # To be overwritten
@@ -110,14 +112,14 @@ names when they are used.  Otherwise, the lookup is in the site wide column inde
 # Cache the looked-up function address which translates column ids/name into
 # column objects.
 has _get_column => (
-    lazy     => 1,
-    builder  => sub
+    is      => 'lazy',
+    builder => sub
     {   my $self = shift;
         ( $self->has_sheet || $self->can('sheet_id')
         ? $self->sheet->layout
         : $::session->site->document
         )->can('column');
-    }
+    },
 );
 
 sub column($) { $_[0]->_get_column->($_[1]) }
@@ -187,7 +189,7 @@ sub update($)
 {   my ($self, $update) = @_;
     my $rename = $self->db_field_rename;
     $update->{$_} = delete $update->{$rename->{$_}}
-        for grep exists $update->{$rename->{$_}}, keys %rename;
+        for grep exists $update->{$rename->{$_}}, keys %$rename;
 
     $self->_record->update($update);
 }
@@ -200,7 +202,7 @@ sub create($)
 {   my ($class, $create) = @_;
     my $rename = $class->db_field_rename;
     $create->{$_} = delete $create->{$rename->{$_}}
-        for grep exists $create->{$rename->{$_}}, keys %rename;
+        for grep exists $create->{$rename->{$_}}, keys %$rename;
 
     my $result = $::db->create($class->db_table, $create);
     $result->id;

@@ -5,6 +5,7 @@ use warnings;
 use strict;
 
 use Log::Report 'linkspace';
+use Linkspace::User::System;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -25,6 +26,12 @@ When the webserver is in between (or before) requests, it will have this
 session object as well.
 
 =head1 METHODS: Constructors
+=cut
+
+around BUILDARGS => sub
+{   my ($orig, $class) = (shift, shift);
+    $class->$orig(@_, user => Linkspace::User::System->new);
+};
 
 =head1 METHODS: Attributes
 

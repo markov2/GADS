@@ -63,10 +63,10 @@ their data from columns and metrics.
 =head1 METHODS: Axis
 =cut
 
-has x_axis      => (lazy => 1, builder => sub { $_[0]->column($_[0]->x_axis_id)   });
-has x_axis_link => (lazy => 1, builder => sub { $_[0]->column($_[0]->x_axis_link_id) });
-has y_axis      => (lazy => 1, builder => sub { $_[0]->column($_[0]->y_axis_id)   });
-has group_by    => (lazy => 1, builder => sub { $_[0]->column($_[0]->group_by_id) });
+has x_axis      => (is => 'lazy', builder => sub { $_[0]->column($_[0]->x_axis_id)   });
+has x_axis_link => (is => 'lazy', builder => sub { $_[0]->column($_[0]->x_axis_link_id) });
+has y_axis      => (is => 'lazy', builder => sub { $_[0]->column($_[0]->y_axis_id)   });
+has group_by    => (is => 'lazy', builder => sub { $_[0]->column($_[0]->group_by_id) });
 
 sub x_axis_full
 {   my $self = shift;

@@ -26,7 +26,7 @@ extends 'Linkspace::DB::Table';
 
 sub db_table { 'Dashboard' }
 
-sub db_fields_rename { +{
+sub db_field_rename { +{
     user_id => 'owner_id',
 } };
 

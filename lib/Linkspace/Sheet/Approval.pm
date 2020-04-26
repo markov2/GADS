@@ -32,7 +32,7 @@ has sheet => (
 
 has records => (
     is      => 'lazy',
-    builder => sub { [values %{$self->_records} ] },
+    builder => sub { [values %{$_[0]->_records} ] },
 );
 
 has count => (
@@ -47,7 +47,8 @@ has _records => (
 
 sub _build__records
 {   my $self = shift;
-    my $user = $::session->user;
+    my $user  = $::session->user;
+    my $sheet = $self->sheet;  #XXX
 
     # First short-cut and see if it is worth continuing
     return {} unless $::db->search(Record => {
@@ -102,9 +103,8 @@ sub _build__records
 
     my $meta_tables = Linkspace::Column->meta_tables;
     if($sheet->user_can('approve_new'))
-    {
-        my %search = (
-            'current.instance_id'      => $sheet->id;
+    {   my %search = (
+            'current.instance_id'      => $sheet->id,
             'record.approval'          => 1,
             'layout_groups.permission' => 'approve_new',
             'user_id'                  => $user->id,
@@ -133,7 +133,7 @@ sub _build__records
     foreach my $hit (@hits)
     {   my $record_id = $hit->{record}->{id};
 
-        $records->{$record_id} ||= {
+        $records{$record_id} ||= +{
             record_id  => $record_id,
             current_id => $hit->{record}->{current_id},
             createdby  => GADS::Datum::Person->new(

@@ -30,14 +30,13 @@ TODO:
 000-099: old tests
 
 110_util   Linkspace::Util
-111_test
-120_db
-   ::DB
-   ::DB::Table
+130_test
 200_core
-   Linkspace
    config
+   schema
    session
+   Linkspace
+   db_table
 300_site
    site
    document

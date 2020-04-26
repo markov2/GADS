@@ -1,13 +1,12 @@
 package Linkspace::User::System;
-use Moo;
-extends 'Linkspace::User';
-
 use warnings;
 use strict;
 
 use Log::Report 'linkspace';
+use English  qw/$UID/;
 
-use MooX::Types::MooseLike::Base qw/:all/;
+use Moo;
+extends 'Linkspace::User';
 
 =head1 NAME
 Linkspace::User::System - system user, can do everything
@@ -20,6 +19,20 @@ who is using CLI to enter commands.  This user has all rights.
 
 =head1 METHODS: Constructors
 
+=head1 METHODS: Accessors
+=cut
+
+sub BUILD
+{   my ($self, $args) = @_;
+    $self->{_pw} = [ getpwuid $UID ];
+}
+
+sub id       { - $UID }
+sub username { $_[0]->{_pw}[0] }
+sub email    { $_[0]->username . '@localhost' }
+sub value    { $_[0]->[5] }
+
+#------------
 =head1 METHODS: Permissions
 
 =cut
