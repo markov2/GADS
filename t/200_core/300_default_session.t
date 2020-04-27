@@ -5,6 +5,8 @@
 
 use warnings;
 use strict;
+
+use Log::Report 'linkspace';
 use Test::More;
 use English qw/$UID/;
 
@@ -15,6 +17,10 @@ ok defined $linkspace, 'Has linkspace';
 
 our $db = $linkspace->db;
 ok defined $db, 'Has database';
+
+# Dispatcher not yet configured
+my $disp = dispatcher find => 'default';
+isa_ok $disp, 'Log::Report::Dispatcher::Perl';
 
 ### Try to get the default site (don't test it)
 
@@ -47,5 +53,8 @@ ok defined $session->site, '... has site';
 is $session->site->id, $site->id, '... default site for session';
 ok defined $session->user, '... has user';
 is $session->user->id, $user->id, '... system user for session';
+
+my $disp2 = dispatcher find => 'default';
+isa_ok $disp2, 'Log::Report::Dispatcher::Syslog';
 
 done_testing;

@@ -1,5 +1,8 @@
 
-use Linkspace::Test connect_db => 0;
+# Cannot use Linkspace::Test yet
+use Test::More;
+use warnings;
+use strict;
 
 use Linkspace::Util 'scan_for_plugins';
 

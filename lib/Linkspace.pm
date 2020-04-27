@@ -37,19 +37,15 @@ and their configuration.
 
 =head1 METHODS: Constructors
 
-=head2 $::linkspace = Linkspace->new(...)
+=head2 $::linkspace = Linkspace->start(...)
 Every linkspace program has a session, which simplifies logging and
 permissing checking.
 
-Options:
-
-=over 4
-
-=item site HOSTNAME
-
-The L<Linkspace::Session::System> object prefers the specific C<site>, otherwise
-only limited database lookups are possible.
-
+One component this creates is the default session object.  If no C<session>
+object is passed, this requires a C<site> and C<user>.  When no C<site>
+is provided, a C<host> is need which defaults to 'default_site' from
+the configuration file.  If no C<user> is provided, it defaults to the
+current system user.
 =back
 
 =cut
@@ -70,15 +66,21 @@ sub start
     my $settings = $self->settings;
     $self->db;
 
-    my $host = $args->{host} || $settings->{default_site}
-        or error __x"No default_site found";
+    unless($::session = $args->{session})
+    {   my $site = $args->{site};
+        unless($site)
+        {   my $host = $args->{host} || $settings->{default_site}
+                or error __x"No default_site found";
 
-    my $site = Linkspace::Site->from_host($host)
-        or error __x"Cannot find default site '{host}'", host => $host;
+            $site = Linkspace::Site->from_host($host)
+                or error __x"Cannot find default site '{host}'", host => $host;
+        }
 
-    $::session = $self->{default_session} =
-        Linkspace::Session::System->new(site => $site);
+        $::session = $self->{default_session} =
+            Linkspace::Session::System->new(site => $site, user => $args->{user});
+    }
 
+    $self->start_logging($args->{log_dispatchers});
     $self;
 }
 
@@ -200,17 +202,13 @@ sub site_for($)
 }
 
 
-=head2 $::linkspace->start_logging;
+=head2 $::linkspace->start_logging(\@dispatchers?);
 Switch to dispatch (error) messages to the configure logging back-end.
 =cut
 
-sub start_logging()
-{   my $self = shift;
-
-    my $logconf = $self->settings_for('logging')
-        or return;
-
-    my $dispatchers = $logconf->{dispatchers} || [];
+sub start_logging(;$)
+{   my ($self, $dispatchers) = @_;
+    $dispatchers ||= $self->setting(logging => 'dispatchers') || [];
     @$dispatchers or return;   # leave default
 
     dispatcher 'do-not-reopen';
@@ -238,19 +236,19 @@ sub mailer()
 {   my $self = shift;
     return $self->{L_mailer} if $self->{L_mailer};
 
-#   my $mailconf = $self->settings_for('mailer')
-#       or return;
+    my $mailconf = $self->settings_for('mailer') || {};
 
     #XXX should disappear
     my $config = GADS::Config->instance->{gads};
 
     my $prefix = $config->{message_prefix} || "";
-    $prefix .= "\n" if lenght $prefix;
+    $prefix   .= "\n" if length $prefix;
 
     $self->{L_mailer} = Linkspace::Email->new(
-        mail_from => $config->{mail_from},
+        mail_from      => $config->{mail_from},
         message_prefix => $prefix,
         new_account    => $config->{new_account},
+        %$mailconf,
     );
 }
 
