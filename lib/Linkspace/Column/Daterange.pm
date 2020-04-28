@@ -32,6 +32,8 @@ my @options_names = qw/show_datepicker/;
 ### META
 ###
 
+INIT { __PACKAGE__->register_type }
+
 sub addable        { 1 }
 sub can_multivalue { 1 }
 sub has_multivalue_plus { 1 }

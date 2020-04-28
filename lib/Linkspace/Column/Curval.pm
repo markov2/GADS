@@ -33,7 +33,7 @@ my @option_names = qw/override_permissions value_selector show_add delete_not_us
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub option_names { shift->SUPER::option_names(@_, @option_names) }
 sub form_extras { [ qw/refers_to_instance_id filter/ ], [ 'curval_field_ids' ] }

@@ -29,6 +29,8 @@ extends 'Linkspace::Column';
 ### META
 ###
 
+INIT { __PACKAGE__->register_type }
+
 sub can_multivalue  { 1 }
 sub retrieve_fields { [ qw/name mimetype id/ ] }
 sub form_extras     { [ 'filesize' ], [] }

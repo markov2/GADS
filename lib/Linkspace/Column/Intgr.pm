@@ -21,7 +21,6 @@ package Linkspace::Column::Intgr;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-
 extends 'Linkspace::Column';
 
 use Log::Report 'linkspace';
@@ -32,7 +31,7 @@ my @option_names = qw/show_calculator/;
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub addable      { 1 }
 sub return_type  { 'integer' }

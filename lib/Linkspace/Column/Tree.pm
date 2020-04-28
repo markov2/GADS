@@ -30,7 +30,7 @@ use Tree::DAG_Node;
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub can_multivalue { 1 }
 sub fixedvals      { 1 }

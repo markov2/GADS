@@ -24,7 +24,6 @@ use Linkspace::Util qw(index_by_id);
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
-
 extends 'Linkspace::Column';
 use namespace::clean;
 
@@ -32,7 +31,7 @@ use namespace::clean;
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub can_multivalue { 1 }
 sub fixedvals      { 1 }

@@ -32,7 +32,7 @@ use namespace::clean;
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub internal  { 1 }
 sub userinput { 0 }

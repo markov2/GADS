@@ -28,7 +28,7 @@ extends 'Linkspace::Column';
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub can_multivalue      { 1 }
 sub form_extras         { [ qw/textbox force_regex/ ], [] }

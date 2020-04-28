@@ -39,7 +39,7 @@ my %rag_id2string = map @$_, @filter_values;
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub table       { 'Ragval' }
 sub fixedvals   { 1 }

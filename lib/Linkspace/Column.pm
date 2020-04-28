@@ -22,6 +22,9 @@ use Log::Report   'linkspace';
 use JSON          qw/decode_json encode_json/;
 use List::Compare ();
 
+use Linkspace::Column::Id;
+
+=pod
 use Linkspace::Column::Autocur;
 use Linkspace::Column::Calc;
 use Linkspace::Column::Createdby;
@@ -32,7 +35,6 @@ use Linkspace::Column::Daterange;
 use Linkspace::Column::Deletedby;
 use Linkspace::Column::Enum;
 use Linkspace::Column::File;
-use Linkspace::Column::Id;
 use Linkspace::Column::Intgr;
 use Linkspace::Column::Person;
 use Linkspace::Column::Rag;
@@ -41,6 +43,7 @@ use Linkspace::Column::String;
 use Linkspace::Column::Tree;
 
 use Linkspace::Filter::DisplayField;
+=cut
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -56,15 +59,17 @@ sub db_field_rename { +{
     isunique      => 'is_unique',
     link_parent   => 'link_parent_id',
     multivalue    => 'is_multivalue',
+    optional      => 'is_optional',
     related_field => 'related_field_id',
 #   permission    => ''   XXX???
     };
 }
 
-# 'display_field' is also unused, but we do not want a stub for it: it's
+# 'display_field' is also unused, but we do not want a stub for it: its
 # method name has a new purpose.
-sub db_fields_unused { qw/display_matchtype display_regex/ }
+sub db_fields_unused { [ qw/display_matchtype display_regex/ ] }
 
+__PACKAGE__->db_accessors;
 ### 2020-04-14: columns in GADS::Schema::Result::Layout
 # id                display_field     internal          permission
 # instance_id       display_matchtype isunique          position
@@ -77,7 +82,6 @@ sub db_fields_unused { qw/display_matchtype display_regex/ }
 
 
 use namespace::clean; # Otherwise Enum clashes with MooseLike
-
 with 'Linkspace::Role::Presentation::Column';
 
 ###
@@ -90,19 +94,13 @@ my %type2class;
 
 sub register_type(%)
 {   my ($class, %args) = @_;
-    my $type = $args{type} || lc(ref $class =~ s/.*::///r);
+    my $type = $args{type} || lc(ref $class =~ s/.*:://r);
     $type2class{$type}   = $class;
 }
 
 sub type2class($)  { $type2class{$_[1]} }
 sub types()        { [ keys %type2class ] }
 sub all_column_classes() { [ values %type2class ] }
-
-sub attributes_for($)
-{   my ($thing, $type) = @_;
-    my $class = $type2class{$type} or panic;
-    @generic_attributes, @{$class->option_names};
-}
 
 #XXX some of these should have been named is_*()
 sub addable        { 0 }   # support sensible addition/subtraction
@@ -129,25 +127,40 @@ sub variable_join  { 0 }   # joins can be different on the config
 # if so what is the parent.  Default no, undef in case used in arrays.
 sub sort_parent   { undef }
 
+# Attributes which can be set by a user
+my @public_attributes = qw/description helptext is_unique link_parent_id
+    is_multivalue name name_short optional remember set_can_child topic_id
+    type width/;
+
+my @simple_import_attributes = 
+   qw/name name_short optional remember isunique can_child position description
+      aggregate width filter helptext multivalue group_display/;
+
+my @simple_export_attributes =
+   qw/id type topic_id display_condition/;
+
 ###
 ### Class
 ###
 
-sub column_create($%)
-{   my ($class, $layout, $insert) = @_;
-    $insert->{sheet_id}    ||= $layout->sheet->id;
-    $insert->{is_internal} ||= $class->internal;
-    $class->type2class($insert->{type})->_column_create($insert);
-}
+sub column_create
+{   my ($class, $sheet, $insert) = @_;
+    $insert->{is_internal} = $class->internal;
 
-sub _column_create($)
-{   my ($class, $insert) = @_;
+    my $display_field = delete $insert->{display_field};
+    my $extra         = delete $insert->{extra};
+    my $perms         = delete $insert->{permissions};
+    $insert->{display_condition} = $display_field->as_hash->{condition};
 
-    if(my $rf = delete $insert->{related_field})
-    {   $insert->{related_field_id} = blessed $rf ? $rf->id : $rf;
-    }
+    my $col_id = $::db->create(Layout => $insert);
+    my $column = $class->from_id($col_id, sheet => $sheet);
 
-    $self->create($insert);
+    $column->column_extra_update($extra);
+    $column->column_perms_update($perms);
+    $column->display_fields_update($display_field);
+
+#XXX
+    #$self->_write_permissions(id => $col_id, %options);
 }
 
 ###
@@ -196,19 +209,16 @@ has link_parent => (
     builder => sub { $_[0]->column($_[0]->link_parent_id) },
 );
 
-sub suffix($)
+sub suffix()
 {   my $self = shift;
       $self->return_type eq 'date' || $self->return_type eq 'daterange'
     ? '(\.from|\.to|\.value)?(\.year|\.month|\.day)?'
     : $self->type eq 'tree' ? '(\.level[0-9]+)?' : '';
-);
+}
 
 # Used to provide a blank template for row insertion (to blank existing
 # values). Only used in calc at time of writing
-has blank_row => (
-    lazy    => 1,
-    builder => sub { +{ $_[0]->value_field => undef } },
-);
+sub blank_row { +{ $_[0]->value_field => undef }; }
 
 # Which fields this column depends on
 has depends_on_ids => (
@@ -264,7 +274,7 @@ sub group_can
 sub group_summary
 {   my $self = shift;
 
-    my %perms;
+    my %groups;
     foreach my $perm ($self->_access_groups)
     {   my $p = GADS::Type::Permission->new(short => $perm->permission);
         push @{$groups{$perm->group->name}}, $p->medium;
@@ -280,28 +290,27 @@ sub group_summary
 =cut
 
 sub column_update($%)
-{   my ($self, $update, %options) = @_;
-    my $report = $args{report_only};
+{   my ($self, $update, %args) = @_;
 
     my $new_id = $update->{related_field};
     notice __x"Update: related_field_id from {old} to {new}", 
         old => $self->related_field_id, new => $new_id
-        if $report && $self->related_field_id != $new_id;
+        if $self->related_field_id != $new_id;
 
-    delete $update{topic_id}
-        unless $update{topic_id};  # only pos int
+    delete $update->{topic_id}
+        unless $update->{topic_id};  # only pos int
 
-    $update{multivalue} ||= 0 if exists $update{multivalue};
+    $update->{multivalue} ||= 0 if exists $update->{multivalue};
 
     if(my $opts = $update->{options})
     {   $update->{options} = encode_json $opts if ref $opts eq 'HASH';
     }
 
     # XXX Move to curval class
-    if($self->type eq 'curval')
-    {   $self->set_filter($original->{filter});
-        $self->multivalue(1) if $self->show_add && $self->value_selector eq 'noshow';
-    }
+#   if($self->type eq 'curval')
+#   {   $self->set_filter($original->{filter});
+#       is_multivalue { $self->show_add && $self->value_selector eq 'noshow' {
+#   }
 
     $self->display_fields_update(delete $update->{display_fields});
     $self->update($update);
@@ -314,7 +323,7 @@ XXX this is a bad idea!
 =cut
 
 # ID for the filter
-sub filter_id {
+has filter_id => (
     is      => 'rw',
     default => sub { $_[0]->id },
 );
@@ -384,7 +393,8 @@ C<$column>.  When the C<$column> does not exist yet, some defaults will be added
 
 sub collect_form($$$)
 {   my ($class, $old, $sheet, $params) = @_;
-    my $layout = $sheet->layout;
+    my $layout   = $sheet->layout;
+    my $sheet_id = $sheet->id;
 
     my $type = $params->{type} || ($old && $old->type)
         or error __"Please select a type for the item";
@@ -394,11 +404,11 @@ sub collect_form($$$)
 
     my %changes;
     $changes{$_} = $params->{$_}
-        for $class->attributes_for($type);
+        for @public_attributes, @{$class->option_names};
 
     unless(ref $changes{permissions})
     {   my %permissions;
-        foreach my $perm (keys %params)
+        foreach my $perm (keys %$params)
         {   $perm =~ m/^permission_(.*?)_(\d+)$/ or next;
             push @{$permissions{$2}}, $1;
         }
@@ -425,7 +435,7 @@ sub collect_form($$$)
     else
     {   $changes{remember} //= 0;
         $changes{isunique} //= 0;
-        $changes{optional}   = exists $changes{optional} ? ($changes{optional}//0) : 1;
+        $changes{optional}   = exists $changes{optional} ? $changes{optional} : 1;
         $changes{position} //= $layout->highest_position + 1;
         $changes{width}    //= 50;
         $changes{name} or error __"Please enter a name for item";
@@ -436,7 +446,7 @@ sub collect_form($$$)
             or error __"Unknown display_condition '{dc}'", dc => $dc;
     }
 
-    if(my $link_parent = $layout->column($insert{link_parent}))
+    if(my $link_parent = $layout->column($params->{link_parent_id}))
     {    # Check whether the parent linked field goes to a layout that has a curval
          # back to the current layout: no reference loop
          ! $link_parent->refers_to_sheet($layout->sheet)
@@ -451,7 +461,7 @@ sub collect_form($$$)
     my %extra;
     my ($extra_scalars, $extra_arrays) = $class->form_extras;
     $extra{$_} = $params->{$_} for @$extra_scalars;
-    $extra{$_} = [ $params->get_all($_) ] for @extra_arrays;
+    $extra{$_} = [ $params->get_all($_) ] for @$extra_arrays;
     $extra{no_alerts} = delete $extra{no_alerts_rag} || delete $extra{no_alerts_calc};
     $extra{code}      = delete $extra{code_rag} || delete $extra{code_calc};
     $extra{no_cache_update}
@@ -465,24 +475,6 @@ sub collect_form($$$)
 #XXX Apparently only of interest to curval
 sub refers_to_sheet($) { 0 }
 
-sub column_create
-{   my ($class, $sheet, \%insert) = @_;
-
-    my $display_field = delete $insert->{display_field};
-    my $extra         = delete $insert->{extra};
-    my $perms         = delete $insert->{permissions};
-    $insert->{display_condition} = $display_field->as_hash->{condition};
-
-    my $col_id = $::db->create(Layout => \%insert);
-    my $column = $class->from_id($col_id, sheet => $sheet);
-
-    $column->column_extra_update($extra);
-    $column->column_perms_update($perms);
-    $column->display_fields_update($display_field);
-    $self->after_write_special(%options);
-    #$self->_write_permissions(id => $col_id, %options);
-}
-
 sub user_can
 {   my ($self, $permission, $user) = @_;
     return 1 if  $self->internal  && $permission eq 'read';
@@ -490,8 +482,9 @@ sub user_can
 
     $user ||= $::session->user;
     if($permission eq 'write') # shortcut
-    {   return 1 $user->can_column($self, 'write_new')
-              || $user->can_column($self, 'write_existing');
+    {   return 1
+            if $user->can_column($self, 'write_new')
+            || $user->can_column($self, 'write_existing');
     }
     elsif($user->can_column($permission))
     {   return 1;
@@ -519,18 +512,18 @@ sub column_perms_update($)
     $self->permissions($new_perms);
 
     # detect removed groups
-    $new_perms{$_} ||= [] for keys %$old_perms;
+    $new_perms->{$_} ||= [] for keys %$old_perms;
 
     my $col_id    = $self->col_id;
 
     foreach my $group_id (keys %$new_perms)
-    {   my %old_perms = map +($_ => 1), @{$old_perms{$group_id}};
+    {   my %old_perms = map +($_ => 1), @{$old_perms->{$group_id}};
         my @my_perms  = (layout_id => $col_id, group_id => $group_id);
 
-        foreach my $perm (@{$new_perms{$group_id}})
+        foreach my $perm (@{$new_perms->{$group_id}})
         {   next if delete $old_perms{$perm};
 
-            notice __x"Add permission {perm} for group {group} to column '{column}'"
+            notice __x"Add permission {perm} for group {group} to column '{column}'",
                 perm => $perm, column => $self->name, group => $group_id;
 
             $::db->create(LayoutGroup => { @my_perms, permission => $perm });
@@ -555,28 +548,29 @@ sub column_perms_update($)
         }
 
         foreach my $filter ( @{$self->filters} ) {
-            my $owner = $filter->view->owner;
+            my $view  = $filter->view;
+            my $owner = $view->owner;
             next if !$owner || $self->user_can(read => $owner);
 
-            $view->unuse_column($column);
+            $view->unuse_column($self);
 
             # Filter cache
-            $filter_ref->delete;
+            $filter->delete;
 
             # Alert cache
             $::db->delete(AlertCache => {
-                layout_id => $id,
+                layout_id => $self->id,
                 view_id   => $filter->view_id,
             });
 
             # Column in the view
             $::db->delete(ViewLayout => {
-                layout_id => $id,
+                layout_id => $self->id,
                 view_id   => $filter->view_id,
             });
 
             # And the JSON filter itself
-            $view->filter_remove_column($column);
+            $view->filter_remove_column($self);
         }
     }
 }
@@ -584,11 +578,12 @@ sub column_perms_update($)
 has filters => (
     is      => 'lazy',
     builder => sub
-    {   my @refs  = $::db->search(Filter => { layout_id => $self->id })->all;
+    {   my $self  = shift;
+        my @refs  = $::db->search(Filter => { layout_id => $self->id })->all;
         my $views = $self->sheet->views;
         [ map $views->view($_->view_id)->filter($_->id), @refs ];
-    }
-}
+    },
+);
 
 sub validate_search
 {   shift->validate(@_);
@@ -619,9 +614,9 @@ sub values_beginning_with
         @value = map +{
            id   => $_->get_column('id'),
            name => $_->get_column($self->value_field),
-        }, $match_result->search({}, columns => ['id', $value_field]})->all;
+        }, $match_result->search({}, columns => ['id', $value_field])->all;
     }
-    else {
+    else
     {   @value = $match_result->search({}, {
             select => { max => $value_field, -as => $value_field },
         })->get_column($value_field)->all;
@@ -650,11 +645,12 @@ sub import_hash
 
     my $take   = sub {
         my $field = shift;
+        my $old   = $self->$field;
         my $new   = $values->{field};
         return if +($old // '') eq +($new // '');
 
         notice __x"Update: {field} from '{old}' to '{new}' for {name}",
-            field => $field, old => $self->$field, new => $new, name => $name
+            field => $field, old => $old, new => $new, name => $self->name
             if $report;
 
         $update{$field} = $new;
@@ -665,20 +661,13 @@ sub import_hash
         ${$self->option_names};
 }
 
-my @simple_import_attributes = 
-   qw/name name_short optional remember isunique can_child position description
-      aggregate width filter helptext multivalue group_display/;
-
-my @simple_export_attributes =
-   qw/id type topic_id display_condition/
-
 sub export_hash
 {   my $self = shift;
 
     my @display_fields = map +{
-        id       => $filter->{column_id},
-        value    => $filter->{value},
-        operator => $filter->{operator},
+        id       => $_->{column_id},
+        value    => $_->{value},
+        operator => $_->{operator},
     }, @{$self->display_fields->filters};
 
     my %export = (
@@ -686,7 +675,7 @@ sub export_hash
         link_parent       => $self->link_parent_id,
         permissions       => $self->permissions_by_group_export,
         @_,                               # from extensions
-    };
+    );
 
     $export{$_} = $self->$_ for
         @simple_import_attributes,

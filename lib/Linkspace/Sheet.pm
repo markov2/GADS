@@ -38,7 +38,7 @@ extends 'Linkspace::DB::Table';
 
 sub db_table { 'Instance' }
 
-sub db_fields_unused { qw/no_overnight_update/ }
+sub db_fields_unused { [ qw/no_overnight_update/ ] }
 #XXX no_hide_blank cannot be changed
 
 ### 2020-04-22: columns in GADS::Schema::Result::Instance

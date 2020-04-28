@@ -29,7 +29,7 @@ use Log::Report 'linkspace';
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub addable     { 1 }
 sub internal    { 1 }

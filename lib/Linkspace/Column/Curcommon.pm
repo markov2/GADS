@@ -31,6 +31,8 @@ extends 'Linkspace::Column';
 ### META
 ###
 
+INIT { __PACKAGE__->register_type }
+
 sub can_multivalue { 1 }
 sub fixedvals      { 1 }
 sub has_filter_typeahead { 1 }

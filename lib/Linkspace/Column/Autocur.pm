@@ -21,14 +21,13 @@ use Log::Report 'linkspace';
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-
 extends 'Linkspace::Column::Curcommon';
 
 ###
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub form_extras    { [ qw/related_field_id/ ], [ 'curval_field_ids' ] }
 sub option_names   { shift->SUPER::option_names(@_, qw/override_permissions/ ) }

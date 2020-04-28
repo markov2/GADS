@@ -28,7 +28,7 @@ extends 'Linkspace::Column::Date';
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub internal     { 1 }
 sub table        { 'Record' }

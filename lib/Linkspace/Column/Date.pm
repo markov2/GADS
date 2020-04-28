@@ -35,7 +35,7 @@ my @option_names = qw/show_datepicker default_today/);
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub addable        { 1 }
 sub can_multivalue { 1 }

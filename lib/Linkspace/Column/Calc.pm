@@ -33,7 +33,7 @@ use List::Util   qw(first);
 # There should have been many different Calc extensions, but these
 # has been folded hacking the meta-data
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub can_multivalue { 1 }
 sub form_extras { [ qw/code_calc no_alerts_calc return_type no_cache_update_calc/ ], [] }

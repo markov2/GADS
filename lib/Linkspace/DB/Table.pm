@@ -2,6 +2,8 @@ package Linkspace::DB::Table;
 
 use Log::Report 'linkspace';
 use Moo;
+use Scalar::Util qw/blessed/;
+use JSON         qw/encode_json/;
 
 =head1 NAME
 Linkspace::DB::Table - based on a table
@@ -28,31 +30,44 @@ C<update()> and C<create()> methods are permitted to write to the table.
 sub db_accessors(%)
 {   my ($class, %args) = @_;
 
-    my $table   = $class->db_table;
-    my $rclass  = $class->db_result_class;
-    my $info    = $rclass->columns_info or panic "schema $rclass not loaded";
+    my $table  = $class->db_table;
+    my $rclass = $class->db_result_class;
+    my $info   = $rclass->columns_info or panic "schema $rclass not loaded";
 
     my $rename = $class->db_field_rename;
-    $rename->{instance_id} = 'sheet_id';
+    $rename->{instance_id} = 'sheet_id' if $info->{instance_id};
 
     no strict 'refs';
 
+    foreach my $acc ( @{$class->db_fields_unused} )
+    {   $info->{$acc} or panic "Non-existing field $acc";
+        *{"${class}::$acc"} = eval <<__STUB;
+sub { error "Field $acc in $table not expected to be used" }
+__STUB
+    }
+
     foreach my $acc (keys %$info)
     {   my $attr = $rename->{$acc} || $acc;
+        next if $class->can($attr);
+
+        # We peak directly inside the record object to avoid slow (smart)
+        # accessors from DBIx::Class.  Same as $self->_record->$acc()
+use Data::Dumper;
         *{"${class}::$attr"} = eval <<__ACCESSOR;
-sub { \@_==1 or panic "read-only accessor ${class}::$attr"; \$_[0]->_record->$acc }
+sub { \@_==1 or error "Read-only accessor ${class}::$attr"; \$_[0]{_coldata}{$acc} }
 __ACCESSOR
     }
 
-    foreach my $acc ($class->db_fields_unused)
-    {   *{"${class}::$acc"} = eval <<__STUMB;
-sub { panic "field $acc in $table not expected to be used" }
-__STUMB
+    foreach my $acc (keys %$rename)
+    {   next if $class->can($acc);  # some other implementation of the method
+        *{"${class}::$acc"} = eval <<__RENAME;
+sub { error "Accessor ${class}::$acc renamed to $rename->{$acc}" }
+__RENAME
     }
 }
 
 # To be overwritten
-sub db_table        { panic "no \$db_table in $_[0]" }
+sub db_table        { panic "no method db_table() in $_[0]" }
 sub db_result_class { 'GADS::Schema::Result::' . $_[0]->db_table }
 
 # You may want to use different names for some accessors than used by the
@@ -60,7 +75,7 @@ sub db_result_class { 'GADS::Schema::Result::' . $_[0]->db_table }
 # themselves, but that's quite some effort.  Explicitly: rename all fields which
 # accidentally lack a _id but are numeric identifiers.
 sub db_field_rename { +{} }
-sub db_fields_unused { () }
+sub db_fields_unused { [] }
 
 #-----------------------
 =head1 METHODS: Constructors
@@ -96,11 +111,12 @@ sub from_id($%)
 
 =cut
 
-# This attribute shall not be used outside the object which manages the
-# table: always use clean abstraction to address the fields.
+# This attribute shall not be used outside the object which manages the table:
+# always use clean abstraction to address the fields.
 has _record => (
 	is       => 'ro',
     required => 1,
+    trigger  => sub { $_[0]{_coldata} = $_[1]{_column_data} },
 );
 
 =head2 my $column = $obj->column($which);
@@ -135,7 +151,7 @@ has sheet => (
     weakref   => 1,
     predicate => 1,
     builder   => sub
-    {   $_[0]->can('sheet_id') or panic "Object has no sheet";
+    {   $_[0]->_record->can('sheet_id') or panic "Object has no sheet";
         $::session->site->sheet($_[0]->sheet_id);
     },
 );
@@ -197,6 +213,63 @@ sub update($)
 =head2 my $obj_id = $class->create(\%insert);
 Create a new record in the database, in the specific table.
 =cut
+
+sub _record_converter
+{   my $thing  = shift;
+    my $class  = ref $thing || $thing;
+    my $info   = $class->db_result_class->columns_info;
+    my $unused = $class->db_fields_unused;
+    my $rename = $class->db_field_rename;
+    $rename->{instance_id} = 'sheet_id' if $info->{instance_id};
+
+    my %map    = (
+        (map +($_ => $_), keys %$info),
+        %$rename,
+    );
+
+    my %run;
+    foreach my $k (@$unused)
+    {   $run{$k} = sub { panic "Key $k is flagged unused" };
+        delete $map{$k};
+    }
+
+    my $make = sub    # compile, not closures for performance
+      { my ($int, $take) = @_;
+        eval "sub { \$_[1]{$int} = $take }" or panic $@;
+      };
+
+    while(my ($int, $ext) = each %map)
+    {   if($ext =~ /(.*)_id$/)
+        {   $run{$1}    ||= $make->($int, 'blessed $_[0] ? $_[0]->id : $_[0]');
+            $run{$ext}  ||= $make->($int, '$_[0]');
+        }
+        elsif($ext =~ /^(?:is|can|do|has)_/)
+        {   $run{$ext}  ||= $make->($int, '$_[0] ? 1 : 0');
+        }
+        elsif($ext =~ /(.*)_json$/)
+        {   my $base = $1;
+            my $json = $make->($int, 'ref $_[0] eq "HASH" ? encode_json $_[0] : defined $_[0] ? $_[0] : "{}"');
+            $run{$base} ||= $json;
+            $run{$ext}  ||= $json;
+        }
+        else
+        {   $run{$ext}  ||= $make->($int, '$_[0]');
+        }
+    }
+
+    $run{$_} ||= sub { panic "Old key '$_' used, should be '$map{$_}'" }
+        for keys %map;
+
+    no strict 'refs';
+    *{"${class}::_record_converter"} = sub {
+        my $in  = shift;
+        my $out = {};
+        ($run{$_} or panic $_)->(delete $in->{$_}, $out)
+            for grep exists $in->{$_}, keys %$in;
+        ! keys %$in or error __x"Unexpected keys: {keys}", keys => [ keys %$in ];
+        $out;
+    };
+}
 
 sub create($)
 {   my ($class, $create) = @_;

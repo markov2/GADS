@@ -21,14 +21,13 @@ package Linkspace::Column::Id;
 use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-
 extends 'Linkspace::Column::Intgr';
 
 ###
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub internal    { 1 }
 sub table       { 'Current' }

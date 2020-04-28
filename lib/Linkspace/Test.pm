@@ -9,6 +9,7 @@ use Log::Report    'linkspace';
 require Test::More;
 use Import::Into;
 use Importer       ();
+use Data::Dumper   qw/Dumper/;
 
 use Linkspace;
 
@@ -21,6 +22,10 @@ sub import(%)
     Test::More->import::into($caller);
     warnings->import::into($caller);
     strict->import::into($caller);
+
+    $Data::Dumper::Indent   = 1;
+    $Data::Dumper::Sortkeys = 1;
+    Data::Dumper->import::into($caller, 'Dumper');
 
     Importer->import_into(__PACKAGE__, $caller, @EXPORT);
 

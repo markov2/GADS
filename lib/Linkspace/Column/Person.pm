@@ -35,7 +35,7 @@ my @person_properties = qw/
 ### META
 ###
 
-__PACKAGE__->register_type;
+INIT { __PACKAGE__->register_type }
 
 sub has_filter_typeahead { 1 }
 sub fixedvals            { 1 }
