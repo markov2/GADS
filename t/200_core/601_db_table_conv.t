@@ -42,6 +42,10 @@ use Linkspace::Test;
 use Log::Report;
 
 my $conv = Test::DB::Table->_record_converter;
+is ref $conv, 'CODE', 'compiled a CODE';
+
+my $installed = Test::DB::Table->_record_converter;
+cmp_ok $installed, '==', $conv, 'Cached the converter';
 
 ### Simple
 
@@ -118,5 +122,10 @@ like $@, qr/Old key/, 'key should not be used anymore';
 
 try { $conv->({display_matchtype => 4}) };
 like $@, qr/unused/, 'field is not in use anymore';
+
+### Wrong name
+
+try { $conv->({not_existing => 1}) };
+like $@, qr/Unusable/, 'key is not available';
 
 done_testing;

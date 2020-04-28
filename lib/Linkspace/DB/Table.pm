@@ -193,25 +193,43 @@ Remove the related record from the database.
 sub delete() { $_[0]->_record->delete }
 
 =head2 $obj->update(\%update);
-Change the database fields for the record.
-
-As field names, you may either use the names is the record, or their renamed
-versions.  The former are used in the web interface, the latter in other parts
-of the program.  It's a bit tricky, but avoids accidents.  Renames should
-disappear anyway...
+Change the database fields for the record.  Read about field rewrite rules below.
 =cut
 
 sub update($)
 {   my ($self, $update) = @_;
-    my $rename = $self->db_field_rename;
-    $update->{$_} = delete $update->{$rename->{$_}}
-        for grep exists $update->{$rename->{$_}}, keys %$rename;
-
-    $self->_record->update($update);
+    $self->_record->update($self->_record_converter->($update));
 }
 
 =head2 my $obj_id = $class->create(\%insert);
-Create a new record in the database, in the specific table.
+Create a new record in the database, in the specific table.  Read about field
+rewrite rules below.
+=cut
+
+sub create($)
+{   my ($class, $create) = @_;
+    my $result = $::db->create($class->db_table, $class->_record_converter->($create));
+    $result->id;
+}
+
+#------------------
+=head1 EXPLAIN record conversion
+In the original GADS code, it is sometimes hard to see whether a field is a
+boolean, contains JSON, or contains an id.  Over time, there may be a database
+rename projects, but for the moment, we solve this by mapping better (internal)
+names to the problematic database (external) names.
+
+(Renamed) field names which end on C<_id> expect and integer id, refering to
+an object.  The same name without C<_id> can also be used: but in that case you
+can also provide an object which id is automatically taken.
+
+(Renamed) field names which end on C<_json> can be used with either a HASH
+or a JSON string.  Yoy may also use the name without C<_json> with the same
+result.
+
+(Renamed) field names which start with C<is_>, C<can_>, C<do_>, or C<has_>
+are treated as booleans.  Trues values become 1, false values become 0.
+So: no need for "$condition ? 0 : 1" anymore.
 =cut
 
 sub _record_converter
@@ -260,25 +278,17 @@ sub _record_converter
     $run{$_} ||= sub { panic "Old key '$_' used, should be '$map{$_}'" }
         for keys %map;
 
-    no strict 'refs';
-    *{"${class}::_record_converter"} = sub {
+    my $converter = sub {
         my $in  = shift;
         my $out = {};
-        ($run{$_} or panic $_)->(delete $in->{$_}, $out)
+        ($run{$_} or panic "Unusable $_")->(delete $in->{$_}, $out)
             for grep exists $in->{$_}, keys %$in;
-        ! keys %$in or error __x"Unexpected keys: {keys}", keys => [ keys %$in ];
         $out;
     };
-}
 
-sub create($)
-{   my ($class, $create) = @_;
-    my $rename = $class->db_field_rename;
-    $create->{$_} = delete $create->{$rename->{$_}}
-        for grep exists $create->{$rename->{$_}}, keys %$rename;
-
-    my $result = $::db->create($class->db_table, $create);
-    $result->id;
+    no strict 'refs';
+    *{"${class}::_record_converter"} = sub { $converter };
+    $converter;
 }
 
 1;
