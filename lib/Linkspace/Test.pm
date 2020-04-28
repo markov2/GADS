@@ -15,6 +15,8 @@ use Linkspace;
 
 our @EXPORT = qw/logs logs_purge/;
 
+our $guard;  # visible for guard test only
+
 sub import(%)
 {   my ($class, %args) = @_;
 
@@ -36,7 +38,14 @@ sub import(%)
             mode     => 'VERBOSE',
         } ],
     );
+
+    # All database changes get lost when the test script terminates.
+    $guard = $::db->begin_work;
 }
+
+END { $guard->rollback if $guard }
+
+### Logging
 
 my @loglines;
 sub log($$$$)

@@ -1,8 +1,9 @@
 
 package Linkspace::DB;
 
-use GADS::Schema ();
 use Log::Report 'linkspace';
+
+use GADS::Schema ();
 
 # Close to all records in the database are restricted to a site.  However,
 # only the top-level elements contain a direct reference to the site.  Other
@@ -55,10 +56,21 @@ finish working.
   my $guard = $db->begin_work;
   # ... complex db work ....
   $guard->commit;
+  $guard->rollback;
 =cut
 
-sub begin_work() { shift->schema->txn_scope_guard }
+sub begin_work() { shift->schema->storage->txn_scope_guard }
 
+{ #XXX Why does the scope-guard not implement explicit rollback?
+  use DBIx::Class::Storage::TxnScopeGuard;
+  package DBIx::Class::Storage::TxnScopeGuard;
+  sub rollback() {
+     my $guard = $_[0];
+     $guard->{storage}->txn_rollback;
+     $guard->{inactivated} = 1;
+     undef $_[0];   # try kill guard object from caller
+   }
+}
 
 =head2 my $rs = $db->resultset($table);
 =cut

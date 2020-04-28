@@ -37,7 +37,6 @@ my $record = GADS::Schema::Result::Layout->new({
    isunique => 1,
    internal => 0,
 });
-#warn Dumper $record;
 
 my $object = Test::DB::Table->from_record($record);
 isa_ok $object, 'Test::DB::Table';

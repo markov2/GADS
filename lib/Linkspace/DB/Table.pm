@@ -14,6 +14,8 @@ Linkspace::DB::Table - based on a table
 
   sub db_table { 'Site' }
   sub db_field_rename { +{} }
+  sub db_fields_unused { [] }
+  sub db_no_export { [] }
 
 =head1 DESCRIPTION
 Use this base class for all objects in the C<Linkspace> namespace which are
@@ -76,6 +78,10 @@ sub db_result_class { 'GADS::Schema::Result::' . $_[0]->db_table }
 # accidentally lack a _id but are numeric identifiers.
 sub db_field_rename { +{} }
 sub db_fields_unused { [] }
+
+# Specify which db-fields are only internally for the application, so not
+# involved in exporting and importing records.
+sub db_fields_no_export { [] }
 
 #-----------------------
 =head1 METHODS: Constructors
@@ -149,9 +155,8 @@ looked-up under fly.
 has sheet => (
     is        => 'lazy',
     weakref   => 1,
-    predicate => 1,
     builder   => sub
-    {   $_[0]->_record->can('sheet_id') or panic "Object has no sheet";
+    {   $_[0]->can('sheet_id') or panic "Object has no sheet";
         $::session->site->sheet($_[0]->sheet_id);
     },
 );
@@ -170,35 +175,55 @@ Returns the active site object.
 sub site { $::session->site }
 
 #-----------------------
-=head1 METHODS: Other methods
+=head1 METHODS: Simple database access
 
-=head2 \%h = $obj->export_hash;
-Returns all fields which are interesting to export via a CSV... by default
-all but the 'id' fields.
+=head2 \%h = $obj->export_hash(%options);
+Returns all fields which are interesting to export via a CSV.
+The C<db_fields_unused()> and C<db_fields_no_export()> get excluded by
+default.  You may want to override this method with tricks.
 
 The field names are (at the moment) equal to the column names in the database,
-for backwards compatibility.
+for backwards compatibility, unless you set option C<renamed>.  You may also
+use C<exclude_undefs>.
 =cut
 
-sub export_hash()
-{   my %h = %{$_[0]->_record};
-    delete $h{id};
+sub export_hash($)
+{   my ($self, %args) = @_;
+    my %h       = %{$self->{_coldata}};
+
+    my $exclude = $self->db_fields_no_export;
+    delete @h{@$exclude} if @$exclude;
+
+    my $unused  = $self->db_fields_unused;
+    delete @h{@$unused}  if @$unused;
+
+    if($args{exclude_undefs})
+    {   delete $h{$_} for grep !defined $h{$_}, keys %h;
+    }
+
+    if($args{renamed})
+    {   my $rename = $self->db_field_rename;
+        $rename->{instance_id} = 'sheet_id';
+        $h{$rename->{$_}} = delete $h{$_} for grep exists $h{$_}, keys %$rename;
+    }
     \%h;
 }
 
 =head2 $obj->delete;
-Remove the related record from the database.
+Remove this record from the database.
 =cut
 
-sub delete() { $_[0]->_record->delete }
+sub delete() { $::db->delete($_[0]->db_table, $_[0]->id) }
 
 =head2 $obj->update(\%update);
 Change the database fields for the record.  Read about field rewrite rules below.
 =cut
 
 sub update($)
-{   my ($self, $update) = @_;
-    $self->_record->update($self->_record_converter->($update));
+{   my ($self, $values) = @_;
+    my $update = $self->_record_converter->($values);
+    $::db->update($self->db_table, $self->id, $update);
+    $self;
 }
 
 =head2 my $obj_id = $class->create(\%insert);
@@ -207,8 +232,9 @@ rewrite rules below.
 =cut
 
 sub create($)
-{   my ($class, $create) = @_;
-    my $result = $::db->create($class->db_table, $class->_record_converter->($create));
+{   my ($class, $values) = @_;
+    my $insert = $class->_record_converter->($values);
+    my $result = $::db->create($class->db_table, $insert);
     $result->id;
 }
 
