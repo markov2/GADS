@@ -157,14 +157,14 @@ hook before => sub {
         my $sheet_ref
             = route_parameters->get('layout_name')
            || param('instance')
-           || _persistent('instance_id')
+           || _persistent('sheet_id')
            || $::linkspace->setting(gads => 'default_instance');
 
         $sheet = $site->sheet($sheet_ref);
 
-        if($sheet->id != (_persistent('instance_id') || 0))
+        if($sheet->id != (_persistent('sheet_id') || 0))
         {   session search => undef;
-            _persistent instance_id => $sheet->id;
+            _persistent sheet_id => $sheet->id;
         }
     }
 };
@@ -199,8 +199,8 @@ hook before_template => sub {
         $tokens->{instances}     = $instances->all;
         $tokens->{user}          = $user;
         $tokens->{search}        = session 'search';
-        # Somehow this sets the instance_id session if no persistent session exists
-        $tokens->{instance_id}   = $sheet->id
+        # Somehow this sets the sheet_id session if no persistent session exists
+        $tokens->{sheet_id}   = $sheet->id
             if session 'persistent';
 
         if($sheet)
@@ -239,9 +239,9 @@ hook after_template_render => sub {
 
 sub _forward_last_table
 {
-    forwardHome() if ! $site->remember_user_location;
+    forwardHome() if ! $site->do_remember_user_location;
     my $forward;
-    if(my $l = _persistent 'instance_id')
+    if(my $l = _persistent 'sheet_id')
     {   $forward = $site->sheet($l)->identifier;
     }
     forwardHome(undef, $forward);
@@ -403,12 +403,12 @@ any ['get', 'post'] => '/login' => sub {
         );
 
         my @fields;
-        push @fields, 'organisation'  if $site->register_show_organisation;
-        push @fields, 'department_id' if $site->register_show_department;
-        push @fields, 'team_id'       if $site->register_show_team;
-        push @fields, 'title'         if $site->register_show_title;
-        push @fields, 'freetext1'     if $site->register_freetext1_name;
-        push @fields, 'freetext2'     if $site->register_freetext2_name;
+        push @fields, 'organisation_id' if $site->do_show_organisation;
+        push @fields, 'department_id'   if $site->do_show_department;
+        push @fields, 'team_id'         if $site->do_show_team;
+        push @fields, 'title'           if $site->do_show_title;
+        push @fields, 'freetext1' if $site->register_freetext1_name;
+        push @fields, 'freetext2' if $site->register_freetext2_name;
         $insert{$_} = param $_ for @fields;
 
         my $victim = try { $users->user_create(\%insert) };
@@ -564,7 +564,7 @@ any ['get', 'post'] => '/system/?' => require_login sub {
             name                  => param('name'),
         );
 
-        if(process( sub { $site->site_update(%update) } )
+        if(process( sub { $site->site_update(\%update) } )
         {   return forwardHome({ success =>
                  "Configuration settings have been updated successfully" } );
         }
@@ -686,7 +686,7 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
     }
 
     my $table_name = $sheet_id ? $layout_edit->name : 'new table';
-    my $table_id   = $sheet_id ? $layout_edit->instance_id : 0;
+    my $table_id   = $sheet_id ? $layout_edit->sheet_id : 0;
 
     template 'table' => {
         page        => $sheet_id ? 'table' : 'table/0',
@@ -770,7 +770,7 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             freetext1             => param('freetext1'),
             freetext2             => param('freetext2'),
             title                 => is_valid_id(param 'title'),
-            organisation          => is_valid_id(param 'organisation'),
+            organisation_id       => is_valid_id(param 'organisation_id'),
             department_id         => is_valid_id(param 'department_id'),
             team_id               => is_valid_id(param 'team_id'),
             account_request       => $account_request,
@@ -780,12 +780,10 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             permissions           => [ body_parameters->get_all('permission') ],
         );
 
-        my $victim;
         if($id && ! $account_request)
-        {   # Original username to update (hidden field)  XXX???
-            if(process sub { $victim = $users->user_update($id => %values) })
-            {
-                return forwardHome(
+        {   my $victim = $users->user($id);
+            if(process sub { $victim->user_update(\%values) })
+            {   return forwardHome(
                     { success => "User has been updated successfully" }, 'user' );
             }
         }
@@ -2064,18 +2062,10 @@ prefix '/:layout_name' => sub {
 
     any ['get', 'post'] => '/topic/:id' => require_login sub {
 
-        my $layout = var('layout') or pass;
+        $sheet->user_can('layout')
+            or forwardHome({ danger => "You do not have permission to manage topics"}, '');
 
-        my $user        = logged_in_user;
-
-        my $instance_id = $layout->instance_id;
-
-        forwardHome({ danger => "You do not have permission to manage topics"}, '')
-            unless $sheet->user_can("layout");
-
-        my $id = param 'id';
-        my $topic = $id && $sheet->topic($id);
-
+        my $topic = $sheet->topic(param 'id');
         if (param 'submit')
         {   my $name = param 'name';
             my %data = (

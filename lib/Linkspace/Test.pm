@@ -13,7 +13,7 @@ use Data::Dumper   qw/Dumper/;
 
 use Linkspace;
 
-our @EXPORT = qw/logs logs_purge/;
+our @EXPORT = qw/logline logs logs_purge/;
 
 our $guard;  # visible for guard test only
 
@@ -54,6 +54,7 @@ sub log($$$$)
     push @loglines, $line =~ s/\n\z//r;
 }
 sub logs { my @l = @loglines; @loglines = (); @l }
+sub logline { @loglines ? shift @loglines : undef }
 sub logs_purge() { @loglines = () }
 
 # Call logs_purge before the end of your test-script to ignore this

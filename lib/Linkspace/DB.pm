@@ -126,40 +126,37 @@ sub create($$)
     $self->resultset($table)->create($data);
 }
 
-=head2 $db->update($table, $id, \%changes);
 
-=head2 $db->update($table, $object, \%changes);
-
-=head2 $db->update($table, \%search, \%changes);
-
-Update the record with C<$id> (or simple C<%search>) with the C<%changes>.
-When an C<$object> is passed, it must have the C<$id> method.
+=head2 $db->update($table, $which, \%changes);
+The selector C<$which> can be an object id, an object (which has an 'id' method),
+or a HASH with a more complex search.
 =cut
 
 sub update($$$)
-{    my ($self, $table, $which, $data) = @_;
-     my $search
-        = ! ref $which   ? +{ id => $which }
-        : blessed $which ? +{ id => $which->id }
-        :                  $which;
-
-     $self->resultset($table)->search($which)->update($data);
+{   my ($self, $table, $which, $data) = @_;
+    my $search
+      = ! ref $which   ? +{ id => $which }
+      : blessed $which ? +{ id => $which->id }
+      :                  $which;
+    $self->resultset($table)->search($search)->update($data);
 }
 
-=head2 $db->delete($table, \%search);
-
-=head2 $db->delete($table, $id);
-
+=head2 $db->delete($table, $which);
 Delete from C<$table> all matching records.
+The selector C<$which> can be an object id, an object (which has an 'id' method),
+or a HASH with a more complex search.
 =cut
 
 sub delete
-{   my ($self, $table, $search) = (shift, shift, shift);
-    $search = +{ id => $search } unless ref $search eq 'HASH';
-    $self->resultset($table)->search($search, @_)->delete;
+{   my ($self, $table, $which) = @_;
+    my $search
+      = ! ref $which   ? +{ id => $which }
+      : blessed $which ? +{ id => $which->id }
+      :                  $which;
+    $self->resultset($table)->search($search)->delete;
 }
 
-
+#-------------------------
 =head1 METHODS: Database time format parser
 
 =head2 my $string = $db->format_date($dt);

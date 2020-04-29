@@ -115,7 +115,12 @@ sub from_id($%)
 #-----------------------
 =head1 METHODS: Attributes
 
+=head2 my $path = $obj->path;
+Returns an impression of the object location in the logical tree, especially
+used for logging.
 =cut
+
+sub path() { panic "path() not implemented for ".ref $_[0] }
 
 # This attribute shall not be used outside the object which manages the table:
 # always use clean abstraction to address the fields.
@@ -209,33 +214,67 @@ sub export_hash($)
     \%h;
 }
 
-=head2 $obj->delete;
+=head2 $obj->delete(%options);
 Remove this record from the database.
 =cut
 
-sub delete() { $::db->delete($_[0]->db_table, $_[0]->id) }
+sub delete
+{   my ($self, %args) = @_;
+    $::db->delete($self->db_table, $self->id);
 
-=head2 $obj->update(\%update);
+    info __x"{obj.db_table} {obj.id}='{obj.path}' deleted", obj => $self
+        unless $args{lazy};
+
+    1;
+}
+
+=head2 $obj->update(\%update, %options);
 Change the database fields for the record.  Read about field rewrite rules below.
+
+When option C<lazy> is set, the changes are not applied to the loaded object:
+this may be a bit faster for bulk uploads... but also be cause for unexpected
+results when the object gets used immediately after the update.
 =cut
 
-sub update($)
-{   my ($self, $values) = @_;
+sub update($%)
+{   my ($self, $values, %args) = @_;
     my $update = $self->_record_converter->($values);
-    $::db->update($self->db_table, $self->id, $update);
+    keys %$update or return;
+
+    unless($args{lazy})
+    {   #MO: I had expected DBIx::Class would do this, but no.
+        my $record = $self->_record;
+        $record->$_($update->{$_}) for keys %$update;
+
+        info __x"{obj.db_table} {obj.id}='{obj.path}' changed fields: {fields}",
+            obj => $self, fields => [ sort keys %$update ];
+    }
+
+    $::db->update($self->db_table, $self, $update);
     $self;
 }
 
-=head2 my $obj_id = $class->create(\%insert);
+=head2 my $object = $class->create(\%insert, %options);
 Create a new record in the database, in the specific table.  Read about field
 rewrite rules below.
+
+With option C<lazy> set, the instantiated object will not be returned
+and creation not logged: mainly for bulk import.
+
 =cut
 
-sub create($)
-{   my ($class, $values) = @_;
+sub create($%)
+{   my ($class, $values, %args) = @_;
     my $insert = $class->_record_converter->($values);
     my $result = $::db->create($class->db_table, $insert);
-    $result->id;
+
+    return undef if $args{lazy};
+
+    my $self   = $class->from_id($result->id);
+    info __x"{class.db_table} created {obj.id}: {obj.path}",
+        class => $class, obj => $self;
+
+    $self;
 }
 
 #------------------

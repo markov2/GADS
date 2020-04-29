@@ -43,7 +43,7 @@
                     <input type="text" class="form-control" id="freetext2" name="freetext2" value="[% edituser.freetext2 | html_entity %]">
                 </div>
             [% END %]
-            [% IF site.register_show_title %]
+            [% IF site.do_show_title %]
                 <div class="form-group">
                     <label for="title">
                         Title:
@@ -59,7 +59,7 @@
                     </select>
                 </div>
             [% END %]
-            [% IF site.register_show_organisation %]
+            [% IF site.do_show_organisation %]
                 <div class="form-group">
                     <label for="organisation">
                         [% site.register_organisation_name | html %]:
@@ -67,7 +67,7 @@
                             <button type="button" class="btn btn-default" data-toggle="modal" data-target="#submitneworganisation">Add organisation</button>
                         [% END %]
                     </label>
-                    <select class="form-control" id="organisation" name="organisation">
+                    <select class="form-control" id="organisation" name="organisation_id">
                         <option></option>
                         [% FOREACH organisation IN organisations %]
                             <option value="[% organisation.id %]"
@@ -77,7 +77,7 @@
                     </select>
                 </div>
             [% END %]
-            [% IF site.register_show_department %]
+            [% IF site.do_show_department %]
                 <div class="form-group">
                     <label for="department">
                         [% site.department_name | html %]:
@@ -95,7 +95,7 @@
                     </select>
                 </div>
             [% END %]
-            [% IF site.register_show_team %]
+            [% IF site.do_show_team %]
                 <div class="form-group">
                     <label for="team">
                         [% site.team_name | html %]:
@@ -234,17 +234,17 @@
             <th>ID</th>
             <th>Surname</th>
             <th>Firstname</th>
-            [% IF site.register_show_title %]
+            [% IF site.do_show_title %]
                 <th>Title</th>
             [% END %]
             <th>Email</th>
-            [% IF site.register_show_organisation %]
+            [% IF site.do_show_organisation %]
                 <th>[% site.register_organisation_name | html %]</th>
             [% END %]
-            [% IF site.register_show_department %]
+            [% IF site.do_show_department %]
                 <th>[% site.department_name | html %]</th>
             [% END %]
-            [% IF site.register_show_team %]
+            [% IF site.do_show_team %]
                 <th>[% site.team_name | html %]</th>
             [% END %]
             [% IF site.register_freetext1_name %]
@@ -260,17 +260,17 @@
                 <td><a href="/user/[% edituser.id %]">[% edituser.id %]</a></td>
                 <td>[% edituser.surname | html_entity %]</td>
                 <td>[% edituser.firstname | html_entity %]</td>
-                [% IF site.register_show_title %]
+                [% IF site.do_show_title %]
                     <td>[% edituser.title.name | html_entity %]</td>
                 [% END %]
                 <td>[% edituser.email | html_entity %]</td>
-                [% IF site.register_show_organisation %]
+                [% IF site.do_show_organisation %]
                     <td>[% edituser.organisation.name | html_entity %]</td>
                 [% END %]
-                [% IF site.register_show_department %]
+                [% IF site.do_show_department %]
                     <td>[% edituser.department.name | html_entity %]</td>
                 [% END %]
-                [% IF site.register_show_team %]
+                [% IF site.do_show_team %]
                     <td>[% edituser.team.name | html_entity %]</td>
                 [% END %]
                 [% IF site.register_freetext1_name %]
@@ -291,13 +291,13 @@
                 <th>Surname</th>
                 <th>Firstname</th>
                 <th>Email</th>
-                [% IF site.register_show_organisation %]
+                [% IF site.do_show_organisation %]
                     <th>[% site.register_organisation_name %]</th>
                 [% END %]
-                [% IF site.register_show_department %]
+                [% IF site.do_show_department %]
                     <th>[% site.department_name %]</th>
                 [% END %]
-                [% IF site.register_show_team %]
+                [% IF site.do_show_team %]
                     <th>[% site.team_name %]</th>
                 [% END %]
             </tr>
@@ -309,13 +309,13 @@
                     <td>[% register_request.surname | html_entity %]</td>
                     <td>[% register_request.firstname | html_entity %]</td>
                     <td>[% register_request.email | html_entity %]</td>
-                    [% IF site.register_show_organisation %]
+                    [% IF site.do_show_organisation %]
                         <td>[% register_request.organisation.name | html_entity %]</td>
                     [% END %]
-                    [% IF site.register_show_department %]
+                    [% IF site.do_show_department %]
                         <td>[% register_request.department.name | html_entity %]</td>
                     [% END %]
-                    [% IF site.register_show_team %]
+                    [% IF site.do_show_team %]
                         <td>[% register_request.team.name | html_entity %]</td>
                     [% END %]
                 </tr>

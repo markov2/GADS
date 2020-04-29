@@ -72,7 +72,7 @@ sub start
         {   my $host = $args->{host} || $settings->{default_site}
                 or error __x"No default_site found";
 
-            $site = Linkspace::Site->from_host($host)
+            $site = Linkspace::Site->from_hostname($host)
                 or error __x"Cannot find default site '{host}'", host => $host;
         }
 
@@ -192,13 +192,18 @@ has db => (
 Returns the L<Linkspace::Site> object which defines one running site.  When
 the site is not found, C<undef> is returned.
 
-The usual access to the active site is via C<<session->site>>.
+It is also possible to instantiate sites directly: but then without caching.
 =cut
 
 sub site_for($)
 {   my ($self, $host) = @_;
     $host =~ s/\.$//;
-    $self->{sites}{lc $host} ||= Linkspace::Site->from_host($host);
+    my $sites = $self->{L_sites} ||= {};
+    if(my $site = $sites->{lc $host})
+    {   return $site unless $site->has_changed('meta');
+    }
+
+    $sites->{lc $host} = Linkspace::Site->from_hostname($host);
 }
 
 

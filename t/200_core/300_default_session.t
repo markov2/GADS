@@ -27,11 +27,11 @@ isa_ok $disp, 'Log::Report::Dispatcher::Perl';
 my $host = $linkspace->settings->{default_site};
 ok defined $host, "Load site named $host";
 
-my $site = Linkspace::Site->from_host($host);
+my $site = Linkspace::Site->from_hostname($host);
 ok defined $site, "... collected Site";
-isa_ok $site, 'Linkspace::Site';
-isa_ok $site, 'Linkspace::DB::Table';
-is $site->host, $host, '... right site loaded';
+isa_ok $site, 'Linkspace::Site', '...';
+isa_ok $site, 'Linkspace::DB::Table', '...';
+is $site->hostname, $host, '... right site loaded';
 
 ### Try creating a system user
 

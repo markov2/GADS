@@ -1,8 +1,7 @@
 
 TODO:
-  - remove all uses of ->site_id
-  - remove all passing on of ->schema
-  - remove GADS::DB
+  - Too many fields in the Site table are optional
+
   - replace all uses of $self->schema by
          $::session->site->     (which site restricted)
       or $::

@@ -28,6 +28,16 @@ instance, therefore the top-level tables have a C<site_id> column.
 =cut
 
 sub db_table { 'Site' }
+
+sub db_field_rename { +{
+    host => 'hostname',
+    register_show_department   => 'do_show_department',
+    register_show_organisation => 'do_show_organisation',
+    register_show_team         => 'do_show_team',
+    register_show_title        => 'do_show_title',
+    remember_user_location     => 'do_remember_user_location',
+}; }
+
 __PACKAGE__->db_accessors;
 
 ### 2020-04-18: columns in GADS::Schema::Result::Site
@@ -50,57 +60,84 @@ __PACKAGE__->db_accessors;
 # register_email_help             remember_user_location
 # register_freetext1_help
 
-
 =head1 METHODS: Constructors
 
-=head2 my $site = Linkspace::Site->from_host($hostname, %options);
+=head2 my $site = Linkspace::Site->from_hostname($hostname, %options);
 Create the object from the database.  Sites are globally maintained
 
 =cut
 
-sub from_host($%)
+sub from_hostname($%)
 {   my ($class, $host) = (shift, shift);
-	my $record = $::db->search(Site => { host => $host })->single;
+    defined $host or return undef;
+	my $record = $::db->get_record(Site => { host => $host });
     $record ? $class->from_record($record) : undef;
 }
 
-=head2 my $site = $class->site_create(%);
+=head2 my $site = Linkspace::Site->from_name($name, %options);
+Create the object from the database.  Sites are globally maintained
+
+=cut
+
+sub from_name($%)
+{   my ($class, $name) = (shift, shift);
+    defined $name or return undef;
+	my $record = $::db->get_record(Site => { name => $name });
+    $record ? $class->from_record($record) : undef;
+}
+
+=head2 my $site = $class->site_create(\%insert, %options);
 Create a new site object in the database.
 =cut
 
-sub site_create(%)
-{   my ($class, %insert) = @_;
-    $insert{register_organisation_name} ||= 'Organisation';
-    $insert{register_department_name}   ||= 'Department';
-    $insert{register_team_name}         ||= 'Team';
+sub site_create($%)
+{   my ($class, $insert) = (shift, shift);
+    $insert->{register_organisation_name} ||= 'Organisation';
+    $insert->{register_department_name}   ||= 'Department';
+    $insert->{register_team_name}         ||= 'Team';
 
-    $insert{email_welcome_subject}      ||= 'Your new account details';
-    $insert{email_welcome_text}         ||= <<__WELCOME_TEXT;
+    $insert->{email_welcome_subject}      ||= 'Your new account details';
+    $insert->{email_welcome_text}         ||= <<__WELCOME_TEXT;
 An account for [NAME] has been created for you. Please
 click on the following link to retrieve your password:
 
 [URL]
 __WELCOME_TEXT
 
-    my $site_id = $class->create(\%insert)->id;
-    my $site    = $class->from_id($site_id);
-    $site->changed('meta');
-    $site;
+    my $self = $class->create($insert, @_) or return;
+    $self->changed('meta');
+    $self;
 }
 
-=head2 $self->site_update
-XXX
+=head2 $self->site_update(\%changes, %options);
+Change site settings.
+=cut
+
+sub site_update($%)
+{   my ($self, $update) = (shift, shift);
+    # No need to support updating childs in one go.
+
+    $self->update($update, @_);
+    $self->changed('meta');
+    $self;
+}
 
 =head2 $self->site_delete;
 =cut
 
 sub site_delete()
-{   my $self = @_;
+{   my $self = shift;
     $self->users->site_unuse($self);
     $self->document->site_unuse($self);
-    $self->changed('meta');
+    $self->changed('meta');   # signal to cache
     $self->delete;
 }
+
+#-------------------------
+=head1 METHODS: Accessors
+=cut
+
+sub path { substr $_[0]->name // $_[0]->hostname, 0, 10 }
 
 #-------------------------
 =head1 METHODS: Caching
@@ -156,6 +193,7 @@ will cause a new version, which is simply a timestamp.
 
 sub changed($)
 {   my ($self, $component) = @_;
+    $self->{LS_changed}{$component}++;
 return;
     $::db->update_or_create(ComponentVersions => {
          site      => $self->id,
@@ -168,6 +206,19 @@ return;
     #   + site_id + component TEXT
     # on psql via a trigger
     # https://x-team.com/blog/automatic-timestamps-with-postgresql/
+}
+
+=head2 my $is_changed = $site->has_changed($component, $bool?);
+When a bool is given, it will be used to change the value.  The old value is
+returned.
+=cut
+
+sub has_changed($;$){
+    my ($self, $component, $new) = @_;
+    my $changes = $self->{LS_changed};
+    my $has     = $changes->{$component} || 0;
+    $changes->{$component} = $new if @_==3;
+    $has;
 }
 
 #-------------------------

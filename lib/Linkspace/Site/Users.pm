@@ -319,10 +319,10 @@ sub _build_user_fields
     my @fields = qw/Surname Forename Email/;
 
     my $site   = $self->site;
-    push @fields, $site->organisation_name if $site->register_show_organisation;
-    push @fields, $site->department_name   if $site->register_show_department;
-    push @fields, $site->team_name         if $site->register_show_team;
-    push @fields, 'Title'                  if $site->register_show_title;
+    push @fields, $site->organisation_name if $site->do_show_organisation;
+    push @fields, $site->department_name   if $site->do_show_department;
+    push @fields, $site->team_name         if $site->do_show_team;
+    push @fields, 'Title'                  if $site->do_show_title;
     push @fields, $site->register_freetext1_name if $site->register_freetext1_name;
     push @fields, $site->register_freetext2_name if $site->register_freetext2_name;
     \@fields;
@@ -339,10 +339,10 @@ sub csv
     my $site = $self->site;
     # Column names
     my @columns = qw/ID Surname Forename Email Lastlogin Created/;
-    push @columns, 'Title'                if $site->register_show_title;
-    push @columns, 'Organisation'         if $site->register_show_organisation;
-    push @columns, $site->department_name if $site->register_show_department;
-    push @columns, $site->team_name       if $site->register_show_team;
+    push @columns, 'Title'                if $site->do_show_title;
+    push @columns, 'Organisation'         if $site->do_show_organisation;
+    push @columns, $site->department_name if $site->do_show_department;
+    push @columns, $site->team_name       if $site->do_show_team;
     push @columns, $site->register_freetext1_name if $site->register_freetext1_name;
     push @columns, $site->register_freetext2_name if $site->register_freetext2_name;
     push @columns, 'Permissions', 'Groups', 'Page hits last month';
@@ -382,10 +382,10 @@ sub csv
         $self->active_users({}, { prefetch => { user_permissions => 'permission' }})->all;
 
     my @col_order = qw/surname_max firstname_max email_max lastlogin_max created_max/;
-    push @col_order, 'title_max'        if $site->register_show_title;
-    push @col_order, 'organisation_max' if $site->register_show_organisation;
-    push @col_order, 'department_max'   if $site->register_show_department;
-    push @col_order, 'team_max'         if $site->register_show_team;
+    push @col_order, 'title_max'        if $site->do_show_title;
+    push @col_order, 'organisation_max' if $site->do_show_organisation;
+    push @col_order, 'department_max'   if $site->do_show_department;
+    push @col_order, 'team_max'         if $site->do_show_team;
     push @col_order, 'freetext1_max'    if $site->register_freetext1_name;
     push @col_order, 'freetext2_max'    if $site->register_freetext2_name;
 
