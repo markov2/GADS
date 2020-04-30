@@ -26,6 +26,7 @@ use Text::CSV          ();
 use Text::CSV::Encoded ();
 use File::BOM          qw(open_bom);
 use List::Util         qw(first);
+use Scalar::Util       qw(blessed);
 
 use Linkspace::Util    qw(is_valid_email iso2datetime index_by_id);
 use Linkspace::User;
@@ -34,6 +35,7 @@ use Linkspace::Permission;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
+
 use namespace::clean;
 
 =head1 NAME
@@ -86,7 +88,7 @@ sub _user_records
 
 sub all_users()
 {   my $self = shift;
-    [ map $_[0]->user($_), $_[0]->_users ];
+    [ map $self->user($_), values %{$self->_users_index} ];
 }
 
 =head2 \@emails = $users->useradmins_emails;
@@ -100,11 +102,7 @@ sub useradmins_emails
     [ map $_->email, grep $is_useradmin->($_->{permission}), $self->_user_records ];
 }
 
-sub account_requestors()
-{   my $self = shift;
-    my $index = $self->_users_index;
-    [ map $self->user($_->id), grep $_->{account_request}, $self->_user_records ];
-}
+sub account_requestors() { grep $_->is_account_request, $_[0]->all_users }
 
 sub active_users
 {   my ($self, $search) = (shift, shift);
@@ -113,30 +111,34 @@ sub active_users
     $::db->search(User => $search, @_);
 }
 
-=head2 my $user = $users->user($id);
-Returns a L<Linkspace::User> object.
+=head2 my $user = $users->user($user_id);
+Returns a L<Linkspace::User> object.  When you do not pass an id, but a user
+object, that will simply be returned.  When the id is C<undef>, an C<undef> is
+returned silently.
 =cut
 
 sub user
 {   my ($self, $user_id) = @_;
-    $user_id or return;
+    return $user_id if ! defined $user_id || blessed $user_id;
 
+    # Loading the session user will not trigger the load of all users.  However,
+    # the object will not get recreated later.
     my $su = $::session->user;
+    if(!defined $su)
+    {   my $record = $::db->get_record(User => $user_id);
+        return Linkspace::User->from_record($record);
+    }
+
     if($su->isa('Linkspace::User::Person'))
     {   # Do not load all other users when we are only using the session user
         return $su if $user_id == $su->user_id;
     }
-    else
-    {   # Loading session user, avoiding loading full index
-        my $record = $::db->get_record(User => $user_id);
-        return Linkspace::User->from_record($record);
-    }
 
-    my $record = $self->_users_index->{$user_id};
-    return $record
-        if !$record || $record->isa('Linkspace::User');
+    my $index  = $self->_users_index;
+    my $record = $index->{$user_id} or return undef;
+    return $record if $record->isa('Linkspace::User');
 
-    Linkspace::User->from_record($record);  # blesses in place
+    $index->{$user_id} = $su->id==$user_id ? $su : Linkspace::User->from_record($record);
 }
 
 =head2 my $user = $users->user_by_name($email)
@@ -152,8 +154,7 @@ sub user_by_name()
 
 sub users_in_org
 {   my ($self, $org_id) = @_;
-    my @in_org = grep $_->{organisation}==$org_id, $self->_user_records;
-    [ map $self->user($_->id), @in_org ];
+    [ grep $_->organisation_id==$org_id, $self->all_users ];
 }
 
 =head2 my $victim = $users->user_create(%insert);
@@ -170,13 +171,13 @@ sub _generic_user_validate($)
         or error __"Invalid email address";
 
     length $data->{firstname} <= 128
-        or error __"Forename must be less than 128 characters";
+        or error __"Forename must have less than 128 characters";
         
     length $data->{surname} <= 128
-        or error __"Surname must be less than 128 characters";
+        or error __"Surname must have less than 128 characters";
 
     ! $data->{permissions} || $::session->user->is_admin
-        or error __"You do not have permission to set global user permissions";
+        or error __"You do not have permission to set the user's global permissions";
 }
 
 sub _user_value($)
@@ -187,8 +188,11 @@ sub _user_value($)
 }
 
 sub user_create
-{   my ($self, $insert, %args) = @_;
+{   my ($self, $values, %args) = @_;
+    my $insert;
     $self->_generic_user_validate($insert);
+    #XXX handle insert->{permissions} as ARRAY of permission objects
+    #XXX into UserPermission table
 
     my $group_ids   = delete $insert->{group_ids};
     my $perms       = delete $insert->{permissions};
@@ -203,20 +207,7 @@ sub user_create
         if $self->search_active({email => $email})->count;
 
     my $site  = $self->site;
-
-    $insert->{organisation} || ! $site->register_organisation_mandatory
-        or error __x"Please select a {name} for the user", name => $site->organisation_name;
-
-    $insert->{team_id} || ! $site->register_team_mandatory
-        or error __x"Please select a {name} for the user", name => $site->team_name;
-
-    $insert->{department_id} || !$site->register_department_mandatory
-        or error __x"Please select a {name} for the user", name => $site->department_name;
-
-    my $guard = $::db->begin_work;
-
-    # Delete account request user if this is a new account request   #XXX?
-    $self->user_delete($insert->{account_request});
+    $site->validate_workspot($insert);
 
     my $victim_id = $::db->create(User => $insert)->id;
     my $victim  = $self->user($victim_id);
@@ -236,11 +227,7 @@ sub user_create
     $::session->audit($msg, type => 'login_change');
     $self->component_changed;
 
-    $guard->commit;
-
-    $self->_user_index->{$victim->id} = $victim
-         if $self->has__user_index;
-
+    $self->_user_index->{$victim->id} = $victim;
     $victim;
 }
 
@@ -289,7 +276,7 @@ sub user_update
     $victim;
 }
 
-=head $users->user_delete($user_id);
+=head2 $users->user_delete($user_id);
 =cut
 
 sub user_delete($)
@@ -301,31 +288,13 @@ sub user_delete($)
     $self->component_changed;
 }
 
-#XXX All following fields are located in the site table, but are used for
-#XXX users.
+=head2 \@names = $users->user_fields;
+The names of optional columns in the CSV.
+=cut
 
-sub titles()      { sort { $a->name cmp $b->name } $_[0]->site->titles }
-sub teams()       { sort { $a->name cmp $b->name } $_[0]->site->teams }
-sub organisations { sort { $a->name cmp $b->name } $_[0]->site->organisations }
-sub departments   { sort { $a->name cmp $b->name } $_[0]->site->departments }
-
-has user_fields => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
-
-sub _build_user_fields
-{   my $self   = shift;
-    my @fields = qw/Surname Forename Email/;
-
-    my $site   = $self->site;
-    push @fields, $site->organisation_name if $site->do_show_organisation;
-    push @fields, $site->department_name   if $site->do_show_department;
-    push @fields, $site->team_name         if $site->do_show_team;
-    push @fields, 'Title'                  if $site->do_show_title;
-    push @fields, $site->register_freetext1_name if $site->register_freetext1_name;
-    push @fields, $site->register_freetext2_name if $site->register_freetext2_name;
-    \@fields;
+sub user_fields()
+{   my $site = shift->site;
+    [ qw/Surname Forename Email/, @{$site->workspot_field_titles} ],
 }
 
 =head2 my $csv = $users->cvs;
@@ -337,22 +306,19 @@ sub csv
     my $csv  = Text::CSV::Encoded->new({ encoding  => undef });
 
     my $site = $self->site;
-    # Column names
-    my @columns = qw/ID Surname Forename Email Lastlogin Created/;
-    push @columns, 'Title'                if $site->do_show_title;
-    push @columns, 'Organisation'         if $site->do_show_organisation;
-    push @columns, $site->department_name if $site->do_show_department;
-    push @columns, $site->team_name       if $site->do_show_team;
-    push @columns, $site->register_freetext1_name if $site->register_freetext1_name;
-    push @columns, $site->register_freetext2_name if $site->register_freetext2_name;
-    push @columns, 'Permissions', 'Groups', 'Page hits last month';
 
-    $csv->combine(@columns)
+    my @column_names = (
+        qw/ID Surname Forename Email Lastlogin Created/,
+        @{$site->workspot_field_titles},
+        qw/Permissions Groups/, 'Page hits last month'
+    );
+
+    $csv->combine(@column_names)
         or error __x"An error occurred producing the CSV headings: {err}", err => $csv->error_input;
     my @csvout = $csv->string;
 
     # All the data values
-    my @users = $self->active_users({}, {
+    my $users_rs = $self->active_users({}, {
         select => [
             { max => 'me.id',             -as => 'id_max' },
             { max => 'surname',           -as => 'surname_max' },
@@ -373,7 +339,7 @@ sub csv
         ],
         order_by => 'surname_max',
         group_by => 'me.id',
-    })->all;
+    });
 
     my %user_groups = map +($_->id => [ $_->user_groups ]),
         $self->active_users({}, { prefetch => { user_groups => 'group' }})->all;
@@ -381,17 +347,12 @@ sub csv
     my %user_permissions = map +($_->id => [ $_->user_permissions ]),
         $self->active_users({}, { prefetch => { user_permissions => 'permission' }})->all;
 
-    my @col_order = qw/surname_max firstname_max email_max lastlogin_max created_max/;
-    push @col_order, 'title_max'        if $site->do_show_title;
-    push @col_order, 'organisation_max' if $site->do_show_organisation;
-    push @col_order, 'department_max'   if $site->do_show_department;
-    push @col_order, 'team_max'         if $site->do_show_team;
-    push @col_order, 'freetext1_max'    if $site->register_freetext1_name;
-    push @col_order, 'freetext2_max'    if $site->register_freetext2_name;
+    my @col_order, map "${_}_max",
+        qw/surname firstname email lastlogin created/,
+        @{$site->workspot_field_names};
 
-    foreach my $victim (@users)
-    {
-        my $id  = $victim->get_column('id_max');
+    while(my $victim = $users_rs->next)
+    {   my $id  = $victim->get_column('id_max');
         my @row = map $victim->get_column($_), @col_order;
         push @row, join '; ', map $_->permission->description, @{$user_permissions{$id}};
         push @row, join '; ', map $_->group->name, @{$user_groups{$id}};
@@ -629,8 +590,8 @@ sub sheet_unuse($)
 
 sub site_unuse($)
 {   my ($self, $site) = @_;
-    $::db->delete(Users  => { instance_id => $site->id });
-    $::db->delete(Groups => { instance_id => $site->id });
+    $self->user_delete($_)  for $self->all_users;
+    $self->group_delete($_) for $self->all_groups;
 }
 
 1;

@@ -53,7 +53,7 @@ sub has_value     { ! $_[0]->is_blank || $_[0]->init_no_value }
 sub html_form     { [ map $_||'', @{$_[0]->ids} ] }
 
 has value_hash => (
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub {
         my $self = shift;
         $self->has_init_value or return {};
@@ -135,7 +135,7 @@ sub _code_values($)
 
         # Use text for the parent number, as this will not work in Lua:
         # value.parents.1
-        $parents->{'parent'.++$count} = $pnode->{value};
+        $parents{'parent'.++$count} = $pnode->{value};
     }
 
      +{ value   => $self->is_blank ? undef : $node->{value},

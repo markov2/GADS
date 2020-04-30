@@ -48,7 +48,7 @@ isnt $by_name, $site, '... is different object';
 
 ### Create lazy
 
-my $site5a = $class->site_create({ name => 'lazy create' }, lazy => 1);
+my $site5a = $class->site_create({name => 'lazy create', hostname => 'dummy'}, lazy => 1);
 ok ! defined $site5a, 'Lazy create: no object';
 ok ! logline, '... not logged either';
 

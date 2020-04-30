@@ -682,7 +682,6 @@ sub _calculate_range
     {   # Either start now and move forwards or start in the past and move to now
         $start = DateTime->now->truncate(to => $time_units);
         $start->add(months => $range) if $range < 0;
-        $start;
     }
 
     if(my $to = $self->to)

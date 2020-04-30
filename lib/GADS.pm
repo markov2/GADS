@@ -373,7 +373,7 @@ any ['get', 'post'] => '/login' => sub {
     {
         my $email = param 'email';
         error __"Self-service account requests are not enabled on this site"
-            if $site->hide_account_request;
+            if $site->do_hide_account_requests;
 
         # Check whether this user already has an account
         my $victim = $site->users->user_by_email($email);
@@ -398,18 +398,12 @@ any ['get', 'post'] => '/login' => sub {
             firstname => ucfirst param('firstname'),
             surname   => ucfirst param('surname'),
             email     => $email,
-            account_request       => 1,
+            is_account_request    => 1,
             account_request_notes => param('account_request_notes'),
         );
 
-        my @fields;
-        push @fields, 'organisation_id' if $site->do_show_organisation;
-        push @fields, 'department_id'   if $site->do_show_department;
-        push @fields, 'team_id'         if $site->do_show_team;
-        push @fields, 'title'           if $site->do_show_title;
-        push @fields, 'freetext1' if $site->register_freetext1_name;
-        push @fields, 'freetext2' if $site->register_freetext2_name;
-        $insert{$_} = param $_ for @fields;
+        $insert{$_} = param $_
+            for $users->workspot_field_names;
 
         my $victim = try { $users->user_create(\%insert) };
         if(my $exception = $@->wasFatal)
@@ -469,7 +463,7 @@ any ['get', 'post'] => '/login' => sub {
         {   $::session->audit("Login failure using username $username", type => 'login_failure');
 
             my $victim = $site->users->user_by_name($username);
-            if($victim && ! $victim->account_requested)
+            if($victim && ! $victim->is_account_request)
             {   my $fail_count = $victim->login_failed;
                 trace "Fail count for $username is now $fail_count";
                 report {to => 'syslog'},
@@ -524,13 +518,9 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
             firstname     => param('firstname'),
             surname       => param('surname'),
             email         => $email.
-            freetext1     => param('freetext1'),
-            freetext2     => param('freetext2'),
-            title         => is_valid_id(param 'title'),
-            organisation  => is_valid_id(param 'organisation'),
-            department_id => is_valid_id(param 'department_id'),
-            team_id       => is_valid_id(param 'team_id'),
         );
+        $update{$_} = param $_
+            for $site->workspot_field_names;
 
         if(process( sub { $site->users->user_update({email => $email}, \%update) }))
         {   return forwardHome({ success => "The account details have been updated" },
@@ -762,36 +752,39 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     # if the user has pressed enter, in which case ignore it
     if (param('submit') && !param('neworganisation') && !param('newdepartment') && !param('newtitle') && !param('newteam'))
     {
-        my $account_request = param 'account_request';
         my %values = (
-            firstname             => param('firstname'),
-            surname               => param('surname'),
-            email                 => param('email'),
-            freetext1             => param('freetext1'),
-            freetext2             => param('freetext2'),
-            title                 => is_valid_id(param 'title'),
-            organisation_id       => is_valid_id(param 'organisation_id'),
-            department_id         => is_valid_id(param 'department_id'),
-            team_id               => is_valid_id(param 'team_id'),
-            account_request       => $account_request,
+            firstname        => param('firstname'),
+            surname          => param('surname'),
+            email            => param('email'),
+            view_limits_ids  => [ body_parameters->get_all('view_limits') ],
+            group_ids        => [ body_parameters->get_all('groups') ],
+            permissions      => [ body_parameters->get_all('permission') ],
             account_request_notes => param('account_request_notes'),
-            view_limits_ids       => [ body_parameters->get_all('view_limits') ],
-            group_ids             => [ body_parameters->get_all('groups') ],
-            permissions           => [ body_parameters->get_all('permission') ],
+            is_account_request => 0,
         );
+        $values{$_} = param $_
+             for $site->workspot_field_names;
 
-        if($id && ! $account_request)
+        my $request_user = $users->user(param 'request_user_id');
+
+        if($id && ! $request_user)
         {   my $victim = $users->user($id);
             if(process sub { $victim->user_update(\%values) })
             {   return forwardHome(
                     { success => "User has been updated successfully" }, 'user' );
             }
         }
-        elsif(process(sub { $victim = $users->user_create(%values) }))
-        {   $::linkspace->mailer
-                ->send_welcome(email => $victim->email, code => $victim->resetpw);
+        elsif(process(sub {
+            $victim = $users->user_create(%values);
 
-            return forwardHome(
+            # Delete intermediate account request user
+            $users->user_delete($request_user);
+                if $request_user && $request_user->is_request_user;
+
+            $::linkspace->mailer->send_welcome(email => $victim->email,
+                code => $victim->resetpw);
+        }))
+        {   return forwardHome(
                 { success => "User has been created successfully" }, 'user' );
         }
 
@@ -838,24 +831,25 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
         # Remember values of user creation in progress.
         # XXX This is a mess (repeated code from above). Need to get
         # DPAE to use a user object
-        my $groups      = param 'groups';
-        my @groups      = ref $groups ? @$groups : ($groups || ());
-        my %groups      = map +($_ => 1) @groups;
+        my $groups  = param 'groups';
+        my @groups  = ref $groups ? @$groups : ($groups || ());
+        my %groups  = map +($_ => 1) @groups;
         my $view_limits_with_blank = [ map +{ view_id => $_ },
             body_parameters->get_all('view_limits') ];
 
-        push @show_users, +{
-            firstname              => param('firstname'),
-            surname                => param('surname'),
-            email                  => param('email'),
-            freetext1              => param('freetext1'),
-            freetext2              => param('freetext2'),
-            title                  => { id => param('title') },
-            organisation           => { id => param('organisation') },
-            department_id          => { id => param('department_id') },
-            team_id                => { id => param('team_id') },
+#XXX unused?
+        push @show_users, +
+            firstname       => param('firstname'),
+            surname         => param('surname'),
+            email           => param('email'),
+            freetext1       => param('freetext1'),
+            freetext2       => param('freetext2'),
+            title           => { id => param('title') },
+            organisation_id => { id => param('organisation_id') },
+            department_id   => { id => param('department_id') },
+            team_id         => { id => param('team_id') },
+            groups          => \%groups,
             view_limits_with_blank => $view_limits_with_blank,
-            groups                 => \%groups,
         };
     }
 
@@ -865,12 +859,12 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
             { danger => "Cannot delete current logged-in User" } )
             if logged_in_user->id eq $delete_id;
 
-        my $victim = $::linkspace->users->user($delete_id);
-        if(process( sub { $::$victim->retire } ))
+        my $victim = $site->users->user($delete_id);
+        if(process( sub { $victim->retire } ))
         {   $login_change->("User ID $delete_id deleted");
             my $mailer = $::linkspace->mailer;
 
-            if($self->account_request)
+            if($victim->is_account_request)
                  { $mailer->send_user_rejected($victim) }
             else { $mailer->send_user_deleted($victim)  }
 

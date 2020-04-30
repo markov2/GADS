@@ -29,8 +29,6 @@ The following specific user groups are planned:
 
 =item L<Linkspace::User::System>, a process
 
-=item C<Linkspace::User::Test>, used for test scripts (TBI)
-
 =item C<Linkspace::User::REST>, for automated coupling (TBI)
 
 =cut
@@ -107,9 +105,7 @@ sub dt2local($;$%)
 #XXX bound to a site, better per user a locale
 has date_pattern => (
     is      => 'lazy',
-    build   => sub {
-       $::linkspace->setting(users => 'cldr_pattern') || 'yyyy-MM-dd';
-    },
+    build   => sub { $::linkspace->setting(users => 'cldr_pattern') || 'yyyy-MM-dd' },
 );
 
 =head2 my $can = $user->can_column($column, $action);

@@ -24,7 +24,7 @@ use Log::Report  'linkspace';
 use Scalar::Util qw(blessed);
 use List::Util   qw(first);
 
-use Linkspace::Sheet ();
+#use Linkspace::Sheet ();
 
 =head1 NAME
 
@@ -250,15 +250,15 @@ sub columns_with_filters()
     $self->columns(grep $_->filter ne '{}' && $_->filter ne '', @$index);
 }
 
-=head2 \@cols = $doc->columns_relating_to($column);
+=head2 \@cols = $doc->columns_relating_to($which);
+Returns the columns which relate to the specified column, C<$which> can be
+an column-id or -object.
 =cut
 
 sub columns_relating_to($)
-{   my ($self, $column) = @_;
-    $column or return ();
-    my $col_id = $column_id;
-    my $index = $self->_column_index_by_id;
-    $self->columns(grep $col_id==($_->related_field // 0), @$index);
+{   my ($self, $which) = @_;
+    my $col_id = blessed $which ? $which->id : defined $which ? $which : return;
+    [ grep $col_id==($_->related_field_id // 0), $self->all_columns ];
 }
 
 =head2 $doc->publish_column($column);
@@ -268,8 +268,8 @@ the layout.
 
 sub publish_column($)
 {   my ($self, $column) = @_;
-    $self->_column_index_by_id->{$column->id};
-    $self->_column_index_by_short->{$column->id};
+    $self->_column_index_by_id->{$column->id} =
+    $self->_column_index_by_short->{$column->id} = $column;
     $::db->schema->add_column($column);
     $column;
 }

@@ -6,8 +6,8 @@ use strict;
 use Log::Report 'linkspace';
 use List::Util   qw(first);
 
-#use Linkspace::Site::Users ();
-#use Linkspace::Site::Document ();  # only a single document, so no manager object
+use Linkspace::Site::Users ();
+use Linkspace::Site::Document ();  # only a single document, so no manager object
 
 use Moo;
 extends 'Linkspace::DB::Table';
@@ -31,6 +31,7 @@ sub db_table { 'Site' }
 
 sub db_field_rename { +{
     host => 'hostname',
+    hide_account_request       => 'do_hide_account_requests',
     register_show_department   => 'do_show_department',
     register_show_organisation => 'do_show_organisation',
     register_show_team         => 'do_show_team',
@@ -92,10 +93,14 @@ Create a new site object in the database.
 
 sub site_create($%)
 {   my ($class, $insert) = (shift, shift);
+    my $host = $insert->{hostname} or panic;
+    $insert->{name}    ||= $host =~ s/\..*//r;
+    $insert->{created} ||= DateTime->now;
+
+    #XXX From config?
     $insert->{register_organisation_name} ||= 'Organisation';
     $insert->{register_department_name}   ||= 'Department';
     $insert->{register_team_name}         ||= 'Team';
-
     $insert->{email_welcome_subject}      ||= 'Your new account details';
     $insert->{email_welcome_text}         ||= <<__WELCOME_TEXT;
 An account for [NAME] has been created for you. Please
@@ -239,10 +244,53 @@ the working position of a person.
 =head2 my $id = $site->workspot_create($set, $name);
 =cut
 
+### 2020-04-29: columns in GADS::Schema::Result::Team
+# id         name       site_id
+
 sub workspot_create($$)
 {   my ($self, $set, $name) = @_;
-    $::db->create(ucfirst $set, { name => $name })->id;
+    $self->_record->create_related("${set}s" => { name => $name })->id;
 }
+
+sub departments   { [ sort { $a->name cmp $b->name } $_[0]->_record->departments ] }
+sub organisations { [ sort { $a->name cmp $b->name } $_[0]->_record->organisations ] }
+sub teams         { [ sort { $a->name cmp $b->name } $_[0]->_record->teams ] }
+sub titles        { [ sort { $a->name cmp $b->name } $_[0]->_record->titles ] }
+
+sub validate_workspot($)
+{   my ($self, $values) = @_;
+    ! $self->register_organisation_mandatory || is_valid_id $values->{organisation_id}
+        or error __x"Please select a {name} for the user", name => $self->organisation_name;
+
+    ! $self->register_team_mandatory || is_valid_id $values->{team_id}
+        or error __x"Please select a {name} for the user", name => $self->team_name;
+
+    ! $self->register_department_mandatory || is_valid_id $values->{department_id}
+        or error __x"Please select a {name} for the user", name => $self->department_name;
+}
+
+sub workspot_field_titles()
+{   my $self = shift;
+  [ ($self->do_show_title        ? 'Title'                  : ()),
+    ($self->do_show_organisation ? $self->register_organisation_name : ()),
+    ($self->do_show_department   ? $self->register_department_name   : ()),
+    ($self->do_show_team         ? $self->register_team_name         : ()),
+    do {my $r = $self->register_freetext1_name; $r ? $r : ()},
+    do {my $r = $self->register_freetext2_name; $r ? $r : ()},
+  ];
+}
+
+sub workspot_field_names()
+{   my $self = shift;
+  [ ($self->do_show_title        ? 'title'        : ()),
+    ($self->do_show_organisation ? 'organisation' : ()),
+    ($self->do_show_department   ? 'department'   : ()),
+    ($self->do_show_team         ? 'team'         : ()),
+    ($self->register_freetext1_name ? 'freetext1' : ()),
+    ($self->register_freetext2_name ? 'freetext2' : ()),
+  ];
+}
+
 
 #-------------------------
 =head1 METHODS: Manage Documents

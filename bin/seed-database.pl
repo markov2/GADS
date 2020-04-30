@@ -30,32 +30,29 @@ use Dancer2;
 use Dancer2::Plugin::DBIC;
 use DBIx::Class::Migration;
 
-my ($initial_username, $instance_name, $host);
 my $namespace = $ENV{CDB_NAMESPACE};
+
 GetOptions (
-    'initial_username=s' => \$initial_username,
-    'instance_name=s'    => \$instance_name,
-    'site'               => \$host,
+    'initial_username=s' => \(my $initial_username),
+    'sheet_name=s'       => \(my $sheet_name),
+    'site'               => \(my $host),
 ) or exit;
 
 my ($dbic) = values %{config->{plugins}->{DBIC}}
     or die "Please create config.yml before running this script";
 
-unless ($instance_name)
-{
-    say "Please enter the name of the first datasheet";
-    chomp ($instance_name = <STDIN>);
+unless ($sheet_name)
+{   say "Please enter the name of the first datasheet";
+    chomp ($sheet_name = <STDIN>);
 }
 
 unless ($initial_username)
-{
-    say "Please enter the email address of the first user";
+{   say "Please enter the email address of the first user";
     chomp ($initial_username = <STDIN>);
 }
 
 unless ($host)
-{
-    say "Please enter the hostname that will be used to access this site";
+{   say "Please enter the hostname that will be used to access this site";
     chomp ($host = <STDIN>);
 }
 
@@ -71,6 +68,7 @@ my $migration = DBIx::Class::Migration->new(
 
 say "Installing schema...";
 $migration->install;
+
 say "Inserting permissions fixtures...";
 $migration->populate('permissions');
 
@@ -81,31 +79,23 @@ $migration->populate('permissions');
 rset('Permission')->count
     or die "No permissions populated. Do the fixtures exist?";
 
-say qq(Creating site "$host"...);
-my $site = rset('Site')->create({
-    host                       => $host,
+my $guard = $::db->begin_work;
+
+say qq(Creating site "$host");
+my $site = Linkspace::Site->create({
+    hostname                   => $host,
     register_organisation_name => 'Organisation',
 });
 
-say qq(Creating initial username "$initial_username"...);
-my $user = rset('User')->create({
-    username => $initial_username,
-    email    => $initial_username,
-    site_id  => $site->id,
+say qq(Creating initial username "$initial_username" with all permisisons);
+my $users = $site->users;
+my $user  = $users->user_create({
+    email       => $initial_username,
+    permissions => $users->all_permissions,
 });
 
-say "Adding all permissions to initial username...";
-foreach my $perm (rset('Permission')->all)
-{
-    rset('UserPermission')->create({
-        user_id       => $user->id,
-        permission_id => $perm->id,
-    });
-}
+say "Creating initial sheet '$sheet_name'";
 
-say "Creating initial datasheet...";
-rset('Instance')->create({
-    name    => $instance_name,
-    site_id => $site->id,
-});
+my $sheet = $site->document->sheet_create({ name => $sheet_name });
 
+$guard->commit;

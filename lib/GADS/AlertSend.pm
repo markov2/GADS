@@ -57,9 +57,11 @@ has columns => (
 
 sub process
 {   my $self = shift;
+    my $sheet = $self->sheet;
 
     # First the direct layout
-    $self->_process_instance($self->layout, $self->current_ids);
+    $self->_process_instance($sheet, $self->current_ids);
+    my $site = $self->site;
 
     # Now see if the column changes in this layout may have changed views in
     # other layouts.
@@ -80,19 +82,19 @@ sub process
         # Get any current IDs that may have been affected, including historical
         # versions (in case a filter has been set using previous values)
         my @current_ids = $::db->search(Curval => {
-            'layout.instance_id' => $sheet->id,
+            'layout.instance_id' => $sheet_id,
             value                => $self->current_ids,
         }, {
             join     => ['layout', 'record'],
             group_by => 'record.current_id',
         })->get_column('record.current_id')->all;
 
-        $self->_process_instance($layout, \@current_ids);
+        $self->_process_instance($sheet, \@current_ids);
     }
 }
 
 sub _process_instance
-{   my ($self, $layout, $current_ids) = @_;
+{   my ($self, $sheet, $current_ids) = @_;
 
     # First see what views this record should be in. We use this to see if it's
     # dropped out or been added to any views.
@@ -103,7 +105,7 @@ sub _process_instance
     # all the views.
     my %search = (
         'alerts.id' => { '!=' => undef },
-        instance_id => $sheet->id;
+        instance_id => $sheet->id,
     );
     $search{'filters.layout_id'} = $self->columns
         unless $self->current_new;
@@ -243,9 +245,9 @@ sub _process_instance
     # Now find out which values have changed in each view. We simply take the list
     # of changed columns and records, and search the cache.
     my $i = 0; my @caches;
-    $search = {
+    my $search = {
         'alert_caches.layout_id' => $self->columns, # Columns that have changed
-        'me.instance_id'         => $layout->instance_id,
+        'me.instance_id'         => $sheet->id,
     };
     while ($i < @$current_ids)
     {
@@ -275,6 +277,7 @@ sub _process_instance
                 user_id => $alert_cache->user_id,
             })->all : $alert_cache->view->alerts;
 
+            my $layout = $sheet->layout;
             foreach my $alert (@alerts)
             {
                 # For each user of this alert, check they have read access
@@ -389,7 +392,7 @@ __HTML
 The following items were changed for record ID $ids: $cnames\n
 Please use the following link to access the record:
 __TEXT
-<p>The following items were changed for record ID $id_html: $cnames</p>
+<p>The following items were changed for record ID $ids_html: $cnames</p>
 __HTML
         }
     }
@@ -408,7 +411,7 @@ __HTML
 A new item (ID $ids) has appeared in the view "$view_name".\n
 Please use the following link to access the record:
 __TEXT
-(A new item (ID $id_html) has appeared in the view "$view_name".</p>
+(A new item (ID $ids_html) has appeared in the view "$view_name".</p>
 __HTML
         }
     }
@@ -422,12 +425,12 @@ __TEXT
 <p>Items have disappeared from the view "$view_name", with the following IDs: $ids_html</p>
 __HTML
         }
-        else {
+        else
         {   ($text, $html) = ( <<__TEXT, <<__HTML );
 An item (ID $ids) has disappeared from the view "$view_name".\n
 Please use the following link to access the original record:
 __TEXT
-<p>An item (ID $id_html) has disappeared from the view "$view_name"</p>
+<p>An item (ID $ids_html) has disappeared from the view "$view_name"</p>
 __HTML
         }
     }

@@ -2,6 +2,7 @@
 package Linkspace::DB;
 
 use Log::Report 'linkspace';
+use Scalar::Util qw/blessed/;
 
 use GADS::Schema ();
 

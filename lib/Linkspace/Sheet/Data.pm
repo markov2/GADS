@@ -93,6 +93,15 @@ sub search(%)
         view     => $apply_view,
 }
 
+sub wants_approval
+{   $::db->search(Record => {
+        approval              => 1,
+        'current.instance_id' => $self->sheet->id,
+    }, {
+        join => 'current',
+    })->count;
+}
+
 # Whether to build all fields for any curvals. This is needed when producing a
 # record for editing that contains draft curvals (in which case all the fields
 # are rendered as a query), and when needing to retrieve the curcommon values

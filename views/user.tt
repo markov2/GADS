@@ -1,6 +1,6 @@
 [% IF edit.defined %]
 [% edituser = users.shift %]
-[% IF edituser.account_request %]
+[% IF edituser.is_account_request %]
     <h1>New account request</h1>
 [% ELSIF page == "myaccount" %]
     <h1>[% edituser.value | html %] - My details</h1>
@@ -13,8 +13,8 @@
     <input type="hidden" name="csrf_token" value="[% csrf_token %]">
     <div class="row">
         <div class="col-md-6">
-            [% IF edituser.account_request %]
-                <input type="hidden" name="account_request" value="[% edituser.id %]">
+            [% IF edituser.is_account_request %]
+                <input type="hidden" name="request_user_id" value="[% edituser.id %]">
             [% END %]
             <input type="hidden" name="page" value="[% page %]">
             <input type="hidden" name="username" value="[% edituser.username | html_entity %]">
@@ -120,9 +120,9 @@
                 </div>
                 [% INCLUDE "snippets/user_permissions.tt" %]
             [% END %]
-            <button type="submit" name="submit" value="submit" class="btn btn-primary">[% IF edituser.account_request %]Approve request[% ELSE %]Save[% END %]</button>
+            <button type="submit" name="submit" value="submit" class="btn btn-primary">[% IF edituser.is_account_request %]Approve request[% ELSE %]Save[% END %]</button>
             [% IF page.match("user") AND edituser.id %]
-                [% IF edituser.account_request %]
+                [% IF edituser.is_account_request %]
                     <button type="submit" name="delete" value="[% edituser.id %]" class="btn btn-default">Reject request</button>
                 [% ELSE %]
                     <button type="submit" name="delete" value="[% edituser.id %]" class="btn btn-default">Delete</button>

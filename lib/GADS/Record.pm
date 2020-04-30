@@ -54,9 +54,7 @@ has linked_record => (
     is => 'lazy',
 );
 
-sub has_rag_column()
-{   !! first { $_->type eq 'rag' } @{$self->columns_view};
-}
+sub has_rag_column() { !! first { $_->type eq 'rag' } @{$_[0]->columns_view} }
 
 sub _sibling_record(%) {
     my ($self, %sibling) = @_;
@@ -215,7 +213,7 @@ has serial => (
         my $cid = shift->current_id;
         $::db->get_record(Current => $cid)->serial;
     },
-}
+);
 
 has is_draft => (
     is      => 'lazy',
@@ -590,7 +588,7 @@ sub _find
         columns              => $self->columns,
         rewind               => $self->rewind,
         is_deleted           => $find{deleted},
-        is_draft             => $is_dragt || $find{include_draft} ? 1 : 0,
+        is_draft             => $is_draft || $find{include_draft} ? 1 : 0,
         no_view_limits       => $is_draft,
         include_approval     => $self->include_approval,
         include_children     => 1,
@@ -788,9 +786,9 @@ sub load_remembered_values
     my $user = $::session->user;
 
     # First see if there's a draft. If so, use that instead
-    if ($user->has_draft($self->sheet)
+    if($user->has_draft($self->sheet))
     {
-        $self->_set_instance_id($self->layout->instance_id)
+        $self->_set_instance_id($self->sheet->id)  #XXX
             if !$options{instance_id};
 
         if($self->find_draftuser($user))

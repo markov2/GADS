@@ -261,11 +261,15 @@ rewrite rules below.
 With option C<lazy> set, the instantiated object will not be returned
 and creation not logged: mainly for bulk import.
 
+With C<record_field_names>, you need to used the field names as in the database
+table.  You do not get any automatic conversion tricks.
 =cut
 
 sub create($%)
 {   my ($class, $values, %args) = @_;
-    my $insert = $class->_record_converter->($values);
+    my $insert = $args{record_field_names} ? $values
+      : $class->_record_converter->($values);
+
     my $result = $::db->create($class->db_table, $insert);
 
     return undef if $args{lazy};
@@ -292,9 +296,10 @@ can also provide an object which id is automatically taken.
 or a JSON string.  Yoy may also use the name without C<_json> with the same
 result.
 
-(Renamed) field names which start with C<is_>, C<can_>, C<do_>, or C<has_>
-are treated as booleans.  Trues values become 1, false values become 0.
-So: no need for "$condition ? 0 : 1" anymore.
+(Renamed) field names which start with C<is_>, C<can_>, C<do_>, or
+C<has_> are treated as booleans.  Also fields which end on C<_mandatory>
+are boolean.  Trues values become 1, false values become 0.  So: no need
+for C<<$condition ? 0 : 1>> anymore.
 =cut
 
 sub _record_converter
@@ -326,7 +331,7 @@ sub _record_converter
         {   $run{$1}    ||= $make->($int, 'blessed $_[0] ? $_[0]->id : $_[0]');
             $run{$ext}  ||= $make->($int, '$_[0]');
         }
-        elsif($ext =~ /^(?:is|can|do|has)_/)
+        elsif($ext =~ /^(?:is|can|do|has)_|_mandatory$/)
         {   $run{$ext}  ||= $make->($int, '$_[0] ? 1 : 0');
         }
         elsif($ext =~ /(.*)_json$/)

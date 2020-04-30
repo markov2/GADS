@@ -12,8 +12,9 @@ use Scalar::Util qw(blessed);
 
 sub db_table { 'User' }
 sub db_field_rename { +{
-    session_settings => 'session_settings_json',
+    account_request  => 'is_account_request',
     organisation     => 'organisation_id',
+    session_settings => 'session_settings_json',
 } };
 
 ### 2020-04-18: columns in GADS::Schema::Result::User
@@ -48,7 +49,7 @@ of these users is managed by L<Linkspace::Users>.
 sub retire(%)
 {   my ($self, %args) = @_;
 
-    if ($self->account_request)
+    if ($self->is_account_request)
     {   # Properly delete if account request - no record needed
         $self->delete;
         return;
@@ -446,7 +447,7 @@ sub export_hash
         created         => $self->created   && $self->created->datetime,
         groups          => [ map $_->id, $self->groups ],
         permissions     => [ map $_->permission->name, $self->user_permissions ],
-        account_request => $self->account_request,
+        account_request => $self->is_account_request,
         account_request_notes => $self->account_request_notes,
     };
 }
@@ -512,7 +513,7 @@ sub summary(%)
     push @f, [ $site->register_department_name => $self->department->name ] if $self->department;
     push @f, [ $site->register_team_name => $self->team->name ] if $self->team;
 
-    #XXX it is easy to make a nice table for this
+    #XXX it is easy to produce a nice table for this
     join $sep, map "$_->[0]: $_->[1]", @f;
 }
 

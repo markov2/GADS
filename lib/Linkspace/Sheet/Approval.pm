@@ -51,12 +51,7 @@ sub _build__records
     my $sheet = $self->sheet;  #XXX
 
     # First short-cut and see if it is worth continuing
-    return {} unless $::db->search(Record => {
-        approval              => 1,
-        'current.instance_id' => $sheet->id,
-    }, {
-        join => 'current',
-    })->count;
+    return {} unless $sheet->data->wants_approval;
 
     # Each hit contains two parts: some record columns and createdby info.
     my $options = {
