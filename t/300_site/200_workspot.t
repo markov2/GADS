@@ -26,11 +26,21 @@ my $deps = $site->departments;
 cmp_ok scalar @$deps, '==', scalar @deps, 'Created all departments';
 is_deeply [ map $_->name, @$deps ], \@deps, '... same departments';
 
+isa_ok $site->workspot(department => $_),
+    'GADS::Schema::Result::Department',
+    "... exists dept '$_'"
+    for @deps;
+
 my @orgs = qw/org1 org2 org3 org4/;
 $site->workspot_create(organisation => $_) for @orgs;
 my $orgs = $site->organisations;
 cmp_ok scalar @$orgs, '==', scalar @orgs, 'Created all organisations';
 is_deeply [ map $_->name, @$orgs ], \@orgs, '... same organisations';
+
+isa_ok $site->workspot(organisation => $_),
+    'GADS::Schema::Result::Organisation',
+    "... exists orga '$_'"
+    for @orgs;
 
 my @teams = qw/team1 team2 team3 team4/;
 $site->workspot_create(team => $_) for @teams;
@@ -38,11 +48,21 @@ my $teams = $site->teams;
 cmp_ok scalar @$teams, '==', scalar @teams, 'Created all teams';
 is_deeply [ map $_->name, @$teams ], \@teams, '... same teams';
 
+isa_ok $site->workspot(team => $_),
+    'GADS::Schema::Result::Team',
+    "... exists team '$_'"
+    for @teams;
+
 my @titles = qw/title1 title2 title3 title4/;
 $site->workspot_create(title => $_) for @titles;
 my $titles = $site->titles;
 cmp_ok scalar @$titles, '==', scalar @titles, 'Created all titles';
 is_deeply [ map $_->name, @$titles ], \@titles, '... same titles';
+
+isa_ok $site->workspot(title => $_),
+    'GADS::Schema::Result::Title',
+    "... exists title '$_'"
+    for @titles;
 
 ### Selection
 

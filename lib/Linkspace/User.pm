@@ -4,12 +4,13 @@ use warnings;
 use strict;
 
 use Log::Report 'linkspace';
+use Scalar::Util     qw/blessed/;
+use DateTime::Format::CLDR ();
+
+use Linkspace::Util  qw/is_valid_email/;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-
-use Scalar::Util           qw(blessed);
-use DateTime::Format::CLDR ();
 
 =head1 NAME
 Linkspace::User - person or process accessing information
@@ -30,13 +31,24 @@ The following specific user groups are planned:
 =item L<Linkspace::User::System>, a process
 
 =item C<Linkspace::User::REST>, for automated coupling (TBI)
+XXX or is this a simple Person?
 
-=cut
+=back
 
 =head1 METHODS: Constructors
-
 =cut
 
+sub user_validate($)
+{   my ($thing, $insert) = @_;
+
+    ! defined $insert->{email} || is_valid_email $insert->{email}
+        or error __"Invalid email address";
+
+    ! $insert->{permissions} || $::session->user->is_admin
+        or error __"You do not have permission to set the user's global permissions";
+}
+
+#------------------
 =head1 METHODS: Permissions
 
 =head2 is_admin

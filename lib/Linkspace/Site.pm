@@ -252,6 +252,11 @@ sub workspot_create($$)
     $self->_record->create_related("${set}s" => { name => $name })->id;
 }
 
+sub workspot($$)
+{   my ($self, $set, $name) = @_;
+    $::db->get_record(ucfirst $set => { name => $name });
+}
+
 sub departments   { [ sort { $a->name cmp $b->name } $_[0]->_record->departments ] }
 sub organisations { [ sort { $a->name cmp $b->name } $_[0]->_record->organisations ] }
 sub teams         { [ sort { $a->name cmp $b->name } $_[0]->_record->teams ] }

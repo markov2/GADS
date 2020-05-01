@@ -161,118 +161,46 @@ sub users_in_org
 Returns a newly created user, a L<Linkspace::User::Person> object.
 =cut
 
-sub _generic_user_validate($)
-{   my ($self, $data) = @_;
-
-    my $email = $data->{email}
-        or error __"An email address must be specified for the user";
-
-    is_valid_email $email
-        or error __"Invalid email address";
-
-    length $data->{firstname} <= 128
-        or error __"Forename must have less than 128 characters";
-        
-    length $data->{surname} <= 128
-        or error __"Surname must have less than 128 characters";
-
-    ! $data->{permissions} || $::session->user->is_admin
-        or error __"You do not have permission to set the user's global permissions";
-}
-
-sub _user_value($)
-{   my $data      = shift or return;
-    my $firstname = $data->{firstname} || '';
-    my $surname   = $data->{surname}   || '';
-    "$surname, $firstname";
-}
-
 sub user_create
 {   my ($self, $values, %args) = @_;
-    my $insert;
-    $self->_generic_user_validate($insert);
-    #XXX handle insert->{permissions} as ARRAY of permission objects
-    #XXX into UserPermission table
 
-    my $group_ids   = delete $insert->{group_ids};
-    my $perms       = delete $insert->{permissions};
-    my $view_limits_ids = delete $insert->{view_limits_ids};
-
-    my $email = $insert->{username} = $insert->{email};
-    $insert->{value}   ||= _user_value $insert;
-    $insert->{created} ||= DateTime->now,
-    $insert->{resetpw} ||= Session::Token->new(length => 32)->get;
+    my $email = $values->{email}
+        or error __"An email address must be specified for the user";
 
     error __x"User '{email}' already exists", email => $email
-        if $self->search_active({email => $email})->count;
+        if $self->user_by_name($email);
 
-    my $site  = $self->site;
-    $site->validate_workspot($insert);
+    my $victim = Linkspace::User::Person
+        ->user_validate($values)
+        ->user_create($values);
 
-    my $victim_id = $::db->create(User => $insert)->id;
-    my $victim  = $self->user($victim_id);
-
-    $victim->update_relations(
-        group_ids       => $group_ids,
-        permissions     => $perms,
-        view_limits_ids => $view_limits_ids,
-    );
-
-    my $msg     = __x"User created: id={id}, username={username}",
-        id => $victim_id, username => $victim->username;
-
-    $msg .= __x", groups: {groups}", groups => $group_ids if $group_ids;
-    $msg .= __x", permissions: {permissions}", permissions => $perms if $perms;
-
-    $::session->audit($msg, type => 'login_change');
     $self->component_changed;
-
-    $self->_user_index->{$victim->id} = $victim;
+    $self->_users_index->{$victim->id} = $victim;
     $victim;
 }
 
-=head2 $users->user_update($which, %update);
+=head2 $users->user_update($which, $update);
 =cut
 
 sub user_update
-{   my ($self, $which, %update) = @_;
-    $self->_generic_user_validate(\%update);
+{   my ($self, $which, $update) = @_;
 
-    my $victim    = blessed $which ? $which : $::db->get_record(User => $which);
-    my $victim_id = $victim->id;
+    my $victim   = blessed $which ? $which : $self->user($which);
+    $victim->isa('Linkspace::User::Person') or panic 'Only update persons';
+    $victim->user_validate($update);
 
-    my @relations = (
-        group_ids       => delete $update{group_ids},
-        permissions     => delete $update{permissions},
-        view_limits_ids => delete $update{view_limits_ids},
-    );
-
-    my $guard    = $::db->begin_work;
-
-    my $email    = $update{username} = $update{email};
-    $update{value} ||= _user_value \%update;
-
-    my $username = $update{username} ||= $email;
-    my $old_name = $victim->username;
-
-    if(lc $username ne lc $old_name)
-    {   $self->search_active({ username => $username })->count
-            and error __x"Email address {email} already exists as an active user", email => $email;
-
-        $::session->audit("Username $old_name (id $victim_id) changed to $username",
-            type => 'login_change');
+    if(my $new_email = $update->{email})
+    {   my $old_email = $victim->email;
+        if(lc $new_email ne lc $old_email)
+        {   my $other = $self->user_by_email($new_email);
+            !$other || $victim->id != $other->id
+                or error __x"Email address {email} already exists as an active user",
+                     email => $new_email;
+        }
     }
 
-    $::db->update(User => $victim_id, \%update);
-    $victim = $self->user($victim_id);       # reload upgraded user
-    $victim->update_relations(@relations);
-
-    my $msg = __x"User updated: id={id}, username={username}",
-        id => $victim_id, username => $username;
-    $::session->audit($msg, type => 'login_change');
+    $victim->user_update($update);
     $self->component_changed;
-
-    $guard->commit;
     $victim;
 }
 
@@ -592,6 +520,13 @@ sub site_unuse($)
 {   my ($self, $site) = @_;
     $self->user_delete($_)  for $self->all_users;
     $self->group_delete($_) for $self->all_groups;
+}
+
+sub view_unuse($)
+{   my ($self, $which) = @_;
+    my $view_id = blessed $which ? $which->id : defined $which ? $which : return;
+    $_->update({ last_view_id => undef })
+       for grep $_->last_view_id==$view_id, $self->all_users;
 }
 
 1;

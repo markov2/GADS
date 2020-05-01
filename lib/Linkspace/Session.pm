@@ -34,7 +34,7 @@ has site => (
     required => 1,
 );
 
-
+#-------------
 =head1 METHODS: User related
 
 =head2 my $user = $session->user;

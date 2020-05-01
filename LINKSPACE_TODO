@@ -1,21 +1,24 @@
 
-TODO:
-  - Too many fields in the Site table are optional
+Database issues:
+  - Too many fields in the Site table are optional: f.i. host?
+  - User::lastview still in use?  Never set.  In dancer session as
+    'current_view' now?
 
-  - replace all uses of $self->schema by
-         $::session->site->     (which site restricted)
-      or $::
-  - replace all uses of instance_id -> $::session->sheet
-  - logged_in_user -> session->user  or $session->handles_web_request
-    More away from Plugin/Auth/Extensible functions.
+  - Move away from Plugin/Auth/Extensible functions.
   - $self->schema->storage->datetime_parser->format_date w.r.t to the
     new $user->local2dt
+
+Configuration:
   - Users should get their configurable date_pattern
+
+
   - can the date_format of a column be different that the system's
     date format?
 
+TODO:
   - replace bin/app.pl with 'linkspace dance start'
 
+Database aternations needed:
   - Add table to the database: ComponentVersions
   mysql: "last_change TIMESTAMP
         NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP"

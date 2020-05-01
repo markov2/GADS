@@ -9,13 +9,21 @@ extends 'Linkspace::DB::Table', 'Linkspace::User';
 
 use Log::Report 'linkspace';
 use Scalar::Util qw(blessed);
+use JSON         'decode_json';
 
 sub db_table { 'User' }
+
 sub db_field_rename { +{
     account_request  => 'is_account_request',
+    lastview         => 'last_view_id',
     organisation     => 'organisation_id',
     session_settings => 'session_settings_json',
+    title            => 'title_id',
 } };
+
+__PACKAGE__->db_accessors;
+
+#XXX lastview never set?  unused?
 
 ### 2020-04-18: columns in GADS::Schema::Result::User
 # id                    department_id         limit_to_view
@@ -40,8 +48,84 @@ These are the users which get a login via the web interface.  The existence
 of these users is managed by L<Linkspace::Users>.
 
 =head1 METHODS: Constructors
+=cut
 
-=head1 METHODS: Other
+sub user_validate($)
+{   my ($thing, $insert) = @_;
+    $thing->Linkspace::User::user_validate($insert);
+
+    length($insert->{firstname} //'') <= 128
+        or error __"Forename must have less than 128 characters";
+        
+    length($insert->{surname}   //'') <= 128
+        or error __"Surname must have less than 128 characters";
+
+    $::session->site->validate_workspot($insert);
+    $thing;
+}
+
+sub user_create($%)
+{   my ($class, $insert, %args) = @_;
+
+    $insert->{username}  = $insert->{email};
+    $insert->{value}   ||= ($insert->{surname} //'').', '.($insert->{firstname} //'');
+    $insert->{created} ||= DateTime->now,
+    $insert->{resetpw} ||= Session::Token->new(length => 32)->get;
+    $insert->{session_settings} ||= {};
+
+    my @relations = (
+        group_ids       => delete $insert->{group_ids},
+        permissions     => delete $insert->{permissions},
+        view_limits_ids => delete $insert->{view_limits_ids},
+    );
+
+    my $self = $class->create($insert, %args);
+    $self->_update_relations(@relations);   
+    $self;
+}
+
+sub user_update($)
+{   my ($self, $update) = @_;
+
+    if(exists $update->{firstname} || exists $update->{surname})
+    {   my $f = exists $update->{firstname} ? $update->{firstname} : $self->firstname;
+        my $s = exists $update->{surname}   ? $update->{surname}   : $self->surname;
+        $update->{value} = ($s // '').', '.($f // '');
+    }
+
+    my @relations = (
+        group_ids       => delete $update->{group_ids},
+        permissions     => delete $update->{permissions},
+        view_limits_ids => delete $update->{view_limits_ids},
+    );
+
+    $self->update($update);
+    $self->_update_relations(@relations);   
+    $self;
+}
+
+sub _update_relations(%)
+{   my ($self, %args) = @_;
+
+    $self->_set_group_ids($args{group_ids});
+
+    if(my $perms = $args{permissions})
+    {   $::session->user->is_admin
+            or error __"You do not have permission to set global user permissions";
+
+        # Permissions are still names here.
+        $self->_set_permissions(@$perms);
+    }
+
+    if(my $view_limits = $args{view_limits_ids})
+    {   my @view_limits = grep /\S/,
+           ref $view_limits eq 'ARRAY' ? @$view_limits : $view_limits;
+        $self->_set_view_limits(\@view_limits);
+    }
+}
+
+#---------------------
+=head1 METHODS: Accessors
 
 =head2 $person->retire(%options);
 =cut
@@ -66,49 +150,19 @@ sub retire(%)
     $self->_alerts_delete;
     $self->_views_delete;
 
-    $self->update({
-        lastview => undef,
-        deleted  => DateTime->now,
-    });
+    $self->update({ last_view_id => undef, deleted => DateTime->now });
 
     $guard->commit;
     return;
 }
 
-has session_settings => (
-    is      => 'lazy',
-    builder => sub { decode_json $_[0]->session_settings_json },
-);
+sub path { my $self = shift; $self->site->path.'/'.$self->username }
+
+sub session_settings { decode_json $_[0]->session_settings_json }
 
 sub session_update($)
 {   my ($self, $settings) = @_;
     $self->update({ session_settings_json => encode_json $settings} );
-}
-
-#--------------------------
-=head1 METHODS: Accessors
-
-=head2 my $msg = $user->update_relations(%options);
-=cut
-
-sub update_relations(%)
-{   my ($self, %args) = @_;
-
-    $self->_set_group_ids($args{group_ids});
-
-    if(my $perms = $args{permissions})
-    {   $::session->user->is_admin
-            or error __"You do not have permission to set global user permissions";
-
-        # Permissions are still names here.
-        $self->_set_permissions(@$perms);
-    }
-
-    if(my $view_limits = $args{view_limits_ids})
-    {   my @view_limits = grep /\S/,
-           ref $view_limits eq 'ARRAY' ? @$view_limits : $view_limits;
-        $self->_set_view_limits(\@view_limits);
-    }
 }
 
 
@@ -518,7 +572,7 @@ sub summary(%)
 }
 
 #-----------------------
-=head1 Permissions
+=head1 METHODS: Permissions
 
 =head2 \@perms = $users->all_permissions;
 =cut
@@ -553,6 +607,52 @@ has _can_column => (
 sub can_column($$)
 {   my ($self, $column, $permission) = @_;
     $self->_can_column->{$column->id}{$permission};
+}
+
+#-----------------------
+=head1 METHODS: Last used row
+For each sheet, a read cursor is kept for the user: the place where we
+are reading.
+
+=head2 my $row_id = $user->row_cursor($sheet);
+=cut
+
+sub row_cursor($)
+{   my ($self, $sheet) = @_;
+
+    my $cursor = $::db->get_record(UserLastrecord => {
+        'me.instance_id'  => $sheet->id,
+        user_id           => $self->id,
+        'current.deleted' => undef,
+    }, { join => { record => 'current' } });
+
+    $cursor ? $cursor->record_id : undef;
+}
+
+=head2 $user->set_row_cursor($sheet, $row);
+Set the cursor for processing in C<$sheet> to the C<$row>, which can be a
+object or id.
+=cut
+
+sub set_row_cursor($$)
+{   my ($self, $sheet, $where) = @_;
+    my $row_id = blessed $where ? $where->id : defined $where ? $where : return;
+
+    my @unique = (user_id => $self->id, instance_id => $sheet->id);
+    if(my $last = $::db->get_record(UserLastrecord => { @unique }))
+         { $last->update({ record_id => $row_id }) }
+    else { $::db->create(UserLastrecord => { @unique, record_id => $row_id }) }
+}
+
+=head2 $any_user->row_cursor_renumber($from, $to);
+Change all references to the C<$from> row id into the C<$to> row id.
+=cut
+
+sub row_cursor_renumber($$)
+{   my ($self, $from_row, $to_row) = @_;
+    my $from_id = blessed $from_row ? $from_row->id : $from_row;
+    my $to_id   = blessed $to_row   ? $to_row->id   : $to_row;
+    $::db->update(UserLastrecord => { record_id => $from_id }, { record_id => $to_id });
 }
 
 1;

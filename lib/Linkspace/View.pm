@@ -426,7 +426,7 @@ sub delete($)
     $::db->delete(AlertSend => { alert_id => \@alert_ids });
     $::db->delete(Alert => { id => \@alert_ids });
 
-    $::db->update(User => { lastview => $view->id }, { lastview => undef });
+    $users->view_unuse($view);
     $view->delete;
 }
 

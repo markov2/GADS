@@ -131,9 +131,10 @@ has _record => (
 );
 
 =head2 my $column = $obj->column($which);
-Many objects address columns: to simplify access it got an efficient call.  When
-the object relates to a sheet, that C<columns()> is called which prefers local
-names when they are used.  Otherwise, the lookup is in the site wide column index.
+Many objects address columns: to simplify access it got an efficient call.
+When the object relates to a sheet, that C<columns()> is called which
+prefers local names when they are used.  Otherwise, the lookup is in
+the site-wide column index.
 =cut
 
 # Cache the looked-up function address which translates column ids/name into
@@ -274,7 +275,7 @@ sub create($%)
 
     return undef if $args{lazy};
 
-    my $self   = $class->from_id($result->id);
+    my $self   = $class->from_id($result->id, %args);
     info __x"{class.db_table} created {obj.id}: {obj.path}",
         class => $class, obj => $self;
 
@@ -293,7 +294,7 @@ an object.  The same name without C<_id> can also be used: but in that case you
 can also provide an object which id is automatically taken.
 
 (Renamed) field names which end on C<_json> can be used with either a HASH
-or a JSON string.  Yoy may also use the name without C<_json> with the same
+or a JSON string.  You may also use the name without C<_json> with the same
 result.
 
 (Renamed) field names which start with C<is_>, C<can_>, C<do_>, or

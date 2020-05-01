@@ -325,7 +325,8 @@ sub purge
 {   my $self = shift;
 
     my $guard = $::db->begin_work;
-    GADS::Graphs->new(layout => $self, current_user => $self->user)->purge;
+    my $owner = $self->sheet->owner;
+    GADS::Graphs->new(layout => $self, current_user => $owner)->purge;
     GADS::MetricGroups->new(instance_id => $self->instance_id)->purge;
     GADS::Views->new(instance_id => $self->instance_id, user => undef)->purge;
 
@@ -334,13 +335,12 @@ sub purge
 
     my %ref_sheet = { instance_id => $self->sheet->id };
 
-    $::db->resultset('UserLastrecord')->delete;   #XXX empty full table?
-
+    $::db->delete(UserLastrecord => \%ref_sheet);
     $::db->delete(Record        => \%ref_sheet, { join => 'current' });
     $::db->delete(Current       => \%ref_sheet);
     $::db->delete(InstanceGroup => \%ref_sheet);
-
     $self->delete;
+
     $guard->commit;
 }
 

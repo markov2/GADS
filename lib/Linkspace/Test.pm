@@ -6,14 +6,17 @@ use strict;
 
 use Log::Report    'linkspace';
 
-require Test::More;
+use Test::More;
 use Import::Into;
 use Importer       ();
 use Data::Dumper   qw/Dumper/;
 
 use Linkspace;
 
-our @EXPORT = qw/logline logs logs_purge/;
+our @EXPORT = qw/
+   logline logs logs_purge
+   test_site
+/;
 
 our $guard;  # visible for guard test only
 
@@ -59,5 +62,23 @@ sub logs_purge() { @loglines = () }
 
 # Call logs_purge before the end of your test-script to ignore this
 END { warn "untested log: $_\n" for @loglines }
+
+
+### Some objects
+
+my ($site);
+
+sub test_site()
+{   return $site if $site;
+
+    $site = Linkspace::Site->site_create({
+        hostname => 'test-site.example.com',
+    });
+
+    is logline, "info: Site created ${\$site->id}: test-site",
+        "created default site ${\$site->id}";
+
+    $site;
+}
 
 1;

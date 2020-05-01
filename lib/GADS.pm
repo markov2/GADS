@@ -420,6 +420,11 @@ any ['get', 'post'] => '/login' => sub {
         {   $login_change->("New user account request for $email");
             my $to = $users->useradmins_emails;
             $::linkspace->mailer->send_account_requested($victim, $to);
+
+            my $msg = __x"User created: id={user.id}, username={user.username}, groups={user.group_ids}, permissions={user.permissions}",
+                user => $victim;
+            $::session->audit($msg, type => 'login_change');
+
             return forwardHome({ success =>
                 "Your account request has been received successfully." });
         }
@@ -494,6 +499,7 @@ any ['get', 'post'] => '/edit/:id' => require_login sub {
 };
 
 any ['get', 'post'] => '/myaccount/?' => require_login sub {
+    my $users = $site->users;
 
     if (param 'newpassword')
     {
@@ -515,20 +521,34 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
     if (param 'submit')
     {   my $email  = param 'email';
         my %update = (
-            firstname     => param('firstname'),
-            surname       => param('surname'),
-            email         => $email.
+            firstname => param('firstname'),
+            surname   => param('surname'),
+            username  => param('username'),
+            email     => $email,
+            (map +($_ => param $_), $site->workspot_field_names),
         );
-        $update{$_} = param $_
-            for $site->workspot_field_names;
 
-        if(process( sub { $site->users->user_update({email => $email}, \%update) }))
+        if(process( sub {
+            my $victim   = $users->user_by_name($email);
+            my $old_name = $victim->username;
+            $users->user_update($victim, \%update);
+
+            my $msg;
+            if($old_name ne $victim)
+            {   $msg =__x"Username '{old}' (id {user.id}) changed to '{user.username}'",
+                  old => $old_name, user => $victim;
+            }
+            else
+            {   $msg = __x"User updated: id={user.id}, username={user.username}",
+                   user => $victim;
+            }
+            $::session->audit($msg, type => 'login_change');
+        }))
         {   return forwardHome({ success => "The account details have been updated" },
                 'myaccount' );
         }
     }
 
-    my $users = $site->users;
     template 'user' => {
         edit          => $user->id,
         users         => [ $user ],

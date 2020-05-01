@@ -801,19 +801,13 @@ sub load_remembered_values
     my @remember = map $_->id, $sheet->layout->columns_search(remember => 1);
     @remember or return;
 
-    my $lastrecord = $::db->search(UserLastrecord => {
-        'me.instance_id'  => $sheet->id,
-        user_id           => $user->id,
-        'current.deleted' => undef,
-    },{
-        join => { record => 'current' },
-    })->next
+    my $cursor_id = $user->row_cursor_id($sheet)
         or return;
 
     my $previous = $self->_sibling_record;
     $previous->columns(\@remember);
     $previous->include_approval(1);
-    $previous->find_record_id($lastrecord->record_id);
+    $previous->find_record_id($cursor_id);
 
     # Use the column object from the current record not the "previous" record,
     # as otherwise the column's layout object goes out of scope and is not
@@ -1548,19 +1542,13 @@ sub write
         # New entry, so save record ID to user for retrieval of previous
         # values if needed for another new entry. Use the approval ID id
         # it exists, otherwise the record ID.
-        my $id = $self->approval_id || $self->record_id;
+        my $row_id = $self->approval_id || $self->record_id;
         my $this_last = {
             user_id     => $user_id,
             instance_id => $sheet->id,
         };
-        my ($last) = $::db->search(UserLastrecord => $this_last)->first;
-        if($last)
-        {   $last->update({ record_id => $id });
-        }
-        else
-        {   $this_last->{record_id} = $id;
-            $::db->create(UserLastrecord => $this_last);
-        }
+
+        $user->set_row_cursor($sheet, $row_id);
     }
 
     $self->_need_rec($need_rec);
@@ -1594,6 +1582,8 @@ sub write_values
     my %columns_changed = ($self->current_id => []);
     my (@columns_cached, %update_autocurs);
 
+    my $approval_id = $self->approval_id;
+
     my $columns = $self->sheet->layout->columns_search(order_dependencies => 1, exclude_internal => 1);
     foreach my $column (@$columns)
     {
@@ -1621,7 +1611,7 @@ sub write_values
 
                 # And delete value in approval record
                 $::db->delete($column => {
-                    record_id => $self->approval_id,
+                    record_id => $approval_id,
                     layout_id => $column->id,
                 });
             }
@@ -1711,21 +1701,14 @@ sub write_values
 
     # If this is an approval, see if there is anything left to approve
     # in this record. If not, delete the stub record.
-    if ($self->doing_approval)
+    if($self->doing_approval && ! $self->record_in_use($approval_id))
     {
+        # Nothing left for this approval record. Is there a last_record flag?
+        # If so, change that to the main record's flag instead.
+        $user->row_cursor_renumber($approval_id, $self->record_id);
 
-        if(! $self->record_in_use($self->approval_id))
-        {
-            # Nothing left for this approval record. Is there a last_record flag?
-            # If so, change that to the main record's flag instead.
-            my $lr = $::db->search(UserLastrecord =>
-                record_id => $self->approval_id,
-            })->first;
-            $lr->update({ record_id => $self->record_id }) if $lr;
-
-            # Delete approval stub
-            $::db->delete(Record => $self->approval_id);
-        }
+        # Delete approval stub
+        $::db->delete(Record => $approval_id);
     }
 
     # Do we need to update any child records that rely on the
@@ -2104,7 +2087,8 @@ sub purge_current
     # an object) and may evaluate to an empty string. If so, txn_scope_guard
     # warns as such, so undefine to prevent the warning
     undef $@;
-    my $guard = $self->schema->txn_scope_guard;
+
+    my $guard = $::db->begin_work;
 
     # Delete child records first
     foreach my $child (@{$self->child_record_ids})
@@ -2125,7 +2109,7 @@ sub purge_current
     $::db->delete(Current    => $id);
     $guard->commit;
 
-    my $user_id = $self->user && $self->user->id;
+    my $user_id = $self->user->id;
     info __x"Record ID {id} purged by user ID {user} (originally created by user ID {createdby} at {created}",
         id => $id, user => $user_id, createdby => $createdby->id, created => $created;
 }
@@ -2135,10 +2119,11 @@ my @purge_tables = qw/Ragval Calcval Enum String Intgr Daterange Date Person Fil
 
 sub _purge_record_values
 {   my ($self, $rid) = @_;
-    my $which = +{ record_id => $rid };
 
+    my $which = +{ record_id => $rid };
     $::db->delete($_ => $which) for @purge_tables;
-    $::db->delete(UserLastrecord => $which);
+
+    $self->user->row_remove_cursors($rid);
 }
 
 1;
