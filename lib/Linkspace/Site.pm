@@ -4,10 +4,11 @@ use warnings;
 use strict;
 
 use Log::Report 'linkspace';
-use List::Util   qw(first);
+use List::Util       qw/first/;
 
+use Linkspace::Util  qw/is_valid_id/;
 use Linkspace::Site::Users ();
-use Linkspace::Site::Document ();  # only a single document, so no manager object
+use Linkspace::Site::Document ();
 
 use Moo;
 extends 'Linkspace::DB::Table';
@@ -265,13 +266,16 @@ sub titles        { [ sort { $a->name cmp $b->name } $_[0]->_record->titles ] }
 sub validate_workspot($)
 {   my ($self, $values) = @_;
     ! $self->register_organisation_mandatory || is_valid_id $values->{organisation_id}
-        or error __x"Please select a {name} for the user", name => $self->organisation_name;
+        or error __x"Please select a {name} for the user",
+            name => $self->register_organisation_name;
 
     ! $self->register_team_mandatory || is_valid_id $values->{team_id}
-        or error __x"Please select a {name} for the user", name => $self->team_name;
+        or error __x"Please select a {name} for the user",
+            name => $self->register_team_name;
 
     ! $self->register_department_mandatory || is_valid_id $values->{department_id}
-        or error __x"Please select a {name} for the user", name => $self->department_name;
+        or error __x"Please select a {name} for the user",
+            name => $self->register_department_name;
 }
 
 sub workspot_field_titles()

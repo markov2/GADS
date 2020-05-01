@@ -58,11 +58,16 @@ has user => (
 
 sub user_login
 {   my ($self, $user) = @_;
-    $self->audit("Successful login by username ".$user->username,
+    my $active = $self->user;
+    $active->is_admin
+        or error __x"Only an admin can login someone";
+
+    $self->user($user);
+    $self->audit(
+        'Successful login '.$user->username.' by admin '.$active->username,
         type => 'login_success',
     );
 
-    $self->set_user($user);
 
     $user->update({
         failcount => 0,
@@ -88,6 +93,10 @@ sub audit
      $log{user_id}   ||= $self->user->id;
      $log{datetime}  ||= DateTime->now;
      $log{type}      ||= 'user_action';
+
+     # Also to normal syslog
+     info __x"{log.type} {log.description}", log => \%log;
+
      Linkspace::Audit->log(\%log);
 }
 

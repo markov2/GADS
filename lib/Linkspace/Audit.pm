@@ -20,29 +20,11 @@ package Linkspace::Audit;
 
 use Log::Report 'linkspace';
 
+use Scalar::Util qw/blessed/;
 use DateTime;
 use GADS::Datum::Person;
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
-
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
-has user => (
-    is => 'rw',
-);
-
-sub user_id
-{   my $user = shift->user;
-    $user ? $user->id : undef;
-}
-
-sub username
-{   my $user = shift->user;
-    $user ? $user->username : undef;
-}
 
 has filtering => (
     is      => 'rw',
@@ -59,7 +41,7 @@ has filtering => (
 );
 
 sub audit_types
-{   [ qw/user_action login_change login_success logout login_failure/ ]
+{   [ qw/user_action login_change login_success logout login_failure/ ];
 }
 
 sub logs
@@ -79,24 +61,20 @@ sub logs
     $search{method} = uc $filtering->{method} if $filtering->{method};
     $search{type}   = $filtering->{type}      if $filtering->{type};
 
-    if (my $user_id = $filtering->{user})
-    {
-        $user_id =~ /^[0-9]+$/
-            or error __x"Invalid user ID {id}", id => $user_id;
-        $search{user_id} = $user_id;
+    if(my $user = $filtering->{user})
+    {   $search{user_id} = blessed $user ? $user->id : $user;
     }
 
     my @logs = $::db->search(Audit => \%search, {
         prefetch => 'user',
-        order_by => {
-            -desc => 'datetime',
-        },
+        order_by => { -desc => 'datetime' },
         result_class => 'HASH',
     })->all;
 
-    $_->{user} = GADS::Datum::Person->new(
-        init_value => { value => $_->{user} },
-    ) for @logs;
+    my %people;
+    $_->{user} = $people{$_} ||=
+        GADS::Datum::Person->new(init_value => { value => $_->{user} })
+        for @logs;
 
     \@logs;
 }
@@ -123,7 +101,7 @@ sub csv
 
 sub log
 {   my ($class, $log) = @_;
-    $::db->resultset('Audit')->create($log);
+    $::db->create(Audit => $log);
 }
 
 1;

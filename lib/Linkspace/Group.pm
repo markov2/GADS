@@ -30,6 +30,8 @@ sub db_rename {
     +{ map +($_ => "default_$_"), GADS::Type::Permissions->all_shorts };
 }
 
+__PACKAGE__->db_accessors;
+
 ### 2020-03-17: columns in GADS::Schema::Result::Group
 # id                                 default_read
 # name                               default_write_existing

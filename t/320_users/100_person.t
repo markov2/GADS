@@ -97,4 +97,18 @@ ok defined $clone, 'Loaded changed clone from DB';
 is_deeply $person->session_settings, { tic => 'tac' }, '... restored JSON';
 is_deeply $person->{_coldata}, $clone->{_coldata}, '... written';
 
+### Person retire
+
+ok ! $person->deleted, 'Person not yet retired';
+ok $person->retire, "... retiring";
+is logline, "info: User ${\$person->id}='$path' changed fields: deleted lastview";
+like $person->deleted, qr/^2\d\d\d-/, '... retired on '.$person->deleted;
+
+### Person delete
+ok $users->user_delete($person), '... deleted';
+is logline, "info: User ${\$person->id}='$path' changed fields: deleted lastview";
+is logline, "info: User ${\$person->id}='$path' deleted";
+my $now_missing = Linkspace::User::Person->from_id($person->id);
+ok ! defined $now_missing, '... not in table';
+
 done_testing;

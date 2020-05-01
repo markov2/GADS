@@ -15,7 +15,7 @@ use Linkspace;
 
 our @EXPORT = qw/
    logline logs logs_purge
-   test_site
+   test_site test_session
 /;
 
 our $guard;  # visible for guard test only
@@ -66,19 +66,57 @@ END { warn "untested log: $_\n" for @loglines }
 
 ### Some objects
 
-my ($site);
+my ($test_site, $test_user);
 
 sub test_site()
-{   return $site if $site;
+{   return $test_site if $test_site;
 
-    $site = Linkspace::Site->site_create({
+    $test_site = Linkspace::Site->site_create({
         hostname => 'test-site.example.com',
     });
 
-    is logline, "info: Site created ${\$site->id}: test-site",
-        "created default site ${\$site->id}";
+    is logline, "info: Site created ${\$test_site->id}: test-site",
+        "created default site ${\$test_site->id}";
 
-    $site;
+    $test_site;
+}
+
+sub test_user()
+{   return $test_user if $test_user;
+
+    $test_user = $::session->site->users->user_create({
+        email     => 'john@example.com',
+        firstname => 'John',
+        surname   => 'Doe',
+    });
+
+    is logline, "info: User created ${\$test_user->id}: test-site/john\@example.com",
+        "created default user ${\$test_user->id}, John Doe";
+
+    $test_user;
+}
+
+sub test_session()
+{   # user is created in active site, switch from default to test-site first
+    my $admin = $::session->user;
+
+    if($::session->site ne test_site)
+    {   $::session = Linkspace::Session->new(
+           site => test_site,
+           user => $admin,
+        );
+    }
+
+    my $user = test_user;
+    $::session->user_login($user);
+    is logline, "info: login_success Successful login ${\$user->username} by admin ${\$admin->username}",
+        '... logged login in audit';
+
+    is logline,
+        "info: User ${\$user->id}='${\$user->path}' changed fields: failcount lastfail",
+        '... logged reset login-failure count';
+
+    $::session;
 }
 
 1;

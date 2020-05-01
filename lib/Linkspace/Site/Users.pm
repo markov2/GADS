@@ -29,9 +29,9 @@ use List::Util         qw(first);
 use Scalar::Util       qw(blessed);
 
 use Linkspace::Util    qw(is_valid_email iso2datetime index_by_id);
-use Linkspace::User;
-use Linkspace::Group;
-use Linkspace::Permission;
+use Linkspace::User::Person ();
+use Linkspace::Group        ();
+use Linkspace::Permission   ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -73,7 +73,7 @@ has _users_index => (
     is      => 'lazy',
     builder => sub
     {   my $self  = shift;
-        my $users = $self->active_users({}, {
+        my $users = $self->_active_users({}, {
             join     => { user_permissions => 'permission' },
             order_by => 'surname',
             collapse => 1
@@ -86,10 +86,7 @@ sub _user_records
 {   sort { $a->surname cmp $b->surname } values %{$_[0]->_users_index};
 }
 
-sub all_users()
-{   my $self = shift;
-    [ map $self->user($_), values %{$self->_users_index} ];
-}
+sub all_users() { [ map $_[0]->user($_->id), $_[0]->_user_records ] }
 
 =head2 \@emails = $users->useradmins_emails;
 Returns a list of the email addresses of the people who maintain the site's
@@ -104,14 +101,14 @@ sub useradmins_emails
 
 sub account_requestors() { grep $_->is_account_request, $_[0]->all_users }
 
-sub active_users
+sub _active_users
 {   my ($self, $search) = (shift, shift);
-    $search->{deleted}         = undef;
-    $search->{account_request} = 0;
+    $search->{deleted}     = undef;  # no delete time
+    $search->{account_request} = 0;  # not in registration process
     $::db->search(User => $search, @_);
 }
 
-=head2 my $user = $users->user($user_id);
+=head2 my $user = $users->user($which);
 Returns a L<Linkspace::User> object.  When you do not pass an id, but a user
 object, that will simply be returned.  When the id is C<undef>, an C<undef> is
 returned silently.
@@ -131,14 +128,15 @@ sub user
 
     if($su->isa('Linkspace::User::Person'))
     {   # Do not load all other users when we are only using the session user
-        return $su if $user_id == $su->user_id;
+        return $su if $user_id == $su->id;
     }
 
     my $index  = $self->_users_index;
     my $record = $index->{$user_id} or return undef;
     return $record if $record->isa('Linkspace::User');
 
-    $index->{$user_id} = $su->id==$user_id ? $su : Linkspace::User->from_record($record);
+    $index->{$user_id} = $su->id==$user_id ? $su
+      : Linkspace::User::Person->from_record($record);
 }
 
 =head2 my $user = $users->user_by_name($email)
@@ -199,21 +197,20 @@ sub user_update
         }
     }
 
-    $victim->user_update($update);
     $self->component_changed;
-    $victim;
+    $victim->user_update($update);
 }
 
 =head2 $users->user_delete($user_id);
+The user record is really removed.  You may use C<<$user->retire>> to keep
+the record alive.
 =cut
 
 sub user_delete($)
 {   my ($self, $which) = @_;
-    my $victim_id = blessed $which ? $which->id : $which;
-
-    #XXX remove from groups?
-    $::db->update(User => $victim_id, { deleted => \'NOW' });
+    my $victim = $self->user($which) or return;
     $self->component_changed;
+    $victim->user_delete;
 }
 
 =head2 \@names = $users->user_fields;
@@ -245,8 +242,10 @@ sub csv
         or error __x"An error occurred producing the CSV headings: {err}", err => $csv->error_input;
     my @csvout = $csv->string;
 
+    #XXX Do we really need all these tricks here?  Just walk over the users and
+    #XXX get the facts is slower but fast enough... and maintainable.
     # All the data values
-    my $users_rs = $self->active_users({}, {
+    my $users_rs    = $self->_active_users({}, {
         select => [
             { max => 'me.id',             -as => 'id_max' },
             { max => 'surname',           -as => 'surname_max' },
@@ -270,10 +269,10 @@ sub csv
     });
 
     my %user_groups = map +($_->id => [ $_->user_groups ]),
-        $self->active_users({}, { prefetch => { user_groups => 'group' }})->all;
+        $self->_active_users({}, { prefetch => { user_groups => 'group' }})->all;
 
     my %user_permissions = map +($_->id => [ $_->user_permissions ]),
-        $self->active_users({}, { prefetch => { user_permissions => 'permission' }})->all;
+        $self->_active_users({},{ prefetch => { user_permissions => 'permission' }})->all;
 
     my @col_order, map "${_}_max",
         qw/surname firstname email lastlogin created/,
@@ -430,7 +429,8 @@ sub match
 {   my ($self, $query) = @_;
     my $pattern = "%$query%";
 
-    my $users = $self->search_active({ -or => [
+    my $users = $self->_search_active({
+       -or => [
         firstname => { -like => $pattern },
         surname   => { -like => $pattern },
         email     => { -like => $pattern },
@@ -464,6 +464,8 @@ sub group_create(%)
 
 sub group_delete($)
 {   my ($self, $victim) = @_;
+blessed $victim or panic;
+    $victim or return;
 
     my $group_ref = { group_id => $victim->id };
     $::db->delete($_ => $group_ref)
@@ -518,8 +520,8 @@ sub sheet_unuse($)
 
 sub site_unuse($)
 {   my ($self, $site) = @_;
-    $self->user_delete($_)  for $self->all_users;
-    $self->group_delete($_) for $self->all_groups;
+    $self->user_delete($_)  for @{$self->all_users};
+    $self->group_delete($_) for @{$self->all_groups};
 }
 
 sub view_unuse($)
@@ -530,4 +532,3 @@ sub view_unuse($)
 }
 
 1;
-

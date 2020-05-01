@@ -221,7 +221,7 @@ Remove this record from the database.
 
 sub delete
 {   my ($self, %args) = @_;
-    $::db->delete($self->db_table, $self->id);
+    $self->_record->delete;
 
     info __x"{obj.db_table} {obj.id}='{obj.path}' deleted", obj => $self
         unless $args{lazy};
@@ -251,7 +251,8 @@ sub update($%)
             obj => $self, fields => [ sort keys %$update ];
     }
 
-    $::db->update($self->db_table, $self, $update);
+#   $self->_record->update($update);
+    $::db->update($self->db_table, $self, $update);   #XXX probably faster
     $self;
 }
 

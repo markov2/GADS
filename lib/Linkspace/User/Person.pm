@@ -124,6 +124,14 @@ sub _update_relations(%)
     }
 }
 
+sub user_delete(%)
+{   my $self = shift;
+    $self->retire(@_);
+    $self->_record->delete_related('audits');
+    $self->delete;
+    $self;
+}
+
 #---------------------
 =head1 METHODS: Accessors
 
@@ -133,27 +141,23 @@ sub _update_relations(%)
 sub retire(%)
 {   my ($self, %args) = @_;
 
-    if ($self->is_account_request)
+    if($self->is_account_request)
     {   # Properly delete if account request - no record needed
         $self->delete;
         return;
     }
 
-    my $guard = $::db->begin_work;
-    $self->update_relations(
+    $self->_update_relations(
         group_ids       => [],
         permissions     => [],
         view_limits_ids => [],
     );
-
     $self->_graphs_delete;
     $self->_alerts_delete;
     $self->_views_delete;
-
+    $self->_record->delete_related('dashboards');
     $self->update({ last_view_id => undef, deleted => DateTime->now });
-
-    $guard->commit;
-    return;
+    $self;
 }
 
 sub path { my $self = shift; $self->site->path.'/'.$self->username }
@@ -212,7 +216,7 @@ group_id or object.
 
 has _in_group => (
     is      => 'lazy',
-    builder => sub { +{ map +($_->group_id => $_), @{$_[0]->user_groups} } },
+    builder => sub { +{ map +($_->group_id => $_), $_[0]->_record->user_groups} },
 );
 
 sub in_group($)
@@ -243,12 +247,12 @@ sub _set_group_ids
     # Delete any groups that no longer exist
     my @has_group_ids = map $_->id,
         grep $is_admin || $in_group->{$_->id},
-            @{$::session->site->groups};
+            @{$self->site->groups->all_groups};
 
     #XXX this is too complex
     my %search;
     $search{group_id} = { -not_in => @$group_ids } if @$group_ids;
-    $self->search_related(user_groups => \%search)
+    $self->_record->search_related(user_groups => \%search)
         ->search({ group_id => \@has_group_ids })
         ->delete;
 }
@@ -281,7 +285,7 @@ sub _set_view_limits
     $search{view_id} = { -not_in => @view_ids }
         if @view_ids;
 
-    $self->search_related(view_limits => \%search)->delete;
+    $self->_record->search_related(view_limits => \%search)->delete;
 }
 
 sub _views_delete()
@@ -295,12 +299,15 @@ Manage the graphs which the user has selected.  It is global: although graphs
 are per sheet, their numbers are unique.
 =cut
 
+### 2020-05-01: columns in GADS::Schema::Result::UserGraph
+# id         user_id    graph_id
+
 has _selected_graphs => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
         my $selections = $::db->search(UserGraph => { user_id => $self->id });
-        +{ map +($_ => 1), $selections->column('graph_id')->all };
+        +{ map +($_ => 1), $selections->get_column('graph_id')->all };
     },
 );
 
@@ -328,7 +335,7 @@ sub set_graphs
 
 sub _graphs_delete()
 {   my $self = shift;
-    $self->_selected_graphs( +{} );
+    %{$self->_selected_graphs} = ();
     $::db->delete(UserGraph => { user_id => $self->id });
 }
 
@@ -440,11 +447,11 @@ has _permissions => (
     builder => sub {
         my $self = shift;
         my %all = map +($_->id => $_->name), @{$self->all_permissions};
-         +{ map +($all{$_->permission_id} => 1), @{$self->user_permissions} };
+         +{ map +($all{$_->permission_id} => 1), $self->_record->user_permissions};
     },
 );
 
-sub has_permission($) { $_[0]->_permissions->($_[1]) }
+sub has_permission($) { $_[0]->_permissions->{$_[1]} }
 
 sub _set_permissions
 {   my ($self, @permissions) = @_;
@@ -457,10 +464,10 @@ sub _set_permissions
     {
         my $which = { permission_id => $perm2id{$perm} };
         if($want_perms{$perm})
-        {   $self->find_or_create_related(user_permissions => $which);
+        {   $self->_record->find_or_create_related(user_permissions => $which);
         }
         else
-        {   $self->search_related(user_permissions => $which)->delete;
+        {   $self->_record->search_related(user_permissions => $which)->delete;
         }
     }
 }
@@ -471,7 +478,7 @@ sub _set_permissions
 
 sub _alerts_delete()
 {   my $self = shift;
-    my $alerts = $self->search_related(alerts => {});
+    my $alerts = $self->_record->search_related(alerts => {});
     my @alert_ids = map $_->id, $alerts->all;
     $::db->delete(AlertSend => { alert_id => \@alert_ids });
     $alerts->delete;
