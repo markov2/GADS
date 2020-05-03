@@ -69,11 +69,11 @@ graphs.
 
 sub user_graphs(%)
 {   my ($self, %args) = @_;
-    my $user_id = $::session->user->id;
+    my $user_id = ($args{user} || $::session->user)->id;
 
     my @mine = grep
      +( $_->is_shared
-      ? ( ! $_->group_id || $user->in_group($_->group_id) )
+      ? ( ! $_->group_id || $user->is_in_group($_->group_id) )
       : $_->user_id==$user_id
       ), values %{$self->_graph_index};
 

@@ -112,6 +112,26 @@ sub from_id($%)
     $record ? $class->new(@_, _record => $record) : undef;
 }
 
+=head2 \@records = $class->search_records(\%search);
+Returns records (Schema::Result objects).  The search query should use
+the renamed field, and cannot be complex (for the moment).
+=cut
+
+sub search_records($)
+{   my ($self, $search) = @_;
+    $::db->search($self->db_table, $self->_record_converter->($search))->all;
+}
+
+=head2 \@objects = $class->search_objects(\%search);
+Uses C<search_records()> to find records, and than converts them into
+the related objects.
+=cut
+
+sub search_objects($%)
+{   my ($self, $search) = (shift, shift);
+    map $self->from_record($_, @_), $self->search_records($search);
+}
+
 #-----------------------
 =head1 METHODS: Attributes
 

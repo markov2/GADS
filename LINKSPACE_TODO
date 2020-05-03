@@ -3,6 +3,7 @@ Database issues:
   - Too many fields in the Site table are optional: f.i. host?
   - User::lastview still in use?  Never set.  In dancer session as
     'current_view' now?
+  - User table site_id should be required
 
   - Move away from Plugin/Auth/Extensible functions.
   - $self->schema->storage->datetime_parser->format_date w.r.t to the

@@ -16,6 +16,7 @@ use Linkspace;
 our @EXPORT = qw/
    logline logs logs_purge
    test_site test_session
+   make_site make_user make_sheet
 /;
 
 our $guard;  # visible for guard test only
@@ -68,33 +69,40 @@ END { warn "untested log: $_\n" for @loglines }
 
 my ($test_site, $test_user);
 
-sub test_site()
-{   return $test_site if $test_site;
+sub make_site($@)
+{   my ($seqnr, %args) = @_;
+    my $host  = $seqnr==1 ? 'test-site' : "site$seqnr";
 
-    $test_site = Linkspace::Site->site_create({
-        hostname => 'test-site.example.com',
+    my $site = Linkspace::Site->site_create({
+        hostname => "$host.example.com",
     });
 
-    is logline, "info: Site created ${\$test_site->id}: test-site",
-        "created default site ${\$test_site->id}";
+    is logline, "info: Site created ${\$site->id}: $host",
+        "created site ${\$site->id}";
 
-    $test_site;
+    $site;
 }
+sub test_site(@) { $test_site ||= make_site '1', @_ } 
 
-sub test_user()
-{   return $test_user if $test_user;
 
-    $test_user = $::session->site->users->user_create({
-        email     => 'john@example.com',
-        firstname => 'John',
-        surname   => 'Doe',
+sub make_user($@)
+{   my ($seqnr, %args) = @_;
+    my $site = $args{site} || $::session->site;
+    my $postfix = $seqnr==1 ? '' : "_$seqnr";
+
+    my $user = $site->users->user_create({
+        email     => "john$postfix\@example.com",
+        firstname => "John$postfix",
+        surname   => "Doe$postfix",
     });
 
-    is logline, "info: User created ${\$test_user->id}: test-site/john\@example.com",
-        "created default user ${\$test_user->id}, John Doe";
+    is logline, "info: User created ${\$user->id}: ${\$site->path}/john$postfix\@example.com",
+        "created user ${\$user->id}, ".$user->path;
 
-    $test_user;
+    $user;
 }
+sub test_user(@) { $test_user || make_user '1', @_ }
+
 
 sub test_session()
 {   # user is created in active site, switch from default to test-site first

@@ -110,7 +110,7 @@ sub view($)
     return $view
         if $view->global
         && $view->group_id
-        && $user->in_group($view->group_id);
+        && $user->is_in_group($view->group_id);
 
     ();
 }

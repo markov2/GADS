@@ -254,8 +254,9 @@ sub workspot_create($$)
 }
 
 sub workspot($$)
-{   my ($self, $set, $name) = @_;
-    $::db->get_record(ucfirst $set => { name => $name });
+{   my ($self, $set, $which) = @_;
+    my $key = is_valid_id $which ? 'id' : 'name';
+    $::db->get_record(ucfirst $set => { $key => $which });
 }
 
 sub departments   { [ sort { $a->name cmp $b->name } $_[0]->_record->departments ] }
@@ -298,6 +299,18 @@ sub workspot_field_names()
     ($self->register_freetext1_name ? 'freetext1' : ()),
     ($self->register_freetext2_name ? 'freetext2' : ()),
   ];
+}
+
+sub workspot_summary($)
+{   my ($self, $user) = @_;
+    my @f;
+    push @f, [ Title => $user->title->name ] if $user->title;
+    push @f, [ $self->register_freetext1_name => $user->freetext1 ] if $user->freetext1;
+    push @f, [ $self->register_freetext2_name => $user->freetext2 ] if $user->freetext2;
+    push @f, [ $self->register_organisation_name => $user->organisation->name ] if $user->organisation;
+    push @f, [ $self->register_department_name => $user->department->name ] if $user->department;
+    push @f, [ $self->register_team_name => $user->team->name ] if $user->team;
+    \@f;
 }
 
 

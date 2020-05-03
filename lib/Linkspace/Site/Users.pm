@@ -64,29 +64,38 @@ Maintain users which use the website.  The session user may also be a system
 user, which is not stored in the database: it gets derived from operating
 system information.
 
+When the program only requests single users, it will only load those.
+However, once it need to search them, they are all loaded at once (without
+redoing the ones already resurrected before).
+
 =head2 \@users = $users->all_users;
 Returns all active users.
 =cut
 
-# The index is only used when other users than the session user are addressed.
-has _users_index => (
-    is      => 'lazy',
-    builder => sub
-    {   my $self  = shift;
-        my $users = $self->_active_users({}, {
-            join     => { user_permissions => 'permission' },
-            order_by => 'surname',
-            collapse => 1
-        });
-        index_by_id $users->all;
-    },
-);
+# The index contains all User::Person objects which have been resurrected.
+has _users_index    => ( is => 'ro', default => sub { +{} } );
+has _users_complete => ( is => 'rw', default => sub { 0 } );
 
-sub _user_records
-{   sort { $a->surname cmp $b->surname } values %{$_[0]->_users_index};
+sub _user_index_full
+{   my $self  = shift;
+    my $index = $self->_users_index;
+    unless($self->_users_complete)
+    {   $index->{$_->id} ||= $_ for    # ignore objects we already have
+            Linkspace::User::Person->search_objects({
+                deleted => undef,
+                site    => $self->site,
+            });
+        $self->_users_complete(1);
+    }
+    $index;
 }
-
-sub all_users() { [ map $_[0]->user($_->id), $_[0]->_user_records ] }
+    
+sub all_users()
+{   my $self = shift;
+    [ sort { $a->value cmp $b->value }
+        grep ! $_->is_account_request,
+            values %{$self->_user_index_full} ];
+}
 
 =head2 \@emails = $users->useradmins_emails;
 Returns a list of the email addresses of the people who maintain the site's
@@ -95,11 +104,13 @@ users.
 
 sub useradmins_emails
 {   my $self = shift;
-    my $is_useradmin = sub { first { $_->{name} eq 'useradmin' } @$_ };
-    [ map $_->email, grep $is_useradmin->($_->{permission}), $self->_user_records ];
+    [ map $_->email, grep $_->has_permission('useradmin'), @{$self->all_users} ];
 }
 
-sub account_requestors() { grep $_->is_account_request, $_[0]->all_users }
+sub account_requestors()
+{   my $index = shift->_users_index_full;
+    grep $_->is_account_request, values %$index;
+}
 
 sub _active_users
 {   my ($self, $search) = (shift, shift);
@@ -114,29 +125,12 @@ object, that will simply be returned.  When the id is C<undef>, an C<undef> is
 returned silently.
 =cut
 
-sub user
+sub user($)
 {   my ($self, $user_id) = @_;
     return $user_id if ! defined $user_id || blessed $user_id;
 
-    # Loading the session user will not trigger the load of all users.  However,
-    # the object will not get recreated later.
-    my $su = $::session->user;
-    if(!defined $su)
-    {   my $record = $::db->get_record(User => $user_id);
-        return Linkspace::User->from_record($record);
-    }
-
-    if($su->isa('Linkspace::User::Person'))
-    {   # Do not load all other users when we are only using the session user
-        return $su if $user_id == $su->id;
-    }
-
-    my $index  = $self->_users_index;
-    my $record = $index->{$user_id} or return undef;
-    return $record if $record->isa('Linkspace::User');
-
-    $index->{$user_id} = $su->id==$user_id ? $su
-      : Linkspace::User::Person->from_record($record);
+    my $index = $self->_users_index;
+    $index->{$user_id} ||= Linkspace::User::Person->from_id($user_id);
 }
 
 =head2 my $user = $users->user_by_name($email)
@@ -145,14 +139,17 @@ sub user
 
 sub user_by_name()
 {   my ($self, $name) = @_;
-    $name or return;
-    my $r = first { $_->email eq $name || $_->username eq $name} $self->_user_records;
-    $r ? $self->user($r->id) : undef;
+    my $index = $self->_users_index;
+    my $found = first { $_->username eq $name || $_->email eq $name} values %$index;
+    return $found if $found;  # 'accidentally' already loaded
+
+    my $user = Linkspace::User::Person->from_name($name) or return;
+    $index->{$user->id} = $user;
 }
 
 sub users_in_org
 {   my ($self, $org_id) = @_;
-    [ grep $_->organisation_id==$org_id, $self->all_users ];
+    [ grep $_->organisation_id==$org_id, @{$self->all_users} ];
 }
 
 =head2 my $victim = $users->user_create(%insert);
@@ -170,7 +167,7 @@ sub user_create
 
     my $victim = Linkspace::User::Person
         ->user_validate($values)
-        ->user_create($values);
+        ->_user_create($values);
 
     $self->component_changed;
     $self->_users_index->{$victim->id} = $victim;
@@ -198,7 +195,7 @@ sub user_update
     }
 
     $self->component_changed;
-    $victim->user_update($update);
+    $victim->_user_update($update);
 }
 
 =head2 $users->user_delete($user_id);
@@ -209,8 +206,9 @@ the record alive.
 sub user_delete($)
 {   my ($self, $which) = @_;
     my $victim = $self->user($which) or return;
+    delete $self->_users_index->{$victim->id};
     $self->component_changed;
-    $victim->user_delete;
+    $victim->_user_delete;
 }
 
 =head2 \@names = $users->user_fields;
@@ -448,52 +446,45 @@ sub match
 #---------------------
 =head1 METHODS: Manage groups
 
-=head2 my $gid = $class->group_create(%insert);
+=head2 my $gid = $class->group_create($insert);
 There are (probably) only very few groups, so they all get instantiated.
 =cut
 
+has _group_index => (
+    is      => 'lazy',
+    builder => sub {
+        my $site = shift->site;
+        index_by_id Linkspace::Group->search_objects({site => $site});
+    },
+);
+
 sub group_create(%)
-{   my ($class, %insert) = @_;
-    $insert{site_id} = $::session->site->id;
-    $::db->create(Group => \%insert);
-    $class->component_changed;
+{   my ($self, $insert) = @_;
+    my $group = Linkspace::Group->_group_create($insert);
+    $self->_group_index->{$group->id} = $group;
+    $self->component_changed;
+    $group;
 }
 
-=head2 $users->group_delete($group);
+=head2 $users->group_delete($which);
 =cut
 
 sub group_delete($)
-{   my ($self, $victim) = @_;
-blessed $victim or panic;
-    $victim or return;
-
-    my $group_ref = { group_id => $victim->id };
-    $::db->delete($_ => $group_ref)
-        for qw/LayoutGroup InstanceGroup UserGroup/;
-
-    $victim->delete;
+{   my ($self, $which) = @_;
+    my $group = $self->group($which) or return;
+    delete $self->_group_index->{$group->id};
+    $group->_group_delete;
     $self->component_changed;
 }
 
 =head2 \@groups = $users->all_groups;
 =cut
 
-has all_groups => (
-    is      => 'lazy',
-    builder => sub
-    {   my $groups = $::db->search(Group => {}, { order_by => 'me.name' });
-        [ map Linkspace::Group->from_record($_), $groups->all ];
-    },
-);
+sub all_groups { sort { $a->name cmp $b->name } values %{$_[0]->_group_index} }
 
 =head2 my $group = $site->group($which);
 Returns a L<Linkspace::Group>.  Use C<id> or a C<name>.
 =cut
-
-has _group_index => (
-    is      => 'lazy',
-    builder => sub { index_by_id $_[0]->all_groups },
-);
 
 sub group($) { $_[0]->_group_index->{$_[1]} }
 
@@ -528,7 +519,7 @@ sub view_unuse($)
 {   my ($self, $which) = @_;
     my $view_id = blessed $which ? $which->id : defined $which ? $which : return;
     $_->update({ last_view_id => undef })
-       for grep $_->last_view_id==$view_id, $self->all_users;
+       for grep $_->last_view_id==$view_id, @{$self->all_users};
 }
 
 1;

@@ -206,7 +206,7 @@ sub validate($$$)
     || ($sheet->user_can("layout") || ($group_id && $sheet->user_can('view_group')))
        or error __"You do not have permission to create shared graphs";
 
-    my $user_id = $params->{user_id} || $::session->user->id;
+    my $user_id = $params->{user_id} || ($params->{user} || $::session->user)->id;
 
     +{  type           => $type,
         as_percent     => $params->{as_percent}  || 0,

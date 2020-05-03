@@ -22,7 +22,8 @@ $site->workspot_create(title => 'superman');
 my $title = $site->workspot(title => 'superman');
 
 ### Create session
-# We cannot use session->login yet: first need to create new users.
+# We cannot use session->login yet: first need to test that creating
+# new users works.
 
 use_ok 'Linkspace::Session';
 $::session = Linkspace::Session->new(
@@ -67,11 +68,21 @@ is $person->department_id, $dept->id, '... found dept';
 is $person->team_id, $team->id, '... found team';
 is $person->title_id, $title->id, '... found title';
 
+is $person->summary."\n", <<'__SUMMARY', '... summary';
+First name: John, Surname: Doe, Email: test@example.com, Title: superman, Organisation: my orga, Department: my dept, Team: heroes
+__SUMMARY
+
 ### Cached
 
 my $cached = $site->users->user($person->id);
 ok defined $cached, 'Get person from cache';
 is $cached, $person, '... same object';
+
+ok ! $users->_users_complete, '... admin thinks it is still incomplete';
+my $all_users = $users->all_users;
+cmp_ok scalar @$all_users, '==', 1, '... there is only one! (administered)';
+is $all_users->[0], $person, "... and that's me";
+ok $users->_users_complete, '... all_users requested, so now admin complete';
 
 ### Update user
 
@@ -96,6 +107,12 @@ my $clone = Linkspace::User::Person->from_id($person->id);
 ok defined $clone, 'Loaded changed clone from DB';
 is_deeply $person->session_settings, { tic => 'tac' }, '... restored JSON';
 is_deeply $person->{_coldata}, $clone->{_coldata}, '... written';
+
+### Addressed by name
+
+my $clone2 = Linkspace::User::Person->from_name($person->username);
+ok defined $clone2, 'Loaded person by name';
+is_deeply $person->{_coldata}, $clone2->{_coldata}, '... got same person';
 
 ### Person retire
 

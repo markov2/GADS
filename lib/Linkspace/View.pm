@@ -168,7 +168,7 @@ has owner => (
 sub has_access_via_global($)
 {   my ($self, $victim) = @_;
     my $gid = $self->group_id;
-    $gid && $self->is_global ? $victim->in_group($gid) : 0;
+    $gid && $self->is_global ? $victim->is_in_group($gid) : 0;
 }
 
 sub _is_writable($;$)

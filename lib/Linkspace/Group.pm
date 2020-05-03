@@ -26,10 +26,6 @@ extends 'Linkspace::DB::Table';
 
 sub db_table { 'Group' }
 
-sub db_rename {
-    +{ map +($_ => "default_$_"), GADS::Type::Permissions->all_shorts };
-}
-
 __PACKAGE__->db_accessors;
 
 ### 2020-03-17: columns in GADS::Schema::Result::Group
@@ -51,6 +47,26 @@ names of the permissions.  But prepending "default_" does more clearly
 express what their effect is on the users in the group: setting overrulable
 defaults.
 
+=head1 METHODS: Constructors
+=cut
+
+sub group_create($)
+{   my ($self, $insert) = @_;
+    $insert->{site} = $self->site;
+    $self->create($insert);
+}
+
+sub group_delete
+{   my $self = shift;
+
+    my $group_ref = { group_id => $self->id };
+    $::db->delete($_ => $group_ref)
+        for qw/LayoutGroup InstanceGroup UserGroup/;
+
+    $self->delete;
+}
+
+#---------------
 =head1 METHODS: Other
 
 =head2 \%table = $groups->colid2perms;

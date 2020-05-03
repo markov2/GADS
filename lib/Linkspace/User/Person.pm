@@ -50,6 +50,18 @@ of these users is managed by L<Linkspace::Users>.
 =head1 METHODS: Constructors
 =cut
 
+=head2 my $user = $class->from_name($name, %options);
+Create the C<$user> which is selected based on a C<name>, which could
+be the username or email address (usually both the same).
+=cut
+
+sub from_name($%)
+{   my ($class, $name) = (shift, shift);
+    my $record = $::db->get_record($class->db_table => { username => $name })
+              || $::db->get_record($class->db_table => { email => $name });
+    $record ? $class->new(@_, _record => $record) : undef;
+}
+
 sub user_validate($)
 {   my ($thing, $insert) = @_;
     $thing->Linkspace::User::user_validate($insert);
@@ -64,7 +76,7 @@ sub user_validate($)
     $thing;
 }
 
-sub user_create($%)
+sub _user_create($%)
 {   my ($class, $insert, %args) = @_;
 
     $insert->{username}  = $insert->{email};
@@ -84,7 +96,7 @@ sub user_create($%)
     $self;
 }
 
-sub user_update($)
+sub _user_update($)
 {   my ($self, $update) = @_;
 
     if(exists $update->{firstname} || exists $update->{surname})
@@ -124,7 +136,7 @@ sub _update_relations(%)
     }
 }
 
-sub user_delete(%)
+sub _user_delete(%)
 {   my $self = shift;
     $self->retire(@_);
     $self->_record->delete_related('audits');
@@ -155,7 +167,7 @@ sub retire(%)
     $self->_graphs_delete;
     $self->_alerts_delete;
     $self->_views_delete;
-    $self->_record->delete_related('dashboards');
+#   $self->_dashboards_delete;
     $self->update({ last_view_id => undef, deleted => DateTime->now });
     $self;
 }
@@ -168,7 +180,6 @@ sub session_update($)
 {   my ($self, $settings) = @_;
     $self->update({ session_settings_json => encode_json $settings} );
 }
-
 
 #-----------------------
 =head1 METHODS: Groups
@@ -184,9 +195,19 @@ has groups_viewable => (
 
 sub _build_groups_viewable
 {   my $self = shift;
+    my $site = $self->site;
 
-    return $::session->site->groups
+    return $site->groups
         if $self->is_admin;
+
+    foreach my $sheet (@{$site->document->all_sheets})
+    {   $sheet->user_can(layout => $self) or next;
+    ...
+    }
+
+### 2020-05-02: columns in GADS::Schema::Result::InstanceGroup
+# id          instance_id group_id    permission
+#             Sheet       Group       layout
 
     # Layout admin, all groups in their layout(s)
     #XXX smart, but maybe use the abstraction
@@ -197,6 +218,8 @@ sub _build_groups_viewable
         join => { group => 'user_groups' },
     })->get_column('me.instance_id');
 
+### 2020-05-02: columns in GADS::Schema::Result::LayoutGroup
+# id         group_id   layout_id  permission
     my $owner_groups = $::db->search(LayoutGroup => {
         instance_id => { -in => $sheet_ids_rs->as_query },
     }, {
@@ -204,12 +227,12 @@ sub _build_groups_viewable
     });
 
     my %groups = map +($_->group_id => $_->group),
-        $owner_groups->all, $self->user_groups;
+        $owner_groups->all, $self->_record->user_groups;
 
     [ values %groups ];
 }
 
-=head2 my $member_of = $user->in_group($which);
+=head2 my $member_of = $user->is_in_group($which);
 Returns true when the user is member of the groups which is specified as
 group_id or object.
 =cut
@@ -219,7 +242,7 @@ has _in_group => (
     builder => sub { +{ map +($_->group_id => $_), $_[0]->_record->user_groups} },
 );
 
-sub in_group($)
+sub is_in_group($)
 {   my ($self, $which) = @_;
     my $group_id = blessed $which ? $which->id : $which;
     $self->_in_group->{$which};
@@ -553,30 +576,25 @@ sub login_failed()
 }
 
 =head2 my $text = $user->summary(%options);
-Option C<field_separator> defaults to C<,>.
+Option C<field_separator> defaults to C<, >.
 =cut
 
 sub summary(%)
 {   my ($self, %args) = @_;
-    my $sep  = $args{field_separator} || ',';
-    my $site = $::session->site;
+    my $sep  = $args{field_separator} || ', ';
 
-    my @f = (
-       [ 'first name' => $self->firstname ],
-       [ surname      => $self->surname   ],
-       [ email        => $self->email     ],
-    );
-
-    push @f, [ title => $self->title->name ] if $self->title;
-    push @f, [ $site->register_freetext1_name => $self->freetext1 ] if $self->freetext1;
-    push @f, [ $site->register_freetext2_name => $self->freetext2 ] if $self->freetext2;
-    push @f, [ $site->register_organisation_name => $self->organisation->name ] if $self->organisation;
-    push @f, [ $site->register_department_name => $self->department->name ] if $self->department;
-    push @f, [ $site->register_team_name => $self->team->name ] if $self->team;
-
-    #XXX it is easy to produce a nice table for this
-    join $sep, map "$_->[0]: $_->[1]", @f;
+    return join $sep, map "$_->[0]: $_->[1]",
+       [ 'First name' => $self->firstname ],
+       [ Surname      => $self->surname   ],
+       [ Email        => $self->email     ],
+       @{$self->site->workspot_summary($self)};
 }
+
+#XXX When collected via $site, speed can be improved with caching
+sub department   { $_[0]->_record->department }
+sub organisation { $_[0]->_record->organisation }
+sub team         { $_[0]->_record->team }
+sub title        { $_[0]->_record->title }
 
 #-----------------------
 =head1 METHODS: Permissions
