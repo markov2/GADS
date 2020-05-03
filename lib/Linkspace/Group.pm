@@ -20,8 +20,9 @@ package Linkspace::Group;
 
 use Log::Report 'linkspace';
 
+use Linkspace::Permission ();
+
 use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
 extends 'Linkspace::DB::Table';
 
 sub db_table { 'Group' }
@@ -50,13 +51,22 @@ defaults.
 =head1 METHODS: Constructors
 =cut
 
-sub group_create($)
+sub _group_create($)
 {   my ($self, $insert) = @_;
     $insert->{site} = $self->site;
     $self->create($insert);
 }
 
-sub group_delete
+sub _group_update($)
+{   my ($self, $insert) = @_;
+    my $new_name = $insert->{name};
+    info __x"Group {group.id} changed name from '{group.name}' into '{new_name}'",
+        group => $self, new_name => $new_name
+        if defined $new_name && $new_name ne $self->name;
+    $self->update($insert);
+}
+
+sub _group_delete
 {   my $self = shift;
 
     my $group_ref = { group_id => $self->id };
@@ -66,23 +76,52 @@ sub group_delete
     $self->delete;
 }
 
-#---------------
-=head1 METHODS: Other
+sub path { my $self = shift; $self->site->path.'/'.$self->name }
 
-=head2 \%table = $groups->colid2perms;
+#---------------
+=head1 METHODS: Links users
+
+=head2 $user = $group->add_user($which);
+Add a user to the group, either specified as user_id or user object.
+=cut
+
+has _users => (
+    is     => 'lazy',
+    bulder => sub { ... },
+);
+
+sub _add_user($)
+{   my ($self, $user) = @_;
+    $self->_users->{$user->id} = $user;
+    weaken $self->_users->{$user->id};
+    $user;
+}
+
+#---------------
+=head1 METHODS: Permissions
+
+=head2 \@shorts = $group->default_permissions;
+=cut
+
+sub default_permissions($)
+{   my $data = $_[0]->_coldata;
+    [ grep $data->{"default_$_"}, @{Linkspace::Permission->all_shorts} ];
+}
+
+=head2 \%table = $group->colid2perms;
 Returns a HASH which contains all column_ids this group has explicit permissions
 to, with an array of permission objects for that column. (Used in template C<group.tt>)
 =cut
 
 sub colid2perms()
 {   my $self = shift;
-    my @selected = $::db->search(LayoutGroup => { group_id => $self->id })->all;
-    my %columns;
-    foreach my $selected (@selected)
-    {   push @{$columns{$selected->layout_id}},
-            GADS::Type::Permission->new(short => $selected->permission);
+    my $selected_rs = $::db->search(LayoutGroup => { group_id => $self->id });
+    my (%perms, %perms_by_column);
+    foreach my $sel ($selected_rs->next)
+    {   push @{$perms_by_column{$sel->layout_id}}, $perms{$sel->permission} ||=
+           Linkspace::Permission->new(short => $sel->permission);
     }
-    \%columns;
+    \%perms_by_column;
 }
 
 1;

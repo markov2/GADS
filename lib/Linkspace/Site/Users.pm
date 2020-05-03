@@ -28,7 +28,7 @@ use File::BOM          qw(open_bom);
 use List::Util         qw(first);
 use Scalar::Util       qw(blessed);
 
-use Linkspace::Util    qw(is_valid_email iso2datetime index_by_id);
+use Linkspace::Util    qw(is_valid_email is_valid_id iso2datetime index_by_id);
 use Linkspace::User::Person ();
 use Linkspace::Group        ();
 use Linkspace::Permission   ();
@@ -425,8 +425,9 @@ are simple hashes with the user id and some formatted name.
 
 sub match
 {   my ($self, $query) = @_;
-    my $pattern = "%$query%";
+    my $pattern = "%$query%";  #XXX no quoting?
 
+    #XXX in reality faster than search all_users()?
     my $users = $self->_search_active({
        -or => [
         firstname => { -like => $pattern },
@@ -454,7 +455,7 @@ has _group_index => (
     is      => 'lazy',
     builder => sub {
         my $site = shift->site;
-        index_by_id Linkspace::Group->search_objects({site => $site});
+        index_by_id(Linkspace::Group->search_objects({site => $site}));
     },
 );
 
@@ -462,6 +463,17 @@ sub group_create(%)
 {   my ($self, $insert) = @_;
     my $group = Linkspace::Group->_group_create($insert);
     $self->_group_index->{$group->id} = $group;
+    $self->component_changed;
+    $group;
+}
+
+=head2 $users->group_update($which, $update);
+=cut
+
+sub group_update($$)
+{   my ($self, $which, $update) = @_;
+    my $group = $self->group($which) or return;
+    $group->_group_update($update);
     $self->component_changed;
     $group;
 }
@@ -480,13 +492,33 @@ sub group_delete($)
 =head2 \@groups = $users->all_groups;
 =cut
 
-sub all_groups { sort { $a->name cmp $b->name } values %{$_[0]->_group_index} }
+sub all_groups { [ sort { $a->name cmp $b->name } values %{$_[0]->_group_index} ] }
 
 =head2 my $group = $site->group($which);
-Returns a L<Linkspace::Group>.  Use C<id> or a C<name>.
+Returns a L<Linkspace::Group>.  Use C<id> or a C<name>.  When a group object is
+passed, it is simply returned unchanged.
 =cut
 
-sub group($) { $_[0]->_group_index->{$_[1]} }
+sub group($)
+{   my ($self, $which) = @_;
+    return $which if blessed $which;
+
+    my $index = $self->_group_index;
+    is_valid_id $which ? $index->{$which}
+    : first { $_->name eq $which } values %$index;
+}
+
+=head2 my $users->group_add_user($group, $user);
+=cut
+
+sub group_add_user($$)
+{   my ($self, $user, $group) = @_;
+    $user->_in_group($group);
+    $group->_add_user($user);
+    info __x"user {user.username} added to {group.path}",
+        user => $user, group => $group;
+    $self->component_changed;
+}
 
 #---------------------
 =head1 METHODS: Permissions

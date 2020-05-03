@@ -150,6 +150,9 @@ has _record => (
     trigger  => sub { $_[0]{_coldata} = $_[1]{_column_data} },
 );
 
+# Very dirty: poke directly in the body of the ::Result object.
+sub _coldata { $_[0]{_coldata} }
+
 =head2 my $column = $obj->column($which);
 Many objects address columns: to simplify access it got an efficient call.
 When the object relates to a sheet, that C<columns()> is called which

@@ -16,17 +16,12 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Type::Permission;
-
+package Linkspace::Permission;
 use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
 
 use overload '""'  => 'long', fallback => 1;
 
-has short => (
-    is  => 'rw',
-    isa => Maybe[Str],
-);
+has short => ( is => 'rw');
 
 my %short2long = (
     read             => 'Values can be read',
@@ -34,10 +29,8 @@ my %short2long = (
     write_existing   => 'Modifications can be made to existing records',
     approve_new      => 'Values for new records can be approved',
     approve_existing => 'Modifications to existing records can be approved',
-    write_new_no_approval =>
-        'Values for new records do not require approval',
-    write_existing_no_approval =>
-        'Modifications to existing records do not require approval',
+    write_new_no_approval => 'Values for new records do not require approval',
+    write_existing_no_approval => 'Modifications to existing records do not require approval',
 );
 
 my %short2medium = (
@@ -52,6 +45,6 @@ my %short2medium = (
 
 sub long       { $short2long{$_[1]}   || '' }
 sub medium     { $short2medium{$_[1]} || '' }
-sub all_shorts { [ keys %short2long ] }
+sub all_shorts { [ sort keys %short2long ] }
 
 1;
