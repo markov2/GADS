@@ -487,6 +487,7 @@ sub group_delete($)
     delete $self->_group_index->{$group->id};
     $group->_group_delete;
     $self->component_changed;
+    1;
 }
 
 =head2 \@groups = $users->all_groups;
@@ -512,10 +513,19 @@ sub group($)
 =cut
 
 sub group_add_user($$)
-{   my ($self, $user, $group) = @_;
+{   my ($self, $group, $user) = @_;
     $user->_in_group($group);
     $group->_add_user($user);
     info __x"user {user.username} added to {group.path}",
+        user => $user, group => $group;
+    $self->component_changed;
+}
+
+sub group_remove_user($$)
+{   my ($self, $group, $user) = @_;
+    $user->_from_group($group);   # includes recalculate permissions
+    $group->_remove_user($user);
+    info __x"user {user.username} removed from {group.path}",
         user => $user, group => $group;
     $self->component_changed;
 }

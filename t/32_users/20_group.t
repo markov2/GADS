@@ -43,6 +43,10 @@ my $g1d = $groups->group('group1');
 ok defined $g1d, '... addressed first group by name';
 is $g1d, $g1, '... ... is same object';
 
+my $g1f = Linkspace::Group->from_id($g1_id);
+ok defined $g1f, 'Load first from database';
+isa_ok $g1f, 'Linkspace::Group', '...';
+is $g1f->name, 'group1', '... right name';
 
 ### Create second group
 
@@ -98,5 +102,17 @@ is logline, "info: Group $g1_id changed name from 'group1' into 'group1b'",
 
 is logline, "info: Group $g1_id='$path' changed fields: default_read default_write_new name",
     '... logged record change';
+
+#### Delete
+
+ok $groups->group_delete($g1), 'Delete first group';
+ok logline, "info: Group $g1_id='$path' deleted";
+
+ok ! Linkspace::Group->from_id($g1_id), '... disappeard from db';
+my $g2b = Linkspace::Group->from_id($g2->id);
+ok defined $g2b, '... second group still there';
+
+my $all4 = $groups->all_groups;
+cmp_ok scalar @$all4, '==', 1, '... removed from group index';
 
 done_testing;

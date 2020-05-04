@@ -32,36 +32,36 @@ Database aternations needed:
 === Structure of tests
 000-099: old tests
 
-110_util   Linkspace::Util
-130_test
-200_core
+11_util   Linkspace::Util
+13_test
+20_core
    config
    schema
    session
    Linkspace
    db_table
-300_site
+30_site
    site
    document
-400_sheet
-410_users
+40_sheet
+41_users
    user
    groups
    permissions
-420_columns
-430_layout
+42_columns
+43_layout
    ::Filter
    ::Filter::DisplayFields
-440_data
+44_data
    page
-450_views
-460_graphs
+45_views
+46_graphs
    alerts
-700_dashboard
+70_dashboard
    widget
    timeline
    globe
-800_rest_api
-900_dancer2
+80_rest_api
+90_dancer2
    audit
 

@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Group;
 
 use Log::Report 'linkspace';
+use Scalar::Util qw/weaken/;
 
 use Linkspace::Permission ();
 
@@ -79,23 +80,43 @@ sub _group_delete
 sub path { my $self = shift; $self->site->path.'/'.$self->name }
 
 #---------------
-=head1 METHODS: Links users
-
-=head2 $user = $group->add_user($which);
-Add a user to the group, either specified as user_id or user object.
+=head1 METHODS: Collection of users
+Users are added and removed via C<<$site->users>> methods.
 =cut
 
-has _users => (
-    is     => 'lazy',
-    bulder => sub { ... },
+### 2020-05-04: columns in GADS::Schema::Result::UserGroup
+# id         user_id    group_id
+
+has _user_index => (
+    is      => 'lazy',
+    builder => sub {
+        my $self  = shift;
+        my $users = $self->site->users;
+        my @uids  = $::db->search(UserGroup => { group_id => $self->id })
+          ->get_column('user_id')->all;
+        index_by_id(map $users->user($_), @uids);
+    },
 );
 
 sub _add_user($)
 {   my ($self, $user) = @_;
-    $self->_users->{$user->id} = $user;
+    $self->_user_index->{$user->id} = $user;
     weaken $self->_users->{$user->id};
+    $::db->create(UserGroup => { group_id => $self->id, user_id => $user->id });
     $user;
 }
+
+sub _remove_user($)
+{   my ($self, $user) = @_;
+    $::db->delete(UserGroup => { group_id => $self->id, user_id => $user->id });
+    delete $self->_user_index->{$user->id};
+}
+
+=head2 \@users = $group->users;
+Returns the user (objects), link to this group sorted by 'value' (full name).
+=cut
+
+sub users() { [ sort { $a->value cmp $b->value } values %{$_[0]->_user_index} ] }
 
 #---------------
 =head1 METHODS: Permissions
