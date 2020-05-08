@@ -447,16 +447,15 @@ sub match
 #---------------------
 =head1 METHODS: Manage groups
 
-=head2 my $gid = $class->group_create($insert);
+=head2 my $gid = $groups->group_create($insert);
 There are (probably) only very few groups, so they all get instantiated.
 =cut
 
 has _group_index => (
-    is      => 'lazy',
-    builder => sub {
-        my $site = shift->site;
-        index_by_id(Linkspace::Group->search_objects({site => $site}));
-    },
+    is        => 'lazy',
+    predicate => 1,
+    builder   => sub { index_by_id(Linkspace::Group
+       ->search_objects({site => $_[0]->site})) },
 );
 
 sub group_create(%)
@@ -467,7 +466,7 @@ sub group_create(%)
     $group;
 }
 
-=head2 $users->group_update($which, $update);
+=head2 $groups->group_update($which, $update);
 =cut
 
 sub group_update($$)
@@ -478,7 +477,7 @@ sub group_update($$)
     $group;
 }
 
-=head2 $users->group_delete($which);
+=head2 groupsusers->group_delete($which);
 =cut
 
 sub group_delete($)
@@ -490,12 +489,12 @@ sub group_delete($)
     1;
 }
 
-=head2 \@groups = $users->all_groups;
+=head2 \@groups = $groups->all_groups;
 =cut
 
 sub all_groups { [ sort { $a->name cmp $b->name } values %{$_[0]->_group_index} ] }
 
-=head2 my $group = $site->group($which);
+=head2 my $group = $groups->group($which);
 Returns a L<Linkspace::Group>.  Use C<id> or a C<name>.  When a group object is
 passed, it is simply returned unchanged.
 =cut
@@ -509,25 +508,30 @@ sub group($)
     : first { $_->name eq $which } values %$index;
 }
 
-=head2 my $users->group_add_user($group, $user);
+=head2 $groups->group_add_user($group, $user);
 =cut
 
 sub group_add_user($$)
 {   my ($self, $group, $user) = @_;
-    $user->_in_group($group);
+    $user->_add_group($group);
     $group->_add_user($user);
     info __x"user {user.username} added to {group.path}",
         user => $user, group => $group;
     $self->component_changed;
+    $self;
 }
+
+=head2 $groups->group_remove_user($group, $user);
+=cut
 
 sub group_remove_user($$)
 {   my ($self, $group, $user) = @_;
-    $user->_from_group($group);   # includes recalculate permissions
+    $user->_remove_group($group);   # includes recalculate permissions
     $group->_remove_user($user);
     info __x"user {user.username} removed from {group.path}",
         user => $user, group => $group;
     $self->component_changed;
+    $self;
 }
 
 #---------------------

@@ -15,8 +15,11 @@ use Linkspace;
 
 our @EXPORT = qw/
    logline logs logs_purge
-   test_site test_session
-   make_site make_user make_sheet
+   test_session
+   make_site    test_site
+   make_user    test_user
+   make_group   test_group
+   make_sheet
 /;
 
 our $guard;  # visible for guard test only
@@ -67,7 +70,7 @@ END { warn "untested log: $_\n" for @loglines }
 
 ### Some objects
 
-my ($test_site, $test_user);
+my ($test_site, $test_user, $test_group);
 
 sub make_site($@)
 {   my ($seqnr, %args) = @_;
@@ -88,7 +91,7 @@ sub test_site(@) { $test_site ||= make_site '1', @_ }
 sub make_user($@)
 {   my ($seqnr, %args) = @_;
     my $site = $args{site} || $::session->site;
-    my $postfix = $seqnr==1 ? '' : "_$seqnr";
+    my $postfix = $seqnr==1 ? '' : $seqnr;
 
     my $user = $site->users->user_create({
         email     => "john$postfix\@example.com",
@@ -101,8 +104,19 @@ sub make_user($@)
 
     $user;
 }
-sub test_user(@) { $test_user || make_user '1', @_ }
+sub test_user(@) { $test_user ||= make_user '1', @_ }
 
+sub make_group($@)
+{   my ($seqnr, %args) = @_;
+    my $site  = $args{site} || $::session->site;
+    my $group = $site->groups->group_create({name => "group$seqnr"});
+
+    is logline, "info: Group created ${\$group->id}: ${\$site->path}/group$seqnr",
+        "created group ${\$group->id}, ".$group->path;
+
+    $group;
+}
+sub test_group(@) { $test_group ||= make_group '1', @_ }
 
 sub test_session()
 {   # user is created in active site, switch from default to test-site first

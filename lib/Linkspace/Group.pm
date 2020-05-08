@@ -20,7 +20,9 @@ package Linkspace::Group;
 
 use Log::Report 'linkspace';
 use Scalar::Util qw/weaken/;
+use Scalar::Util qw/blessed/;
 
+use Linkspace::Util  qw/index_by_id/;
 use Linkspace::Permission ();
 
 use Moo;
@@ -89,6 +91,7 @@ Users are added and removed via C<<$site->users>> methods.
 
 has _user_index => (
     is      => 'lazy',
+    predicate => 1,
     builder => sub {
         my $self  = shift;
         my $users = $self->site->users;
@@ -101,7 +104,7 @@ has _user_index => (
 sub _add_user($)
 {   my ($self, $user) = @_;
     $self->_user_index->{$user->id} = $user;
-    weaken $self->_users->{$user->id};
+    weaken $self->_user_index->{$user->id};
     $::db->create(UserGroup => { group_id => $self->id, user_id => $user->id });
     $user;
 }
@@ -117,6 +120,19 @@ Returns the user (objects), link to this group sorted by 'value' (full name).
 =cut
 
 sub users() { [ sort { $a->value cmp $b->value } values %{$_[0]->_user_index} ] }
+
+=head2 $group->has_user($which);
+Returns true when the user is in the group.  The user can be specified as
+object or id.
+=cut
+
+sub has_user($)
+{   my ($self, $which) = @_;
+    my $user_id = blessed $which ? $which->id : $which;
+        $self->_has_user_index
+      ? exists $self->_user_index->{$user_id}
+      : defined $::db->get_record(UserGroup => { group_id => $self->id, user_id => $user_id });
+}
 
 #---------------
 =head1 METHODS: Permissions
@@ -140,7 +156,7 @@ sub colid2perms()
     my (%perms, %perms_by_column);
     foreach my $sel ($selected_rs->next)
     {   push @{$perms_by_column{$sel->layout_id}}, $perms{$sel->permission} ||=
-           Linkspace::Permission->new(short => $sel->permission);
+            Linkspace::Permission->new(short => $sel->permission);
     }
     \%perms_by_column;
 }

@@ -36,6 +36,7 @@ our @EXPORT_OK = qw/
 use DateTime::Format::ISO8601   ();
 use DateTime::Format::DateManip ();
 
+use Scalar::Util  qw(weaken);
 use List::Util    qw(first);
 use File::Glob    qw(bsd_glob);
 
@@ -75,7 +76,9 @@ speed-up access to objects by id reference.
 =cut
 
 sub index_by_id(@)
-{   +{ map +($_->id => $_), (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_) };
+{   my %index = map +($_->id => $_), (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_);
+    weaken $index{$_} for keys %index;
+    \%index;
 }
 
 =head2 my $dt = iso2datetime $string;

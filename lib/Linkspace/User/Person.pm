@@ -8,8 +8,10 @@ use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::DB::Table', 'Linkspace::User';
 
 use Log::Report 'linkspace';
-use Scalar::Util qw(blessed);
-use JSON         'decode_json';
+use Scalar::Util qw/blessed weaken/;
+use JSON         qw/decode_json/;
+
+use Linkspace::Util qw/index_by_id/;
 
 sub db_table { 'User' }
 
@@ -238,46 +240,60 @@ group_id or object.
 =cut
 
 has _in_group => (
-    is      => 'lazy',
-    builder => sub { +{ map +($_->group_id => $_), $_[0]->_record->user_groups} },
+    is        => 'lazy',
+    predicate => 1,
+    builder   => sub {
+        my $self = shift;
+        my $groups = $self->site->groups;
+        my @gids   = $::db->search(UserGroup => { user_id => $self->id })
+          ->get_column('group_id')->all;
+        index_by_id(map $groups->group($_), @gids);
+    },
 );
 
 sub is_in_group($)
 {   my ($self, $which) = @_;
     my $group_id = blessed $which ? $which->id : $which;
-    $self->_in_group->{$which};
+    exists $self->_in_group->{$group_id};
+}
+
+sub _add_group($)
+{   my ($self, $group) = @_;
+    my $index = $self->_in_group;
+    $index->{$group->id} = $group;
+    weaken $index->{$group->id};
+    $self;
+}
+
+sub _remove_group($)
+{   my ($self, $group) = @_;
+    my $gid = $group->id;
+    delete $self->_in_group->{$gid} if $self->_has_in_group;
+    $::db->delete(UserGroup => {user_id => $self->id, group_id => $gid});
 }
 
 =head2 \@group = $user->groups;
 Returns group records.
 =cut
 
-sub groups { [ map $_->group, values %{$_[0]->_in_group} ] }
+sub groups { [ sort {$a->name cmp $b->name} values %{$_[0]->_in_group} ] }
 
 # $user->_set_group_ids(\@group_ids);
 sub _set_group_ids
 {   my ($self, $group_ids) = @_;
     defined $group_ids or return;
 
-    my $in_group = $self->_in_group;
-    my $is_admin = $self->is_admin;
+    my $in_group   = $self->_in_group;
+    my %old_groups = map +($_ => $in_group->{$_}), keys %$in_group;
+    my $groups     = $self->site->groups;
 
-    foreach my $g (@$group_ids)
-    {   next if $is_admin || $in_group->{$g};
-        $self->find_or_create_related(user_groups => { group_id => $g });
+    foreach my $gid (@$group_ids)
+    {   next if delete $old_groups{$gid};
+        $groups->group_add_user($groups->group($gid), $self);
     }
 
-    # Delete any groups that no longer exist
-    my @has_group_ids = map $_->id,
-        grep $is_admin || $in_group->{$_->id},
-            @{$self->site->groups->all_groups};
-
-    #XXX this is too complex
-    my %search;
-    $search{group_id} = { -not_in => @$group_ids } if @$group_ids;
-    $self->_record->search_related(user_groups => \%search)
-        ->search({ group_id => \@has_group_ids })
-        ->delete;
+    $groups->group_remove_user($_, $self) for values %old_groups;
+    $self;
 }
 
 #-----------------------

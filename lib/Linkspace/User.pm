@@ -67,10 +67,10 @@ sub is_admin { 0 }
 #XXX Not sure whether this needs to be generic, but might simplify code.
 sub groups { () }
 
-=head2 my $has = $user->has_group($group_id);
+=head2 my $has = $user->is_in_group($which);
 =cut
 
-sub has_group($) { 1 }
+sub is_in_group($) { 0 }
 
 #-----------------
 =head1 METHODS: Other
@@ -95,11 +95,9 @@ sub local2dt($)
 }
 
 =head2 my $string = $user->dt2local($dt, [$format, [%options]]);
-
 Format some L<DateTime> object to the locale format (default the user's
 prefered C<date_pattern>).  The boolean option C<include_time> will add
 hours and minutes (not seconds) to the display.
-
 =cut
 
 sub dt2local($;$%)
