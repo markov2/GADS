@@ -135,7 +135,7 @@ sub has_user($)
 }
 
 #---------------
-=head1 METHODS: Permissions
+=head1 METHODS: Giving permission to sheets
 
 =head2 \@shorts = $group->default_permissions;
 =cut

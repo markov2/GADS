@@ -113,7 +113,7 @@ sub _user_update($)
         view_limits_ids => delete $update->{view_limits_ids},
     );
 
-    $self->update($update);
+    $self->update($update) if keys %$update;
     $self->_update_relations(@relations);   
     $self;
 }
@@ -121,15 +121,8 @@ sub _user_update($)
 sub _update_relations(%)
 {   my ($self, %args) = @_;
 
-    $self->_set_group_ids($args{group_ids});
-
-    if(my $perms = $args{permissions})
-    {   $::session->user->is_admin
-            or error __"You do not have permission to set global user permissions";
-
-        # Permissions are still names here.
-        $self->_set_permissions(@$perms);
-    }
+    $self->_set_group_ids($args{group_ids})
+         ->_set_permissions($args{permissions});
 
     if(my $view_limits = $args{view_limits_ids})
     {   my @view_limits = grep /\S/,
@@ -389,13 +382,96 @@ sub graph_is_selected($)
 }
 
 #-----------------------
-=head1 METHODS: Permissions
-The user's permissions are heavily cached, to make it perform.
-
+=head1 METHODS: Global permissions
+In the user object experience, all permissions are handle by name only.  The
+L<Linkspace::Site::Users> object manages the permission names.
 =cut
 
-# Inherited
+### 2020-05-08: columns in GADS::Schema::Result::UserPermission
+# id            user_id       permission_id
+
+my %change_by_admin_only = map +($_ => 1), qw/useradmin audit superadmin/;
+
+has _permissions => (
+    is        => 'lazy',
+    predicate => 1,
+    builder   => sub {
+        my $self  = shift;
+        my $users = $self->site->users;
+        my $perm_ids = $::db->search(UserPermission => { user_id => $self->id })
+           ->get_column('permission_id');
+        +{ map +($users->_global_permid2name($_) => 1), $perm_ids->all };
+    },
+);
+
+=head2 my $has = $user->has_permission($perm);
+Check whether the user has a permission (by name).
+
+=head2 my $is_admin = $user->is_admin;
+Short for C<<$user->has_permission('superadmin')>>.
+=cut
+
+sub has_permission($) { $_[0]->_permissions->{$_[1]} }
 sub is_admin { $_[0]->has_permission('superadmin') }
+
+
+=head2 my $perm_id = $user->add_permission($name);
+=cut
+
+sub add_permission($)
+{   my ($self, $perm) = @_;
+    my $users   = $self->site->users;
+    my $perm_id = $users->_global_perm2id($perm) or panic;
+
+    ! $change_by_admin_only{$_} || $::session->user->is_admin
+        or error __"You do not have permission to set global user permissions";
+
+    $::db->create(UserPermission => {user_id => $self->id, permission_id => $perm_id});
+    $self->_permissions->{$perm} = 1 if $self->_has_permissions;
+
+    $users->component_changed;
+    info __x"User {user.path} add permission {perm}", user => $self, perm => $perm;
+    $perm_id;
+}
+
+
+=head2 my $perm_id = $user->remove_permission($name);
+Remove a permission for this user.
+=cut
+
+sub remove_permission($)
+{   my ($self, $perm) = @_;
+    my $users   = $self->site->users;
+    my $perm_id = $users->_global_perm2id($perm) or panic;
+
+    ! $change_by_admin_only{$_} || $::session->user->is_admin
+        or error __"You do not have permission to remove global user permissions";
+
+    $::db->delete(UserPermission => {user_id => $self->id, permission_id => $perm_id});
+    delete $self->_permissions->{$perm} if $self->_has_permissions;
+
+    $users->component_changed;
+    info __x"User {user.path} remove permission {perm}", user => $self, perm => $perm;
+    $perm_id;
+}
+
+# Access via user_create and user_update
+sub _set_permissions
+{   my ($self, $perms) = @_;
+    $perms or return;
+
+    my %old_perms = %{$self->permissions};
+
+    delete $old_perms{$_} || $self->add_permission($_)
+        for @$perms;
+
+    $self->remove_permission($_) for keys %old_perms;
+    $self;
+}
+
+#-----------------------
+=head1 METHODS: Sheet permissions
+The user's permissions are heavily cached, to make it perform.
 
 
 =head2 \%h = $user->sheet_permissions($sheet);
@@ -429,6 +505,10 @@ has _sheet_perms => (
 );
 
 sub sheet_permissions($) { $_[0]->_sheet_perms->{$_[1]->id} }
+
+#-----------------------
+=head1 METHODS: Column permissions
+The user's permissions are heavily cached, to make it perform.
 
 =head2 \%perm = $user->column_permissions($which);
 Returns the permissions this user has for the columns.
@@ -475,40 +555,6 @@ sub can_access_column($$)
 {   my ($self, $column, $perm) = @_;
        $self->_col_perm->{$column->id}{$perm}
     || $self->_sheet_perms->{$column->sheet->id}{$perm};
-}
-
-=head2 my $has = $user->has_permission($perm);
-Check whether the user has a permission (by name).
-=cut
-
-has _permissions => (
-    is      => 'lazy',
-    builder => sub {
-        my $self = shift;
-        my %all = map +($_->id => $_->name), @{$self->all_permissions};
-         +{ map +($all{$_->permission_id} => 1), $self->_record->user_permissions};
-    },
-);
-
-sub has_permission($) { $_[0]->_permissions->{$_[1]} }
-
-sub _set_permissions
-{   my ($self, @permissions) = @_;
-
-    my %want_perms = map +($_ => 1), @permissions;
-    my %perm2id  = map +($_->name => $_->id), @{$self->all_permissions};
-
-    #XXX why limited to these three?
-    foreach my $perm (qw/useradmin audit superadmin/)
-    {
-        my $which = { permission_id => $perm2id{$perm} };
-        if($want_perms{$perm})
-        {   $self->_record->find_or_create_related(user_permissions => $which);
-        }
-        else
-        {   $self->_record->search_related(user_permissions => $which)->delete;
-        }
-    }
 }
 
 #---------------------------

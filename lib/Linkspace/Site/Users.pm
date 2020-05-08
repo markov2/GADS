@@ -535,14 +535,44 @@ sub group_remove_user($$)
 }
 
 #---------------------
-=head1 METHODS: Permissions
+=head1 METHODS: Global user permissions
+Manage the permissions which a user can have to perform administrative
+actions. This is a very limited list, like 'superadmin'.
 =cut
 
-has all_permissions => (
+# These are static: will not change between reboots.
+### 2020-05-08: columns in GADS::Schema::Result::Permission
+# id  name  description  order
+
+has _global_permissions => (
     is      => 'lazy',
     builder => sub { [ $::db->search(Permission => {}, { order_by => 'order' })->all ] },
 );
 
+has _global_perms_by_id => (
+    is      => 'lazy',
+    builder => sub
+    {  my $perms = $_[0]->_global_permissions;
+       +{ map +($_->id => $_->name), @$perms };
+    },
+);
+
+has _global_perms_by_name => (
+    is      => 'lazy',
+    builder => sub
+    {  my $perms = $_[0]->_global_permissions;
+       +{ map +($_->name => $_->id), @$perms };
+    },
+);
+
+### Access via $user->add_permission and ->remove_permisison
+sub _global_perm2id { $_[0]->_global_perms_by_name->{$_[1]} }
+sub _global_permid2name { $_[0]->_global_perms_by_id->{$_[1]} }
+
+#XXX used?   Returns Permission table records, with id/name
+sub global_permissions { $_[0]->_global_permissions }
+
+#XXX Other permissions
 sub permission_shorts { Linkspace::Permission->all_short }
 
 #---------------------
