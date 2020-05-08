@@ -238,9 +238,10 @@ has _in_group => (
     builder   => sub {
         my $self = shift;
         my $groups = $self->site->groups;
-        my @gids   = $::db->search(UserGroup => { user_id => $self->id })
-          ->get_column('group_id')->all;
-        index_by_id(map $groups->group($_), @gids);
+        my $gids   = $::db->search(UserGroup => { user_id => $self->id })->get_column('group_id');
+        my $index = index_by_id(map $groups->group($_), $gids->all);
+        weaken $_ for values %$index;
+        $index;
     },
 );
 
@@ -274,7 +275,7 @@ sub groups { [ sort {$a->name cmp $b->name} values %{$_[0]->_in_group} ] }
 # $user->_set_group_ids(\@group_ids);
 sub _set_group_ids
 {   my ($self, $group_ids) = @_;
-    defined $group_ids or return;
+    defined $group_ids or return $self;
 
     my $in_group   = $self->_in_group;
     my %old_groups = map +($_ => $in_group->{$_}), keys %$in_group;
@@ -397,9 +398,10 @@ has _permissions => (
     predicate => 1,
     builder   => sub {
         my $self  = shift;
-        my $users = $self->site->users;
         my $perm_ids = $::db->search(UserPermission => { user_id => $self->id })
            ->get_column('permission_id');
+
+        my $users = $self->site->users;
         +{ map +($users->_global_permid2name($_) => 1), $perm_ids->all };
     },
 );
@@ -409,28 +411,35 @@ Check whether the user has a permission (by name).
 
 =head2 my $is_admin = $user->is_admin;
 Short for C<<$user->has_permission('superadmin')>>.
+
+=head2 \@perms = $user->permssions;
+Sorted permissions.
 =cut
 
 sub has_permission($) { $_[0]->_permissions->{$_[1]} }
 sub is_admin { $_[0]->has_permission('superadmin') }
-
+sub permissions { [ sort keys %{$_[0]->_permissions} ] }
 
 =head2 my $perm_id = $user->add_permission($name);
 =cut
 
 sub add_permission($)
 {   my ($self, $perm) = @_;
+    ! $change_by_admin_only{$perm} || $::session->user->is_admin
+        or error __"You do not have permission to set global user permissions";
+
     my $users   = $self->site->users;
     my $perm_id = $users->_global_perm2id($perm) or panic;
 
-    ! $change_by_admin_only{$_} || $::session->user->is_admin
-        or error __"You do not have permission to set global user permissions";
+    if($self->_has_permissions)
+    {   return $perm_id if $self->_permissions->{$perm};
+        $self->_permissions->{$perm} = 1
+    }
 
     $::db->create(UserPermission => {user_id => $self->id, permission_id => $perm_id});
-    $self->_permissions->{$perm} = 1 if $self->_has_permissions;
+    info __x"User {user.path} add permission '{perm}'", user => $self, perm => $perm;
 
     $users->component_changed;
-    info __x"User {user.path} add permission {perm}", user => $self, perm => $perm;
     $perm_id;
 }
 
@@ -441,17 +450,19 @@ Remove a permission for this user.
 
 sub remove_permission($)
 {   my ($self, $perm) = @_;
+    ! $change_by_admin_only{$perm} || $::session->user->is_admin
+        or error __"You do not have permission to remove global user permissions";
+
+    delete $self->_permissions->{$perm} or return
+        if $self->_has_permissions;
+
     my $users   = $self->site->users;
     my $perm_id = $users->_global_perm2id($perm) or panic;
 
-    ! $change_by_admin_only{$_} || $::session->user->is_admin
-        or error __"You do not have permission to remove global user permissions";
-
     $::db->delete(UserPermission => {user_id => $self->id, permission_id => $perm_id});
-    delete $self->_permissions->{$perm} if $self->_has_permissions;
+    info __x"User {user.path} remove permission '{perm}'", user => $self, perm => $perm;
 
     $users->component_changed;
-    info __x"User {user.path} remove permission {perm}", user => $self, perm => $perm;
     $perm_id;
 }
 
@@ -460,7 +471,7 @@ sub _set_permissions
 {   my ($self, $perms) = @_;
     $perms or return;
 
-    my %old_perms = %{$self->permissions};
+    my %old_perms = %{$self->_permissions};
 
     delete $old_perms{$_} || $self->add_permission($_)
         for @$perms;

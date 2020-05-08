@@ -95,9 +95,10 @@ has _user_index => (
     builder => sub {
         my $self  = shift;
         my $users = $self->site->users;
-        my @uids  = $::db->search(UserGroup => { group_id => $self->id })
-          ->get_column('user_id')->all;
-        index_by_id(map $users->user($_), @uids);
+        my $uids  = $::db->search(UserGroup => { group_id => $self->id })->get_column('user_id');
+        my $index = index_by_id(map $users->user($_), $uids->all);
+        weaken $_ for values %$index;
+        $index;
     },
 );
 
@@ -162,5 +163,3 @@ sub colid2perms()
 }
 
 1;
-
-

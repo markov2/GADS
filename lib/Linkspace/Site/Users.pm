@@ -572,7 +572,11 @@ sub _global_permid2name { $_[0]->_global_perms_by_id->{$_[1]} }
 #XXX used?   Returns Permission table records, with id/name
 sub global_permissions { $_[0]->_global_permissions }
 
-#XXX Other permissions
+#---------------------
+=head1 METHODS: Access permissions
+Access permissions, like 'read' and 'write' are organized per group.
+=cut
+
 sub permission_shorts { Linkspace::Permission->all_short }
 
 #---------------------

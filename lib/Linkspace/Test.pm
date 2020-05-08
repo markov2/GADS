@@ -92,19 +92,29 @@ sub make_user($@)
 {   my ($seqnr, %args) = @_;
     my $site = $args{site} || $::session->site;
     my $postfix = $seqnr==1 ? '' : $seqnr;
+    my $perms   = delete $args{permissions};
 
     my $user = $site->users->user_create({
-        email     => "john$postfix\@example.com",
-        firstname => "John$postfix",
-        surname   => "Doe$postfix",
+        email       => "john$postfix\@example.com",
+        firstname   => "John$postfix",
+        surname     => "Doe$postfix",
+        permissions => $perms,
     });
 
     is logline, "info: User created ${\$user->id}: ${\$site->path}/john$postfix\@example.com",
         "created user ${\$user->id}, ".$user->path;
 
+    is logline, "info: User ${\$user->path} add permission '$_'", "... perm $_"
+        for @{$perms || []};
+
     $user;
 }
-sub test_user(@) { $test_user ||= make_user '1', @_ }
+
+sub test_user(@)
+{   $test_user ||= make_user '1',
+        permissions => ['superadmin'],
+        @_;
+}
 
 sub make_group($@)
 {   my ($seqnr, %args) = @_;

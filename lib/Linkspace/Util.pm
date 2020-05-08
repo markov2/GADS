@@ -73,12 +73,13 @@ sub is_valid_email($)
 =head2 my $index = index_by_id \@objects;
 Create a HASH which maps ids to their objects.  This is used very ofter to
 speed-up access to objects by id reference.
+
+B<WARNING>: When you produce an index which contains foreign objects, do
+not forget to weaken those relations.  Otherwise, you may leak in a loop.
 =cut
 
 sub index_by_id(@)
-{   my %index = map +($_->id => $_), (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_);
-    weaken $index{$_} for keys %index;
-    \%index;
+{   +{ map +($_->id => $_), (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_) };
 }
 
 =head2 my $dt = iso2datetime $string;

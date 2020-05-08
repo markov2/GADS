@@ -10,7 +10,6 @@ migrate {
         [sub {$schema->storage->dbh}, { quote_names => 1 }]
     );
 
-    # Rename all delete_noneed_approval permissions to purge
     foreach my $layout ($schema->resultset('Layout')->search({
         display_field => { '!=' => undef },
     })->all)

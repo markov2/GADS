@@ -61,6 +61,7 @@ sub user_login
     my $active = $self->user;
     $active->is_admin
         or error __x"Only an admin can login someone";
+    $self->{_prev_user} = $active;
 
     $self->user($user);
     $self->audit(
@@ -81,6 +82,7 @@ sub user_login
 sub user_logout
 {   my $self = shift;
     $self->audit('Logging-out', type => 'logout');
+    $self->user($self->{_prev_user});
 }
 
 =head2 $session->audit($description, @fields);
