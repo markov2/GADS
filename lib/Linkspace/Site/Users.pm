@@ -166,7 +166,7 @@ sub user_create
         if $self->user_by_name($email);
 
     my $victim = Linkspace::User::Person
-        ->user_validate($values)
+        ->_user_validate($values)
         ->_user_create($values);
 
     $self->component_changed;
@@ -182,7 +182,7 @@ sub user_update
 
     my $victim   = blessed $which ? $which : $self->user($which);
     $victim->isa('Linkspace::User::Person') or panic 'Only update persons';
-    $victim->user_validate($update);
+    $victim->_user_validate($update);
 
     if(my $new_email = $update->{email})
     {   my $old_email = $victim->email;
@@ -512,11 +512,16 @@ sub group($)
 =cut
 
 sub group_add_user($$)
-{   my ($self, $group, $user) = @_;
-    $user->_add_group($group);
-    $group->_add_user($user);
+{   my ($self, $group, $victim) = @_;
+    my $user = $::session->user;   
+    $user->is_admin || $user->is_in_group($group)
+        or error __x"not allowed to add {user.username} to {group.path}",
+              user => $victim, group => $group;
+
+    $victim->_add_group($group);
+    $group->_add_user($victim);
     info __x"user {user.username} added to {group.path}",
-        user => $user, group => $group;
+        user => $victim, group => $group;
     $self->component_changed;
     $self;
 }

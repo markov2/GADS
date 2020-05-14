@@ -255,9 +255,16 @@ sub parse_date
     $::session->user->local2dt($value);
 }
 
+sub remove_all_permissions() { ... }  #XXX for testing
+sub set_permissions($$)
+{   my ($self, $group, $perms) = @_;
+    ...;
+}
+
 sub permissions_by_group_export()
 {   my $self = shift;
     my %permissions;
+#XXX
     push @{$permissions{$_->group_id}}, $_->permission
         for $self->_access_groups;
 
@@ -556,18 +563,6 @@ sub column_perms_update($)
 
             # Filter cache
             $filter->delete;
-
-            # Alert cache
-            $::db->delete(AlertCache => {
-                layout_id => $self->id,
-                view_id   => $filter->view_id,
-            });
-
-            # Column in the view
-            $::db->delete(ViewLayout => {
-                layout_id => $self->id,
-                view_id   => $filter->view_id,
-            });
 
             # And the JSON filter itself
             $view->filter_remove_column($self);

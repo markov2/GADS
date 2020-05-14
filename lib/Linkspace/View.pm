@@ -31,16 +31,19 @@ use MooX::Types::MooseLike::Base qw(:all);
 extends 'Linkspace::DB::Table';
 
 sub db_table { 'View' }
+
 sub db_field_rename { +{
-    filter      => 'filter_json',
-    instance_id => 'sheet_id',
-    global      => 'is_global',
+    filter  => 'filter_json',
+    global  => 'is_global',
+    user_id => 'owner_id',
 } };
 
 ### 2020-04-16: columns in GADS::Schema::Result::View
 # id             user_id        group_id
 # instance_id    filter         is_admin
 # name           global         is_limit_extra
+
+# $view->is_admin means that only $sheet->owner can see it
 
 use namespace::clean;
 
@@ -56,114 +59,126 @@ the view on the data results in a Page.
 
 =head1 METHODS: constructors
 
-=head2 my $view = $class->new(%options);
 =cut
 
-sub BUILD
-{   my ($self, $args) = @_;
-    my $sheet = $args->{sheet} or panic;
-    $args->{user_can_layout} = $sheet->user_can('layout');
+sub _view_validate($)
+{   my ($thing, $changes) = @_;
+
+    if(exists $changes->{is_global})
+    {   if($changes->{is_global})
+        {   delete $changes->{owner};
+            delete $changes->{owner_id};
+        }
+        else
+        {   my $user = $::session->user;
+            $changes->{owner} ||= $user unless $changes->{owner_id};
+            $user->is_admin || ($changes->{owner_id} || $changes->{owner}->id)==$user->id
+                 or error __x"You cannot create a view for someone else";
+        }
+    }
+
+    $thing;
 }
 
-=head2 my $view = $class->from_id($view_id, %options);
-Reinstantiate an existing view, based on its C<$view_id>.  The
-C<%options> are passed to the constructor.
+sub _view_create($%)
+{   my ($class, $insert, %args) = @_;
+
+    my @relations = ...
+    my $self  = $class->create($insert, %args);
+    $self->_update_relations(@relations);
+}
+
+sub _view_delete
+{   my $self = shift;
+    my $view_ref = { view_id => $self->id };
+    $::db->delete($_ => $view_ref)
+        for qw/Filter ViewGroup ViewLimit ViewLayout Sort AlertCache Alert/;
+
+    $self->delete;
+}
+
+#---------------
+=head1 METHODS: Attributes
+
+=head2 my $user = $view->owner;
 =cut
 
-sub from_id($%)
-{   my ($class, $view_id) = (shift, shift);
-
-    my $record = $::db->search(View => {
-        'me.id' => $self->id
-    },{ 
-        prefetch => ['sorts', 'alerts', 'view_groups'],
-        order_by => 'sorts.order', # sorts in correct order to apply
-    })->first;
-
-	$class->new(%$record);
-}
+has owner => (
+    is      => 'lazy',
+    weakref => 1,
+    builder => sub { $_[0]->site->users->user($_[0]->owner_id) },
+);
 
 has filter => (
-    is      => 'rw',
-    lazy    => 1,
-    coerce  => sub {
-        my $value = shift;
-        if (ref $value ne 'GADS::Filter')
-        {   my $format = ref $value eq 'HASH' ? 'as_hash' : 'as_json';
-            $value = GADS::Filter->new($format => $value);
-        }
-        $value;
-    },
+    is      => 'lazy',
+    builder => sub { Linkspace::Filter->from_json($_[0]->filter_json) },
+);
+
+#---------------
+=head1 METHODS: Grouping columns
+Implements a kind of "group by" function from SQL: reduce based on column
+equal values.
+=cut
+
+### Object definitions below
+
+has _view_groups => (
+    is      => 'lazy',
     builder => sub {
-        my $self = shift;
-        my $filter = $self->_view # Don't trigger changed() in Filter
-            ? GADS::Filter->new(layout => $self->layout, as_json => $self->_view->filter)
-            : GADS::Filter->new(layout => $self->layout);
+        Linkspace::View::Grouping->search_objects({ view => $self }, view => $self);
     },
 );
 
-has sorts => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => sub { $_[0]->_get_sorts || [] },
-);
+sub groupings { [ sort {$a->order <=> $b->order} $_[0]->_view_groups ] }
+sub grouping_column_ids { [ grep $_->layout_id, @{$_[0]->groupings} ] }
 
-has groups => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => sub { [ $_[0]->view_groups->all ] },
-);
+#XXX is_grouped?  has_groups?  is_grouped_view?  does_column_grouping?
+sub is_group { !! keys %{$_[0]->_view_groups} }
 
-#XXX see ::Records::current_group_id()
-sub first_column_id()
-{    my $groups = $self->groups;
+#XXX???
+# The current field that is being grouped by in the table view, where a view
+# has more than one group and they can be drilled down into
+
+sub first_grouping_column_id()
+{    my $groups = $self->groupings;
      @$groups ? $groups->[0]->layout_id : undef;
 }
 
-has alert => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        my $user_id = $::session->user->id;
-        first { $user_id == $_->user_id } $self->alerts;
-    }
+#---------------
+=head1 METHODS: Manage Alerts
+
+=head2 my $alert = $view->alert($user?);
+Returns the single alert object for the user.
+=cut
+
+sub alert
+{   my ($self, $which) = @_;
+    $which ||= $::session->user;
+    my $user_id = blessed $which ? $which->id : $which;
+    first { $user_id == $_->id } @{$self->_alerts};
 );
 
-has has_alerts => (
-    is      => 'lazy',
-    isa     => Bool,
-    builder => sub { $_[0]->alerts->count ? 1 : 0 },
+=head2 $has = $view->has_alerts;
+=cut
+
+has _alerts => (
 );
 
-has column_ids => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { [ map $_->layout_id, $self->view_layouts ] },
-);
+sub has_alerts { scalar @{$_[0]->_alerts} }
+
+#--------------
+=head2 METHODS: Manage Columns
+=cut
+
+sub column_ids { [ map $_->column_id, @{$self->view_columns} ] }
+
+#--------------
+=head2 METHODS: Manage CURUSER
+=cut
 
 # Whether the view has a variable "CURUSER" condition
-has has_curuser => (
-    is      => 'lazy',
-    isa     => Bool,
-);
+sub has_curuser { my $f = $_[0]->filter; $f && $f->has_curuser }
 
-sub _build_has_curuser
-{   my $self = shift;
-    my $layout = $self->sheet->layout;
-    !! grep {
-        my $col = $layout->column($_->{column_id});
-
-        ($col->type eq 'person' || $col->return_type eq 'string')
-        && $_->{value} && $_->{value} eq '[CURUSER]')
-    } @{$self->filter->filters};
-}
-
-has owner => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { $::linkspace->users->user($_[0]->user_id) },
-);
 
 sub has_access_via_global($)
 {   my ($self, $victim) = @_;
@@ -180,17 +195,17 @@ sub _is_writable($;$)
 #XXX in parallel
 
     if($self->is_admin)
-    {   return 1 if $sheet->user_can(sheet => $victim);
+    {   return 1 if $sheet->user_can(layout => $victim);
     }
     elsif($self->is_global)
-    {   return 1 if !$self->group_id && $sheet->user_can(sheet => $victim);
+    {   return 1 if !$self->group_id && $sheet->user_can(layout => $victim);
         return 1 if  $self->group_id && $sheet->user_can(view_group => $victim);
     }
     elsif($owner_id && $owner_id == $victim->id)
     {   return 1 if $sheet->user_can(view_create => $victim);
     }
     else
-    {   return 1 if $sheet->user_can(sheet => $victim);
+    {   return 1 if $sheet->user_can(layout => $victim);
     }
 
     0;
@@ -201,41 +216,66 @@ sub _sorts($$)
 #TODO move code from write() here
 }
 
-sub view_update
-{   my ($self, %update) = @_;
+sub _view_validate($)
+{   my ($thing, $changes) = @_;
 
-    length $update{name} < 128
+    # XXX Database schema currently restricts length of name. Should be changed
+    # to normal text field at some point
+    exists $changes->{name} && length $changes->{name} < 128
         or error __"View name must be less than 128 characters";
+
 
     my $col_ids = delete $update{column_ids} || [];
     $col_ids    = [ $col_ids ] if ref $col_ids eq 'ARRAY';
 
-    my $sheet   = delete $update{sheet};
-    $update{instance_id} = $sheet->id;
-
-    if($update{global} || $update{is_admin})
-    {   $update{user_id} = undef;
-    }
-    elsif(! $self->user_id && $sheet->user_can('layout'))
-    {   # Preserve owner if editing other user's view
-        $update{user_id} = $::session->user->id
+    if(   (exists $changed->{is_global} && $changed->{is_global})
+       || (exists $changed->{is_admin}  && $changed->{is_admin} ))
+    {   # Refuse owner
+        $changes->{user_id} = undef;
+        delete $changes->{user};
     }
 
-    my $filter = Linkspace::Filter->from_json($update{filter}, view => $self);
-    $update{filter} = $filter->as_json if $filter;
+    if(my $filter = Linkspace::Filter->from_json($changes->{filter}))
+    {   $filter->_filter_validate($layout);
+        $changes->{filter} = $filter;
+    }
+}
 
-    $::session->user->isa('Linkspace::User::Person')
-        or $update{global} = 1;
+sub _view_create
+{   my ($class, $insert, %args) = @_;
+    $insert->{name} or error __"Please enter a name for the view";
 
-    my $guard = $::db->begin_work;
+    $insert->{is_global} = 0 unless exists $insert->{is_global};
+    $insert->{is_admin}  = 0 unless exists $insert->{is_admin};
+    $insert->{owner}   ||= $::session->user unless $insert->{owner_id};
+    $class->_view_validate($insert);
+    $insert->{is_global} = !$insert->{owner} && !$insert->{owner_id};
+
+    $class->create($insert, %args);
+}
+
+sub _view_update
+{   my ($self, $update, %args) = @_;
+
+    # Preserve owner if editing other user's view
+    if(! $self->owner && ! $update->{owner_id} && ! $update->{owner})
+    {   my $user = $::session->user;
+        $update->{owner} = $user if $sheet->user_can(layout => $user);
+    }
+
+    $self->_view_validate($insert);
 
     $self->_update_column_ids($col_ids);
-    $self->_sorts(delete $update{sortfields}, $update{sorttypes});
-    $self->_groups(delete $update{groups});
-    $self->_filter($filter);
+    $self->_set_sorts(delete $update{sortfields}, $update{sorttypes});
+    $self->_set_groupings(delete $update{groups});
 
-    $::db->update(View => $self->id, \%update);
-    $guard->commit;
+    $self->update(View => $self->id, \%update);
+
+    # Update any alert caches for new filter
+    if($update{filter}  && $self->has_alerts)
+    {   my $alert = $self->alert_create({}); #XXX
+        $alert->update_cache;
+    }
 }
 
 sub write
@@ -243,123 +283,56 @@ sub write
 
     my $fatal = $options{no_errors} ? 0 : 1;
 
-    $self->name or error __"Please enter a name for the view";
-
-    # XXX Database schema currently restricts length of name. Should be changed
-    # to normal text field at some point
-    length $self->name < 128
-        or error __"View name must be less than 128 characters";
-
-    my $global   = ! $sheet->user ? 1 : $self->is_global;
-
-    my $vu = {
-        name        => $self->name,
-        filter      => $self->filter->as_json,
-        instance_id => $sheet->id,
-        global      => $global,
-        is_admin    => $self->is_admin,
-        group_id    => $self->group_id,
-    };
-
-    if($global || $self->is_admin)
-    {   $vu->{user_id}  = undef;
-    }
-    elsif(! $self->user_id && $self->user_can('layout'))
-    {   $vu->{user_id} = $::session->user->id;
-    }
-
-    # Get all the columns in the filter. Check whether the user has
-    # access to them.
-    foreach my $filter (@{$self->filter->filters})
-    {   my $col_id = $filter->{column_id};
-        my $col    = $self->column($col_id)
-            or error __x"Field ID {id} does not exist", id => $col_id
-        my $val   = $filter->{value};
-        my $op    = $filter->{operator};
-        my $rtype = $col->return_type;
-        if ($rtype eq 'daterange')
-        {   if ($op eq 'equal' || $op eq 'not_equal')
-            {
-                # expect exact daterange format, e.g. "yyyy-mm-dd to yyyy-mm-dd"
-                $col->validate_search($val, fatal => $fatal, full_only => 1); # Will bork on failure
-            }
-            else
-            {   $col->validate_search($val, fatal => $fatal, single_only => 1); # Will bork on failure
-            }
-        }
-        elsif($op ne 'is_empty' && $op ne 'is_not_empty')
-        {   # 'empty' would normally fail on blank value
-            $col->validate_search($val, fatal => $fatal) # Will bork on failure
-        }
-
-        my $has_value = $val && (ref $val ne 'ARRAY' || @$val);
-        error __x "No value can be entered for empty and not empty operators"
-            if $has_value && ($op eq 'is_empty' || $op eq 'is_not_empty');
-
-        $col->user_can('read')
-             or error __x"Invalid field ID {id} in filter", id => $col->id;
-    }
-
     my $user = $::session->user;
     $self->writable($sheet)
         or error $self->id
             ? __x("User {user_id} does not have access to modify view {id}", user_id => $user->id, id => $self->id)
             : __x("User {user_id} does not have permission to create new views", user_id => $user->id);
 
-    $self->SUPER::update($vu);
+    my %colviews = map +($_ => 1), @{$self->column_ids};
 
-    # Update any alert caches for new filter
-    if ($self->filter->changed && $self->has_alerts)
-    {
-        my $alert = GADS::Alert->new(
-            view_id   => $self->id,
-        );
-        $alert->update_cache;
-    }
-    else {
-        my $rset = $::db->create(View => $vu);
-XXX caller must reinstate full View.
-    }
-
-    my @colviews = @{$self->column_ids};
-
+### 2020-05-10: columns in GADS::Schema::Result::ViewLayout
+# id         layout_id  order      view_id
     my $columns = $sheet->layout->columns_search(user_can_read => 1);
-    foreach my $c (@$columns)
+    foreach my $column (grep $colviews{$_->id}, @$columns)
     {
-        my %item = (view_id => $self->id, layout_id => $c->id);
+        # Column should be in view
+### next if $view->column_monitor($column);
 
-        if (grep $c->id == $_, @colviews)
+        my %item = (view_id => $self->id, layout_id => $column->id);
+        next if $::db->get_record(ViewLayout => \%item)->count;
+
+### my $monitor = $view->column_monitor_create($column, $order?, view => $view);
+        $::db->create(ViewLayout => $item);
+
+#XXX The next block is:  (move to Alerts class)
+#XXX $self->alert_cache_create({column => $column, current_id => $_->current_id})
+#XXX   for $alert->alert_caches;
+
+        # Update alert cache with new column
+# $view->all_alerts
+        my $alerts = $::db->search(View => {
+            'me.id' => $self->id,
+        }, {
+            columns  => [
+                { 'me.id'  => \"MAX(me.id)" },
+                { 'alert_caches.id'  => \"MAX(alert_caches.id)" },
+                { 'alert_caches.current_id'  => \"MAX(alert_caches.current_id)" },
+            ],
+            join     => 'alert_caches',
+            group_by => 'current_id',
+        });
+
+        my @pop;
+        foreach my $alert ($alerts->all)
         {
-            # Column should be in view
-            unless($::db->search(ViewLayout => \%item)->count)
-            {
-                $::db->create(ViewLayout => $item);
-
-                # Update alert cache with new column
-                my $alerts = $::db->search(View => {
-                    'me.id' => $self->id,
-                }, {
-                    columns  => [
-                        { 'me.id'  => \"MAX(me.id)" },
-                        { 'alert_caches.id'  => \"MAX(alert_caches.id)" },
-                        { 'alert_caches.current_id'  => \"MAX(alert_caches.current_id)" },
-                    ],
-                    join     => 'alert_caches',
-                    group_by => 'current_id',
-                });
-
-                my @pop;
-                foreach my $alert ($alerts->all)
-                {
-                    push @pop, map +{
-                        layout_id  => $c->id,
-                        view_id    => $self->id,
-                        current_id => $_->current_id,
-                    }, $alert->alert_caches;
-                }
-                $::db->resultset('AlertCache')->populate(\@pop) if @pop;
-            }
+            push @pop, map +{
+                layout_id  => $column->id,
+                view_id    => $self->id,
+                current_id => $_->current_id,
+            }, $alert->alert_caches;
         }
+        $::db->resultset('AlertCache')->populate(\@pop) if @pop;
     }
 
     # Delete any no longer needed
@@ -430,23 +403,26 @@ sub delete($)
     $view->delete;
 }
 
+#----------------
+=head1 METHODS: Sorting
+
+=head2 \@info = $thing->sort_types;
+=cut
+
+### 2020-05-08: columns in GADS::Schema::Result::Sort
+# id         type       layout_id  order      parent_id  view_id
+#WARNING: no ::DB::Table smart field translations.
+
 sub sort_types
-{
-    [
-        {
-            name        => "asc",
-            description => "Ascending"
-        },
-        {
-            name        => "desc",
-            description => "Descending"
-        },
-        {
-            name        => "random",
-            description => "Random"
-        },
+{   [ { name => 'asc',    description => 'Ascending' },
+      { name => 'desc',   description => 'Descending' },
+      { name => 'random', description => 'Random' },
     ]
 }
+
+has sorts => (
+    is      => 'lazy',
+);
 
 my %standard_fields = (
     -11 => '_id',
@@ -457,31 +433,32 @@ my %standard_fields = (
     -16 => '_serial',
 );
 
-sub _get_sorts
+sub _build_sorts
 {   my $self = shift;
 
-    my $_view = $self->_view or return [];
-
     # Sort order is defined by the database sequential ID of each sort
+    #XXX
+    my $sorts_rs = $::db->search(Sort => {view_id => $self->id},
+      {order_by => 'id'} );
+
     my @sorts;
-    foreach my $sort ($_view->sorts->all)
+    while(my $sort = $sorts_rs->next)
     {
-        # XXX Convert from legacy internal IDs. This can be removed at some
-        # point.
-        my $layout_id = $sort->layout_id;
-        if($layout_id && $layout_id < 0)
-        {   my $layout = $self->layout;
-            my $name = $standard_fields{$layout_id}
-            my $col  = $name && $self->layout->column_by_name_short($name);
-            $sort->update({ layout_id => $col->id }) if $col;
+        #XXX Convert from legacy internal IDs. This can be removed at
+        # some point.  XXX convert to database update script.
+        my $col_id = $sort->layout_id;
+        if($col_id && $col_id < 0)
+        {   my $new_col = $self->column($standard_fields{$col_id});
+            $sort->update({ layout_id => $new_col->id }) if $new_col;
         }
 
+        my $pid = $sort->parent_id;
         push @sorts, +{
             id        => $sort->id,
             type      => $sort->type,
-            layout_id => $layout_id,
-            parent_id => $sort->parent_id,
-            filter_id => $sort->parent_id ? $sort->parent_id.'_'.$layout_id : $layout_id,
+            column_id => $col_id,
+            parent_id => $pid
+            filter_id => $pid ? "${pid}_${col_id}" : $col_id,
         };
     }
     \@sorts;
@@ -489,13 +466,12 @@ sub _get_sorts
 
 sub set_sorts
 {   my $self = shift;
-    $self->_set_sorts_groups('sorts', @_);
+    $self->_set_sorts_groups(sorts => @_);
 }
 
 sub set_groups
 {   my $self = shift;
-    $self->clear_is_group;
-    $self->_set_sorts_groups('groups', @_);
+    $self->_set_sorts_groups(groups => @_);
 }
 
 sub _set_sorts_groups
@@ -551,12 +527,6 @@ sub _set_sorts_groups
     }
 }
 
-has is_group => (
-    is      => 'lazy',
-    isa     => Bool,
-    builder => sub { !! @{$_[0]->groups },
-);
-
 
 =head2 my $page = $view->search(%options)
 Apply the filters, and probably some temporary restrictions.  Returns
@@ -581,5 +551,24 @@ sub filter_remove_column($)
     $self->update({filter => $json});
     $self->filter_json($json);
 }
+
+#====================================
+package Linkspace::View::Grouping;
+
+use Moo;
+extends 'Linkspace::DB::Table';
+
+sub db_table { 'ViewGroup' }
+
+### 2020-05-09: columns in GADS::Schema::Result::ViewGroup
+# id         layout_id  order      parent_id  view_id
+
+has view => (
+    is       => 'ro',
+    weakref  => 1,
+    required => 1,
+);
+
+sub path() { $_[0]->view->path . '/' . $_[0]->SUPER::column($_[0]->short_name) }
 
 1;

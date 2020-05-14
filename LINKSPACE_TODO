@@ -5,6 +5,7 @@ Database issues:
     'current_view' now?
   - User table site_id should be required
   - why only 3 in Permission?   Overkill
+  - View::sorts negative column id translation still needed?
 
   - Move away from Plugin/Auth/Extensible functions.
   - $self->schema->storage->datetime_parser->format_date w.r.t to the

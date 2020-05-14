@@ -191,22 +191,32 @@ has db => (
 =head2 $::linkspace->site_for($host)
 Returns the L<Linkspace::Site> object which defines one running site.  When
 the site is not found, C<undef> is returned.
-
-It is also possible to instantiate sites directly: but then without caching.
 =cut
 
 sub site_for($)
 {   my ($self, $host) = @_;
     $host =~ s/\.$//;
-    my $sites = $self->{L_sites} ||= {};
-    if(my $site = $sites->{lc $host})
+    my $index = $self->{L_sites} ||= {};
+    if(my $site = $index->{lc $host})
     {   return $site unless $site->has_changed('meta');
     }
 
-    $sites->{lc $host} = Linkspace::Site->from_hostname($host);
+    $index->{lc $host} = Linkspace::Site->from_hostname($host);
 }
 
 
+=head2 \@sites = $::linkspace->all_sites;
+Returns a L<Linkspace::Site> object per defined site.
+=cut
+
+sub all_sites()
+{   my $self = shift;
+    my $index = $self->{L_sites} ||= {};
+    $index->{lc $_->hostname} ||= $_
+         for @{Linkspace::Site->search_objects};
+    [ values %$index ];
+}
+    
 =head2 $::linkspace->start_logging(\@dispatchers?);
 Switch to dispatch (error) messages to the configure logging back-end.
 =cut

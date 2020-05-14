@@ -240,7 +240,6 @@ my %superadmin_rights   = map +($_ => 1), qw/layout view_create/;
 # The index contains a HASH of permissions per (user)group_id.
 has _permission_index => (
     is      => 'lazy',
-    isa     => HashRef,
     builder => sub {
         my $self = shift;
         my %perms = map +($_->group_id => $_->permission),
@@ -320,6 +319,13 @@ sub user_can($;$)
     ? 1
     : $user->is_permitted($permission);
 }
+
+=head2 $sheet->is_writable($user?);
+Returns true when the user has 'layout' rights or is admin; simplification
+of C<<$sheet->user_can('layout')>>.
+=cut
+
+sub is_writable(;$) { $_[0]->user_can(layout => $_[1]) }
 
 =head2 my $page = $sheet->get_page(%options);
 Return a L<Linkspace::Page> based on the sheet data.

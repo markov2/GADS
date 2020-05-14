@@ -36,6 +36,11 @@ ok defined $by_id, "Found via site id: $site_id";
 is $by_id->id, $site_id, '... is same site';
 isnt $by_id, $site, '... is different object';
 
+my $by_search = $class->from_search({hostname => { -like => 'test%' }});
+ok defined $by_search, 'Found via hostname match';
+is $by_search->id, $site->id, '... is same site';
+isnt $by_search, $site, '... is different object';
+
 my $by_host = $class->from_hostname('test_host');
 ok defined $by_host, 'Found via site hostname';
 is $by_host->id, $site_id, '... is same site';

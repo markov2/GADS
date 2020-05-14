@@ -75,22 +75,20 @@ foreach my $multivalue (0..1)
         },
     ];
 
-    my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-    $curval_sheet->create_records;
-    my $schema = $curval_sheet->schema;
+    my $curval_sheet = make_sheet '2', with_data => 1;
 
     my $sheet   = t::lib::DataSheet->new(
         data             => $data,
         calc_code        => "function evaluate (L1integer1) \n return L1integer1 * 2 \n end",
-        schema           => $schema,
         curval           => 2,
-        curval_field_ids => [$curval_sheet->columns->{string1}->id],
+        curval_field_ids => [ $curval_sheet->columns->{string1}->id ],
         multivalue       => $multivalue,
     );
 
     my $layout  = $sheet->layout;
     $sheet->create_records;
     my $columns = $sheet->columns;
+
     foreach my $col_id (keys %$columns)
     {
         my $c = $columns->{$col_id};
@@ -102,7 +100,7 @@ foreach my $multivalue (0..1)
 
     my $autocur = $curval_sheet->add_autocur(
         refers_to_instance_id => 1,
-        related_field_id      => $columns->{curval1}->id,
+        related_field_id      =>  $columns->{curval1}->id,
         curval_field_ids      => [$columns->{string1}->id],
     );
 
@@ -115,92 +113,69 @@ foreach my $multivalue (0..1)
     my $tree1      = $columns->{tree1};
     my $curval1    = $columns->{curval1};
 
-    my $view = GADS::View->new(
+    my $view = $sheet->view_create({
         name        => 'Group view',
         columns     => [$string1->id, $integer1->id, $calc1->id, $date1->id, $daterange1->id, $enum1->id, $tree1->id, $curval1->id],
-        instance_id => $layout->instance_id,
-        layout      => $layout,
-        schema      => $schema,
-        user        => $sheet->user,
-    );
-    $view->write;
+    });
+
     $view->set_groups([$string1->id]);
+
     # Also add a sort, to check that doesn't result in unwanted multi-value
     # field joins
     $view->set_sorts([$enum1->id], ['asc']);
 
-    my $records = GADS::Records->new(
-        view   => $view,
-        layout => $layout,
-        user   => $sheet->user,
-        schema => $schema,
-    );
+    my $page = $sheet->data->search(view => $view);
 
-    my @results = @{$records->results};
+    my @results = @{$page->rows};
     is(@results, 2, "Correct number of rows for group by string");
 
-    my @expected = (@$expected);
+    my @expected = @$expected;
     foreach my $row (@results)
     {
         my $expected = shift @expected;
-        is($row->fields->{$string1->id}, $expected->{string1}, "Group text correct");
-        is($row->fields->{$integer1->id}, $expected->{integer1}, "Group integer correct");
-        is($row->fields->{$calc1->id}, $expected->{calc1}, "Group calc correct");
-        is($row->fields->{$date1->id}, $expected->{date1}, "Group date correct");
-        is($row->fields->{$daterange1->id}, $expected->{daterange1}, "Group daterange correct");
-        is($row->fields->{$enum1->id}, $expected->{enum1}, "Group enum correct");
-        is($row->fields->{$tree1->id}, $expected->{tree1}, "Group tree correct");
-        is($row->fields->{$curval1->id}, $expected->{curval1}, "Group curval correct");
+        is($row->field($string1), $expected->{string1}, "Group text correct");
+        is($row->field($integer1), $expected->{integer1}, "Group integer correct");
+        is($row->field($calc1), $expected->{calc1}, "Group calc correct");
+        is($row->field($date1), $expected->{date1}, "Group date correct");
+        is($row->field($daterange1), $expected->{daterange1}, "Group daterange correct");
+        is($row->field($enum1), $expected->{enum1}, "Group enum correct");
+        is($row->field($tree1), $expected->{tree1}, "Group tree correct");
+        is($row->field($curval1), $expected->{curval1}, "Group curval correct");
         is($row->id_count, 2, "ID count correct");
     }
 
     # Remove grouped column from view and check still gets added as required
-    $view->columns([$integer1->id]);
-    $view->write;
+    my $view2 = $sheet->views->view_create({
+        name        => 'Group view',
+        columns     => [ $integer1->id ],
+    });
 
-    @expected = (@$expected);
-    $records->clear;
-    $records = GADS::Records->new(
-        view   => $view,
-        layout => $layout,
-        user   => $sheet->user,
-        schema => $schema,
-    );
-    @results = @{$records->results};
+    @expected = @$expected;
+    my $page2 = $sheet->data->search(view => $view2);
+    @results = @{$page2->results};
     is(@results, 2, "Correct number of rows for group by string");
     foreach my $row (@results)
     {
         my $expected = shift @expected;
-        is($row->fields->{$string1->id}, $expected->{string1}, "Group text correct");
-        is($row->fields->{$integer1->id}, $expected->{integer1}, "Group integer correct");
+        is($row->field($string1), $expected->{string1}, "Group text correct");
+        is($row->field($integer1), $expected->{integer1}, "Group integer correct");
     }
 
     # Test autocur
     $autocur->group_display('unique');
     $autocur->write;
-    $view = GADS::View->new(
+
+    my $view3 = $curval_sheet->views->view_create({
         name        => 'Group view autocur',
-        columns     => [$autocur->id],
-        instance_id => $curval_sheet->layout->instance_id,
-        layout      => $curval_sheet->layout,
-        schema      => $schema,
-        user        => $sheet->user,
+        columns     => [ $autocur->id ],
     );
-    $view->write;
-    $view->set_groups([$curval_sheet->columns->{string1}->id]);
+    $view3->set_groups([$curval_sheet->columns->{string1}->id]);
+    my $page3 = $curval_sheet->data->search(view => $view3);
 
-    $records = GADS::Records->new(
-        view   => $view,
-        layout => $curval_sheet->layout,
-        user   => $sheet->user,
-        schema => $schema,
-    );
-
-    @results = @{$records->results};
+    @results = @{$page3->rows};
     is(@results, 2, "Correct number of rows for group by string with autocur");
     foreach my $row (@results)
-    {
-        is($row->fields->{$autocur->id}, '2 unique', "Group text correct");
+    {   is($row->fields->{$autocur->id}, '2 unique', "Group text correct");
     }
 
 }

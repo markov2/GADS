@@ -17,83 +17,57 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
 package Linkspace::View::Alert;
-use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
 
-use List::MoreUtils qw/ uniq /;
+use List::MoreUtils qw/uniq/;
 use Log::Report     'linkspace';
-use Scalar::Util     qw(looks_like_number);
+
+use Moo;
+extends 'Linkspace::DB::Table';
 
 use namespace::clean;
 
-has id => (
-    is      => 'rwp',
-    isa     => Int,
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        my $alert = $::db->search(Alert => {
-            view_id => $self->view_id,
-            user_id => $::session->user->id,
-        })->first;
+sub db_table { 'Alert' }
 
-        $alert->id;
-    },
-);
+sub db_fields_rename { +{
+    user_id => 'owner_id',
+});
 
-has frequency => (
-    is  => 'rw',
-    isa => sub {
-        my $frequency = shift;
-        if (looks_like_number $frequency)
-        {
-            error __x "Frequency value of {freq} is invalid", freq => $frequency
-                unless $frequency == 0 || $frequency == 24;
-        }
-        else
-        {   # Will be empty string from form submission
-            error __x "Frequency value of {freq} is invalid", freq => $frequency
-                if $frequency;
-        }
-    },
-    coerce => sub {
-        # Will be empty string from form submission
-        $_[0] || $_[0] =~ /0/ ? $_[0] : undef;
-    },
-);
+### 2020-05-11: columns in GADS::Schema::Result::Alert
+# id         user_id    frequency  view_id
 
-has view => (
-    is       => 'ro',
-    required => 1,
-    weakref  => 1
-);
+=head1 METHODS: Constructors
 
-
-=head2 my %h = $class->for_user;
-
-=head2 my %h = $class->for_user($user);
-
-Returns a nested HASH with as key the view-ids, and the alert info
-as HASH as value.
-
+=head2 my $alert = $class->current($view, $user?, %options)
+Returns the latest alert object for the C<$user>.
 =cut
 
-sub for_user(;$)
-{   my $user = shift ||= $::session->user;
-
-    my $alerts = $::db->search(Alert => { user_id => $user->id }, {
-        select => [ qw/id view_id frequency/ ]);
-
-      +{ map +($_->view_id => $_), $alerts->all };
+sub current($$%)
+{   my ($class, $view, $whose) = (shift, shift, shift);
+    $whose ||= $::session->user;
+    $class->from_search({view => $view, owner => $whose}, @_);
 }
 
-sub update_cache
-{   my ($self, %options) = @_;
+sub _alert_validate($)
+{   my ($self, $changes) = @_;
 
-    my $guard = $::db->begin_work;
+    if(exists $changes->{frequency})
+    {   my $freq = $changes->{frequency};
+        $freq =~ /^([0-9]+)$/
+            or error __x"Frequency value '{freq}' invalid", freq => $freq;
+           
+        $freq==0 || $freq==24
+            or error __x"Frequency value '{freq}' unsupported", freq => $freq;
+    }
+}
+
+#--------------------
+=head1 METHODS: Manage alert cache
+=cut
+
+sub update_cache($)
+{   my ($self, $view, %options) = @_;
 
     my $view = $self->view;
-
     if(!$view->has_alerts)
     {   $::db->delete(AlertCache => { view_id => $view->id });
         return;
@@ -103,72 +77,56 @@ sub update_cache
     # alert caches for each user that has this alert. Only need
     # to worry about this if all_users flag is set
     my @users = $view->has_curuser && $options{all_users}
-        ? $::db->search(Alert => { view_id => $view->id }, {
-            prefetch => 'user'
-        })->all : ($self->user);
+      ? $self->search_objects({ view => $view })
+      : $::session->user;
 
     foreach my $user (@users)
-    {
-        my $u = $view->has_curuser && $user;
+    {   my $u = $view->has_curuser ? $user : undef;
+        my $user_id = $u ? $u->id : undef;
 
-        # We generally want to generate a view's alert_cache without user
-        # defined permissions limiting it, otherwise multiple users on a
-        # single global view will have different things to alert on.
-        # The only exception is when the view has a CURUSER, in which
-        # case we generate them individually.
-        my $records = GADS::Records->new(
-            user   => $u,
-            view   => $view,
-        );
-
-        my $user_id = $view->has_curuser ? $u->id : undef;
+        my $page = $sheet->search(view => $view);
 
         my %keep;
-        # For each item in this view, see if it exists in the cache. If it doesn't,
-        # create it.
+        # For each item in this view, see if it exists in the cache. If it
+        # doesn't, create it.
         # Wrap in a LR try block so that we can disard the thousands of trace
         # messages that are generated during record retrieval, otherwise this
         # function will use a lot of memory. Only collect messages at warning
         # or higher and then report on completion.
+        my $view_column_ids = $view->column_ids;
         try {
-            while (my $record = $records->single)
-            {
-                my $current_id = $record->current_id;
-                foreach my $column_id (@{$view->column_ids})
-                {
-                    my $a = {
-                        layout_id  => $column_id,
-                        view_id    => $view->id,
-                        current_id => $current_id,
-                        user_id    => $user_id,
-                    };
-                    my $cached_id;
-                    if(my $c = $::db->search(AlertCache => $a)->first)
-                    {   $cached_id = $c->id;
-                    }
-                    else
-                    {   $cached_id = $::db->create(AlertCache => $a)->id;
-                    }
-                    # Keep track of all those that should be in the cache
-                    $keep{$cached_id} = 1;
+            while(my $record = $page->row_next)
+            {   my $a = {
+                    view_id    => $view->id,
+                    current_id => $record->current_id,
+                    user_id    => $user_id,
+                };
+
+                foreach my $column_id (@$column_ids})
+                {   $a->{layout_id} = $column_id;
+
+                    my $cached = $::db->get_record(AlertCache => $a)
+                       || $::db->create(AlertCache => $a);
+
+                    $keep{$cached->id}++;
                 }
             }
         } accept => 'WARNING-';
         $@->reportFatal;
 
-        # Now iterate through all of them and delete any that shouldn't exist
+        # Delete all unused cached
         my $rs = $::db->search(AlertCache => {
             view_id => $view->id,
             user_id => $user_id,
         });
 
-        while (my $chached = $rs->next)
-        {   $keep{$chached->id} or $existing->delete;
+        while(my $chached = $rs->next)
+        {   $keep{$chached->id} or $cached->delete;
         }
     }
 
     # Now delete any alerts that should not be there that are applicable to our update
-    if ($view->has_curuser)
+    if($view->has_curuser)
     {
         # Possibly just changed to curuser, cleanup any
         # undef user rows from previous alert
@@ -194,46 +152,26 @@ sub update_cache
     $guard->commit;
 }
 
-sub write
-{   my $self = shift;
+sub alert_create($%)
+{   my ($class, $insert) = (shift, shift);
+    $self->create($insert, @_);
+}
 
-    my $view = $self->view_id;
-    my $freq = $self->frequency;
+sub alert_update($)
+{   my ($self, $update) = @_;
+    if($update{frequency})
+}
 
-    my $alert = $::db->search(Alert => {
-        view_id => $view_id,
-        user_id => $self->user->id,
-    })->single;
+sub _alert_delete($)
+{   my ($self, $view) = @_;
 
-    my $view_ref = {view_id => $view_id});
-
-    if ($alert)
-    {
-        if(defined $freq)
-        {   $alert->update({ frequency => $freq });
-        }
-        else
-        {   if($self->search(Alert => $view_ref)->count < 2)
-            {   # Have processed last alert for this view
-                $::db->delete(AlertSend  => { alert_id => $alert->id });
-                $::db->delete(AlertCache => $view_ref);
-            }
-            $alert->delete;
-        }
+    if(@{$view->all_alerts} ==1)
+    {   # Clean-up some mess, when everyone has cleaned their alerts
+        #XXX needed?
+        $::db->delete(AlertSend => { alert_id => $self->id });
+        $::db->delete(AlertCache => { view => $view->id });
     }
-    elsif(defined $self->frequency)
-    {   # Check whether this view already has alerts. No need for another
-        # cache if so, unless view contains CURUSER
-        my $exists = $::db->search(Alert => $view_ref)->count;
-
-        my $alert = $::db->create(Alert => {
-            view_id   => $view_id,
-            user_id   => $self->user->id,
-            frequency => $freq,
-        });
-        $self->_set_id($alert->id);
-        $self->update_cache if !$exists || $self->view->has_curuser;
-    }
+    $self->delete;
 }
 
 1;

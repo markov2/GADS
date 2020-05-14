@@ -15,11 +15,11 @@ use Linkspace;
 
 our @EXPORT = qw/
    logline logs logs_purge
-   test_session
+   test_session switch_user
    make_site    test_site
    make_user    test_user
    make_group   test_group
-   make_sheet
+   make_sheet   test_sheet
 /;
 
 our $guard;  # visible for guard test only
@@ -149,6 +149,13 @@ sub test_session()
         '... logged reset login-failure count';
 
     $::session;
+}
+
+sub switch_user($)
+{   my ($self, $user) = @_;
+
+    $::session->login($user);
+    is logline, '', 'Switch to user '.$user->path;
 }
 
 1;

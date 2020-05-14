@@ -57,7 +57,7 @@ has nr_pages => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        return 1 if $self->is_group;
+        return 1 if $self->needs_column_grouping;
         my $nr_rows = $self->search_limit_reached || $self->nr_rows;
         my $max = $self->max_rows or return 1;
         ? ceil($count / $self->rows) : 1;
@@ -388,7 +388,7 @@ has results => (
     predicate => 1,
     builder   =>
     {   my $self = shift;
-        $self->is_group ? $self->_build_group_results : $self->_build_standard_results;
+        $self->needs_column_grouping ? $self->_build_group_results : $self->_build_standard_results;
     },
 );
 
@@ -660,20 +660,10 @@ sub _build_search_limit_reached
     return undef;
 }
 
-has is_group => (
+has needs_column_grouping => (
     is      => 'lazy',
     isa     => Bool,
     builder => sub { my $v = $_[0]->view; $v && $v->is_group };
-}
-
-# The current field that is being grouped by in the table view, where a view
-# has more than one group and they can be drilled down into
-has current_group_id => (
-    is      => 'lazy',
-    builder => sub {
-        my $v = $_[0]->view;
-        $v && $v->is_group && $v->first_column_id;
-    },
 }
 
 # Produce a standard set of results without grouping
@@ -711,7 +701,7 @@ sub _current_ids_rs
     $page = $self->pages
         if $page && $page > 1 && $page > $self->pages;
 
-    if (!$self->is_group && !$options{aggregate})
+    if (!$self->needs_column_grouping && !$options{aggregate})
     {   $select->{rows} = $self->rows if $self->rows;
         $select->{page} = $page if $page;
         $select->{rows} ||= $self->max_results
@@ -741,7 +731,7 @@ sub _cid_search_query
     # therefore performance (Pg at least) has been shown to be better if we run
     # the ID subquery first and only pass the IDs in to the main query
     $search->{'me.id'}
-      = $self->is_group || $options{aggregate}
+      = $self->needs_column_grouping || $options{aggregate}
       ? +{ -in => $self->_current_ids_rs(%options)->as_query }
       : $self->current_ids;
 
@@ -1043,7 +1033,7 @@ sub single
     # Check if we've returned all resulsts available
     return if $self->records_retrieved_count >= @{$self->_all_cids_store};
 
-    if (!$self->is_group) # Don't retrieve in chunks for group records
+    if (!$self->needs_column_grouping) # Don't retrieve in chunks for group records
     {
         if(   ($next_id == 0 && $self->_single_page == 0) # First run
             || $next_id >= $chunk # retrieved all of current chunk
@@ -1191,30 +1181,31 @@ sub _build_columns_view
 
     my @cols;
     if (my $view = $self->view)
-    {
+    {   my $group_col_ids = $view->grouping_column_ids;
+
         my %view_layouts = map +($_ => 1),
             @{$view->column_ids},
-            (map $_->layout_id, @{$view->groups});
+            @$group_col_ids;
 
-        delete $view_layouts{$self->current_group_id}
-            if $self->current_group_id;
+        my $current_group_id = shift @$group_col_ids;
+        delete $view_layouts{$current_group_id} if $current_group_id;
 
-        my $group_display = $view->is_group && !@{$self->additional_filters};
+        my $group_display = @$group_col_ids && !@{$self->additional_filters};
         @cols = @{$layout->columns_search(
             user_can_read      => 1,
-            group_display      => $group_display,
-            include_column_ids => \%view_layouts,
+            group_display      => $group_display,  #XXX unused
+            include_column_ids => \%view_layouts,  #XXX unused
         ));
 
-        unshift @cols, $self->layout->column($self->current_group_id)
-            if $self->current_group_id;
+        unshift @cols, $self->layout->column($current_group_id)
+            if $current_group_id;
     }
-    else {
-        @cols = @{$self->layout->columns_search(user_can_read => 1)};
+    else
+    {   @cols = @{$self->layout->columns_search(user_can_read => 1)};
     }
 
     unshift @cols, $self->layout->column_id
-        unless $self->is_group;
+        unless $self->needs_column_grouping;
 
     return \@cols;
 }
@@ -2180,7 +2171,7 @@ sub _build_aggregate_results
         operator => $_->aggregate,
     } @$aggregate;
 
-    my $results = $self->_build_group_results(columns => \@columns, is_group => 1, aggregate => 1);
+    my $results = $self->_build_group_results(columns => \@columns, needs_column_grouping => 1, aggregate => 1);
 
     panic "Unexpected number of aggregate results"
         if @$results > 1;
@@ -2206,9 +2197,9 @@ sub _build_group_results
     if(my $cols = $options{columns})
     {   @cols = @$cols;
     }
-    elsif ($view && $view->is_group && $is_table_group)
+    elsif ($view && $view->needs_column_grouping && $is_table_group)
     {
-        my %view_group_cols = map { $_->layout_id => 1 } @{$view->groups};
+        my %view_group_cols = map +($_->layout_id => 1), @{$view->groups};
         @cols = map +{
             id       => $_->id,
             column   => $_,
@@ -2388,7 +2379,7 @@ sub _build_group_results
                 # "group" option is included unnecessarily, then this can cause
                 # joins of multiple-value fields which can include too many
                 # results in the aggregate.
-                my $include_group = %group_cols ? 1 : 0;
+                my $include_group = !! keys %group_cols;
                 my $searchq = $self->search_query(search => 1, extra_column => $column, linked => 0, group => $include_group, alt => 1, alias => 'mefield');
                 foreach my $group_id (keys %group_cols)
                 {
@@ -2649,7 +2640,7 @@ __CASE_NO_LINK
     $result->result_class('DBIx::Class::ResultClass::HashRefInflator');
 
     my @all;
-    foreach my $rec ($result->all)
+    while(my $rec  = $result->next)
     {
         push @all, GADS::Record->new(
             record                  => $rec,
@@ -2658,14 +2649,12 @@ __CASE_NO_LINK
             # force is_group to be 1 if calculating total aggregates, which
             # will then force the sum. At the moment the only aggregate is sum,
             # but that may change in the future
-            is_group                => $options{is_group} || $self->is_group,
-            group_cols              => \%group_cols,
-            user                    => $self->user,
-            layout                  => $self->layout,
-            columns_retrieved_no    => $self->columns_retrieved_no,
-            columns_retrieved_do    => $self->columns_retrieved_do,
-            columns_view            => $self->columns_view,
-            curcommon_all_fields    => $self->curcommon_all_fields,
+            is_group             => $options{is_group} || $self->needs_column_grouping,
+            group_cols           => \%group_cols,
+            columns_retrieved_no => $self->columns_retrieved_no,
+            columns_retrieved_do => $self->columns_retrieved_do,
+            columns_view         => $self->columns_view,
+            curcommon_all_fields => $self->curcommon_all_fields,
         );
     }
 

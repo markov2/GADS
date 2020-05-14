@@ -670,20 +670,9 @@ sub _build_search_limit_reached
     return undef;
 }
 
-has is_group => (
-    is      => 'lazy',
-    isa     => Bool,
-    builder => sub { my $v = $_[0]->view; $v && $v->is_group };
-}
-
-# The current field that is being grouped by in the table view, where a view
-# has more than one group and they can be drilled down into
-has current_group_id => (
-    is      => 'lazy',
-    builder => sub {
-        my $v = $_[0]->view;
-        $v && $v->is_group && $v->first_column_id;
-    },
+sub needs_column_grouping
+{    my $v = $_[0]->view;
+     $v && $v->does_column_grouping;
 }
 
 # Produce a standard set of results without grouping
@@ -721,7 +710,7 @@ sub _current_ids_rs
     $page = $self->pages
         if $page && $page > 1 && $page > $self->pages;
 
-    if (!$self->is_group && !$options{aggregate})
+    if (!$self->needs_column_grouping && !$options{aggregate})
     {
         $select->{rows} = $self->rows if $self->rows;
         $select->{page} = $page if $page;
@@ -750,7 +739,7 @@ sub _cid_search_query
     # then we would be creating some very big queries with the sub-query, and
     # therefore performance (Pg at least) has been shown to be better if we run
     # the ID subquery first and only pass the IDs in to the main query
-    if ($self->is_group || $options{aggregate})
+    if ($self->needs_column_grouping || $options{aggregate})
     {
         $search->{'me.id'} = { -in => $self->_current_ids_rs(%options)->as_query };
     }
@@ -767,7 +756,7 @@ sub _cid_search_query
 sub _build_results
 {   my $self = shift;
     return $self->_build_group_results
-        if $self->is_group;
+        if $self->needs_column_grouping;
     $self->_build_standard_results;
 }
 
@@ -1052,7 +1041,7 @@ sub single
     # Check if we've returned all resulsts available
     return if $self->records_retrieved_count >= @{$self->_all_cids_store};
 
-    if (!$self->is_group) # Don't retrieve in chunks for group records
+    if (!$self->needs_column_grouping) # Don't retrieve in chunks for group records
     {
         if (
             ($next_id == 0 && $self->_single_page == 0) # First run
@@ -1211,25 +1200,26 @@ sub _build_columns_view
             @{$view->column_ids},
             map $_->layout_id, @{$view->groups};
 
-        delete $view_layouts{$self->current_group_id}
-            if $self->current_group_id;
+        my $current_group_id = $view->first_grouping_column_id;
+        delete $view_layouts{$current_group_id}
+            if $current_group_id;
 
-        my $group_display = $view->is_group && !@{$self->additional_filters};
+        my $group_display = $view->needs_column_grouping && !@{$self->additional_filters};
         @cols = @{$layout->columns_search(
             user_can_read      => 1,
             group_display      => $group_display,
             include_column_ids => \%view_layouts,
         )};
 
-        unshift @cols, $self->layout->column($self->current_group_id)
-            if $self->current_group_id;
+        unshift @cols, $self->layout->column($current_group_id)
+            if $current_group_id;
     }
     else
     {   @cols = @{$self->layout->columns_search(user_can_read => 1)};
     }
 
     unshift @cols, $self->layout->column_id
-        unless $self->is_group;
+        unless $self->needs_column_grouping;
 
     \@cols;
 }
@@ -2257,7 +2247,7 @@ sub _build_group_results
     {
         @cols = @{$options{columns}};
     }
-    elsif ($view && $view->is_group && $is_table_group)
+    elsif ($view && $view->needs_column_grouping && $is_table_group)
     {
         my %view_group_cols = map { $_->layout_id => 1 } @{$view->groups};
         @cols = map +{
@@ -2721,17 +2711,15 @@ sub _build_group_results
     foreach my $rec ($result->all)
     {
         push @all, GADS::Record->new(
-            schema                  => $self->schema,
             record                  => $rec,
             # is_group affects what key is used by GADS::Record for the result
             # (e.g. _sum). This is a bit messy and should be defined better. We
             # force is_group to be 1 if calculating total aggregates, which
             # will then force the sum. At the moment the only aggregate is sum,
             # but that may change in the future
-            is_group                => $options{is_group} || $self->is_group,
+            is_group                => $options{is_group} || $self->needs_column_grouping,
             group_cols              => \%group_cols,
             user                    => $self->user,
-            layout                  => $self->layout,
             columns_retrieved_no    => $self->columns_retrieved_no,
             columns_retrieved_do    => $self->columns_retrieved_do,
             columns_view            => $self->columns_view,

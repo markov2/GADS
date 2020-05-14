@@ -22,7 +22,8 @@ use Encode;
 use JSON qw(decode_json encode_json);
 use Log::Report 'linkspace';
 use MIME::Base64;
-use Scalar::Util qw(blessed);
+use Scalar::Util qw/blessed/;
+use List::Util   qw/first/;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -241,6 +242,53 @@ sub renumber_columns($)
     }
 
     $self;
+}
+
+=head2 $filter->has_curuser($layout)
+=cut
+
+sub has_curuser($)
+{   my ($self, $layout) = @_;
+
+    first {
+        my $col = $layout->column($_->{column_id});
+        ($col->type eq 'person' || $col->return_type eq 'string')
+        && $_->{value} && $_->{value} eq '[CURUSER]'
+    } @{$self->filters};
+}
+
+=head2 $filter->_filter_validate($layout);
+=cut
+
+#XXX Only applicable to view filters?
+sub _filter_validate($)
+{   my ($self, $layout) = @_;
+
+    # Get all the columns in the filter. Check whether the user has
+    # access to them.
+    foreach my $filter (@{$self->filters})
+    {   my $col_id = $filter->{column_id};
+        my $col    = $layout->column($col_id)
+            or error __x"Field ID {id} does not exist", id => $col_id;
+        my $val   = $filter->{value};
+        my $op    = $filter->{operator};
+        if($col->return_type eq 'daterange')
+        {   # Exact daterange format, than full="yyyy-mm-dd to yyyy-mm-dd"
+            # Will bork on failure.
+            my $take = $op eq 'equal' || $op eq 'not_equal' ? 'full_only' : 'single_only';
+        }
+        elsif($op ne 'is_empty' && $op ne 'is_not_empty')
+        {   # 'empty' would normally fail on blank value, will bork on failure
+            $col->validate_search($val, fatal => $fatal)
+        }
+
+        my $has_value = $val && (ref $val ne 'ARRAY' || @$val);
+        error __x "No value can be entered for empty and not empty operators"
+            if $has_value && ($op eq 'is_empty' || $op eq 'is_not_empty');
+
+        $col->user_can('read')
+             or error __x"Invalid field ID {id} in filter", id => $col->id;
+    }
 }
 
 1;

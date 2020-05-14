@@ -21,62 +21,21 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use FindBin;
 use lib "$FindBin::Bin/../lib";
 
-use GADS::DB;
-use GADS::Instances;
-use Linkspace::Layout;
-use GADS::Views;
-use Dancer2;
-use Dancer2::Plugin::DBIC;
-use Dancer2::Plugin::LogReport mode => 'NORMAL';
+use Linkspace;
 
-GADS::DB->setup(schema);
+my $linkspace = Linkspace->start;
+my $user = $::session->user;
 
-# Setup these singleton classes with required parameters for if/when
-# they are called in classes later.
-GADS::Config->instance(
-    config => config,
-);
+foreach my $site (@{$linkspace->all_sites})
+{   $::session = Linkspace::Session->new(site => $site, user => $user);
 
-GADS::Email->instance(
-    config => config,
-);
-
-foreach my $site (schema->resultset('Site')->all)
-{
-    schema->site_id($site->id);
-
-    my $instances = GADS::Instances->new(
-        schema                   => schema,
-        user                     => undef,
-        user_permission_override => 1,
-    );
-
-    foreach my $layout (@{$instances->all})
+    foreach my $sheet (@{$site->document->all_sheets})
     {
-	my $views      = GADS::Views->new(
-	    user        => undef,
-	    schema      => schema,
-	    layout      => $layout,
-	    instance_id => $layout->instance_id,
-	);
-
-	foreach my $view (@{$views->all})
-	{
-	    if ($view->has_alerts)
-	    {
-		my $alert = GADS::Alert->new(
-		    user      => undef,
-		    layout    => $layout,
-		    schema    => schema,
-		    view_id   => $view->id,
-		);
-		$alert->update_cache(all_users => 1);
-	    }
-	    else {
-		schema->resultset('AlertCache')->search({
-		    view_id => $view->id,
-		})->delete;
-	    }
-	}
+        foreach my $view (@{$sheet->views->all_views})
+        {
+            $view->has_alerts
+              ? $view->alert_update_cache(all_users => 1)
+              : $view->clean_cached;
+        }
     }
 }

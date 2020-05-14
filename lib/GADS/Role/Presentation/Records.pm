@@ -6,7 +6,10 @@ sub presentation($) {
     my $self  = shift;
     my $sheet = $self->sheet;
 
-    my @show = map $_->presentation($sheet, group => $self->current_group_id, @_),
+    my $view  = $self->view;
+    my $current_group_id = $view ? $view->first_grouping_column_id : undef;
+
+    my @show = map $_->presentation($sheet, group => $current_group_id, @_),
          @{$self->results};
 
     \@show;

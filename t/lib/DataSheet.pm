@@ -251,7 +251,7 @@ sub create_user
         organisation  => $self->organisation->id,
         department_id => $self->department->id,
     });
-    $::db->create(UserGroup => )
+    $::db->create(UserGroup => {
         user_id  => $user_id,
         group_id => $self->group->id,
     }) if $self->group;

@@ -31,8 +31,9 @@ has sheet => (
 );
 
 has _all_views_index => (
-    is      => 'lazy',
-    builder => sub {
+    is        => 'lazy',
+    predicate => 1,
+    builder   => sub {
         my $sheet_id = $_[0]->sheet->id;
         index_by_id $::db->search(View => { instance_id => $sheet_id })->all;
     },
@@ -65,18 +66,6 @@ sub user_views_all(;$)
 sub views_limit_extra() { [ grep $_->is_limit_extra, $_[0]->all_views ] }
 sub view_default()      { $_[0]->user_views_all->[0] }
 
-sub view_delete($)
-{   my ($self, $which) = @_;
-    my $view = $self->view($which) or return;
-
-    #XXX move to ::View?
-    my $view_ref = { view_id => $view_id };
-    $::db->delete($_ => $view_ref)
-        for qw/Filter ViewLimit ViewLayout Sort AlertCache Alert/;
-
-    $view->delete;
-}
-
 sub purge
 {   my $self = shift;
     $self->view_delete($_) for @{$self->all_views};
@@ -102,31 +91,46 @@ sub view($)
 
 #XXX too many restrictions?
     return $view
-        if ! $view->global
-        && ! $view->is_limit_extra
-        && ! $self->sheet->user_can('layout')
-        && $view->owner->id == $user->id;
+        if $view->is_global && if $user->is_in_group($view->group_id);
 
     return $view
-        if $view->global
-        && $view->group_id
-        && $user->is_in_group($view->group_id);
+        if ! $view->is_limit_extra
+        && ! $user->user_can('layout')
+        && ($view->owner && $view->owner->id == $user->id);
 
     ();
 }
 
-=head2 my $view_id = $views->view_create(%insert);
+=head2 my $view_id = $views->view_create($insert, %options);
+Create a new View.
 =cut
 
 sub view_create
-{   my ($self, %insert) = @_;
-    $::db->create(View => \%insert);
+{   my ($self, $insert) = @_;
+
+    my $view = Linkspace::View
+        ->_view_validate($insert)
+        ->_view_create($insert, sheet => $self->sheet);
+
+    $self->_all_views_index->{$view->id} = $view if $self->_hash_all_views_index;
+    $self->component_changed;
+    $view;
 }
 
-=head2 my $view = $views->view_temporary(%options);
-Create a filters which is only temporary.
+=head2 $views->view_update($update, %options);
+Change the view.
 =cut
 
+sub view_update($)
+{
+}
+
+
+=head2 my $view = $views->view_temporary(%options);
+Create a filter view which is only temporary.
+=cut
+
+#XXX can probably be replaced by nicer syntax
 sub view_temporary(%)
 {   my $self = shift;
     Linkspace::View->new(@_, sheet => $self->sheet);
@@ -135,11 +139,12 @@ sub view_temporary(%)
 #------------------------------
 =head1 METHODS: ViewLimits
 Relate view restrictions to users.
+=cut
 
-=head2 my @views = $views->limits_for_user($user);
+### 2020-05-08: columns in GADS::Schema::Result::ViewLimit
+# id         user_id    view_id
 
-=head2 my @views = $views->limits_for_user;
-
+=head2 my @views = $views->limits_for_user($user?);
 =cut
 
 #XXX move to ::Person?  Used only once

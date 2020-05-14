@@ -212,102 +212,85 @@ foreach my $user_type (qw/readwrite read limited/)
         $record->user(undef); # undef users are allowed to purge records
         $record->delete_current;
         $record->purge_current;
-        $records = GADS::Records->new(
-            user    => undef,
-            layout  => $layout,
-            schema  => $schema,
-        );
-        is( $records->count, 1, "Record purged correctly" );
+
+        my $page = $sheet->data->search;
+        cmp_ok $page->row_count, '==', 1, "Record purged correctly";
     }
 }
 
 # Check deletion of read permissions also updates dependent values
+my $group2 = make_group '2';
+
 foreach my $test (qw/single all/)
 {
-    my $sheet   = t::lib::DataSheet->new(site_id => 1);
-    my $schema  = $sheet->schema;
-    my $layout  = $sheet->layout;
+    my $sheet   = test_sheet
     my $columns = $sheet->columns;
-    my $group1  = $sheet->group;
+    my $group1  = $sheet->group;    #XXX overridden version
     my $string1 = $columns->{string1};
     $sheet->create_records;
 
-    my $group2 = GADS::Group->new(schema => $schema);
-    $group2->name('group2');
-    $group2->write;
+    $string1->set_permissions($group1 => [qw/read write_new write_existing/]);
+    $string1->set_permissions($group2 => [qw/read write_new write_existing/]);
 
-    $string1->set_permissions({
-        $group1->id => [qw/read write_new write_existing/],
-        $group2->id => [qw/read write_new write_existing/],
+    my $rules = Linkspace::Filter->from_hash({
+        rules     => [{
+            id       => $string1->id,
+            type     => 'string',
+            value    => 'Foo',
+            operator => 'equal',
+        }],
     });
-    $string1->write;
 
-    my $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $string1->id,
-                type     => 'string',
-                value    => 'Foo',
-                operator => 'equal',
-            }],
-        },
-    );
-
-    my $view = GADS::View->new(
+    my $view = $sheet->view_create({
         name        => 'Foo',
         filter      => $rules,
-        columns     => [$string1->id],
-        instance_id => 1,
-        layout      => $layout,
-        schema      => $schema,
-        user        => undef,
+        columns     => [ $string1->id ],
+        owner       => undef,
     );
     $view->write;
 
-    my $alert = GADS::Alert->new(
-        user      => $sheet->user,
-        layout    => $layout,
-        schema    => $schema,
-        frequency => 24,
-        view_id   => $view->id,
-    );
-    $alert->write;
+    $view->alert_create({ frequency => 24 });
+    my $filter = $view->filter_json;
+    like $filter, qr/Foo/, "Filter initially contains Foo search";
 
-    my $filter = $schema->resultset('View')->find($view->id)->filter;
-    like($filter, qr/Foo/, "Filter initially contains Foo search");
+    my $cached1 = $view->alerts_cached_for($string1);
+    ok @$cached1, "Alert cache contains string1 column";
 
-    my $alert_rs = $schema->resultset('AlertCache')->search({ layout_id => $string1->id });
-    ok($alert_rs->count, "Alert cache contains string1 column");
-
-    my $view_layout_rs = $schema->resultset('ViewLayout')->search({
-        view_id   => $view->id,
-        layout_id => $string1->id,
-    });
-    is($view_layout_rs->count, 1, "String column initially in view");
+    my $monitors1 = $view->monitors_on_column($string1);
+    cmp_ok @$monitors1, '==', 1, "String column initially in view";
 
     # Start by always keeping one set of permissions
-    my %new_permissions = ($group1->id => [qw/read write_new write_existing/]);
-    # Add second set if required
-    $new_permissions{$group2->id} = [qw/write_new write_existing/]
-        if $test eq 'single';
-    # Should be no change as still as read access
-    $string1->set_permissions({%new_permissions});
-    $string1->write;
-    is($view_layout_rs->count, 1, "View still has column with read access remaining");
-    $filter = $schema->resultset('View')->find($view->id)->filter;
-    like($filter, qr/Foo/, "Filter still contains Foo search");
-    ok($alert_rs->count, "Alert cache still contains string1 column");
+    $string1->set_permissions($group1, [qw/read write_new write_existing/]);
 
-    $layout->clear;
+    # Add second set if required
+    $string1->set_permissions($group2, [qw/write_new write_existing/])
+        if $test eq 'single';
+
+    my $monitors2 = $view->monitors_on_column($string1);
+    cmp_ok @$monitors2, '==', 1,  "View still has column with read access remaining";
+
+    my $filter2 = $view->filter_json;
+    like $filter2, qr/Foo/, "Filter still contains Foo search";
+
+    my $cached2 = $view->alerts_cached_for($string1);
+    ok @$cached2, "Alert cache still contains string1 column";
+
+$layout->clear;
 
     # Now remove read from all groups
-    %new_permissions = $test eq 'all' ? () : ($group2->id => [qw/write_new write_existing/]);
-    $string1->set_permissions({%new_permissions});
-    $string1->write;
-    is($view_layout_rs->count, 0, "String column removed from view when permissions removed");
-    $filter = $schema->resultset('View')->find($view->id)->filter;
-    unlike($filter, qr/Foo/, "Filter no longer contains Foo search");
-    ok(!$alert_rs->count, "Alert cache no longer contains string1 column");
+    $string1->remove_all_permissions;
+    $string1->set_permissions($group2 => [qw/write_new write_existing/])
+        if $test ne 'all';
+
+    my $monitors3 = $view->monitors_on_column($string1);
+    cmp_ok @$monitors3, '==', 0,
+         "String column removed from view when permissions removed";
+
+    my $filter3 = $view->filter_json;
+    unlike $filter3, qr/Foo/, "Filter no longer contains Foo search";
+
+    my $cached3 = $view->alerts_cached_for($string1);
+    ok ! @$cached3, "Alert cache no longer contains string1 column";
 }
 
 # Check setting of global permissions - can only be done by superadmin

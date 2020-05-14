@@ -35,9 +35,7 @@ sub db_accessors(%)
     my $table  = $class->db_table;
     my $rclass = $class->db_result_class;
     my $info   = $rclass->columns_info or panic "schema $rclass not loaded";
-
-    my $rename = $class->db_field_rename;
-    $rename->{instance_id} = 'sheet_id' if $info->{instance_id};
+    my $rename = $class->_db_rename($info);
 
     no strict 'refs';
 
@@ -79,6 +77,15 @@ sub db_result_class { 'GADS::Schema::Result::' . $_[0]->db_table }
 sub db_field_rename { +{} }
 sub db_fields_unused { [] }
 
+sub _db_rename(;$)
+{   my ($thing, $info) = @_;
+    $info ||= $thing->db_result_class->columns_info;
+    my %rename = %{$thing->db_field_rename};
+    $rename{instance_id} = 'sheet_id' if $info->{instance_id};
+    $rename{layout_id}  = 'column_id' if $info->{layout_id};
+    \%rename;
+}
+
 # Specify which db-fields are only internally for the application, so not
 # involved in exporting and importing records.
 sub db_fields_no_export { [] }
@@ -87,9 +94,9 @@ sub db_fields_no_export { [] }
 =head1 METHODS: Constructors
 
 =head2 my $object = $class->from_record($record, %options);
-When you have a C<$record> from the right type (the result class of the table), this
-gets wrapped into a full Linkspace object.  The C<%options> are the attributes
-for the created object, processed Moo style.
+When you have a C<$record> from the right type (the result class of the
+table), this gets wrapped into a full Linkspace object.  The C<%options>
+are the attributes for the created object, processed Moo style.
 =cut
 
 sub from_record($%)
@@ -103,12 +110,25 @@ sub from_record($%)
 }
 
 =head2 my $object = $class->from_id($obj_id, %options);
-Create the C<$object> which manages a database record.
+Create the C<$object> which manages a database record, based on the
+unique C<id> column in the table.
 =cut
 
 sub from_id($%)
 {   my ($class, $obj_id) = (shift, shift);
     my $record = $::db->get_record($class->db_table => $obj_id);
+    $record ? $class->new(@_, _record => $record) : undef;
+}
+
+=head2 my $object = $class->from_search(\%search, %options);
+Create the C<$object> which manages a database record.  The search must
+result in at most one record.
+=cut
+
+sub from_search($%)
+{   my $class  = shift;
+    my $search = $class->_record_converter->(shift);
+    my $record = $::db->get_record($class->db_table => $search);
     $record ? $class->new(@_, _record => $record) : undef;
 }
 
@@ -119,17 +139,18 @@ the renamed field, and cannot be complex (for the moment).
 
 sub search_records($)
 {   my ($self, $search) = @_;
-    $::db->search($self->db_table, $self->_record_converter->($search))->all;
+    [ $::db->search($self->db_table, $self->_record_converter->($search))->all ];
 }
 
-=head2 \@objects = $class->search_objects(\%search);
+=head2 \@objects = $class->search_objects(\%search, %options);
 Uses C<search_records()> to find records, and than converts them into
 the related objects.
 =cut
 
 sub search_objects($%)
 {   my ($self, $search) = (shift, shift);
-    map $self->from_record($_, @_), $self->search_records($search);
+    my $records = $self->search_records($search || {});
+    [ map $self->from_record($_, @_), @$records ];
 }
 
 #-----------------------
@@ -231,8 +252,7 @@ sub export_hash($)
     }
 
     if($args{renamed})
-    {   my $rename = $self->db_field_rename;
-        $rename->{instance_id} = 'sheet_id';
+    {   my $rename = $self->_db_rename;
         $h{$rename->{$_}} = delete $h{$_} for grep exists $h{$_}, keys %$rename;
     }
     \%h;
@@ -274,8 +294,7 @@ sub update($%)
             obj => $self, fields => [ sort keys %$update ];
     }
 
-#   $self->_record->update($update);
-    $::db->update($self->db_table, $self, $update);   #XXX probably faster
+    $::db->update($self->db_table, $self, $update);
     $self;
 }
 
@@ -332,8 +351,7 @@ sub _record_converter
     my $class  = ref $thing || $thing;
     my $info   = $class->db_result_class->columns_info;
     my $unused = $class->db_fields_unused;
-    my $rename = $class->db_field_rename;
-    $rename->{instance_id} = 'sheet_id' if $info->{instance_id};
+    my $rename = $class->_db_rename($info);
 
     my %map    = (
         (map +($_ => $_), keys %$info),

@@ -38,7 +38,7 @@ XXX or is this a simple Person?
 =head1 METHODS: Constructors
 =cut
 
-sub user_validate($)
+sub _user_validate($)
 {   my ($thing, $insert) = @_;
 
     ! defined $insert->{email} || is_valid_email $insert->{email}

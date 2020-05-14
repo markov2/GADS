@@ -64,9 +64,9 @@ sub from_name($%)
     $record ? $class->new(@_, _record => $record) : undef;
 }
 
-sub user_validate($)
+sub _user_validate($)
 {   my ($thing, $insert) = @_;
-    $thing->Linkspace::User::user_validate($insert);
+    $thing->Linkspace::User::_user_validate($insert);
 
     length($insert->{firstname} //'') <= 128
         or error __"Forename must have less than 128 characters";
@@ -74,7 +74,7 @@ sub user_validate($)
     length($insert->{surname}   //'') <= 128
         or error __"Surname must have less than 128 characters";
 
-    $::session->site->validate_workspot($insert);
+    $::session->site->_validate_workspot($insert);
     $thing;
 }
 
@@ -176,6 +176,8 @@ sub session_update($)
     $self->update({ session_settings_json => encode_json $settings} );
 }
 
+sub fullname { $_[0]->value }
+
 #-----------------------
 =head1 METHODS: Groups
 
@@ -248,7 +250,7 @@ has _in_group => (
 sub is_in_group($)
 {   my ($self, $which) = @_;
     my $group_id = blessed $which ? $which->id : $which;
-    exists $self->_in_group->{$group_id};
+    defined $group_id && exists $self->_in_group->{$group_id};
 }
 
 sub _add_group($)

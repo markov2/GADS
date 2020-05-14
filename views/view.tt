@@ -18,7 +18,7 @@
             [% IF layout.user_can("layout") OR layout.user_can("view_group") %]
                 <div class="checkbox">
                     <label>
-                        <input id="global" type="checkbox" name="global" [% IF view_edit.global %]checked[% END %]>Shared view
+                        <input id="global" type="checkbox" name="is_global" [% IF view_edit.is_global %]checked[% END %]>Shared view
                     </label>
                 </div>
                 <div id="group_id_div">
@@ -39,7 +39,7 @@
                 [% IF layout.user_can("layout") %]
                     <div class="checkbox">
                         <label>
-                            <input type="checkbox" name="is_admin" [% IF view_edit.is_admin %]checked[% END %]>Administration view (only visible to table administrators)
+                            <input type="checkbox" name="is_for_admins" [% IF view_edit.is_for_admins %]checked[% END %]>Administration view (only visible to table administrators)
                         </label>
                     </div>
                 [% END %]

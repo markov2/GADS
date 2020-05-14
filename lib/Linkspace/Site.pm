@@ -264,7 +264,7 @@ sub organisations { [ sort { $a->name cmp $b->name } $_[0]->_record->organisatio
 sub teams         { [ sort { $a->name cmp $b->name } $_[0]->_record->teams ] }
 sub titles        { [ sort { $a->name cmp $b->name } $_[0]->_record->titles ] }
 
-sub validate_workspot($)
+sub _validate_workspot($)
 {   my ($self, $values) = @_;
     ! $self->register_organisation_mandatory || is_valid_id $values->{organisation_id}
         or error __x"Please select a {name} for the user",

@@ -1453,21 +1453,20 @@ prefix '/:layout_name' => sub {
                 if $sheet->user_can('view_limit_extra');
         }
 
-        my $new_view_id = param('view');
+        my $new_view_id = param 'view';
         if(param 'views_other_user_clear')
         {   session views_other_user_id => undef;
-            $new_view_id = $sheet->views->default->id;
+            $new_view_id = $sheet->views->default->id;  #XXX
         }
         elsif (my $user_id = param 'views_other_user_id')
         {   session views_other_user_id => $user_id;
         }
 
         # Deal with any alert requests
-        if (param 'modal_alert')
-        {
-            if(my $view = $sheet->views->view(param 'view_id'))
+        if(param 'modal_alert')
+        {   if(my $view = $sheet->views->view(param 'view_id'))
             {   if(process(sub {
-                    $view->create_alert(frequency => param('frequency'));
+                    $view->alert_set(param 'frequency');
                 }))
                 {
                     return forwardHome({ success =>
@@ -1831,7 +1830,7 @@ prefix '/:layout_name' => sub {
              if $user->user_can('view_limit_extra');
 
         $params->{current_view_limit_extra} = current_view_limit_extra();
-        $params->{alerts}            = $sheet->views->alerts;
+        $params->{alerts}            = $sheet->views->all_alerts;
         $params->{views_other_user}  = $users->user(session 'views_other_user_id');
 
         $params->{breadcrumbs}        = [
@@ -1842,7 +1841,6 @@ prefix '/:layout_name' => sub {
         template 'data' => $params;
     };
 
-    # any ['get', 'post'] => qr{/tree[0-9]*/([0-9]*)/?} => require_login sub {
     any ['get', 'post'] => '/tree:any?/:layout_id/?' => require_login sub {
         # Random number can be used after "tree" to prevent caching
 
@@ -2163,8 +2161,8 @@ prefix '/:layout_name' => sub {
         # view creation rights, then remove the global parameter, otherwise it
         # means that it is ticked by default but only for a group instead
 
-        my $global = $param('global') ? 1 : 0;
-        $global = 0
+        my $is_global = $param('is_global');
+        $is_global = 0
             if  $clone_id
             && !$view->group_id
             && !$sheet->user_can('layout');
@@ -2177,8 +2175,8 @@ prefix '/:layout_name' => sub {
             my $name = param('name');
             if(process sub{ $view->view_update(
                 column_ids => param('column'),
-                global     => $global,
-                is_admin   => param('is_admin') ? 1 : 0,
+                is_global  => $is_global,
+                is_for_admins => param('is_for_admins'),
                 group_id   => param('group_id'),
                 name       => $name,
                 sortfields => [ body_parameters->get_all('sortfield') ],
