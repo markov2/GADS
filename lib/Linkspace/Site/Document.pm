@@ -17,14 +17,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
 package Linkspace::Site::Document;
-use Moo;
-use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 
 use Log::Report  'linkspace';
-use Scalar::Util qw(blessed);
-use List::Util   qw(first);
+use Scalar::Util    qw(blessed);
+use List::Util      qw(first);
 
-#use Linkspace::Sheet ();
+use Linkspace::Util qw(index_by_id);
+use Linkspace::Sheet ();
+use Moo;
 
 =head1 NAME
 
@@ -57,44 +57,49 @@ Return all sheets, even those which the session user is not allowed to access.
 They are sorted by name (case insensitive).
 =cut
 
-has all_sheets => (
-   is      => 'lazy',
-   builder => sub
-   {   my $self   = shift;
-       my @sheets = map Linkspace::Sheet->from_record($_,
-           document => $self,
-       ), $::db->resultset('Instance')->all;
-
-       $self->_sheet_indexes_update($_) for @sheets;
-       [ sort { fc($a->name) cmp fc($b->name) } @sheets ];
-   }
+has _sheets_by_id => (
+    is      => 'lazy',
+    builder => sub
+    {   my $self   = shift;
+        my $sheets = Linkspace::Sheet->search_objects({site => $self->site},
+            document => $self,
+        );
+        index_by_id @$sheets;
+    }
 );
 
-=head2 my $sheet = $doc->sheet($which);
+has _sheets_by_name => (
+    is        => 'lazy',
+    predicate => 1,
+    builder   => sub
+    {   my $by_id = shift->_sheet_index_by_id;
+         +{ map +('table'.$_->id => $_, $_->name => $_, $_->short_name => $_),              values %$by_id };
+    },
+);
+
+sub all_sheets
+{   my $index = shift->_sheets_by_id;
+    [ sort { fc($a->name) cmp fc($b->name) } grep defined, values %$index ];
+}
+
+=head2 my $sheet = $doc->sheet($which, $to?, $index?);
 Get a single sheet, C<$which> may be specified as name, short name or id.
+When C<$to> is undef, the sheet gets removed.
 =cut
 
 sub _sheet_indexes_update($;@)
 {   my ($self, $sheet) = (shift, shift);
     my $to = @_ ? shift : $sheet;
+    $self->_sheets_by_id->{$sheet->id} = $to;
 
-    my $index = $self->_sheet_index;
-    $index->{$sheet->id}         =
-    $index->{'table'.$sheet->id} =
-    $index->{$sheet->name}       =
-    $index->{$sheet->short_name} = $to;
+    if($self->_has_sheets_by_name)
+    {   my $index = $self->_sheets_by_name;
+        $index->{'table'.$sheet->id} =
+        $index->{$sheet->name}       =
+        $index->{$sheet->short_name} = $to;
+    }
 }
 
-has _sheet_index => (
-    is      => 'lazy',
-    isa     => HashRef,
-    builder => sub
-    {   my $self  = shift;
-        my $index = {};
-        _sheet_indexes_update($_) for @{$self->all_sheets};
-        $index;
-    }
-);
 
 sub sheet($)
 {   my ($self, $which) = @_;
@@ -103,7 +108,8 @@ sub sheet($)
     return $which
         if blessed $which && $which->isa('Linkspace::Sheet');
 
-    $self->_sheet_index->{$which};
+    my $index = $which =~ /\D/ ? $self->_sheets_by_name : $self->_sheets_by_id;
+    $index->{$which};
 }
 
 
@@ -149,9 +155,7 @@ sub sheet_update($%)
 sub sheet_create(%)
 {   my $self   = shift;
     my $insert = @_==1 ? shift : +{ @_ };
-    my $sheet_id = Linkspace::Sheet->sheet_create($insert);
-    my $sheet    = Linkspace::Sheet->from_id($sheet_id, document => $self);
-
+    my $sheet  = Linkspace::Sheet->sheet_create($insert, document => $self);
     $self->_sheet_indexes_update($sheet);
     $sheet;
 }
@@ -162,9 +166,9 @@ the first sheet when there is none.
 =cut
 
 sub first_homepage
-{   my $all = shift->all_sheets;
-    my $has = first { $_->homepage_text } @$all;
-    $has || $all->[0];
+{   my $sheets = shift->all_sheets;
+    my $has    = first { $_->homepage_text } @$sheets;
+    $has || $sheets->[0];
 }
 
 #----------------------
@@ -220,15 +224,11 @@ sub column($%)
     $column;
 }
 
-=head2 \@columns = $doc->columns(@ids);
-
 =head2 \@columns = $doc->columns(\@ids);
+Gets columns (by id or object) and returns objects.
 =cut
 
-sub columns
-{   my $self  = shift;
-    [ map $self->column($_), ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_ ];
-}
+sub columns { [ map +(blessed $_ ? $_ : $_[0]->column($_)), @{$_[0]} ] }
 
 =head2 \@cols = $doc->columns_for_sheet($which);
 Returns all columns which are linked to a certain sheet.  Pass sheet by

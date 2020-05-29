@@ -32,13 +32,20 @@ sub db_table { 'Site' }
 
 sub db_field_rename { +{
     host => 'hostname',
-    hide_account_request       => 'do_hide_account_requests',
+    hide_account_request       => 'hide_account_requests',
     register_show_department   => 'do_show_department',
     register_show_organisation => 'do_show_organisation',
     register_show_team         => 'do_show_team',
     register_show_title        => 'do_show_title',
-    remember_user_location     => 'do_remember_user_location',
 }; }
+
+sub db_also_bools { [ qw/
+   hide_account_request
+   register_organisation_mandatory 
+   register_department_mandatory
+   register_team_mandatory
+   remember_user_location
+/ ] }
 
 __PACKAGE__->db_accessors;
 

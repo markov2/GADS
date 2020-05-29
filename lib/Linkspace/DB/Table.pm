@@ -52,7 +52,6 @@ __STUB
 
         # We peak directly inside the record object to avoid slow (smart)
         # accessors from DBIx::Class.  Same as $self->_record->$acc()
-use Data::Dumper;
         *{"${class}::$attr"} = eval <<__ACCESSOR;
 sub { \@_==1 or error "Read-only accessor ${class}::$attr"; \$_[0]{_coldata}{$acc} }
 __ACCESSOR
@@ -89,6 +88,12 @@ sub _db_rename(;$)
 # Specify which db-fields are only internally for the application, so not
 # involved in exporting and importing records.
 sub db_fields_no_export { [] }
+
+# Specify database fields which are booleans.  Do use 'db_also_bools'
+# sparsely: only when it is really obvious from the field name that this
+# is a boolean.  In the current scheme, that's rarely the case.
+sub _is_boolean_field_name($) { $_[0] =~ /^(?:is|can|do|has|no)_/ }
+sub db_also_bools { [] }
 
 #-----------------------
 =head1 METHODS: Constructors
@@ -138,8 +143,8 @@ the renamed field, and cannot be complex (for the moment).
 =cut
 
 sub search_records($)
-{   my ($self, $search) = @_;
-    [ $::db->search($self->db_table, $self->_record_converter->($search))->all ];
+{   my ($thing, $search) = @_;
+    [ $::db->search($thing->db_table, $thing->_record_converter->($search))->all ];
 }
 
 =head2 \@objects = $class->search_objects(\%search, %options);
@@ -148,9 +153,9 @@ the related objects.
 =cut
 
 sub search_objects($%)
-{   my ($self, $search) = (shift, shift);
-    my $records = $self->search_records($search || {});
-    [ map $self->from_record($_, @_), @$records ];
+{   my ($thing, $search) = (shift, shift);
+    my $records = $thing->search_records($search || {});
+    [ map $thing->from_record($_, @_), @$records ];
 }
 
 #-----------------------
@@ -259,7 +264,7 @@ sub export_hash($)
 }
 
 =head2 $obj->delete(%options);
-Remove this record from the database.
+Remove the record for this object from the database.
 =cut
 
 sub delete
@@ -325,8 +330,92 @@ sub create($%)
     $self;
 }
 
+=head2 ($add, $rem, $ch) = $class->set_record_list(\%set, \@items, \&eq?);
+Implements logic for a simple 'has many' relation update.  It adds
+and removes C<@items> from the database.  Each item is a record.
+
+The C<%set> contains a query which selects all items which belong to
+the list.  Those fields do not (need to) be part of each of the items:
+they get itemed automatically.
+
+You may use the returned ARRAY of C<$added>, C<$removed> and C<$changed>
+record ids to update your indexes.  This method does not know anything
+about cached objects or already instantiated objects.
+
+When you specify a C<&eq> sub, it will be used to find-out which records
+are already present.  If needed, it will only update those records.  When
+there is no such routine all existing records will get replaced by new
+ones.
+=cut
+
+# This code is larger than simply needed to maintain an easy 'has many'
+# relation, because it is requires some flexibility.
+
+sub set_record_list($$;$)
+{   my ($class, $select, $items, $equal) = @_;
+    defined $items or return;
+
+    my $table = $class->db_table;
+    my $conv  = $class->_record_converter;
+    my $set   = $conv->($select);
+    my @old   = $::db->search($table, $set)->all;
+
+    unless(@$items)
+    {   my @removed = map $_->id, @old;
+        $::db->delete($table => $set);
+        info __x"bulk update {table} table removed all {removed} records",
+            table => $table, removed => scalar @removed if @removed;
+        return ([], \@old, []);
+    }
+
+    my @records  = map $conv->($_), @$items;
+
+    unless($equal)
+    {   # Don't know how elements can be kept: replace all existing
+        my @removed = map $_->id, @old;
+        $::db->delete($table => $set);
+        my @created = map $::db->create($table => {%$set, %$_})->id, @records;
+        info __x"bulk update {table} table, created {created}, removed {removed} records", 
+            table   => $table, created => scalar @created,
+            removed => scalar @removed;
+        return (\@created, \@removed, []);
+    }
+
+    my %old = map +($equal->($_->{_column_data}) => $_), @old;
+    my (@created, @changed);
+
+    foreach my $record (@records)
+    {
+       if(my $has = delete $old{$equal->($record)})
+       {   my $data = $has->{_column_data};
+           ($record->{$_} // '\0') eq ($data->{$_} // '\0') && delete $record->{$_}
+               for keys %$record;
+
+            if(keys %$record)
+            {   $::db->update($table => $has->id, $record);
+                push @changed, $has->id;
+            }
+        }
+        else
+        {   push @created, $::db->create($table => { %$set, %$record })->id; 
+        }
+    }
+
+    my @removed = map $_->id, values %old;
+    $::db->delete($table => { id => \@removed }) if @removed;
+
+    info __x"bulk update {table} table, created {created}, removed {removed}, changed {changed} records",
+        table   => $table, created => scalar @created,
+        removed => scalar @removed, changed => scalar @changed;
+
+    ( \@created, \@removed, \@changed );
+}
+
 #------------------
-=head1 EXPLAIN record conversion
+=head1 DETAILS
+
+=head2 Explain Record Conversion
+
 In the original GADS code, it is sometimes hard to see whether a field is a
 boolean, contains JSON, or contains an id.  Over time, there may be a database
 rename projects, but for the moment, we solve this by mapping better (internal)
@@ -352,6 +441,7 @@ sub _record_converter
     my $info   = $class->db_result_class->columns_info;
     my $unused = $class->db_fields_unused;
     my $rename = $class->_db_rename($info);
+    my %bools  = map +($_ => 1), @{$class->db_also_bools};
 
     my %map    = (
         (map +($_ => $_), keys %$info),
@@ -374,7 +464,7 @@ sub _record_converter
         {   $run{$1}    ||= $make->($int, 'blessed $_[0] ? $_[0]->id : $_[0]');
             $run{$ext}  ||= $make->($int, '$_[0]');
         }
-        elsif($ext =~ /^(?:is|can|do|has)_|_mandatory$/)
+        elsif(_is_boolean_field_name($ext) || $bools{$int} )
         {   $run{$ext}  ||= $make->($int, '$_[0] ? 1 : 0');
         }
         elsif($ext =~ /(.*)_json$/)
@@ -394,8 +484,7 @@ sub _record_converter
     my $converter = sub {
         my $in  = shift;
         my $out = {};
-        ($run{$_} or panic "Unusable $_")->(delete $in->{$_}, $out)
-            for grep exists $in->{$_}, keys %$in;
+        ($run{$_} or panic "Unusable $_")->($in->{$_}, $out) for keys %$in;
         $out;
     };
 

@@ -35,6 +35,12 @@ sub db_fields_rename { +{
 ### 2020-05-11: columns in GADS::Schema::Result::Alert
 # id         user_id    frequency  view_id
 
+has view => (
+    is       => 'ro',
+    weakref  => 1,
+    required => 1,
+);
+
 =head1 METHODS: Constructors
 
 =head2 my $alert = $class->current($view, $user?, %options)
@@ -45,6 +51,11 @@ sub current($$%)
 {   my ($class, $view, $whose) = (shift, shift, shift);
     $whose ||= $::session->user;
     $class->from_search({view => $view, owner => $whose}, @_);
+}
+
+sub for_user($%)
+{   my ($class, $user, %args) = @_;
+    $class->search_objects({user => $user}, %args);
 }
 
 sub _alert_validate($)
@@ -60,18 +71,36 @@ sub _alert_validate($)
     }
 }
 
+sub _alert_create($%)
+{   my ($class, $insert) = (shift, shift);
+    $self->create($insert, @_);
+}
+
+sub _alert_update($)
+{   my ($self, $update) = @_;
+    if($update{frequency})
+}
+
+sub _alert_delete()
+{   my ($self) = @_;
+    my $view = $self->view;
+
+    if(@{$view->all_alerts} == 1)
+    {   # Clean-up some mess, when everyone has cleaned their alerts
+        #XXX needed?
+        $::db->delete(AlertSend => { alert_id => $self->id });
+        $::db->delete(AlertCache => { view_id => $view->id });
+    }
+    $self->delete;
+}
+
 #--------------------
 =head1 METHODS: Manage alert cache
 =cut
 
 sub update_cache($)
-{   my ($self, $view, %options) = @_;
-
+{   my ($self, %options) = @_;
     my $view = $self->view;
-    if(!$view->has_alerts)
-    {   $::db->delete(AlertCache => { view_id => $view->id });
-        return;
-    }
 
     # If the view contains a CURUSER filter, we need separate
     # alert caches for each user that has this alert. Only need
@@ -150,28 +179,6 @@ sub update_cache($)
     }
 
     $guard->commit;
-}
-
-sub alert_create($%)
-{   my ($class, $insert) = (shift, shift);
-    $self->create($insert, @_);
-}
-
-sub alert_update($)
-{   my ($self, $update) = @_;
-    if($update{frequency})
-}
-
-sub _alert_delete($)
-{   my ($self, $view) = @_;
-
-    if(@{$view->all_alerts} ==1)
-    {   # Clean-up some mess, when everyone has cleaned their alerts
-        #XXX needed?
-        $::db->delete(AlertSend => { alert_id => $self->id });
-        $::db->delete(AlertCache => { view => $view->id });
-    }
-    $self->delete;
 }
 
 1;

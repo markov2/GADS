@@ -10,6 +10,8 @@ use Test::More;
 use Import::Into;
 use Importer       ();
 use Data::Dumper   qw/Dumper/;
+use Test::MockTime ();
+use DateTime       ();
 
 use Linkspace;
 
@@ -28,9 +30,11 @@ sub import(%)
 {   my ($class, %args) = @_;
 
     my $caller = caller;
-    Test::More->import::into($caller);
     warnings->import::into($caller);
     strict->import::into($caller);
+    Log::Report->import::into($caller);
+    Test::More->import::into($caller);
+    Test::MockTime->import::into($caller, ':all');
 
     $Data::Dumper::Indent   = 1;
     $Data::Dumper::Sortkeys = 1;
@@ -58,6 +62,8 @@ my @loglines;
 sub log($$$$)
 {   my ($cb, $options, $reason, $message) = @_;
     my $line = $cb->translate($options, $reason, $message);
+    die $line if $reason eq 'PANIC';
+
     push @loglines, $line =~ s/\n\z//r;
 }
 sub logs { my @l = @loglines; @loglines = (); @l }
@@ -70,7 +76,7 @@ END { warn "untested log: $_\n" for @loglines }
 
 ### Some objects
 
-my ($test_site, $test_user, $test_group);
+my ($test_site, $test_user, $test_group, $test_sheet);
 
 sub make_site($@)
 {   my ($seqnr, %args) = @_;
@@ -126,7 +132,12 @@ sub make_group($@)
 
     $group;
 }
-sub test_group(@) { $test_group ||= make_group '1', @_ }
+
+sub test_group(@)
+{   $test_group ||= make_group '1',
+        owner => test_user,
+        @_;
+}
 
 sub test_session()
 {   # user is created in active site, switch from default to test-site first
@@ -156,6 +167,24 @@ sub switch_user($)
 
     $::session->login($user);
     is logline, '', 'Switch to user '.$user->path;
+}
+
+#XXX to be tested
+sub make_sheet($@)
+{   my ($seqnr, %args) = @_;
+    my $sheet = test_site->document->sheet_create(\%args);
+
+    is logline, "info: Instance created ${\$sheet->id}: ${\$sheet->path}",
+        '... logged creation of sheet '.$sheet->path;
+
+    $sheet;
+}
+
+sub test_sheet(@)
+{   $test_sheet ||= make_sheet '1',
+        name_short => 'test_sheet',
+        @_;
+
 }
 
 1;

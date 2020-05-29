@@ -104,6 +104,7 @@ has api_index_layout_id => (
 
 sub insert_initial_columns()
 {    my ($self) = @_;
+return; #XXX
      $self->column_create({ %$_, can_child => 0, is_internal => 1 })
          for @internal_columns;
 }
@@ -407,13 +408,13 @@ sub columns(@)
     [ map $self->column($_, @_), @$which ];
 }
 
-=head2 $layout->column_create(%insert)
+=head2 $layout->column_create(\%insert, %args)
 =cut
 
-sub column_create($)
-{   my ($self, %insert) = @_;
+sub column_create($%)
+{   my ($self, $insert, %args) = @_;
 
-    my $column = Linkspace::Column->column_create($self, \%insert);
+    my $column = Linkspace::Column->column_create($self, $insert);
     $self->sheet->document->publish_column($column);
 
     push @{$self->all_columns}, $column;

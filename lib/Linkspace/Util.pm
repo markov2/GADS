@@ -28,6 +28,7 @@ our @EXPORT_OK = qw/
     iso2datetime
     is_valid_id
     list_diff
+    make_wordlist
     parse_duration
     scan_for_plugins
     uniq_objects
@@ -181,5 +182,20 @@ sub list_diff($$)
     ( [ keys %to ], [ keys %from ], \@both);
 }
 
-1;
+=head2 my $string = make_wordlist @words;
+Show a humanly readible list of alternatives, like a list of names.  The
+words are separated by a comma-blank, except the last one, which is
+preceeded by 'and'.  Returns an empty string when there are no words.
+May also be called with an array.
+=cut
 
+sub make_wordlist(@)
+{   my @words = @_==1 && ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_;
+    return '' if !@words;
+    return $words[0] if @words==1;
+
+    my $final = pop @words;
+    join(', ', @words) . " and $final";
+}
+
+1;

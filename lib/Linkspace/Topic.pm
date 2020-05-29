@@ -19,10 +19,20 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Topic;
 
 use Log::Report 'linkspace';
+use Linkspace::Util qw(make_wordlist);
 
 use Moo;
+extends 'Linkspace::DB::Table';
+
 use namespace::clean;
-extends 'GADS::Schema::Result::Topic';
+
+sub db_table { 'Topic' }
+sub db_also_bools { [ qw/click_to_edit/ ] }
+
+### 2020-05-28: columns in GADS::Schema::Result::Topic
+# id                    click_to_edit         prevent_edit_topic_id
+# instance_id           description
+# name                  initial_state
 
 =head1 NAME
 
@@ -35,30 +45,24 @@ Linkspace::Topic - Topic of discussion
 =head1 METHODS: constructors
 =cut
 
-sub from_record($%)
-{   my ($class, $record) = @_;
-    bless $record, $class;
-}
+has sheet => (
+    is       => 'ro',
+    required => 1,
+    weakref  => 1,
+);
 
-=head1 METHODS: Other
+#--------------
+=head1 METHODS: Related topics
 =cut
 
-sub need_completed_topics_as_string
+sub need_completed_topics
 {   my $self = shift;
-    my @topics = map $_->name, $self->need_completed_topics->all;
-
-      ! @topics   ? ''
-    : @topics==1  ? $topics[0]
-    : do { 
-        my $final = pop @topics;
-        local $"  = ', ';
-        "@topics and $final";
-      };
+    (ref $self)->search_objects({prevent_edit_topic_id => $self->id}, sheet => $self->sheet);
 }
 
-sub need_completed_topics_count
-{   my $self = shift;
-    $self->need_completed_topics->count;
+sub show_need()
+{   my ($self, $topics) = @_;
+    make_wordlist(map $_->name, @$topics);
 }
 
 sub report_changes($)

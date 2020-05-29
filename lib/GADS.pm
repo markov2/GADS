@@ -239,7 +239,7 @@ hook after_template_render => sub {
 
 sub _forward_last_table
 {
-    forwardHome() if ! $site->do_remember_user_location;
+    forwardHome() if ! $site->remember_user_location;
     my $forward;
     if(my $l = _persistent 'sheet_id')
     {   $forward = $site->sheet($l)->identifier;
@@ -373,7 +373,7 @@ any ['get', 'post'] => '/login' => sub {
     {
         my $email = param 'email';
         error __"Self-service account requests are not enabled on this site"
-            if $site->do_hide_account_requests;
+            if $site->hide_account_requests;
 
         # Check whether this user already has an account
         my $victim = $site->users->user_by_email($email);
@@ -2172,6 +2172,11 @@ prefix '/:layout_name' => sub {
             #XXX other_user_id => session('views_other_user_id'),
             #XXX not needed anymore?
 
+            my @sortfields = body_parameters->get_all('sortfield');
+            my @sorttypes  = body_parameters->get_all('sorttype');
+            push @sorttypes, $sorttypes[-1] while @sorttypes < @sortfields;
+            my @sortings   = map +[ $_, shift @sorttypes ], @sortfields;
+
             my $name = param('name');
             if(process sub{ $view->view_update(
                 column_ids => param('column'),
@@ -2179,9 +2184,8 @@ prefix '/:layout_name' => sub {
                 is_for_admins => param('is_for_admins'),
                 group_id   => param('group_id'),
                 name       => $name,
-                sortfields => [ body_parameters->get_all('sortfield') ],
-                sorttypes  => [ body_parameters->get_all('sorttype')  ],
-                groups     => [ body_parameters->get_all('groupfield') ],
+                sortings   => \@sortings,
+                groupings  => [ body_parameters->get_all('groupfield') ],
                 filter     => param('filter'),
             ) } )
             {

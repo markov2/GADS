@@ -101,7 +101,7 @@
 
             <label for="sorts">Sort the records in your view by:</label>
             <div id="sorts">
-                [% FOREACH sort IN view_edit.sorts %]
+                [% FOREACH sort IN view_edit.show_sorts %]
                     [% PROCESS sortrow %]
                 [% END %]
                 <div class="sort-add">

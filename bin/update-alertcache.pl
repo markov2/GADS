@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 =pod
 GADS - Globally Accessible Data Store
@@ -20,6 +20,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use FindBin;
 use lib "$FindBin::Bin/../lib";
+
+use strict;
+use warnings;
 
 use Linkspace;
 

@@ -24,9 +24,9 @@ use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
 
 use Linkspace::Sheet::Layout ();
-use Linkspace::Sheet::Data   ();
-use Linkspace::Sheet::Views  ();
-use Linkspace::Sheet::Graphs ();
+#use Linkspace::Sheet::Data   ();
+#use Linkspace::Sheet::Views  ();
+#use Linkspace::Sheet::Graphs ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -41,6 +41,10 @@ sub db_table { 'Instance' }
 sub db_fields_unused { [ qw/no_overnight_update/ ] }
 #XXX no_hide_blank cannot be changed
 
+sub db_field_rename { +{
+    sort_layout_id => 'sort_column_id',
+}; }
+
 ### 2020-04-22: columns in GADS::Schema::Result::Instance
 # id                          homepage_text
 # name                        homepage_text2
@@ -49,6 +53,10 @@ sub db_fields_unused { [ qw/no_overnight_update/ ] }
 # default_view_limit_extra_id no_overnight_update
 # forget_history              sort_layout_id
 # forward_record_after_create sort_type
+
+sub db_also_bools { [ qw/forget_history/ ] }
+
+__PACKAGE__->db_accessors;
 
 =head1 NAME
 Linkspace::Sheet - manages one sheet: one table with a Layout
@@ -69,27 +77,7 @@ Option C<allow_everything> will overrule access permission checking.
 Required is a C<document>.
 =cut
 
-=head2 my $sheet = Linkspace::Sheet->from_record($record, %options);
-=cut
-
-sub from_record($%)
-{   my ($class, $record, %args) = @_;
-    my $self = bless $record, $class;
-    $self;
-}
-
-=head2 my $sheet = $class->from_id($sheet_id, %options);
-Create a Sheet object based on a C<$sheet_id> (old name: instance_id).
-The same C<%options> as method C<from_record()>.
-=cut
-
-sub from_id($%)
-{   my ($class, $sheet_id, %args) = @_;
-    my $record = $::db->get_record(Instances => $sheet_id) or return;
-    $class->from_record($record, %args);
-}
-
-=head2 $sheet->sheet_update(%changes);
+=head2 $sheet->sheet_update(\%changes);
 Apply the changes to the sheet's database structure.  For now, this can
 only change the sheet (Instance) record, not its dependencies.
 
@@ -99,25 +87,57 @@ changes to the record, it will return the original object.
 =cut
 
 sub sheet_update($)
-{   my ($self, %changes) = @_;
-    keys %changes or return $self;
-    $self->update(\%changes);
+{   my ($self, $changes) = @_;
+    $self->validate($changes);
+    $self->update($changes);
 }
 
 =head2 my $changes = $class->validate(\%data);
 =cut
 
 sub validate($)
-{   my ($class, $insert) = @_;
+{   my ($thing, $insert) = @_;
     my $slid = $insert->{sort_layout_id};
     ! defined $slid || is_valid_id $slid
         or error __x"Invalid sheet sort_layout_id '{id}'", id => $slid;
 
     my $st = $insert->{sort_type};
     ! defined $st || $st eq 'asc' || $st eq 'desc'
-        error __x"Invalid sheet sort type {type}", type => $st;
+        or error __x"Invalid sheet sort type {type}", type => $st;
 
     $insert;
+}
+
+=head2 $sheet->sheet_delete;
+Remove the sheet.
+=cut
+
+sub sheet_delete($)
+{   my $self     = shift;
+    my $sheet_id = $self->id;
+
+    $self->site->users->sheet_unuse($self);
+    $self->layout->sheet_unuse($self);
+
+    my $dash = $::db->search(Dashboard => { instance_id => $sheet_id });
+    $::db->delete(Widget => { dashboard_id =>
+       { -in => $dash->get_column('id')->as_query }});
+    $dash->dashboard_delete;
+
+    $self->delete;
+}
+
+=head2 $sheet = $class->sheet_create(\%settings, %args);
+Create a new sheet object, which is saved to the database with its
+initial C<%settings>.
+=cut
+
+sub sheet_create($%)
+{   my ($class, $insert, %args) = @_;
+    my $self = $class->create($insert, %args);
+
+    $self->layout->insert_initial_columns;
+    $self;
 }
 
 #--------------------
@@ -139,47 +159,7 @@ has document => (
 
 sub identifier { $_[0]->name_short || 'table'.$_[0]->id }
 
-#--------------------
-=head1 METHODS: the Sheet itself
-
-=head2 $sheet->sheet_delete;
-Remove the sheet.
-=cut
-
-sub sheet_delete($)
-{   my $self     = shift;
-    my $sheet_id = $self->id;
-    my $layout   = $self->layout;
-
-    my $guard    = $::db->begin_work;
-    $self->users->sheet_unuse($self);
-    $self->layout->sheet_unuse($self);
-
-    my $dash = $::db->search(Dashboard => { instance_id => $sheet_id });
-    $::db->delete(Widget => { dashboard_id =>
-       { -in => $dash->get_column('id')->as_query }});
-    $dash->dashboard_delete;
-
-    $self->delete;
-
-    $guard->commit;
-}
-
-=head2 $sheet = $class->sheet_create(%settings);
-Create a new sheet object, which is saved to the database with its
-initial C<%settings>.
-=cut
-
-sub sheet_create($%)
-{   my ($class, %insert) = @_;
-    my $document      = delete $insert{document};
-
-    my $sheet_id   = $class->create(\%insert);
-    my $sheet      = $class->from_id($sheet_id, document => $document);
-
-    $sheet->layout->insert_initial_columns;
-    $sheet;
-}
+sub path { $_[0]->site->path.'/'.$_[0]->identifier }
 
 #--------------------
 =head1 METHODS: Sheet Layout
@@ -366,8 +346,8 @@ XXX Move to a separate sub-class?
 has _topics_index => (
     is      => 'lazy',
     builder => sub {
-        my $sheet_id = $_[0]->id;
-        index_by_id $::db->search(Topic => { instance_id => $sheet_id })->all;
+        my $topics = Linkspace::Topic->search_objects({sheet => $_[0]});
+        index_by_id $topics;
     },
 );
 
@@ -375,34 +355,28 @@ sub has_topics() { keys %{$_[0]->_topics_index} }
 
 sub topic($)
 {   my ($self, $id) = @_;
-    defined $id or return;
-    my $topic = $self->_topics_index->{$id} or return;
-
-    Linkspace::Topic->from_record($topic)
-        unless $topic->isa('Linkspace::Topic');
-
-    $topic;
+    $self->_topics_index->{$id};
 }
 
 #XXX apparently double names can exist :-(  See import
 sub topics_by_name($)
-{   my ($self, $name) = @_;
-    [ map $_->topic($_->id), grep lc($_->name) eq lc($name), %{$self->_topics_index} ];
+{   my $self = shift;
+    my $name = lc shift;
+    [ grep lc($_->name) eq $name, %{$self->_topics_index} ];
 }
 
-sub all_topics { [ map $_[0]->topic($_), keys %{$_[0]->_topics_index} ] }
+sub all_topics { [ values %{$_[0]->_topics_index} ] }
 
 sub topic_create($)
 {   my ($self, $insert) = @_;
-    my $topic_id = $::db->create(Topic => $insert)->id;
-    $self->topic($topic_id);
+    my $topic = Linkspace::Topic->create($insert);
+    $self->_topic_index->{$topic->id} = $topic;
 }
 
 sub topic_update($%)
-{   my ($self, $which, $update) = @_;
-    my $topic_id = blessed $which ? $which->id : $which;
+{   my ($self, $topic, $update) = @_;
     $topic->report_changes($update);
-    $::db->update(Topic => $topic_id, $update);
+    $topic->update($update);
     $self;
 }
 
