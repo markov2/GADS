@@ -107,9 +107,13 @@ sub useradmins_emails
     [ map $_->email, grep $_->has_permission('useradmin'), @{$self->all_users} ];
 }
 
+=head2 \@users = $users->account_requestors;
+Return Users which are in the process of being added to the system.
+=cut
+
 sub account_requestors()
 {   my $index = shift->_users_index_full;
-    grep $_->is_account_request, values %$index;
+    [ grep $_->is_account_request, values %$index ];
 }
 
 sub _active_users
@@ -605,6 +609,8 @@ sub view_unuse($)
     my $view_id = blessed $which ? $which->id : defined $which ? $which : return;
     $_->update({ last_view_id => undef })
        for grep $_->last_view_id==$view_id, @{$self->all_users};
+
+    $::db->delete(ViewLimit => {view_id => $view_id});
 }
 
 1;

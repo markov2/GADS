@@ -20,11 +20,12 @@ package Linkspace::View;
 
 use Log::Report 'linkspace';
 use MIME::Base64;
-use String::CamelCase qw(camelize);
-
 use List::Util qw(first);
+
 use Linkspace::View::Alert;
 use Linkspace::View::Filter;
+use Linkspace::View::Sorting;
+use Linkspace::View::Grouping;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -48,13 +49,20 @@ use namespace::clean;
 
 =head1 NAME
 
-Linkspace::View - rules to sub-set sheet data.
+Linkspace::View - rules to sub-set sheet data
 
 =head1 SYNOPSIS
 
 =head1 DESCRIPTION
 A user's View restricts the data in a sheet according to rules.  Applying
 the view on the data results in a Page.
+
+The View does not only restrict the data you can see via a Filter, but
+also defines Sorting and Grouping on the (temporary) results.  When values
+in the View change, it may trigger Alerts.
+
+A user's view on sheet data can be limited by a View, which is in the ViewLimit
+table, which is managed by L<Linkspace::Site::Users>.
 
 =head1 METHODS: constructors
 
@@ -74,26 +82,100 @@ sub _view_validate($)
         }
     }
 
+    # XXX Database schema currently restricts length of name. Should be changed
+    # to normal text field at some point
+    exists $changes->{name} && length $changes->{name} < 128
+        or error __"View name must be less than 128 characters";
+
+    if(   (exists $changed->{is_global} && $changed->{is_global})
+       || (exists $changed->{is_for_admins} && $changed->{is_for_admins} ))
+    {   # Refuse owner
+        $changes->{user_id} = undef;
+        delete $changes->{user};
+    }
+
+    if(my $filter = Linkspace::Filter->from_json($changes->{filter_json}))
+    {   $filter->_filter_validate($layout);
+        $changes->{filter} = $filter;
+    }
+
     $thing;
 }
 
-sub _view_create($%)
+sub _view_create
 {   my ($class, $insert, %args) = @_;
+    $insert->{name} or error __"Please enter a name for the view";
 
-    my @relations = ...
-    my $self  = $class->create($insert, %args);
+    my $sheet   = $args{sheet} or panic;
+    my $user    = $::session->user;
+
+    my $col_ids = delete $insert->{column_ids} || [];
+    $col_ids    = [ $col_ids ] if ref $col_ids eq 'ARRAY';
+
+    $insert->{is_global} = 0 unless exists $insert->{is_global};
+    $insert->{is_for_admins}  = 0 unless exists $insert->{is_for_admins};
+    $insert->{owner}   ||= $user unless $insert->{owner_id};
+    $insert->{is_global} = !$insert->{owner} && !$insert->{owner_id};
+
+    my @relations = (
+        sortings  => delete $update{sortings},
+        groupings => delete $update{groupings},
+        monitor   => delete $update{column_ids},
+    );
+
+    my $self = $class->_view_validate($insert)->create($insert, %args);
+
+    unless($self->is_writable($user))
+    {   #XXX We need the object to check for write rights :-(  Maybe simplifications in
+        #    in that logic can avoid that.
+       $self->_view_delete;   # erase it immediately
+        error __x"User {user.path} does not have permission to create new views", user => $user;
+    }
+
     $self->_update_relations(@relations);
+    $self->filter_changed;
+    $self;
+}
+
+sub _view_update
+{   my ($self, $update, %args) = @_;
+    my $user = $::session->user;
+
+    # Preserve owner if editing other user's view
+    if(! $self->owner && ! $update->{owner_id} && ! $update->{owner})
+    {   $update->{owner} = $user if $sheet->is_writable($user);
+    }
+
+    $self->is_writable($user)
+        or error __x"User {user.path} does not have permission to create new views", user => $user;
+
+    my @relations = (
+        sortings  => delete $update{sortings},
+        groupings => delete $update{groupings},
+        monitor   => delete $update{column_ids},
+    );
+
+    $self->_view_validate($update)->update(View => $self->id, $update);
+
+    $self->_update_relations(@relations);
+    $self->filter_changed if $update->{filter_json} || $update->{filter};
+    $self;
 }
 
 sub _view_delete
 {   my $self = shift;
-    my $view_ref = { view_id => $self->id };
-    $::db->delete($_ => $view_ref)
-        for qw/ViewGroup ViewLimit ViewLayout Sort/;
-
-    $self->alert->_alert_delete($self);
-    $self->filter->unuse_view($self); #XXX
+    $self->_update_relations(sortings => [], groupings => [], monitor => []);
+##  $self->alert->_alert_delete($self);
+    $self->site->users->view_unuse($self);
+    $self->filter->view_unuse($self); #XXX
     $self->delete;
+}
+
+sub _update_relations(%)
+{   my ($self, %rels) = @_;
+    $self->_set_monitor($rels{monitor});
+    $self->_set_sortings($rels{sortings});
+    $self->_set_groupings($rels{groupings});
 }
 
 #---------------
@@ -169,6 +251,23 @@ sub first_grouping_column_id()
      @$groups ? $groups->[0]->layout_id : undef;
 }
 
+sub _set_groupings
+{   my ($self, $filter_ids) = @_;
+
+    my (@groupings, $order);
+    foreach my $filter_id (@$filter_ids)
+    {   my ($parent_id, $column_id) = $self->_unpack_filter_id(groupings => $filter_id);
+        push @groupings, +{
+            column_id => $column_id,
+            parent_id => $parent_id,
+            order     => ++$order,
+        };
+    }
+
+    Linkspace::View::Groupings->set_record_list
+      ( { view => $self }, \@groupings, \&_filter_rec_uniq );
+}
+
 #---------------
 =head1 METHODS: Manage Alerts
 
@@ -237,7 +336,7 @@ sub alerts_cached_for($)
     Linkspace::View::Alert->cached_for($column);
 }
 
-=head2 my %h = $view->alerts_for_user($user?);
+=head2 \%h = $view->alerts_for_user($user?);
 Returns a nested HASH with as key the view-ids, and the alert info
 as HASH as value, to be used in the web-interface.
 
@@ -253,6 +352,19 @@ sub alerts_for_user(;$)
       +{ map +($_->view_id => $_), @$cols };
 }
 
+=head2 \@user_ids = $view->alert_users_ids;
+Finds all user-ids for users which have an alert on this view.  When the
+filter does not produce different results per user, this will return
+undef.
+=cut
+
+sub alert_users_ids()
+{   my $self = shift;
+    return unless $self->filter->depends_on_user;
+    my $alerts = Linkspace::View::Alert->search_records({ view => $self });
+    [ map +($_->user_id), @$alerts ];
+}
+
 #--------------
 =head1 METHODS: Manage Columns which are monitored
 =cut
@@ -262,86 +374,12 @@ sub monitors_on_column($)
     # ViewLayout ($view, $column)
 }
 
-sub _view_validate($)
-{   my ($thing, $changes) = @_;
 
-    # XXX Database schema currently restricts length of name. Should be changed
-    # to normal text field at some point
-    exists $changes->{name} && length $changes->{name} < 128
-        or error __"View name must be less than 128 characters";
+sub _set_monitor($)
+{   my ($self, $col_ids) = @_;
+    defined $col_ids or return;
 
-    if(   (exists $changed->{is_global} && $changed->{is_global})
-       || (exists $changed->{is_for_admins} && $changed->{is_for_admins} ))
-    {   # Refuse owner
-        $changes->{user_id} = undef;
-        delete $changes->{user};
-    }
-
-    if(my $filter = Linkspace::Filter->from_json($changes->{filter_json}))
-    {   $filter->_filter_validate($layout);
-        $changes->{filter} = $filter;
-    }
-}
-
-sub _view_create
-{   my ($class, $insert, %args) = @_;
-    $insert->{name} or error __"Please enter a name for the view";
-
-    my $sheet = $args{sheet} or panic;
-    my $user  = $::session->user;
-
-    my $col_ids = delete $insert->{column_ids} || [];
-    $col_ids    = [ $col_ids ] if ref $col_ids eq 'ARRAY';
-
-    $insert->{is_global} = 0 unless exists $insert->{is_global};
-    $insert->{is_for_admins}  = 0 unless exists $insert->{is_for_admins};
-    $insert->{owner}   ||= $user unless $insert->{owner_id};
-    $class->_view_validate($insert);
-    $insert->{is_global} = !$insert->{owner} && !$insert->{owner_id};
-
-    my $self = $class->create($insert, %args);
-
-    # We need the object to check for write rights :-(  Maybe changes in the
-    # logic can avoid that.
-    unless($self->is_writable($user))
-    {   $self->_view_delete;   # erase it immediately
-        error __x"User {user.path} does not have permission to create new views", user => $user;
-    }
-
-    $self->filter_changed;
-    $self;
-}
-
-sub _view_update
-{   my ($self, $update, %args) = @_;
-    my $user = $::session->user;
-
-    # Preserve owner if editing other user's view
-    if(! $self->owner && ! $update->{owner_id} && ! $update->{owner})
-    {   $update->{owner} = $user if $sheet->is_writable($user);
-    }
-
-    $self->is_writable($self->sheet, $user)
-        or error __x"User {user.path} does not have permission to create new views", user => $user;
-
-    $self->_view_validate($insert);
-
-    $self->_update_columns($col_ids);
-    $self->_set_sorts(delete $update{sortfields}, $update{sorttypes});
-    $self->_set_groupings(delete $update{groups});
-
-    $self->update(View => $self->id, $update);
-
-    $self->filter_changed if $update->{filter_json} || $update->{filter};
-    $self;
-}
-
-sub write
-{   my ($self, $sheet, %options) = @_;
-
-    my $fatal = $options{no_errors} ? 0 : 1;
-
-    $view->column_monitor->_columns_update
+    $view->column_monitor->_columns_update;
 
     my %colviews = map +($_ => 1), @{$self->column_ids};
 
@@ -388,13 +426,6 @@ sub write
         }
         $::db->resultset('AlertCache')->populate(\@pop) if @pop;
     }
-
-    # Delete any no longer needed
-    my $search = {view_id => $self->id};
-    $search->{'-not'} = {layout_id => \@colviews} if @colviews;
-    $::db->delete(ViewLayout => $search);
-    $::db->delete(AlertCache => $search);
-
 }
 
 sub view_delete()
@@ -463,29 +494,12 @@ sub _unpack_filter_id($$)
 
 sub _filter_rec_uniq { $_[0]->layout_id . '\0' . ($_[0]->parent_id // '\0') }
 
-sub _set_groupings
-{   my ($self, $filter_ids) = @_;
-
-    my (@groupings, $order);
-    foreach my $filter_id (@$filter_ids)
-    {   my ($parent_id, $column_id) = $self->_unpack_filter_id(sortings => $filter_id);
-        push @groupings, +{
-            column_id => $column_id,
-            parent_id => $parent_id,
-            order     => ++$order,
-        };
-    }
-
-    Linkspace::View::Groupings->set_record_list
-      ( { view => $self }, \@groupings, \&_filter_rec_uniq );
-}
-
 sub _set_sortings
 {   my ($self, $sortings) = @_;
     my @sortings;
     foreach (@$sortings)
     {   my ($filter_id, $sort_type) = @$_;
-        my ($parent_id, $column_id) = $self->_unpack_filter_id(groupings => $filter_id);
+        my ($parent_id, $column_id) = $self->_unpack_filter_id(sortings => $filter_id);
         push @sortings, +{
             column_id => $column_id,
             parent_id => $parent_id,
@@ -525,14 +539,6 @@ has filter => (
     },
 );
 
-=head2 $view->has_curuser;
-Returns true when the view's filter contains a CURUSER selector, which will
-make cause separate alert cache result for each of the users instead a
-shared single.
-=cut
-
-sub has_curuser { my $f = $_[0]->filter; $f && $f->has_curuser }
-
 =head2 $view->filter_remove_column($column);
 Remove the use of C<$column> from the filter.
 =cut
@@ -566,23 +572,5 @@ sub filter_changed()
     }
 
 }
-
-#====================================
-package Linkspace::View::Grouping;
-
-use Moo;
-extends 'Linkspace::DB::Table';
-
-sub db_table { 'ViewGroup' }
-sub path() { $_[0]->view->path . '/' . $_[0]->SUPER::column($_[0]->short_name) }
-
-### 2020-05-09: columns in GADS::Schema::Result::ViewGroup
-# id         layout_id  order      parent_id  view_id
-
-has view => (
-    is       => 'ro',
-    weakref  => 1,
-    required => 1,
-);
 
 1;

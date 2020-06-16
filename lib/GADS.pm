@@ -190,7 +190,8 @@ hook before_template => sub {
     if($sheet &&
        ($sheet->user_can('approve_new') || $sheet->user_can('approve_existing')))
     {   $tokens->{user_can_approve} = 1;
-        $tokens->{approve_waiting}  = $sheet->data->approval->count;
+        my $approval_info = $sheet->data->current->requires_approval;
+        $tokens->{approve_waiting} = keys %$approval_info;
     }
 
     if (logged_in_user)
@@ -2179,11 +2180,11 @@ prefix '/:layout_name' => sub {
 
             my $name = param('name');
             if(process sub{ $view->view_update(
-                column_ids => param('column'),
+                name       => $name,
                 is_global  => $is_global,
                 is_for_admins => param('is_for_admins'),
                 group_id   => param('group_id'),
-                name       => $name,
+                column_ids => param('column'),
                 sortings   => \@sortings,
                 groupings  => [ body_parameters->get_all('groupfield') ],
                 filter     => param('filter'),
@@ -2341,11 +2342,7 @@ prefix '/:layout_name' => sub {
         {   # If we're viewing or approving an individual record, first
             # see if it's a new record or edit of existing. This affects
             # permissions.
-
-            $row = $doc->row(record_id => $record_id,
-                sheet            => $sheet,
-                include_approval => 1,
-            );
+            $row = $sheet->data->row($record_id, include_approval => 1);
         }
 
         my $approval_of_new = $row ? $row->approval_of_new : 0;
@@ -2399,7 +2396,7 @@ prefix '/:layout_name' => sub {
         }
         else
         {   $page  = 'approval';
-            $params->{records}     = $sheet->data->appoval->records;
+            $params->{records}     = $sheet->data->current->requires_approval;
             $params->{breadcrumbs} = [
                 Crumb($sheet),
                 Crumb($sheet, '/approval' => 'approve records'),
@@ -2410,53 +2407,32 @@ prefix '/:layout_name' => sub {
     };
 
     any ['get', 'post'] => '/link/:id?' => require_login sub {
-
-        my $layout = var('layout') or pass;
-
-        my $id = param 'id';
-
-        my $record = GADS::Record->new(
-            user   => logged_in_user,
-            layout => $layout,
-            schema => schema,
-        );
-
-        if ($id)
-        {
-            $record->find_current_id($id);
-        }
+        my $current_id = is_valid_id(param 'id');
+        my $data   = $sheet->data;
+        my $record = $data->current_record($current_id);
 
         if (param 'submit')
-        {
-            my $result;
-            if ($id)
-            {
-                $result = process( sub { $record->write_linked_id(param 'linked_id') });
-            }
-            else {
-                $record->initialise;
-                $result = process( sub { $record->write })
-                    && process( sub { $record->write_linked_id(param 'linked_id' ) });
-            }
-            if ($result)
-            {
-                return forwardHome(
+        {   my $linked_id = is_valid_id(param 'linked_id');
+
+            if(process(sub {
+                $record 
+                ? $data->row_update($record, {linked_id => $linked_id})
+                : $data->row_create({linked_id => $linked_id});
+            }) {
+            {   return forwardHome(
                     { success => 'Record has been linked successfully' }, $sheet->identifier.'/data' );
             }
         }
 
-        my $breadcrumbs = [Crumb($sheet)];
-        if ($id)
-        {
-            push @$breadcrumbs, Crumb($sheet, "/link/$id" => "edit linked record $id");
-        }
-        else {
-            push @$breadcrumbs, Crumb($sheet, '/link/' => 'add linked record');
-        }
+        my @breadcrumbs = Crumb($sheet);
+        push @breadcrumbs, $record
+           ? Crumb($sheet, "/link/$current_id" => "edit linked record $current_id")
+           : Crumb($sheet, '/link/' => 'add linked record');
+
         template 'link' => {
-            breadcrumbs => $breadcrumbs,
-            record      => $record,
             page        => 'link',
+            record      => $record,
+            breadcrumbs => \@breadcrumbs,
         };
     };
 
@@ -2903,11 +2879,11 @@ sub _data_graph
 {   my $id = shift;
 
     my $page = $sheet->data->search(
+        view                => current_view(),
         search              => session('search'),
         view_limit_extra_id => current_view_limit_extra_id(),
         rewind              => session('rewind'),
         group_values_as_index => 0,
-        view                => current_view(),
     );
 
     $page->make_graph($graph, $page);

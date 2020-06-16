@@ -18,7 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Sheet::Data;
 
-use Linkspace::Sheet::Approval;
+use Linkspace::Page::Current;
 
 use Data::Dumper qw/Dumper/;
 use DateTime;
@@ -93,14 +93,12 @@ sub search(%)
         view     => $apply_view,
 }
 
-sub wants_approval
-{   $::db->search(Record => {
-        approval              => 1,
-        'current.instance_id' => $self->sheet->id,
-    }, {
-        join => 'current',
-    })->count;
-}
+has current => (
+    is      => 'lazy',
+    builder => sub
+    {   Linkspace::Page::Current->new(sheet => $_[0]);
+    }
+);
 
 # Whether to build all fields for any curvals. This is needed when producing a
 # record for editing that contains draft curvals (in which case all the fields
@@ -239,16 +237,6 @@ has rewind => (
     isa => Maybe[DateAndTime],
 );
 
-sub rewind_formatted
-{   my $self = shift;
-    $::db->format_datetime($self->rewind);
-}
-
-has include_approval => (
-    is      => 'rw',
-    default => 0,
-);
-
 # Internal parameter to set the exact current IDs that will be retrieved,
 # without running any search queries. Used when downloading chunked data, when
 # all the current IDs have already been retrieved
@@ -308,22 +296,15 @@ sub search_query
     my $root_table    = $options{root_table} || 'current';
     my $current       = $options{alias} || ($root_table eq 'current' ? 'me' : 'current');
     my $record_single = $self->record_name(%options);
-    unless ($self->include_approval)
-    {
-        # There is a chance that there will be no approval records. In that case,
+
+    unless($options{include_approval})
+    {   # There is a chance that there will be no approval records. In that case,
         # the search will be a lot quicker without adding the approval search
         # condition (due to indexes not spanning across tables). So, do a quick
         # check first, and only add the condition if needed
-        my $approval_exists = $root_table eq 'current' && $::db->search(Current => {
-            instance_id        => $sheet->id,
-            "records.approval" => 1,
-        },{
-            join => 'records',
-            rows => 1,
-        })->next;
 
         push @search, +{ "$record_single.approval" => 0 }
-            if $approval_exists;
+            if $root_table eq 'current' && $self->current->wants_approval;
     }
 
     # Current IDs from quick search if used
@@ -427,35 +408,26 @@ sub search_views
 
     my @foundin;
     foreach my $view (@views)
-    {
+    {   my $filter  = $view->filter;
+
         # Treat each view with CURUSER as a separate view for each user
         # that has it set as an alert
-        my @users = $view->has_curuser
-           ? $::db->search(User => {
-              view_id => $view->id
-             }, {
-                join => 'alerts',
-             })->all : (undef);
+        my $user_ids = $view->alert_users_ids;
 
-        foreach my $user (@users)
-        {
-            my $filter  = $view->filter;
-            my $view_id = $view->id;
-            trace qq(About to decode filter for view ID $view_id);
-            my $decoded = $filter->as_hash;
-            if (keys %$decoded)
-            {   # No filter, definitely in view
-                push @foundin, {
-                    view    => $view,
-                    user_id => $user && $user->id,
-                    id      => $_,
-                } for @$current_ids;
-                next;
+        my $filter_hash = $filter->as_hash;
+        unless(keys %$filter_hash)
+        {   # No filter, definitely in view
+            foreach my $user_id ($user_ids ? @$user_ids : undef)
+            {   push @foundin,
+                    map +{ view => $view, user_id => $user_id, id => $_ }, @$current_ids;
             }
+            next;
+        }
 
-            my %search = (
+        foreach my $user_id ($user_ids ? @$user_ids : undef)
+        {   my %search = (
                 'me.instance_id' => $self->sheet->id,
-                $self->_search_construct($decoded, $self->layout, ignore_perms => 1, user => $user),
+                $self->_search_construct($filter_hash, $self->layout, ignore_perms => 1, user => $user),
                 (map %$_, $self->record_later_search(linked => 1, search => 1)),
             );
 
@@ -463,18 +435,17 @@ sub search_views
             while ($i < @$current_ids)
             {
                 # See comment above about searching for all current_ids
-                unless (@$current_ids == $self->count)
-                {
-                    my $max = $i + 499;
+                if(@$current_ids != $self->count)
+                {   my $max = $i + 499;
                     $max = @$current_ids-1 if $max >= @$current_ids;
                     $search{'me.id'} = [ @{$current_ids}[$i..$max] ];
                 }
 
                 push @ids, $::db->search(Current => \%search,{
                     join => [
-                        [$self->linked_hash(search => 1)],
+                        [ $self->linked_hash(search => 1) ],
                         {
-                            'record_single' => [
+                            record_single => [
                                 $self->jpfetch(search => 1),
                                 'record_later',
                             ],
@@ -486,14 +457,8 @@ sub search_views
                 $i += 500;
             }
 
-            foreach my $id (@ids)
-            {
-                push @foundin, {
-                    view    => $view,
-                    id      => $id,
-                    user_id => $user && $user->id,
-                };
-            }
+            push @foundin,
+                map +{ view => $view, user_id => $user_id, id => $_ }, @ids;
         }
     }
     @foundin;
@@ -1517,7 +1482,7 @@ sub _search_construct
                 filter      => $encoded,
             );
 
-            my $page = $view->search(
+            my $page = $self->search(view => $view,
                 # Don't limit by view this as well, otherwise recursive loop
                 _view_limits => [],
                 previous_values => 1,
@@ -2660,16 +2625,6 @@ __CASE_NO_LINK
 
     return \@all;
 }
-
-=head2 my $approval = $data->approval;
-Returns an L<Linkspace::Sheet::Approval> object, which contains logic about
-approving changes.
-=cut
-
-has approval => (
-    is      => 'lazy',
-    builder => sub { Linkspace::Sheet::Approval->new(sheet => $_[0]->sheet) },
-);
 
 1;
 

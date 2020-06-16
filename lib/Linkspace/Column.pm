@@ -580,10 +580,11 @@ has filters => (
     },
 );
 
-sub validate_search
-{   shift->validate(@_);
-#XXX
-}
+=head2 $col->validate_search($value, %options);
+Returns a true value when the C<$value> can be used as search query.
+=cut
+
+sub validate_search { 1 }
 
 # Default sub returning nothing, for columns where a "like" search is not
 # possible (e.g. integer)

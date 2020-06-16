@@ -197,9 +197,6 @@ sub is_valid_value($%)
         int => $value, col => $self->name;
 }
 
-# Any value is valid for a search, as it can include begins_with etc
-sub validate_search {1}
-
 sub enumval
 {   my ($self, $id) = @_;
     $id ? $self->_enumvals_index->{$id} : undef;

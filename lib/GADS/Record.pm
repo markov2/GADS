@@ -470,10 +470,6 @@ sub find_current_id
 {   my ($self, $current_id, %options) = @_;
     my $search_instance_id = $options{instance_id};
 
-    $current_id or return;
-    $current_id =~ /^[0-9]+$/
-        or error __x"Invalid record ID {id}", id => $current_id;
-
     my $current = $::db->get_record(Current => $current_id)
         or error __x"Record ID {id} not found", id => $current_id;
 
@@ -481,7 +477,6 @@ sub find_current_id
         or error __x"Record ID {id} invalid for table {table}",
             id => $current_id, table => $search_instance_id;
 
-    $self->_set_instance_id($current->instance_id);
     $self->_find(current_id => $current_id, %options);
 }
 
@@ -584,11 +579,10 @@ sub _find
 
     my $records = GADS::Records->new(
         curcommon_all_fields => $self->curcommon_all_fields,
-        layout               => $self->layout,
         columns              => $self->columns,
         rewind               => $self->rewind,
         is_deleted           => $find{deleted},
-        is_draft             => $is_draft || $find{include_draft} ? 1 : 0,
+        is_draft             => $is_draft || $find{include_draft},
         no_view_limits       => $is_draft,
         include_approval     => $self->include_approval,
         include_children     => 1,

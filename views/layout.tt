@@ -718,7 +718,7 @@
                 });
 
                 [% fiilter    = column.filter %]
-                [% filter_b64 = filter ? filter.base64(layout) : undef %]
+                [% filter_b64 = filter ? filter.base64 : undef %]
                 [% FOREACH instance_layout IN instance_layouts %]
                     [% PROCESS builder.tt builder_id = instance_layout.instance_id builder_layout = instance_layout filter_normal = filter filter_base64 = filter_b64 override_permissions = 1 %]
                 [% END %]
@@ -748,7 +748,7 @@
                     ]
                 });
                 [% IF column.display_field %]
-                    var data = base64.decode('[% column.display_field.base64(layout) %]');
+                    var data = base64.decode('[% column.display_field.base64 %]');
                     $('#displayConditionsBuilder').queryBuilder('setRules',
                         JSON.parse(data)
                     );

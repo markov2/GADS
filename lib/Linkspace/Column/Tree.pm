@@ -178,22 +178,16 @@ sub is_valid_value($%)
 {   my ($self, $value, %options) = @_;
     return 1 if !$value;
 
-    if (!$self->node($value))
-    {
-        return 0 unless $options{fatal};
-        error __x"'{int}' is not a valid tree node ID for '{col}'",
-            int => $value, col => $self->name;
-    }
-    if ($self->node($value)->{node}->{attributes}->{deleted})
-    {
-        return 0 unless $options{fatal};
-        error __x"Node '{int}' has been deleted and can therefore not be used"
-            , int => $value;
+    my $node = $self->node($value)
+        or error __x"Node '{int}' is not a valid tree node ID for '{col.name}'",
+            int => $value, col => $self;
+
+    if($node->{node}->{attributes}->{deleted})
+    {   error __x"Node '{int}' has been deleted and can therefore not be used",
+            int => $value;
     }
     1;
 }
-
-sub validate_search {1} # Anything is valid as a search value
 
 # Get a single node value
 sub node
@@ -257,24 +251,23 @@ sub _build__tree
     }
 
     my $root = Tree::DAG_Node->new();
-    $root->name("Root");
+    $root->name('Root');
 
     foreach my $n (@order)
     {   my $node = $tree->{$n};
-        if (my $parent = $node->{parent})
-        {
-            $tree->{$parent}->{node}->add_daughter($node->{node});
+        if(my $parent = $node->{parent})
+        {   $tree->{$parent}->{node}->add_daughter($node->{node});
         }
         else
         {   $root->add_daughter($node->{node});
         }
     }
 
-    {
+     +{
         nodes    => $tree,
         root     => $root,
         enumvals => $enumvals,
-    }
+      };
 }
 
 sub json
@@ -284,42 +277,46 @@ sub json
 
     my $stash = {
         tree => {
-            text     => "root",
+            text     => 'root',
             children => [],
         },
     };
+
     my $root = $self->_root;
     return [] unless $root->depth_under; # No nodes
+    my $enumvals = $self->_enumvals_index;
+
     $root->walk_down
     ({
         callback => sub
-        {
-                my($node, $options) = @_;
-                my $depth = $options->{_depth};
-                if ($depth == 0)
-                {
-                    # Starting out at root
-                    $options->{stash}->{last_node}->{$depth} = $stash->{tree};
-                }
-                elsif (!$self->_enumvals_index->{$node->name}->{deleted}) # Ignore deleted nodes
-                {
-                    my $parent = $options->{stash}->{last_node}->{$depth-1};
-                    my $text = $self->_enumvals_index->{$node->name}->{value};
-                    $parent->{children} = [] unless $parent->{children};
-                    my $leaf = {
-                        text => $text,
-                        id   => $node->name,
-                    };
-                    $leaf->{state} = {selected => \1} if $selected{$node->name};
-                    push @{$parent->{children}}, $leaf;
-                    $options->{stash}->{last_node}->{$depth} = $parent->{children}->[-1];
-                }
-                return 1; # Keep walking.
+        {   my($node, $options) = @_;
+
+            my $depth = $options->{_depth};
+            if($depth == 0)
+            {   # Starting out at root
+                $options->{stash}{last_node}{$depth} = $stash->{tree};
+                return 1;
+            }
+
+            $enumvals->{$node->name}->{deleted} # Ignore deleted nodes
+                and return 1;
+
+            my %leaf   = (
+                id   => $node->name,
+                text => $enumvals->{$node->name}->{value}, 
+            );
+            $leaf{state} = { selected => \1 } if $selected{$node->name};
+
+            my $parent = $options->{stash}{last_node}{$depth-1};
+            push @{$parent->{children}}, \%leaf;
+            $options->{stash}{last_node}{$depth} = $parent->{children}[-1];
+
+            return 1; # Keep walking.
         },
         _depth => 0,
         stash  => $stash,
     });
-    $stash->{tree}->{children};
+    $stash->{tree}{children};
 }
 
 sub _delete_unused_nodes
@@ -344,10 +341,7 @@ sub _delete_unused_nodes
         };
         # See if it has any children
         my @children = grep { $_->{parent} && $_->{parent} == $start->{id} } @all_nodes;
-        foreach my $child (@children)
-        {
-            _flat($self, $child, $flat, $level + 1, @all_nodes);
-        }
+        _flat($self, $_, $flat, $level + 1, @all_nodes) for @children;
     };
 
     # Now collect all the nodes in a flat structure. We can only delete
@@ -355,17 +349,15 @@ sub _delete_unused_nodes
     # We actually only delete nodes that aren't referenced anywhere, in
     # order to keep data integrity for old records
     my $flat = [];
-    foreach (@top)
-    {
-        _flat $self, $_, $flat, 0, @all_nodes;
-    }
+    _flat $self, $_, $flat, 0, @all_nodes for @top;
+
     my @flat = sort { $b->{level} <=> $a->{level} } @$flat;
 
     # Do the actual deletion if they don't exist
     foreach my $node (@flat)
-    {
-        next if $node->{deleted}; # Already deleted
-        if ($self->_enumvals_index->{$node->{id}})
+    {   next if $node->{deleted}; # Already deleted
+
+        if($self->_enumvals_index->{$node->{id}})
         {
             # Node in use somewhere
             if ($node->{parent}
@@ -374,9 +366,7 @@ sub _delete_unused_nodes
             {
                 # Current node still exists, but its parent doesn't
                 # Move current node to the top by undefing the parent
-                $self->schema->resultset('Enumval')->find($node->{id})->update({
-                    parent => undef
-                });
+                $::db->update(Enumval => $node->{id}, {parent => undef});
             }
         }
         else
@@ -392,8 +382,8 @@ sub _delete_unused_nodes
                     deleted => 1
                 });
             }
-            else {
-                $self->schema->resultset('Enumval')->find($node->{id})->delete;
+            else
+            {   $self->schema->resultset('Enumval')->find($node->{id})->delete;
             }
         }
     }
@@ -423,7 +413,6 @@ sub update
     $self->_update($_, $new_tree, %params) for @$tree;
     $self->_set__enumvals_index($new_tree);
     $self->_delete_unused_nodes;
-    $self->clear;
 }
 
 sub _update
@@ -435,35 +424,31 @@ sub _update
     my $enum_mapping = $params{enum_mapping};
     my $source_id    = delete $t->{source_id};
 
-    my $dbt;
-    if ($t->{id} && $t->{id} =~ /^[0-9]+$/)
-    {
-        # existing entry
-        $dbt = $self->_enumvals_index->{$t->{id}};
-    }
-    if ($dbt)
-    {
-        if ($dbt->{value} ne $t->{text})
-        {
-            $self->schema->resultset('Enumval')->find($t->{id})->update({
+    my $tid = is_valid_id $t->{id};
+    my $dbt = $tid ? $self->_enumvals_index->{$tid} : undef;
+
+    if($dbt)
+    {   if($dbt->{value} ne $t->{text})
+        {   $::db->update(Enumval => $tid, {
                 parent => $parent,
                 value  => $t->{text},
             });
 
-            $enum_mapping->{$source_id} = $t->{id}
+            $enum_mapping->{$source_id} = $tid
                 if $enum_mapping;
         }
         $new_tree->{$dbt->{id}} = $dbt;
     }
-    else {
-        # new entry
+    else
+    {   # new entry
         $dbt = {
             layout_id => $self->id,
             parent    => $parent,
             value     => $t->{text},
         };
-        my $id = $self->schema->resultset('Enumval')->create($dbt)->id;
+        my $id = $::db->create(Enumval => $dbt);
         $dbt->{id} = $id;
+
         # Add to existing cache.
         $new_tree->{$id} = $dbt;
         $enum_mapping->{$source_id} = $id
@@ -471,8 +456,7 @@ sub _update
     }
 
     foreach my $child (@{$t->{children}})
-    {
-        $child->{parent} = $dbt->{id};
+    {   $child->{parent} = $dbt->{id};
         $self->_update($child, $new_tree, %params);
     }
 };

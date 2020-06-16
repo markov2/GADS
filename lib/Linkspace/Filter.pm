@@ -78,13 +78,15 @@ Serialize filter for storage or Ajax.
 
 sub as_json() { encode_json $_[0]->as_hash }
 
-=head2 my $str = $filter->base64($layout);
+=head2 my $str = $filter->base64;
 Produce a base64 encoded version of the json, to be used in the template
 system.  As unexpected side effect, this inserts field texts.
 =cut
 
 sub base64
-{   my ($self, $layout) = @_;
+{   my $self   = shift;
+    my $layout = $self->sheet->layout;
+
     foreach my $filter (@{$self->filters})
     {   my $col = $layout->column($filter->{column_id}) or next;
         $filter->{data}{text} = $col->filter_value_to_text($filter->{value})
@@ -94,12 +96,17 @@ sub base64
     encode_base64($self->as_json, ''); # Base64 plugin does not like new lines
 }
 
+#------------------------
+=head1 METHODS: Filter introspection
+=cut
+
 has _ruleset => (
     is      => 'ro',
     default => sub { +{} },
 );
 
 =head2 \@ids = $filter->column_ids;
+Returns ids for all columns used in the filter rules.
 =cut
 
 sub column_ids() { [ map $_->{column_id}, @{$_[0]->filters} ] }
@@ -134,14 +141,74 @@ sub _filter_tables($)
 }
 
 =head2 \@names = $filter->column_names_in_subs;
-Returns all column (short) names used in the filter.
+Returns all column (short) names which are used in the filter, and need
+substitution.
 =cut
 
-sub column_names_in_subs($)
-{   my ($self, $layout) = @_;
+sub column_names_in_subs()
+{   my $self = shift;
     [ grep +(defined && /^\$([_0-9a-z]+)$/i ? $1 : undef),
          map $_->{value}, @{$self->filters} ];
 }
+
+=head2 my $new_filter = $filter->remove_column($column);
+Remove all rules which use the C<$column>.
+=cut
+
+sub _remove_column_id($$);
+sub _remove_column_id($$)
+{   my ($h, $col_id) = @_;
+    return () if $h->{id}==$col_id;
+    my $rules = delete $h->{rules};
+    my @new_rules = map _remove_column_id($_, $col_id), @$rules;
+    $h->{rules} = \@new_rules if @new_rules;
+    $h;
+}
+
+sub remove_column($)
+{   my ($self, $which) = @_;
+    $which or return $self;
+    my $column_id = blessed $which ? $which->id : $which;
+    (ref $self)->from_hash(_remove_column_id $self->as_hash, $column_id);
+}
+
+=head2 $filter = $filter->renumber_columns(\%mapping);
+When a filter gets imported, it contains column numbers from the original
+set-up.  Renumber them to numbers used in the new set-up.
+=cut
+
+sub renumber_columns($)
+{   my ($self, $ext2int) = @_;
+
+    # Update any field IDs contained within a filter
+    foreach my $f (@{$self->filters})
+    {   $f->{id}    = $ext2int->{$f->{id}}    or panic "Missing ID $f->{id}";
+        $f->{field} = $ext2int->{$f->{field}} or panic "Missing field $f->{field}";
+        delete $f->{column_id}; # may be present by accident
+    }
+
+    $self;
+}
+
+=head2 $filter->depends_on_user;
+=cut
+
+sub depends_on_user()
+{   my $self   = shift;
+    my $layout = $self->sheet->layout;
+
+    foreach my $rule (@{$self->filters})
+    {   next if +($_->{value} //'') ne '[CURUSER]';
+
+        my $col = $layout->column($_->{column_id});
+        return 1 if $col->type eq 'person' || $col->return_type eq 'string';
+    }
+
+    0;
+}
+
+#---------------
+=head1 METHODS: Applying the filter
 
 =head2 \%h = $self->sub_values($row);
 Returns a new HASH with the same structure as the filter rules, but then
@@ -156,6 +223,7 @@ sub sub_values
 sub _sub_filter_single
 {   my($self, $single, $row) = @_;
     my %single = %$single;
+    my $layout = $self->sheet->layout;
 
     if(my $rules = $single{rules})
     {   $single{$rules} = [ map $self->_sub_filter_single($_, $row), @$rules ];
@@ -163,7 +231,7 @@ sub _sub_filter_single
     }
 
     my $v = $single->{value};
-    if($v && $v =~ /^\$([_0-9a-z]+)$/i && (my $col = $row->layout->column($1)))
+    if($v && $v =~ /^\$([_0-9a-z]+)$/i && (my $col = $layout->column($1)))
     {   my $datum = $row->field($col);
 
         if($col->type eq 'curval')
@@ -205,64 +273,13 @@ sub parse_date_filter
 }
 
 
-=head2 my $new_filter = $filter->remove_column($column);
-Remove all rules which use the C<$column>.
-=cut
-
-sub _remove_column_id($$);
-sub _remove_column_id($$)
-{   my ($h, $col_id) = @_;
-    return () if $h->{id}==$col_id;
-    my $rules = delete $h->{rules};
-    my @new_rules = map _remove_column_id($_, $col_id), @$rules;
-    $h->{rules} = \@new_rules if @new_rules;
-    $h;
-}
-
-sub remove_column($)
-{   my ($self, $which) = @_;
-    $which or return $self;
-    my $column_id = blessed $which ? $which->id : $which;
-    (ref $self)->from_hash(_remove_column_id $self->as_hash, $column_id);
-}
-
-=head2 $filter = $filter->renumber_columns(\%mapping);
-When a filter gets imported, it contains column numbers from the original
-set-up.  Renumber them to numbers used in the new set-up.
-=cut
-
-sub renumber_columns($)
-{   my ($self, $ext2int) = @_;
-
-    # Update any field IDs contained within a filter
-    foreach my $f (@{$self->filters})
-    {   $f->{id}    = $ext2int->{$f->{id}}    or panic "Missing ID $f->{id}";
-        $f->{field} = $ext2int->{$f->{field}} or panic "Missing field $f->{field}";
-        delete $f->{column_id}; # may be present by accident
-    }
-
-    $self;
-}
-
-=head2 $filter->has_curuser($layout)
-=cut
-
-sub has_curuser($)
-{   my ($self, $layout) = @_;
-
-    first {
-        my $col = $layout->column($_->{column_id});
-        ($col->type eq 'person' || $col->return_type eq 'string')
-        && $_->{value} && $_->{value} eq '[CURUSER]'
-    } @{$self->filters};
-}
 
 =head2 $filter->_filter_validate($layout);
 =cut
 
 #XXX Only applicable to view filters?
 sub _filter_validate($)
-{   my ($self, $layout) = @_;
+{   my ($thing, $layout) = @_;
 
     # Get all the columns in the filter. Check whether the user has
     # access to them.
@@ -270,16 +287,17 @@ sub _filter_validate($)
     {   my $col_id = $filter->{column_id};
         my $col    = $layout->column($col_id)
             or error __x"Field ID {id} does not exist", id => $col_id;
+
         my $val   = $filter->{value};
         my $op    = $filter->{operator};
         if($col->return_type eq 'daterange')
         {   # Exact daterange format, than full="yyyy-mm-dd to yyyy-mm-dd"
-            # Will bork on failure.
             my $take = $op eq 'equal' || $op eq 'not_equal' ? 'full_only' : 'single_only';
+            $col->validate_search($val, $take => 1);
         }
         elsif($op ne 'is_empty' && $op ne 'is_not_empty')
-        {   # 'empty' would normally fail on blank value, will bork on failure
-            $col->validate_search($val, fatal => $fatal)
+        {   # 'empty' would normally fail on blank value
+            $col->validate_search($val);
         }
 
         my $has_value = $val && (ref $val ne 'ARRAY' || @$val);

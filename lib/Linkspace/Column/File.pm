@@ -87,9 +87,6 @@ sub is_valid_value($%)
     1;
 }
 
-# Any value is valid for a search, as it can include begins_with etc
-sub validate_search {1}
-
 sub _collect_form_extra
 {   my ($class, $params) = @_;
     my $extra = $class->SUPER::_collect_form_extra($params);

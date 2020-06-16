@@ -16,42 +16,89 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Sheet::Approval;
+package Linkspace::Page::Current;
 
-use GADS::Datum::Person;
 use Log::Report 'linkspace';
 
+use Linkspace::Datum::Person  ();
+
+sub db_table { 'Current' }
+
+sub db_field_rename { +{
+    deleted => 'is_deleted',
+} };
+
+### 2020-06-15: columns in GADS::Schema::Result::Current
+# id           deleted      draftuser_id parent_id
+# instance_id  deletedby    linked_id    serial
+
 use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
+extends 'Linkspace::Page', 'Linkspace::DB::Table';
 
-has sheet => (
-    is       => 'ro',
-    required => 1,
-    weakref  => 1,
-);
+__PACKAGE__->db_accessors;
 
-has records => (
+use namespace::clean;
+
+=head1 NAME
+
+Linkspace::Page::Current - the latest version of the sheet content
+
+=head1 SYNOPSIS
+  my $page = $sheet->data->current;
+
+=head1 DESCRIPTION
+This is the current status of the sheet.
+
+B<Be aware> that sheets can be very large: processing must be as lazy as
+possible.  A db-search on records is preferred over processing all records.
+
+=head1 METHODS: constructors
+=cut
+
+#---------------
+=head1 METHODS: Attributes
+=cut
+
+#---------------
+=head1 METHODS: Approval
+
+=head2 $page->wants_approval;
+Returns a true value when any row of the sheet needs approval.
+=cut
+
+has wants_approval => (
     is      => 'lazy',
-    builder => sub { [values %{$_[0]->_records} ] },
+    builder => sub
+    {   $::db->search(Current => {
+            instance_id        => $self->sheet->id,
+            "records.approval" => 1,
+        },{
+            join => 'records',
+            rows => 1,
+        })->next;
+    }
 );
 
-has count => (
-    is      => 'lazy',
-    builder => sub { scalar keys %{$_[0]->_records} },
-);
+=head2 \%info = $page->requires_approval($user?);
+Returns a HASH which hash row_ids as key and some details as value, for each of
+the rows where the C<$user> can
+=cut
 
-has _records => (
-    is  => 'lazy',
-    isa => HashRef,
-);
+has _requires_approval => ( is => 'ro', default => sub { +{} } );
 
-sub _build__records
+sub requires_approval(;$)
 {   my $self = shift;
-    my $user  = $::session->user;
-    my $sheet = $self->sheet;  #XXX
+    my $user = shift || $::session->user;
 
     # First short-cut and see if it is worth continuing
-    return {} unless $sheet->data->wants_approval;
+    $self->wants_approval or return {};
+
+    $self->_requires_approval->{$user->id} ||= $self->_create_approval_info($user);
+}
+
+sub _create_approval_info($)
+{   my ($self, $user) = @_;
+    my $sheet_id = $self->id;
 
     # Each hit contains two parts: some record columns and createdby info.
     my $options = {
@@ -97,9 +144,9 @@ sub _build__records
     my @hits;
 
     my $meta_tables = Linkspace::Column->meta_tables;
-    if($sheet->user_can('approve_new'))
+    if($sheet->user_can(approve_new => $user))
     {   my %search = (
-            'current.instance_id'      => $sheet->id,
+            'current.instance_id'      => $sheet_id,
             'record.approval'          => 1,
             'layout_groups.permission' => 'approve_new',
             'user_id'                  => $user->id,
@@ -110,9 +157,9 @@ sub _build__records
             for @$meta_tables;
     }
 
-    if($sheet->user_can('approve_existing'))
+    if($sheet->user_can(approve_existing => $user))
     {   my %search = (
-            'current.instance_id'      => $sheet->id,
+            'current.instance_id'      => $sheet_id,
             'record.approval'          => 1,
             'layout_groups.permission' => 'approve_existing',
             'user_id'                  => $user->id,
@@ -131,7 +178,7 @@ sub _build__records
         $records{$record_id} ||= +{
             record_id  => $record_id,
             current_id => $hit->{record}->{current_id},
-            createdby  => GADS::Datum::Person->new(
+            createdby  => Linkspace::Datum::Person->new(
                 record_id => $record_id,
                 set_value => { value => $hit->{createdby} },
             ),
@@ -142,4 +189,3 @@ sub _build__records
 }
 
 1;
-

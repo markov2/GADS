@@ -1,13 +1,13 @@
-package Linkspace::View::Filter;
+package Linkspace::View::AlertCache;
 
 use Moo;
-extends 'Linkspace::DB::Table', 'Linkspace::Filter';
+extends 'Linkspace::DB::Table';
 
-sub db_table { 'Filter' }
-sub path     { $_[0]->view->path . '/filter' }
+sub db_table { 'AlertCache' }
+sub path     { $_[0]->view->path . '/alert-cache' }
 
-### 2020-05-19: columns in GADS::Schema::Result::Filter
-# id         layout_id  view_id
+### 2020-05-20: columns in GADS::Schema::Result::AlertCache
+# id         user_id    current_id layout_id  view_id
 
 has view => (
     is       => 'ro',
@@ -15,10 +15,9 @@ has view => (
     required => 1,
 );
 
-# Be sure there is not ref to the view anymore
-sub view_unuse($)
-{   my ($thing, $view) = @_;
-    $::db->delete(Filter => { view_id => $view->id });
+sub unuse_view($)
+{   my ($class, $view) = @_;
+    $::db->delete(AlertCache => { view_id => $view->id });
 }
 
 sub columns_update

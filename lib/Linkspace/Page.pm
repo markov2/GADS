@@ -237,12 +237,6 @@ has has_children => (
     isa     => Bool,
 );
 
-# Whether to take results from some previous point in time
-has rewind => (
-    is  => 'rw',
-    isa => Maybe[DateAndTime],
-);
-
 sub rewind_formatted
 {   my $self = shift;
     $::db->format_datetime($self->rewind);

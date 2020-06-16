@@ -528,7 +528,7 @@
 
 [%#XXX probably outdated %]
         [% df && 'data-has-dependency="1"' %]
-        [% df && 'data-dependency="' _ df.base64(layout) _ '"' %]
+        [% df && 'data-dependency="' _ df.base64 _ '"' %]
 
         [% dispcol.is_multivalue && 'data-is-multivalue="true"' %]
         [% dispcol.readonly && 'data-is-readonly="true"' %]

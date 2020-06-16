@@ -80,27 +80,22 @@ sub is_valid_value($)
     return 1 if $from || $to;
 
     if($from xor $to)
-    {   $options{fatal} or return 0;
-        error __x"Please enter 2 date values for '{col}'", col => $self->name;
+    {   error __x"Please enter 2 date values for '{col}'", col => $self->name;
     }
 
     my ($from_dt, $to_dt);
-
     if($from && !($from_dt = $self->parse_date($from)))
-    {   $options{fatal} or return 0;
-        error __x"Invalid start date {value} for {col}. Please enter as {format}.",
+    {   error __x"Invalid start date {value} for {col}. Please enter as {format}.",
             value => $from, col => $self->name, format => $self->dateformat;
     }
 
     if($to && !($to_dt = $self->parse_date($to)))
-    {   $options{fatal} or return 0;
-        error __x"Invalid end date {value} for {col}. Please enter as {format}.",
+    {   error __x"Invalid end date {value} for {col}. Please enter as {format}.",
             value => $to, col => $self->name, format => $self->dateformat;
     }
 
     if(DateTime->compare($from_dt, $to_dt) == 1)
-    {   $options{fatal} or return 0;
-        error __x"Start date must be before the end date for '{col}'", col => $self->name;
+    {   error __x"Start date must be before the end date for '{col}'", col => $self->name;
     }
 
     1;
@@ -109,30 +104,28 @@ sub is_valid_value($)
 sub validate_search
 {   my ($self, $value, %options) = @_;
     return 1 if !$value;
-    if ($options{single_only})
-    {
-        return 1 if $self->parse_date($value);
-        return 0 unless $options{fatal};
-        error __x"Invalid single date format {value} for {name}",
+    if($options{single_only})
+    {   return 1 if $self->parse_date($value);
+        error __x"Invalid single date format '{value}' for {name}",
             value => $value, name => $self->name;
     }
-    if ($options{full_only})
-    {
-        if(my $hash = $self->split($value))
-        {   return $self->validate($hash, %options);
+
+    if($options{full_only})
+    {   if(my $hash = $self->split($value))
+        {   return $self->is_valid_value($hash, %options);
         }
         # Unable to split
         return 0 unless $options{fatal};
         error __x"Invalid full date format {value} for {name}. Please enter as {format}.",
             value => $value, name => $self->name, format => $self->layout->config->dateformat;
     }
+
     # Accept both formats. Normal date format used to validate searches
     return 1 if $self->parse_date($value);
 
     my $split = $self->split($value);
-    return 1 if $split && $self->validate($split);
+    return 1 if $split && $self->is_valid_value($split);
 
-    return 0 unless $options{fatal};
     error "Invalid format {value} for {name}",
         value => $value, name => $self->name;
 }

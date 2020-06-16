@@ -201,7 +201,7 @@
                 ' );
             });
         }); 
-        [% filter_b64 = view_edit.filter.base64(layout) %]
+        [% filter_b64 = view_edit.filter.base64 %]
         [% INCLUDE builder.tt builder_layout = layout filter_normal = view_edit.filter filter_base64 = filter_b64 include_previous = 1 %]
         [% IF view_edit.filter.has_value %]
             var data = base64.decode('[% filter_b64 %]');

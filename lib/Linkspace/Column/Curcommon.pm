@@ -19,9 +19,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::Curcommon;
 # Extended by ::Autocur and ::Curval
 
-use Log::Report 'linkspace';
-use Scalar::Util qw/blessed/;
+use Log::Report       'linkspace';
+use Scalar::Util      qw/blessed/;
+
 use Linkspace::Filter ();
+use Linkspace::Util   qw/is_valid_id/;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -79,7 +81,7 @@ sub column_update($)
     my $layout_parent    = $self->layout_parent;
     my $parent_sheet_id  = $layout_parent->sheet_id;
     my @curval_fields    = grep $_->sheet_id == $parent_sheet_id,
-        $self->site->columns($curval_field_ids);
+        $self->columns($curval_field_ids);
 
     my @curval_field_ids;
     foreach my $column (@curval_fields)
@@ -442,16 +444,11 @@ sub _get_rows
 
 sub validate_search
 {   my ($self, $value, %options) = @_;
-    if(!$value)
-    {   return 0 unless $options{fatal};
-        error __x"Search value cannot be blank for {col}.",
-            col => $self->name;
-    }
-    elsif ($value !~ /^[0-9]+$/)
-    {   return 0 unless $options{fatal};
-        error __x"Search value must be an ID number for {col}.",
-            col => $self->name;
-    }
+    $value
+        or error __x"Search value cannot be blank for {col.name}.", col => $self;
+
+    is_valid_id $value
+        or error __x"Search value must be an ID number for {col.name}.", col => $self;
 
     1;
 }
