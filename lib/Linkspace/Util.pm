@@ -23,6 +23,7 @@ package Linkspace::Util;
 use parent 'Exporter';
 
 our @EXPORT_OK = qw/
+    flat
     is_valid_email
     index_by_id
     iso2datetime
@@ -54,6 +55,14 @@ to decide whether some code should be in a function or as method to an
 object.  Keep it simple!
 
 =head1 FUNCTIONS
+
+=head2 my @values = flat \@array|$value, ...
+Flatten a LIST into values.  It will not go into nested ARRAYs.  An C<undef>
+single value will result in an empty return, but C<undefs> in the array will
+be kept.
+=cut
+
+sub flat(@) { map { ref $_ eq 'ARRAY' ? @$_ : defined $_ ? $_ : () } @_ }
 
 =head2 is_valid_email $email or die;
 Returns a true value when a C<user@domain.tld> string is passed: not a full
