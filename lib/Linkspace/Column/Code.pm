@@ -162,14 +162,13 @@ sub params
 sub param_columns
 {   my ($self, %options) = @_;
     my $sheet_id = $self->sheet_id;
-    my $layout   = $self->layout;
 
     grep $_, map {
-        my $col = $layout->column($_)
-            or $options{is_fatal} && error __x"Unknown short column name \"{name}\" in calculation", name => $_;
+        my $col = $self->column($_)
+            or error __x"Unknown short column name '{name}' in calculation", name => $_;
 
-        $col->sheet_id == $sheet->id
-            or $options{is_fatal} && error __x"It is only possible to use fields from the same table ({table1}). \"{name}\" is from {table2}.",
+        $col->sheet_id == $sheet_id
+            or error __x"It is only possible to use fields from the same table ({table1}). '{name}' is from {table2}.",
                 name => $_, table1 => $self->sheet->name, table2 => $col->sheet->name;
         $col;
     } $self->params;
@@ -187,9 +186,9 @@ sub update_cached
 
     $self->clear; # Refresh calc for updated calculation
     my $layout = $self->layout;
+    my $sheet = $self->sheet;
 
-    my $records = GADS::Records->new(
-        layout               => $layout,
+    my $records = $sheet->data->search(
         columns              => [ @{$self->depends_on_ids}, $self->id ],
         view_limit_extra_id  => undef,
         curcommon_all_fields => 1, # Code might contain curcommon fields not in normal display
@@ -198,23 +197,18 @@ sub update_cached
 
     my @changed;
     while (my $record = $records->single)
-    {
-        my $datum = $record->fields->{$self->id};
+    {   my $datum = $record->fields->{$self->id};
         $datum->re_evaluate(no_errors => 1);
         $datum->write_value;
         push @changed, $record->current_id if $datum->changed;
     }
 
-    return if $options{no_alert_send}; # E.g. new column, don't want to alert on all
-
-    # Send any alerts
-    my $alert_send = GADS::AlertSend->new(
-        layout      => $self->layout,
-        current_ids => \@changed,
-        columns     => [$self->id],
-    );
-    $alert_send->process;
-};
+    $options{no_alert_send} # E.g. new column, don't want to alert on all
+        or $sheet->views->trigger_alerts(
+            current_ids => \@changed,
+            columns     => [ $self ],
+        );
+}
 
 sub _params_from_code
 {   my ($self, $code) = @_;

@@ -46,6 +46,9 @@ sub form_extras { [ qw/refers_to_instance_id filter/ ], [ 'curval_field_ids' ] }
 ### Instance
 ###
 
+#XXX Create with refers_to_sheet and related_column.
+#XXX curval_field_ids defaults to all non-internal columns in refers_to_sheet
+
 has value_selector => (
     is      => 'rw',
     isa     => sub { $_[0] =~ /^(?:typeahead|dropdown|noshow)$/ or panic "Invalid value_selector: $_[0]" },
@@ -218,23 +221,21 @@ sub fetch_multivalues
         result_class => 'HASH',
     })->all;
 
-    my $records = GADS::Records->new(
-        user                 => $self->override_permissions ? undef : $self->layout->user,
-        layout               => $self->layout_parent,
-        columns              => $self->curval_field_ids,
-        limit_current_ids    => [ map $_->{value}, @values ],
-        is_draft             => $options{is_draft},
-        columns              => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
+    my $user = $self->override_permissions ? undef : $::->session->user;
+    my $page = $self->sheet_parent->data->search(
+        user              => $self->override_permissions ? undef : $self->layout->user,
+        limit_current_ids => [ map $_->{value}, @values ],
+        is_draft          => $options{is_draft},
+        columns           => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
     );
 
     # We need to retain the order of retrieved records, so that they are shown
     # in the correct order within each field. This order is defined with the
     # default sort for each table
     my %retrieved; my $order;
-    while (my $record = $records->single)
-    {
-        $retrieved{$record->current_id} = {
-            record => $record,
+    while(my $row = $page->next_row)
+    {   $retrieved{$row->current_id} = +{
+            record => $tow,
             order  => ++$order, # store order
         };
     }
@@ -313,47 +314,29 @@ sub field_values($$%)
         {
             my $is_used;
             foreach my $refers (@{$self->layout_parent->referred_by})
-            {
-                my $refers_layout = Linkspace::Layout->new(
-                    user                     => $row->layout->user,
-                    user_permission_override => 1,
-                    config                   => GADS::Config->instance,
-                    instance_id              => $refers->instance_id,
-                );
-                my $rules = GADS::Filter->new(
-                    as_hash => {
-                        rules     => [{
-                            id       => $refers->id,
-                            type     => 'string',
-                            value    => $id_deleted,
-                            operator => 'equal',
-                        }],
-                    },
-                );
-                my $view = GADS::View->new( # Do not write to database!
-                    name        => 'Temp',
-                    filter      => $rules,
-                    instance_id => $refers->instance_id,
-                    layout      => $refers_layout,
-                    user        => undef,
-                );
-                my $refers_records = GADS::Records->new(
+            {   my $refers_sheet = $::session->site->sheet($refers->sheet_id);
+
+                my $filter = Linkspace::Filter->from_hash({
+                    rules     => [{
+                        id       => $refers->id,
+                        type     => 'string',
+                        value    => $id_deleted,
+                        operator => 'equal',
+                    }],
+                });
+
+                my $refers_page = $refers_sheet->data->search(
                     user    => undef,
-                    view    => $view,
+                    filter  => $filter,
                     columns => [],
-                    layout  => $refers_layout,
                 );
-                $is_used = $refers_records->count;
+
+                $is_used = $refers_page->count;
                 last if $is_used;
             }
 
-            if (!$is_used)
-            {
-                my $record = GADS::Record->new(
-                    layout   => $self->layout_parent,
-                );
-                $record->find_current_id($id_deleted);
-                $record->delete_current(override => 1);
+            if(!$is_used)
+            {   $sheet->data->current->row_delete($id_deleted);
                 push @ids_deleted, $id_deleted;
             }
         }

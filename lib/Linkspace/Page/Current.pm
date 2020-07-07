@@ -188,4 +188,49 @@ sub _create_approval_info($)
     \%records;
 }
 
+sub row_current($@)
+{   my ($self, $which) = (shift, shift);
+    blessed $which ? $which : $self->from_id($which, @_);
+}
+
+sub row_delete
+{   my ($self, $which) = @_;
+    my $current = $self->row_current($which);
+
+    $current->update({
+        deleted   => DateTime->now,
+        deletedby => $::session->user->id,
+    });
+}
+
+# returns current_ids
+sub child_ids($)
+{   my ($self, $row) = @_;
+    return [] if $row->has_parent;   # no multilevel parental relations
+
+    my $children = $self->search_records({
+        parent_id         => $row->current_id,
+        'me.deleted'      => undef,
+        'me.draftuser_id' => undef,
+    });
+
+    [ $children->get_column('id')->all ];
+}
+
+sub max_serial()
+{   $self->search(Current => { instance_id => $sheet->id })
+        ->get_column('serial')->max;
+}
+
+sub row_create($)
+{   my ($self, $insert) = @_;
+    $insert->{sheet} = $self->sheet;
+
+    my $guard  = $::db->begin_work;
+    $insert->{serial} = $self->max_serial + 1;
+    my $current_id = $self->create($insert, sheet => $self->sheet);
+
+    $guard->commit;
+}
+
 1;

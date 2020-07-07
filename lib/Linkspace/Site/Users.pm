@@ -156,7 +156,7 @@ sub users_in_org
     [ grep $_->organisation_id==$org_id, @{$self->all_users} ];
 }
 
-=head2 my $victim = $users->user_create(%insert);
+=head2 my $victim = $users->user_create(\%insert, %options);
 Returns a newly created user, a L<Linkspace::User::Person> object.
 =cut
 
@@ -578,7 +578,7 @@ has _global_perms_by_name => (
 sub _global_perm2id { $_[0]->_global_perms_by_name->{$_[1]} }
 sub _global_permid2name { $_[0]->_global_perms_by_id->{$_[1]} }
 
-#XXX used?   Returns Permission table records, with id/name
+# Returns Permission table records, with id/name
 sub global_permissions { $_[0]->_global_permissions }
 
 #---------------------
@@ -586,7 +586,7 @@ sub global_permissions { $_[0]->_global_permissions }
 Access permissions, like 'read' and 'write' are organized per group.
 =cut
 
-sub permission_shorts { Linkspace::Permission->all_short }
+sub permission_shorts { Linkspace::Permission->all_shorts }
 
 #---------------------
 =head1 METHODS: Other

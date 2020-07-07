@@ -258,13 +258,13 @@ sub _build_data
         $records->results; # Do now so as to populate dr_from and dr_to XXX
 
         if($records->dr_from && $records->dr_to)
-        {
-            # If this is a daterange x-axis, then use the start date
-            # as calculated by GADS::Records, then interpolate
-            # until the end date. These same values will have been retrieved
-            # in the resultset.
+        {   # If this is a daterange x-axis, then use the start date as
+            # calculated, then interpolate until the end date. These same
+            # values will have been retrieved in the resultset.
+
             my $pointer = $records->dr_from->clone;
-            while ($pointer->epoch <= $records->dr_to->epoch)
+            my $until   = $records->dr_to->epoch;
+            while ($pointer->epoch <= $until)
             {   push @x, $pointer->clone;
                 $pointer->add(%x_time_step);
             }

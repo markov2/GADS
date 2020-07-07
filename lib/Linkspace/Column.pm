@@ -245,11 +245,11 @@ has dateformat => (
 );
 
 sub parse_date
-{   my ($self, $value) = @_;
+{   my ($thing, $value) = @_;
     return if ref $value;
 
     # Check whether it's a CURDATE first
-    my $dt = GADS::Filter->parse_date_filter($value);
+    my $dt = Linkspace::Filter->parse_date_filter($value);
     return $dt if $dt;
 
     $::session->user->local2dt($value);
@@ -440,11 +440,11 @@ sub collect_form($$$)
             or panic "Attempt to move column between sheets";
     }
     else
-    {   $changes{remember} //= 0;
-        $changes{isunique} //= 0;
-        $changes{optional}   = exists $changes{optional} ? $changes{optional} : 1;
-        $changes{position} //= $layout->highest_position + 1;
-        $changes{width}    //= 50;
+    {   $changes{remember}  //= 0;
+        $changes{is_unique} //= 0;
+        $changes{is_optional} = exists $changes{is_optional} ? $changes{is_optional} : 1;
+        $changes{position}  //= $layout->highest_position + 1;
+        $changes{width}     //= 50;
         $changes{name} or error __"Please enter a name for item";
     }
 
@@ -454,9 +454,9 @@ sub collect_form($$$)
     }
 
     if(my $link_parent = $layout->column($params->{link_parent_id}))
-    {    # Check whether the parent linked field goes to a layout that has a curval
+    {    # Check whether the parent linked field goes to a sheet that has a curval
          # back to the current layout: no reference loop
-         ! $link_parent->refers_to_sheet($layout->sheet)
+         ! $link_parent->refers_to_sheet($self->sheet)
             or error __x"Cannot link to column '{col}' which contains columns from this sheet",
                 col => $link_parent->name;
     }

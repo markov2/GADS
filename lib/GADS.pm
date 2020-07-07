@@ -1300,9 +1300,7 @@ prefix '/:layout_name' => sub {
             $fromdt->set(hour => 0, minute => 0, second => 0);
         }
 
-        my $records = GADS::Records->new(
-            user                => $user,
-            layout              => $layout,
+        my $page = $sheet->data->search(
             view                => current_view(),
             search              => session('search'),
             view_limit_extra_id => current_view_limit_extra_id(),
@@ -1310,13 +1308,9 @@ prefix '/:layout_name' => sub {
 
         header "Cache-Control" => "max-age=0, must-revalidate, private";
         content_type 'application/json';
-        my $data = $records->data_calendar(
-            from => $fromdt,
-            to   => $todt,
-        );
         encode_json({
-            "success" => 1,
-            "result"  => $data,
+            success => 1,
+            result  => $page->data_calendar(from => $fromdt, to => $todt),
         });
     };
 
@@ -1382,9 +1376,7 @@ prefix '/:layout_name' => sub {
                or error __"You do not have permission to delete records";
 
             my %params = (
-                user                => $user,
                 search              => session('search'),
-                layout              => $layout,
                 rewind              => session('rewind'),
                 view                => current_view(),
                 view_limit_extra_id => current_view_limit_extra_id(),
@@ -1394,13 +1386,12 @@ prefix '/:layout_name' => sub {
             $params{limit_current_ids} = \@delete_ids
                 if @delete_ids;
 
-            my $records = GADS::Records->new(%params);
+            my $page = $sheet->data->search(%params);
 
             my $count; # Count actual number deleted, not number reported by search result
 
-            while (my $record = $records->single)
-            {
-                $count++ if process sub { $record->delete_current };
+            while (my $row = $page->next_row)
+            {   $count++ if process sub { $record->delete_current };
             }
             return forwardHome(
                 { success => "$count records successfully deleted" }, $sheet->identifier.'/data' );
@@ -1436,11 +1427,11 @@ prefix '/:layout_name' => sub {
             session 'search' => $search;
             if ($search)
             {
-                my $records = GADS::Records->new(
+                my $page = $sheet->data->search(
                     search              => $search,
                     view_limit_extra_id => current_view_limit_extra_id(),
                 );
-                my $results = $records->current_ids;
+                my $results = $page->current_ids;
 
                 # Redirect to record if only one result
                 redirect "/record/$results->[0]"
@@ -1549,23 +1540,16 @@ prefix '/:layout_name' => sub {
         elsif ($viewtype eq 'calendar')
         {
             # Get details of the view and work out color markers for date fields
-            my $records = GADS::Records->new(
-                user    => $user,
-                layout  => $layout,
-            );
-            my @columns = @{$records->columns_view};
+            my $page = $sheet->data->current;
             my @colors;
-            my $graph = GADS::Graph::Data->new(
-                records => undef,
-            );
+            my $graph = GADS::Graph::Data->new(records => undef);
 
-            foreach my $column (@columns)
-            {
-                if ($column->type eq "daterange" || ($column->return_type && $column->return_type eq "date"))
-                {
-                    my $color = $graph->get_color($column->name);
-                    push @colors, { key => $column->name, color => $color};
-                }
+            foreach my $column (@{$page->columns_view})
+            {   $column->type eq 'daterange' || ($column->return_type ||'') eq 'date'
+                    or next;
+
+                my $color = $graph->get_color($column->name);
+                push @colors, +{ key => $column->name, color => $color};
             }
 
             $params->{calendar} = session('calendar'); # Remember previous day viewed
@@ -1574,14 +1558,12 @@ prefix '/:layout_name' => sub {
             $params->{viewtype} = 'calendar';
         }
         elsif ($viewtype eq 'timeline')
-        {
-            my $records = GADS::Records->new(
+        {   my $page = $sheet->data->search(
                 view                => $view,
-                search              => session('search'),
-                layout              => $layout,
+                search  => session('search'),
                 # No "to" - will take appropriate number from today
-                from                => DateTime->now, # Default
-                rewind              => session('rewind'),
+                from    => DateTime->now, # Default
+                rewind  => session('rewind'),
                 view_limit_extra_id => current_view_limit_extra_id(),
             );
 
@@ -1845,22 +1827,19 @@ prefix '/:layout_name' => sub {
     any ['get', 'post'] => '/tree:any?/:layout_id/?' => require_login sub {
         # Random number can be used after "tree" to prevent caching
 
-        my ($layout_id) = splat;  #XXX?
-        $layout_id = route_parameters->get('layout_id');
+        my $tree = $layout->column(param 'layout_id')
+            or error __x"Invalid tree";
 
-        my $tree = $sheet->layout->column($layout_id)
-            or error __x"Invalid tree ID {id}", id => $layout_id;
+#XXX check that column is a tree?
+        if(my $data = param 'data')
+        {   $sheet->user_can('layout')
+               or return forwardHome({ danger => 'You do not have permission to edit trees' });
 
-        if (param 'data')
-        {
-            return forwardHome(
-                { danger => 'You do not have permission to edit trees' } )
-                unless $sheet->user_can("layout");
-
-            my $newtree = JSON->new->utf8(0)->decode(param 'data');
+            my $newtree = JSON->new->utf8(0)->decode($data);  #XXX not utf8?
             $tree->update($newtree);
             return;
         }
+
         my @ids  = query_parameters->get_all('ids');
         my $json = $tree->type eq 'tree' ? $tree->json(@ids) : [];
 
@@ -1868,7 +1847,6 @@ prefix '/:layout_name' => sub {
         header "Cache-Control" => "max-age=0, must-revalidate, private";
         content_type 'application/json';
         encode_json($json);
-
     };
 
     any ['get', 'post'] => '/purge/?' => require_login sub {
@@ -1877,50 +1855,36 @@ prefix '/:layout_name' => sub {
             or forwardHome({ danger => "You do not have permission to manage deleted records"}, '');
 
         if (param('purge') || param('restore'))
-        {
-            my @current_ids = body_parameters->get_all('record_selected')
-                or forwardHome({ danger => "Please select some records before clicking an action" }, $sheet->identifier.'/purge');
+        {   my @current_ids = body_parameters->get_all('record_selected')
 
-            my $records = GADS::Records->new(
-                limit_current_ids   => \@current_ids,
-                columns             => [],
-                is_deleted          => 1,
-                view_limit_extra_id => undef, # Override any value that may be set
-            );
-
-            if (param 'purge')
-            {
-                my $record;
-                $record->purge_current while $record = $records->single;
+            if(param 'purge')
+            {   $sheet->data->rows_purge(\@current_ids);
                 forwardHome({ success => "Records have now been purged" }, $sheet->identifier.'/purge');
             }
 
             if (param 'restore')
-            {
-                my $record;
-                $record->restore while $record = $records->single;
+            {   $sheet->data->rows_restore(\@current_ids);
                 forwardHome({ success => "Records have now been restored" }, $sheet->identifier.'/purge');
             }
         }
 
-        my $records = GADS::Records->new(
+        my $page = $sheet->data->search(
             columns             => [],
             is_deleted          => 1,
-            view_limit_extra_id => undef, # Override any value that may be set
+            view_limit_extra_id => undef
         );
 
-        my $params = {
-            page    => 'purge',
-            records => $records->presentation($sheet, purge => 1),
-        };
-
-        $params->{breadcrumbs} = [
+        my @breadcrumbs = (
             Crumb($sheet) =>
             Crumb($sheet, '/data' => 'records') =>
             Crumb($sheet, '/purge' => 'purge records')
-        ];
+        );
 
-        template 'purge' => $params;
+        template purge => {
+            page        => 'purge',
+            records     => $page->presentation(purge => 1),
+            breadcrumbs => \@breadcrumbs,
+        };
     };
 
     any ['get', 'post'] => '/graph/:id' => require_login sub {
@@ -2416,8 +2380,8 @@ prefix '/:layout_name' => sub {
 
             if(process(sub {
                 $record 
-                ? $data->row_update($record, {linked_id => $linked_id})
-                : $data->row_create({linked_id => $linked_id});
+                ? $data->current->row_update($record, {linked_id => $linked_id})
+                : $data->current->row_create({linked_id => $linked_id});
             }) {
             {   return forwardHome(
                     { success => 'Record has been linked successfully' }, $sheet->identifier.'/data' );
@@ -3035,7 +2999,7 @@ sub _process_edit
         {
             if (process( sub { $record->write(submission_token => param('submission_token')) }))
             {   my $current_id = $record->current_id;
-                my $forward = !$id && $layout->forward_record_after_create
+                my $forward = !$id && $sheet->forward_record_after_create
                   ? "record/$current_id"
                   : $sheet->identifier.'/data';
 

@@ -125,15 +125,19 @@ sub view_update($)
 {
 }
 
-
-=head2 my $view = $views->view_temporary(%options);
-Create a filter view which is only temporary.
+=head2 $views->trigger_alerts(%options);
+Send alerts to everyone monitoring certains fields.  Requires are a C<current_ids> (the
+records which have changed) and C<columns> (objects or ids which were updated).
 =cut
 
-#XXX can probably be replaced by nicer syntax
-sub view_temporary(%)
-{   my $self = shift;
-    Linkspace::View->new(@_, sheet => $self->sheet);
+sub trigger_alerts(%)
+{   my ($self, %args) = @_;
+#XXX
+    my $alert_send = GADS::AlertSend->new(
+        current_ids => \@changed,
+        columns     => [ $self ],
+    );
+    $alert_send->process;
 }
 
 #------------------------------

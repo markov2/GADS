@@ -1,19 +1,9 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
 
 use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Filter;
-use GADS::Record;
-use GADS::Records;
-use GADS::RecordsGraph;
-use GADS::Schema;
+use Linkspace::Test;
 
-use t::lib::DataSheet;
-
-set_fixed_time('10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S'); # Fix all tests for this date so that CURDATE is consistent
+# Fix all tests for this date so that CURDATE is consistent
+set_fixed_time('10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
 
 my $long = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum';
 
@@ -65,114 +55,77 @@ my $data = [
     },
 ];
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2, user_permission_override => 0);
+my $curval_sheet = make_sheet 2;
 $curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
-my $sheet   = t::lib::DataSheet->new(
-    data                     => $data,
-    schema                   => $schema,
-    curval                   => 2,
-    multivalue               => 1,
-    instance_id              => 1,
-    group                    => $curval_sheet->group,
-    calc_code                => "
+
+my $sheet   = test_sheet
+    data             => $data,
+    curval           => 2,
+    multivalue       => 1,
+    group            => $curval_sheet->group,
+    column_count     => { enum  => 1, curval => 2 },
+    calc_return_type => 'date',
+    calc_code        => <<'__CALC';
         function evaluate (L1daterange1)
-            if type(L1daterange1) == \"table\" and L1daterange1[1] then
+            if type(L1daterange1) == "table" and L1daterange1[1] then
                 dr1 = L1daterange1[1]
-            elseif type(L1daterange1) == \"table\" and next(L1daterange1) == nil then
+            elseif type(L1daterange1) == "table" and next(L1daterange1) == nil then
                 dr1 = nil
             else
                 dr1 = L1daterange1
             end
             if dr1 == nil then return end
             return dr1.from.epoch
-        end",
-    calc_return_type         => 'date',
-    user_permission_override => 0,
-    column_count     => {
-        enum   => 1,
-        curval => 2,
-    },
-);
+        end
+__CALC
+
 my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
+
 # Position curval first, as its internal _value fields are more
 # likely to cause problems and therefore representative test failures
-my @position = (
-    $columns->{curval1}->id,
-    $columns->{string1}->id,
-    $columns->{integer1}->id,
-    $columns->{date1}->id,
-    $columns->{daterange1}->id,
-    $columns->{enum1}->id,
-    $columns->{tree1}->id,
-);
+my @position = map $layout->column($_)->id, 
+    qw/curval1 string1 integer1 date1 daterange1 enum1 tree1/;
+
 $layout->position(@position);
 
-my $calc_int = GADS::Column::Calc->new(
-    schema          => $schema,
+$layout->create_column(calc => {
     user            => undef,
-    layout          => $layout,
     name            => 'calc_int',
     return_type     => 'integer',
-    code            => "function evaluate (L1integer1) return L1integer1 end",
-    set_permissions => {
-        $sheet->group->id => $sheet->default_permissions,
-    },
-);
-$calc_int->write;
-$layout->clear;
+    code            => 'function evaluate (L1integer1) return L1integer1 end',
+    set_permissions => +{ $sheet->group->id => $sheet->default_permissions },
+});
 
-$sheet->create_records;
-$curval_sheet->add_autocur(refers_to_instance_id => 1, related_field_id => $columns->{curval1}->id);
-$curval_sheet->add_autocur(refers_to_instance_id => 1, related_field_id => $columns->{curval2}->id);
-my $curval_columns = $curval_sheet->columns;
+$curval_layout->column_create(autocur => {
+    name            => "$_-xx",
+    refers_to_sheet => $sheet,
+    related_column  => $layout->column($_),
+}) for 'curval1', 'curval2';
+
+my $curval_columns = $curval_layout->columns;
 my $user = $sheet->user_normal1;
 
-my $record = GADS::Record->new(
-    user   => $user,
-    layout => $layout,
-    schema => $schema,
-);
-$record->find_current_id(6);
-$record->fields->{$columns->{enum1}->id}->set_value(8);
-$data->[3]->{enum1} = 'foo2';
-$record->write(no_alerts => 1);
+$sheet->current->row_by_current_id(6)->column('enum1')->set_value(8);
+
+$data->[3]->{enum1} = 'foo2';  #XXX ???
 
 # Add another curval field to a new table
-my $curval_sheet2 = t::lib::DataSheet->new(
-    schema                   => $schema,
-    group                    => $curval_sheet->group,
-    instance_id              => 3,
-    curval_offset            => 12,
-    curval_field_ids         => [$sheet->columns->{integer1}->id],
-    user_permission_override => 0,
+my $curval_sheet2 = make_sheet 3,
+    curval_offset    => 12,
+    curval_field_ids => [ $sheet->column('integer1')->id ],
 );
 $curval_sheet2->create_records;
-my $curval3 = GADS::Column::Curval->new(
-    name                  => 'curval3',
-    type                  => 'curval',
-    user                  => $user,
-    layout                => $curval_sheet->layout,
-    schema                => $schema,
-    refers_to_instance_id => $curval_sheet2->instance_id,
-    curval_field_ids      => [$curval_sheet2->columns->{string1}->id],
-    set_permissions       => {
-        $sheet->group->id => $sheet->default_permissions,
-    },
+
+my $curval3 = $curval_layout->column_create(curval => {
+    name             => 'curval3',
+    refers_to_sheet  => $curval_sheet2,
+    curval_field_ids => [ $curval_sheet2->column('string1')->id ],
+    permissions      => { $sheet->group->id => $sheet->default_permissions },
 );
-$curval3->write;
-$curval_sheet->layout->clear;
-$layout->clear;
-my $records = GADS::Records->new(
-    user    => $user,
-    layout  => $curval_sheet->layout,
-    schema  => $schema,
-);
-my $r = $records->single;
-my ($curval3_value) = $schema->resultset('Current')->search({ 'instance_id' => $curval_sheet2->instance_id })->get_column('id')->all;
-$r->fields->{$curval3->id}->set_value($curval3_value);
-$r->write(no_alerts => 1);
+
+my $r = $curval_sheet->data->current->record_for_row(0);
+my ($curval3_value) = $curval_sheet2->data->current->column_ids;
+$r->set_value($curval3, $curval3_value);
 
 
 # Manually force one string to be empty and one to be undef.
@@ -184,7 +137,7 @@ my @filters = (
     {
         name  => 'string is Foo',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => 'Foo',
             operator => 'equal',
@@ -195,7 +148,7 @@ my @filters = (
     {
         name  => 'check case-insensitive search',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => 'foo',
             operator => 'begins_with',
@@ -206,7 +159,7 @@ my @filters = (
     {
         name  => 'string is long1',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => "${long}1",
             operator => 'equal',
@@ -217,7 +170,7 @@ my @filters = (
     {
         name  => 'string is long',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => $long,
             operator => 'begins_with',
@@ -228,7 +181,7 @@ my @filters = (
     {
         name  => 'date is equal',
         rules => [{
-            id       => $columns->{date1}->id,
+            id       => $layout->column('date1')->id,
             type     => 'date',
             value    => '2014-10-10',
             operator => 'equal',
@@ -239,7 +192,7 @@ my @filters = (
     {
         name  => 'date using CURDATE',
         rules => [{
-            id       => $columns->{date1}->id,
+            id       => $layout->column('date1')->id,
             type     => 'date',
             value    => 'CURDATE',
             operator => 'equal',
@@ -250,7 +203,7 @@ my @filters = (
     {
         name  => 'date using CURDATE plus 1 year',
         rules => [{
-            id       => $columns->{date1}->id,
+            id       => $layout->column('date1')->id,
             type     => 'date',
             value    => 'CURDATE + '.(86400 * 365), # Might be leap seconds etc, but close enough
             operator => 'equal',
@@ -261,7 +214,7 @@ my @filters = (
     {
         name  => 'date in calc',
         rules => [{
-            id       => $columns->{calc1}->id,
+            id       => $layout->column('calc1')->id,
             type     => 'date',
             value    => 'CURDATE - '.(86400 * 365), # Might be leap seconds etc, but close enough
             operator => 'equal',
@@ -283,7 +236,7 @@ my @filters = (
     {
         name  => 'date is empty',
         rules => [{
-            id       => $columns->{date1}->id,
+            id       => $layout->column('date1')->id,
             type     => 'date',
             operator => 'is_empty',
         }],
@@ -293,7 +246,7 @@ my @filters = (
     {
         name  => 'date is empty - value as array ref',
         rules => [{
-            id       => $columns->{date1}->id,
+            id       => $layout->column('date1')->id,
             type     => 'date',
             operator => 'is_empty',
             value    => [],
@@ -304,7 +257,7 @@ my @filters = (
     {
         name  => 'date is blank string', # Treat as empty
         rules => [{
-            id       => $columns->{date1}->id,
+            id       => $layout->column('date1')->id,
             type     => 'date',
             value    => '',
             operator => 'equal',
@@ -316,7 +269,7 @@ my @filters = (
     {
         name  => 'string begins with Foo',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => 'Foo',
             operator => 'begins_with',
@@ -327,7 +280,7 @@ my @filters = (
     {
         name  => 'string contains ooba',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => 'ooba',
             operator => 'contains',
@@ -338,7 +291,7 @@ my @filters = (
     {
         name  => 'string does not contain ooba',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => 'ooba',
             operator => 'not_contains',
@@ -349,7 +302,7 @@ my @filters = (
     {
         name  => 'string does not begin with Foo',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => 'Foo',
             operator => 'not_begins_with',
@@ -360,7 +313,7 @@ my @filters = (
     {
         name  => 'string is empty',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             operator => 'is_empty',
         }],
@@ -370,7 +323,7 @@ my @filters = (
     {
         name  => 'string is not equal to Foo',
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => 'Foo',
             operator => 'not_equal',
@@ -381,7 +334,7 @@ my @filters = (
     {
         name  => 'string is not equal to nothing', # should convert to not empty
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => '',
             operator => 'not_equal',
@@ -392,7 +345,7 @@ my @filters = (
     {
         name  => 'string is not equal to nothing (array ref)', # should convert to not empty
         rules => [{
-            id       => $columns->{string1}->id,
+            id       => $layout->column('string1')->id,
             type     => 'string',
             value    => [],
             operator => 'not_equal',
@@ -403,7 +356,7 @@ my @filters = (
     {
         name  => 'greater than undefined value', # matches against empty instead
         rules => [{
-            id       => $columns->{integer1}->id,
+            id       => $layout->column('integer1')->id,
             type     => 'integer',
             operator => 'greater',
         }],
@@ -413,7 +366,7 @@ my @filters = (
     {
         name  => 'negative integer filter',
         rules => [{
-            id       => $columns->{integer1}->id,
+            id       => $layout->column('integer1')->id,
             type     => 'integer',
             operator => 'less',
             value    => -1,
@@ -424,7 +377,7 @@ my @filters = (
     {
         name  => 'daterange less than',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             value    => '2013-12-31',
             operator => 'less',
@@ -435,7 +388,7 @@ my @filters = (
     {
         name  => 'daterange less or equal',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             value    => '2013-12-31',
             operator => 'less_or_equal',
@@ -446,7 +399,7 @@ my @filters = (
     {
         name  => 'daterange greater than',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             value    => '2013-12-31',
             operator => 'greater',
@@ -457,7 +410,7 @@ my @filters = (
     {
         name  => 'daterange greater or equal',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             value    => '2014-10-10',
             operator => 'greater_or_equal',
@@ -468,7 +421,7 @@ my @filters = (
     {
         name  => 'daterange equal',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             value    => '2014-03-21 to 2015-03-01',
             operator => 'equal',
@@ -479,7 +432,7 @@ my @filters = (
     {
         name  => 'daterange not equal',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             value    => '2014-03-21 to 2015-03-01',
             operator => 'not_equal',
@@ -490,7 +443,7 @@ my @filters = (
     {
         name  => 'daterange empty',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             operator => 'is_empty',
         }],
@@ -500,7 +453,7 @@ my @filters = (
     {
         name  => 'daterange not empty',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             operator => 'is_not_empty',
         }],
@@ -510,7 +463,7 @@ my @filters = (
     {
         name  => 'daterange contains',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             value    => '2014-10-10',
             operator => 'contains',
@@ -521,7 +474,7 @@ my @filters = (
     {
         name  => 'daterange does not contain',
         rules => [{
-            id       => $columns->{daterange1}->id,
+            id       => $layout->column('daterange1')->id,
             type     => 'daterange',
             value    => '2014-10-10',
             operator => 'not_contains',
@@ -531,30 +484,24 @@ my @filters = (
     },
     {
         name  => 'nested search',
-        rules => [
-            {
-                id       => $columns->{string1}->id,
-                type     => 'string',
-                value    => 'Foo',
-                operator => 'begins_with',
-            },
-            {
-                rules => [
-                    {
-                        id       => $columns->{date1}->id,
-                        type     => 'date',
-                        value    => '2015-10-10',
-                        operator => 'equal',
-                    },
-                    {
-                        id       => $columns->{date1}->id,
-                        type     => 'date',
-                        value    => '2014-12-01',
-                        operator => 'greater',
-                    },
-                ],
-            },
-        ],
+        rules => [ {
+            id       => $layout->column('string1')->id,
+            type     => 'string',
+            value    => 'Foo',
+            operator => 'begins_with',
+        }, {
+            rules => [ {
+                id       => $layout->column('date1')->id,
+                type     => 'date',
+                    value    => '2015-10-10',
+                    operator => 'equal',
+            }, {
+                id       => $layout->column('date1')->id,
+                type     => 'date',
+                value    => '2014-12-01',
+                operator => 'greater',
+            } ],
+        } ],
         condition => 'AND',
         count     => 1,
         aggregate => '',
@@ -562,7 +509,7 @@ my @filters = (
     {
         name  => 'Search using enum with different tree in view',
         rules => [{
-            id       => $columns->{enum1}->id,
+            id       => $layout->column('enum1')->id,
             type     => 'string',
             value    => 'foo1',
             operator => 'equal',
@@ -573,7 +520,7 @@ my @filters = (
     {
         name  => 'Search negative multivalue enum',
         rules => [{
-            id       => $columns->{enum1}->id,
+            id       => $layout->column('enum1')->id,
             type     => 'string',
             value    => 'foo1',
             operator => 'not_equal',
@@ -583,67 +530,61 @@ my @filters = (
     },
     {
         name  => 'Search using enum with curval in view',
-        columns => [$columns->{curval1}->id],
+        columns => [$layout->column('curval1')->id],
         rules => [{
-            id       => $columns->{enum1}->id,
+            id       => $layout->column('enum1')->id,
             type     => 'string',
             value    => 'foo1',
             operator => 'equal',
         }],
         count => 3,
         values => {
-            $columns->{curval1}->id => "Foo, 50, foo1, , 2014-10-10, 2012-02-10 to 2013-06-15, , , c_amber, 2012",
+            $layout->column('curval1')->id => "Foo, 50, foo1, , 2014-10-10, 2012-02-10 to 2013-06-15, , , c_amber, 2012",
         },
         aggregate => 7,
     },
     {
-        name  => 'Search 2 using enum with different tree in view',
-        columns => [$columns->{tree1}->id, $columns->{enum1}->id],
-        rules => [
-            {
-                id       => $columns->{tree1}->id,
-                type     => 'string',
-                value    => 'tree1',
-                operator => 'equal',
-            }
-        ],
+        name    => 'Search 2 using enum with different tree in view',
+        columns => [ $layout->column('tree1')->id, $layout->column('enum1')->id ],
+        rules   => [ {
+            id       => $layout->column('tree1')->id,
+            type     => 'string',
+            value    => 'tree1',
+            operator => 'equal',
+        } ],
         count => 2,
         aggregate => 3,
     },
     {
         name  => 'Search for ID',
-        columns => [$columns->{string1}->id],
-        rules => [
-            {
-                id       => $layout->column_id->id,
-                type     => 'integer',
-                value    => '4',
-                operator => 'equal',
-            }
-        ],
+        columns => [ $layout->column('string1')->id ],
+        rules => [ {
+            id       => $layout->column('_id')->id,
+            type     => 'integer',
+            value    => '4',
+            operator => 'equal',
+        } ],
         count => 1,
         aggregate => 5,
     },
     {
         name  => 'Search for multiple IDs',
-        columns => [$columns->{string1}->id],
-        rules => [
-            {
-                id       => $layout->column_id->id,
-                type     => 'integer',
-                value    => ['4', '5'],
-                operator => 'equal',
-            }
-        ],
+        columns => [$layout->column('string1')->id],
+        rules => [ {
+            id       => $layout->column('_id')->id,
+            type     => 'integer',
+            value    => ['4', '5'],
+            operator => 'equal',
+        } ],
         count => 2,
         aggregate => 11,
     },
     {
         name  => 'Search for empty IDs',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $layout->column_id->id,
+                id       => $layout->column('_id')->id,
                 type     => 'integer',
                 value    => [],
                 operator => 'equal',
@@ -654,16 +595,16 @@ my @filters = (
     },
     {
         name  => 'Search for version date 1',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $layout->column_by_name_short('_version_datetime')->id,
+                id       => $layout->column('_version_datetime')->id,
                 type     => 'date',
                 value    => '2014-10-10',
                 operator => 'greater',
             },
             {
-                id       => $layout->column_by_name_short('_version_datetime')->id,
+                id       => $layout->column('_version_datetime')->id,
                 type     => 'date',
                 value    => '2014-10-11',
                 operator => 'less',
@@ -675,10 +616,10 @@ my @filters = (
     },
     {
         name  => 'Search for version date 2',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $layout->column_by_name_short('_version_datetime')->id,
+                id       => $layout->column('_version_datetime')->id,
                 type     => 'date',
                 value    => '2014-10-15',
                 operator => 'greater',
@@ -689,10 +630,10 @@ my @filters = (
     },
     {
         name  => 'Search for created date',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $layout->column_by_name_short('_created')->id,
+                id       => $layout->column('_created')->id,
                 type     => 'date',
                 value    => '2014-10-15',
                 operator => 'less',
@@ -703,24 +644,24 @@ my @filters = (
     },
     {
         name  => 'Search for version editor',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $layout->column_by_name_short('_version_user')->id,
+                id       => $layout->column('_version_user')->id,
                 type     => 'string',
                 value    => $user->value,
                 operator => 'equal',
             },
         ],
-        count => 1, # Other records written by superadmin user on start
+        count     => 1, # Other records written by superadmin user on start
         aggregate => 7,
     },
     {
         name  => 'Search for invalid date',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $columns->{date1}->id,
+                id       => $layout->column('date1')->id,
                 type     => 'date',
                 value    => '20188-01',
                 operator => 'equal',
@@ -732,10 +673,10 @@ my @filters = (
     },
     {
         name  => 'Search for invalid daterange',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $columns->{daterange1}->id,
+                id       => $layout->column('daterange1')->id,
                 type     => 'date',
                 value    => '20188-01 XX',
                 operator => 'equal',
@@ -748,20 +689,20 @@ my @filters = (
     {
         name  => 'Search for blank calc date as empty string (array ref)',
         rules => [{
-            id       => $columns->{calc1}->id,
+            id       => $layout->column('calc1')->id,
             type     => 'date',
             value    => [''],
             operator => 'equal',
         }],
-        count => 4,
+        count     => 4,
         aggregate => 6,
     },
     {
         name  => 'Search by curval ID',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $columns->{curval1}->id,
+                id       => $layout->column('curval1')->id,
                 type     => 'string',
                 value    => '2',
                 operator => 'equal',
@@ -772,10 +713,10 @@ my @filters = (
     },
     {
         name  => 'Search by curval ID not equal',
-        columns => [$columns->{string1}->id],
+        columns => [$layout->column('string1')->id],
         rules => [
             {
-                id       => $columns->{curval1}->id,
+                id       => $layout->column('curval1')->id,
                 type     => 'string',
                 value    => '2',
                 operator => 'not_equal',
@@ -786,191 +727,165 @@ my @filters = (
     },
     {
         name  => 'Search curval ID and enum, only curval in view',
-        columns => [$columns->{curval1}->id], # Ensure it's added as first join
-        rules => [
-            {
-                id       => $columns->{curval1}->id,
-                type     => 'string',
-                value    => '1',
-                operator => 'equal',
-            },
-            {
-                id       => $columns->{enum1}->id,
-                type     => 'string',
-                value    => 'foo1',
-                operator => 'equal',
-            },
-        ],
+        columns => [ $layout->column('curval1')->id ], # Ensure it's added as first join
+        rules => [{
+            id       => $layout->column('curval1')->id,
+            type     => 'string',
+            value    => '1',
+            operator => 'equal',
+        }, {
+            id       => $layout->column('enum1')->id,
+            type     => 'string',
+            value    => 'foo1',
+            operator => 'equal',
+        }],
         condition => 'AND',
         count     => 1,
         aggregate => -4,
     },
     {
-        name  => 'Search by curval field',
-        columns => [$columns->{string1}->id],
-        rules => [
-            {
-                id       => $columns->{curval1}->id .'_'. $curval_columns->{string1}->id,
-                type     => 'string',
-                value    => 'Bar',
-                operator => 'equal',
-            },
-        ],
+        name    => 'Search by curval field',
+        columns => [ $layout->column('string1')->id ],
+        rules   => [{
+            id       => $layout->column('curval1')->id .'_'. $curval_layout->column('string1')->id,
+            type     => 'string',
+            value    => 'Bar',
+            operator => 'equal',
+        }],
         count     => 2,
         aggregate => 11,
     },
     {
-        name  => 'Search by curval field not equal',
-        columns => [$columns->{string1}->id],
-        rules => [
-            {
-                id       => $columns->{curval1}->id .'_'. $curval_columns->{string1}->id,
-                type     => 'string',
-                value    => 'Bar',
-                operator => 'not_equal',
-            },
-        ],
+        name    => 'Search by curval field not equal',
+        columns => [ $layout->column('string1')->id ],
+        rules   => [ {
+            id       => $layout->column('curval1')->id .'_'. $curval_layout->column('string1')->id,
+            type     => 'string',
+            value    => 'Bar',
+            operator => 'not_equal',
+        } ],
         count     => 5,
         aggregate => 8,
     },
     {
         name  => 'Search by curval enum field',
-        columns => [$columns->{enum1}->id],
-        rules => [
-            {
-                id       => $columns->{curval1}->id .'_'. $curval_columns->{enum1}->id,
-                type     => 'string',
-                value    => 'foo2',
-                operator => 'equal',
-            },
-        ],
+        columns => [ $layout->column('enum1')->id ],
+        rules => [ {
+            id       => $layout->column('curval1')->id .'_'. $curval_layout->column('enum1')->id,
+            type     => 'string',
+            value    => 'foo2',
+            operator => 'equal',
+        } ],
         count     => 2,
         aggregate => 11,
     },
     {
-        name  => 'Search by curval within curval',
-        columns => [$columns->{curval1}->id],
-        rules => [
-            {
-                id       => $columns->{curval1}->id .'_'. $curval3->id,
-                type     => 'string',
-                value    => $curval3_value,
-                operator => 'equal',
-            },
-        ],
+        name    => 'Search by curval within curval',
+        columns => [ $layout->column('curval1')->id ],
+        rules   => [ {
+            id       => $layout->column('curval1')->id .'_'. $curval3->id,
+            type     => 'string',
+            value    => $curval3_value,
+            operator => 'equal',
+        } ],
         count     => 1,
         aggregate => -4,
     },
     {
-        name  => 'Search by curval enum field across 2 curvals',
-        columns => [$columns->{enum1}->id],
-        rules => [
-            {
-                id       => $columns->{curval1}->id .'_'. $curval_columns->{enum1}->id,
-                type     => 'string',
-                value    => 'foo2',
-                operator => 'equal',
-            },
-            {
-                id       => $columns->{curval2}->id .'_'. $curval_columns->{enum1}->id,
-                type     => 'string',
-                value    => 'foo1',
-                operator => 'equal',
-            },
-        ],
+        name    => 'Search by curval enum field across 2 curvals',
+        columns => [ $layout->column('enum1')->id ],
+        rules   => [ {
+            id       => $layout->column('curval1')->id .'_'. $curval_layout->column('enum1')->id,
+            type     => 'string',
+            value    => 'foo2',
+            operator => 'equal',
+        }, {
+            id       => $layout->column('curval2')->id .'_'. $curval_layout->column('enum1')->id,
+            type     => 'string',
+            value    => 'foo1',
+            operator => 'equal',
+        } ],
         condition => 'OR',
         count     => 3,
         aggregate => 11,
     },
     {
-        name  => 'Search by autocur ID',
-        columns => [$curval_columns->{autocur1}->id],
-        rules => [
-            {
-                id       => $curval_columns->{autocur1}->id,
-                type     => 'string',
-                value    => '3',
-                operator => 'equal',
-            },
-        ],
+        name    => 'Search by autocur ID',
+        columns => [$curval_layout->column('autocur1')->id],
+        rules   => [ {
+            id       => $curval_layout->column('autocur1')->id,
+            type     => 'string',
+            value    => '3',
+            operator => 'equal',
+        } ],
         count     => 1,
-        layout    => $curval_sheet->layout,
+        layout    => $curval_layout,
         aggregate => 50,
     },
     {
-        name  => 'Search by autocur ID not equal',
-        columns => [$curval_columns->{autocur1}->id],
-        rules => [
-            {
-                id       => $curval_columns->{autocur1}->id,
-                type     => 'string',
-                value    => '3',
-                operator => 'not_equal',
-            },
-        ],
+        name    => 'Search by autocur ID not equal',
+        columns => [ $curval_layout->column('autocur1')->id ],
+        rules   => [ {
+            id       => $curval_layout->column('autocur1')->id,
+            type     => 'string',
+            value    => '3',
+            operator => 'not_equal',
+        } ],
         count       => 1,
         # Autocur treated as a multivalue with a single row with 2 different
         # values that are counted separately on a graph
         count_graph => 2,
-        layout      => $curval_sheet->layout,
+        layout      => $curval_layout,
         aggregate   => 99,
     },
     {
         name  => 'Search by autocur enum field',
-        columns => [$curval_columns->{string1}->id],
-        rules => [
-            {
-                id       => $curval_columns->{autocur1}->id .'_'. $columns->{enum1}->id,
-                type     => 'string',
-                value    => 'foo1',
-                operator => 'equal',
-            },
-        ],
+        columns => [$curval_layout->column('string1')->id],
+        rules => [ {
+            id       => $curval_layout->column('autocur1')->id .'_'. $layout->column('enum1')->id,
+            type     => 'string',
+            value    => 'foo1',
+            operator => 'equal',
+        } ],
         count     => 2,
-        layout    => $curval_sheet->layout,
+        layout    => $curval_layout,
         aggregate => 149,
     },
     {
         name  => 'Search for invalid autocur',
-        columns => [$curval_columns->{autocur1}->id],
-        rules => [
-            {
-                id       => $curval_columns->{autocur1}->id,
-                type     => 'string',
-                value    => 'Foobar',
-                operator => 'equal',
-            },
-        ],
+        columns => [ $curval_layout->column('autocur1')->id ],
+        rules => [ {
+            id       => $curval_layout->column('autocur1')->id,
+            type     => 'string',
+            value    => 'Foobar',
+            operator => 'equal',
+        } ],
         count     => 0,
         no_errors => 1,
-        layout    => $curval_sheet->layout,
+        layout    => $curval_layout,
         aggregate => '',
     },
     {
         name  => 'Search by record ID',
-        columns => [$columns->{string1}->id],
-        rules => [
-            {
-                id       => $layout->column_by_name('ID')->id,
-                type     => 'string',
-                value    => '3',
-                operator => 'equal',
-            },
-        ],
+        columns => [ $layout->column('string1')->id ],
+        rules => [ {
+            id       => $layout->column('ID')->id,
+            type     => 'string',
+            value    => '3',
+            operator => 'equal',
+        } ],
         count     => 1,
         aggregate => -4,
     },
     {
         name  => 'Search by invalid record ID',
-        columns => [$columns->{string1}->id],
-        rules => [
-            {
-                id       => $layout->column_by_name('ID')->id,
-                type     => 'string',
-                value    => '3DD',
-                operator => 'equal',
-            },
-        ],
+        columns => [ $layout->column('string1')->id ],
+        rules => [ {
+            id       => $layout->column('ID')->id,
+            type     => 'string',
+            value    => '3DD',
+            operator => 'equal',
+        } ],
         count     => 0,
         no_errors => 1,
         aggregate => '',
@@ -983,20 +898,12 @@ foreach my $multivalue (0..1)
 
     # Set aggregate fields. Only needs to be done once, and after that the user
     # does not have permission to write the field settings
-    my $integer1 = $layout->column_by_name('integer1');
-    if (!$multivalue)
-    {
-        $integer1->aggregate('sum');
-        $integer1->write;
-        $layout->clear;
-    }
+    my $integer1        = $layout->column('integer1');
+    my $integer1_curval = $curval_layout->column('integer1');
 
-    my $integer1_curval = $curval_sheet->layout->column_by_name('integer1');
-    if (!$multivalue)
-    {
-        $integer1_curval->aggregate('sum');
-        $integer1_curval->write;
-        $curval_sheet->layout->clear;
+    if(!$multivalue)
+    {   $integer1->column_update(aggregate => 'sum');
+        $integer1_curval->column_update(aggregate => 'sum');
     }
 
     # Run 2 loops, one without the standard layout from the initial build, and a
@@ -1006,112 +913,99 @@ foreach my $multivalue (0..1)
         my $instances;
         if ($layout_from_instances)
         {
-            $instances = GADS::Instances->new(schema => $schema, user => $user);
             $layout = $instances->layout($layout->instance_id);
         }
 
         foreach my $filter (@filters)
-        {
-            my $layout_filter = $filter->{layout};
-            $layout_filter &&= $instances->layout($layout_filter->instance_id)
-                if $layout_from_instances;
-            my $rules = GADS::Filter->new(
-                as_hash => {
-                    rules     => $filter->{rules},
-                    condition => $filter->{condition},
-                },
-            );
+        {   my $layout_filter = $filter->{layout};
+            my $sheet = ($layout_filter || $layout)->sheet;
 
-            my $view_columns = $filter->{columns} || [$columns->{string1}->id, $columns->{tree1}->id];
-            my $view = GADS::View->new(
+            my $rules = {
+                rules     => $filter->{rules},
+                condition => $filter->{condition},
+            };
+
+            my $view = try { $sheet->views->view_create({
                 name        => 'Test view',
                 filter      => $rules,
-                columns     => $view_columns,
-                instance_id => 1,
+                columns     => $filter->{columns} || [ qw/string1 tree1/ ],
                 layout      => $layout_filter || $layout,
-                schema      => $schema,
-                user        => $user,
-            );
+            }) };
+
             # If the filter is expected to bork, then check that it actually does first
-            if ($filter->{no_errors})
-            {
-                try { $view->write };
-                ok($@, "Failed to write view with invalid value, test: $filter->{name}");
-                is($@->wasFatal->reason, 'ERROR', "Generated user error when writing view with invalid value");
+            if($filter->{no_errors})
+            {   ok $@, "Failed to write view with invalid value, test: $filter->{name}";
+                is $@->wasFatal->reason, 'ERROR',
+                     "Generated user error when writing view with invalid value";
             }
+
+#XXX impossible
             $view->write(no_errors => $filter->{no_errors});
 
-            my $records = GADS::Records->new(
-                user    => $user,
-                view    => $view,
-                layout  => $layout_filter || $layout,
-                schema  => $schema,
-            );
+            my $page = $sheet->data->search(view => $view);
 
-            is( $records->count, $filter->{count}, "$filter->{name} for record count $filter->{count}");
-            is( @{$records->results}, $filter->{count}, "$filter->{name} actual records matches count $filter->{count}");
-            if (my $test_values = $filter->{values})
-            {
-                foreach my $field (keys %$test_values)
-                {
-                    is($records->results->[0]->fields->{$field}->as_string, $test_values->{$field}, "Test value of $filter->{name} correct");
+            cmp_ok $records->count, '==', $filter->{count},
+                 "$filter->{name} for record count()";
+
+            cmp_ok scalar @{$records->results}, '==', $filter->{count},
+                 "$filter->{name} actual number records";
+
+            if(my $test_values = $filter->{values})
+            {   foreach my $field (keys %$test_values)
+                {   is $page->row(0)->cell($field)->as_string, $test_values->{$field},
+                       "Test value of $filter->{name} correct";
                 }
             }
 
-            $view->set_sorts($view_columns, ['asc']);
-            $records = GADS::Records->new(
-                user    => $user,
-                view    => $view,
-                layout  => $layout_filter || $layout,
-                schema  => $schema,
-            );
+            $sheet->views->view_update($view, { sortings => [ [$view_columns, ['asc']] ]});
+            my $page = $sheet->data->search(view => $view);
 
-            is( $records->count, $filter->{count}, "$filter->{name} for record count $filter->{count}");
-            is( @{$records->results}, $filter->{count}, "$filter->{name} actual records matches count $filter->{count}");
+            cmp_ok $records->count, '==', $filter->{count},
+                "$filter->{name} for record count()";
+
+            cmp_ok scalar @{$records->results}, '==', $filter->{count},
+                "$filter->{name} actual number records";
 
             # Basic aggregate tests
-            {
-                my @column_ids = @{$view->columns};
-                my $int_id = $records->layout->instance_id == $curval_sheet->layout->instance_id
+            {   my @column_ids = @{$view->columns};
+                my $int_id = $records->sheet_id == $curval_sheet->id
                     ? $integer1_curval->id : $integer1->id;
+
                 push @column_ids, $int_id if ! grep $_ == $int_id, @column_ids;
-                $view->columns(\@column_ids);
-                $view->write(no_errors => $filter->{no_errors});
-                $records->clear;
-                my $aggregate = $records->aggregate_results;
-                is($aggregate->fields->{$int_id}->as_string, $filter->{aggregate}, "Aggregate integer value correct");
+                $sheet->views->view_update({columns => \@column_ids});
+
+                my $aggregate = $page->aggregate_results;
+                is $aggregate->cell($int_id)->as_string, $filter->{aggregate},
+                    "Aggregate integer value correct";
             }
 
             # Basic graph test. Total of points on graph should match the number of results
-            my $graph = GADS::Graph->new(
-                layout       => $layout_filter || $layout,
-                schema       => $schema,
+            my $axis = $filter->{columns}->[0] || $layout->column('string1')->id;
+            my $graph = $sheet->graphs->graph_create({
+                title => 'Test',
+                type => 'bar',
                 current_user => $sheet->user,
+                x_axis => $axis,
+                y_axis => $axis,
+                y_axis_stack => 'count',
             );
-            $graph->title('Test');
-            $graph->type('bar');
-            my $axis = $filter->{columns}->[0] || $columns->{string1}->id;
-            $graph->x_axis($axis);
-            $graph->y_axis($axis);
-            $graph->y_axis_stack('count');
-            $graph->write;
 
             my $records_group = GADS::RecordsGraph->new(
                 user              => $user,
                 layout            => $layout_filter || $layout,
-                schema => $schema,
             );
             my $graph_data = GADS::Graph::Data->new(
                 id      => $graph->id,
                 view    => $view,
                 records => $records_group,
-                schema  => $schema,
             );
 
-            my $graph_total = 0;
-            $graph_total += $_ foreach @{$graph_data->points->[0]}; # Count total number of records
+            # Count total number of records
+            my $graph_total = sum map scalar($_), @{$graph_data->points->[0]};
             my $count = $filter->{count_graph} || $filter->{count};
-            is($graph_total, $count, "Item total on graph matches table for $filter->{name}");
+
+            cmp_ok $graph_total, '==', $count,
+                "Item total on graph matches table for $filter->{name}";
         }
     }
 }
@@ -1127,100 +1021,77 @@ foreach my $multivalue (0..1)
     $records = GADS::Records->new(
         user    => $user,
         layout  => $layout,
-        schema  => $schema,
     );
 
-    my $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $columns->{date1}->id,
-                type     => 'date',
-                value    => '2014-10-10',
-                operator => 'equal',
-            }],
-        },
-    );
+    my $rules1 = {
+        rules     => [{
+            id       => $layout->column('date1')->id,
+            type     => 'date',
+            value    => '2014-10-10',
+            operator => 'equal',
+        }],
+    };
 
-    my $view_limit = GADS::View->new(
+    my $view_limit = $sheet->views->view_create({{{
         name        => 'Limit to view',
         filter      => $rules,
-        instance_id => 1,
-        layout      => $layout,
-        schema      => $schema,
-        user        => $user,
-        is_admin    => 1,
+        is_for_admins => 1,
     );
-    $view_limit->write;
 
     $user->set_view_limits([$view_limit]);
 
-    $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $columns->{string1}->id,
-                type     => 'string',
-                value    => 'Foo',
-                operator => 'begins_with',
-            }],
-        },
-    );
+    my $rules2 = {
+        rules     => [{
+            id       => $layout->column('string1')->id,
+            type     => 'string',
+            value    => 'Foo',
+            operator => 'begins_with',
+        }],
+    };
 
-    my $view = GADS::View->new(
+    my $view = $sheet->views->view_create({
         name        => 'Foo',
-        filter      => $rules,
-        instance_id => 1,
-        layout      => $layout,
-        schema      => $schema,
-        user        => $user,
-    );
-    $view->write;
+        filter      => $rules2,
+    });
 
-    $records = GADS::Records->new(
-        user    => $user,
-        view    => $view,
-        layout  => $layout,
-        schema  => $schema,
-    );
+    my $data = $sheet->data;
+    my $page = $data->search(view => $view);
 
-    is ($records->count, 1, 'Correct number of results when limiting to a view');
+    cmp_ok $page->count, '==', 1, 'Correct number of results when limiting to a view';
 
     # Check can only directly access correct records. Test with and without any
     # columns selected.
     for (0..1)
     {
         my $cols_select = $_ ? [] : undef;
-        $record = GADS::Record->new(
-            user    => $user,
-            columns => $cols_select,
-            layout  => $layout,
-            schema  => $schema,
-        );
-        is( $record->find_current_id(5)->current_id, 5, "Retrieved viewable current ID 5 in limited view" );
-        is( $record->find_record_id(5)->current_id, 5, "Retrieved viewable record ID 5 in limited view" );
-        $record->clear;
-        try { $record->find_current_id(4) };
+        is $page->find_current_id(5, columns => $cols_select)->current_id, 5,
+            "Retrieved viewable current ID 5 in limited view";
+
+        is $page->find_record_id(5, columns => $cols_select)->current_id, 5,
+            "Retrieved viewable record ID 5 in limited view";
+
+        try { $page->find_current_id(4) };
         ok( $@, "Failed to retrieve non-viewable current ID 4 in limited view" );
-        try { $record->find_record_id(4) };
+
+        try { $page->find_record_id(4) };
         ok( $@, "Failed to retrieve non-viewable record ID 4 in limited view" );
+
         # Temporarily flag record as deleted and check it can't be shown
         $schema->resultset('Current')->find(5)->update({ deleted => DateTime->now });
-        try { $record->find_current_id(5) };
-        like($@, qr/Requested record not found/, "Failed to find deleted current ID 5" );
-        try { $record->find_record_id(5) };
-        like($@, qr/Requested record not found/, "Failed to find deleted record ID 5" );
+
+        try { $page->find_current_id(5) };
+        like $@, qr/Requested record not found/, "Failed to find deleted current ID 5";
+
+        try { $page->find_record_id(5) };
+        like $@, qr/Requested record not found/, "Failed to find deleted record ID 5";
 
         # Draft record whilst view limit in force
-        my $draft = GADS::Record->new(
-            user   => $user,
-            layout => $layout,
-            schema => $schema,
-        );
-        $draft->initialise;
-        $draft->fields->{$columns->{string1}->id}->set_value("Draft");
-        $draft->write(draft => 1);
-        $draft->clear;
+        my $draft = $data->draft_create({
+            cells => [ string1 => 'Draft' ]
+        });
+
         $draft->load_remembered_values(instance_id => $layout->instance_id);
-        is($draft->fields->{$columns->{string1}->id}->as_string, "Draft", "Draft sub-record retrieved");
+        is($draft->fields->{$layout->column('string1')->id}->as_string, "Draft", "Draft sub-record retrieved");
 
         # Reset
         $schema->resultset('Current')->find(5)->update({ deleted => undef });
@@ -1230,7 +1101,7 @@ foreach my $multivalue (0..1)
     $rules = GADS::Filter->new(
         as_hash => {
             rules     => [{
-                id       => $columns->{date1}->id,
+                id       => $layout->column('date1')->id,
                 type     => 'date',
                 value    => '2015-10-10',
                 operator => 'equal',
@@ -1243,7 +1114,6 @@ foreach my $multivalue (0..1)
         filter      => $rules,
         instance_id => 1,
         layout      => $layout,
-        schema      => $schema,
         user        => $user,
     );
     $view_limit2->write;
@@ -1254,7 +1124,6 @@ foreach my $multivalue (0..1)
         user    => $user,
         view    => $view,
         layout  => $layout,
-        schema  => $schema,
     );
 
     is ($records->count, 2, 'Correct number of results when limiting to 2 views');
@@ -1266,7 +1135,7 @@ foreach my $multivalue (0..1)
         $rules = GADS::Filter->new(
             as_hash => {
                 rules     => [{
-                    id       => $columns->{enum1}->id,
+                    id       => $layout->column('enum1')->id,
                     type     => 'string',
                     value    => 'foo1',
                     operator => 'not_equal',
@@ -1279,7 +1148,6 @@ foreach my $multivalue (0..1)
             filter      => $rules,
             instance_id => 1,
             layout      => $layout,
-            schema      => $schema,
             user        => $user,
         );
         $view_limit3->write;
@@ -1290,7 +1158,7 @@ foreach my $multivalue (0..1)
         $rules = GADS::Filter->new(
             as_hash => {
                 rules     => [{
-                    id       => $columns->{date1}->id,
+                    id       => $layout->column('date1')->id,
                     type     => 'string',
                     value    => '2014-10-10',
                     operator => 'equal',
@@ -1302,7 +1170,6 @@ foreach my $multivalue (0..1)
             filter      => $rules,
             instance_id => 1,
             layout      => $layout,
-            schema      => $schema,
             user        => $user,
         );
         $view->write;
@@ -1311,7 +1178,6 @@ foreach my $multivalue (0..1)
             user   => $user,
             view   => $view,
             layout => $layout,
-            schema => $schema,
         );
 
         is ($records->count, 1, 'Correct result count when limiting to negative multivalue view');
@@ -1350,7 +1216,7 @@ foreach my $multivalue (0..1)
     $view_limit->filter(GADS::Filter->new(
         as_hash => {
             rules     => [{
-                id       => $columns->{enum1}->id,
+                id       => $layout->column('enum1')->id,
                 type     => 'string',
                 value    => 'foo2',
                 operator => 'equal',
@@ -1361,7 +1227,6 @@ foreach my $multivalue (0..1)
     $records = GADS::Records->new(
         user    => $user,
         layout  => $layout,
-        schema  => $schema,
     );
     is ($records->count, 2, 'Correct number of results when limiting to a view with enumval');
     {
@@ -1372,7 +1237,6 @@ foreach my $multivalue (0..1)
         my $record = GADS::Record->new(
             user   => $user,
             layout => $layout,
-            schema => $schema,
         );
         is( $record->find_current_id(7)->current_id, 7, "Retrieved record within limited view" );
         $limit->delete;
@@ -1384,7 +1248,6 @@ foreach my $multivalue (0..1)
     my $record = GADS::Record->new(
         user                 => $user,
         layout               => $layout,
-        schema               => $schema,
         curcommon_all_fields => 1, # Used for edits
     );
     $record->find_current_id($records->single->current_id);
@@ -1393,7 +1256,7 @@ foreach my $multivalue (0..1)
     $view_limit->filter(GADS::Filter->new(
         as_hash => {
             rules     => [{
-                id       => $columns->{curval1}->id,
+                id       => $layout->column('curval1')->id,
                 type     => 'string',
                 value    => '1',
                 operator => 'equal',
@@ -1405,7 +1268,6 @@ foreach my $multivalue (0..1)
         view_limits => [ $view_limit ],
         user    => $user,
         layout  => $layout,
-        schema  => $schema,
     );
     is ($records->count, 1, 'Correct number of results when limiting to a view with curval');
     is (@{$records->results}, 1, 'Correct number of results when limiting to a view with curval');
@@ -1414,7 +1276,6 @@ foreach my $multivalue (0..1)
     $record = GADS::Record->new(
         user                 => $user,
         layout               => $layout,
-        schema               => $schema,
         curcommon_all_fields => 1, # Used for edits
     );
     $record->find_current_id($records->single->current_id);
@@ -1427,7 +1288,6 @@ foreach my $multivalue (0..1)
         my $record = GADS::Record->new(
             user   => $user,
             layout => $layout,
-            schema => $schema,
         );
         is( $record->find_current_id(3)->current_id, 3, "Retrieved record within limited view" );
         $limit->delete;
@@ -1441,7 +1301,6 @@ foreach my $multivalue (0..1)
     $records = GADS::Records->new(
         user    => $user,
         layout  => $layout,
-        schema  => $schema,
     );
     $records->clear;
     $records->search('2014-10-10');
@@ -1463,7 +1322,6 @@ foreach my $multivalue (0..1)
     $record = GADS::Record->new(
         user   => $user,
         layout => $layout,
-        schema => $schema,
     );
     is( $record->find_record_id(3)->record_id, 3, "Retrieved history record ID 3" );
     $record->clear;
@@ -1508,14 +1366,13 @@ foreach my $multivalue (0..1)
         },
     ]);
     $sheet->create_records;
-    my $schema  = $sheet->schema;
     my $layout  = $sheet->layout;
     my $columns = $sheet->columns;
 
     my $rules = GADS::Filter->new(
         as_hash => {
             rules     => [{
-                id       => $columns->{string1}->id,
+                id       => $layout->column('string1')->id,
                 type     => 'string',
                 value    => 'FooBar',
                 operator => 'equal',
@@ -1528,7 +1385,6 @@ foreach my $multivalue (0..1)
         filter      => $rules,
         instance_id => $layout->instance_id,
         layout      => $layout,
-        schema      => $schema,
         user        => $sheet->user,
     );
     $limit_extra1->write;
@@ -1536,7 +1392,7 @@ foreach my $multivalue (0..1)
     $rules = GADS::Filter->new(
         as_hash => {
             rules     => [{
-                id       => $columns->{integer1}->id,
+                id       => $layout->column('integer1')->id,
                 type     => 'string',
                 value    => '75',
                 operator => 'greater',
@@ -1549,7 +1405,6 @@ foreach my $multivalue (0..1)
         filter      => $rules,
         instance_id => $layout->instance_id,
         layout      => $layout,
-        schema      => $schema,
         user        => $sheet->user,
     );
     $limit_extra2->write;
@@ -1562,16 +1417,13 @@ foreach my $multivalue (0..1)
     my $records = GADS::Records->new(
         user    => $sheet->user,
         layout  => $layout,
-        schema  => $schema,
     );
-    my $string1 = $columns->{string1}->id;
+    my $string1 = $layout->column('string1')->id;
     is($records->count, 2, 'Correct number of results when limiting to a view limit extra');
     is($records->single->fields->{$string1}->as_string, "FooBar", "Correct limited record");
 
     $records = GADS::Records->new(
-        user                => $sheet->user,
         layout              => $layout,
-        schema              => $schema,
         view_limit_extra_id => $limit_extra2->id,
     );
     is ($records->count, 3, 'Correct number of results when changing view limit extra');
@@ -1580,9 +1432,7 @@ foreach my $multivalue (0..1)
     my $user = $sheet->user;
     $user->set_view_limits([ $limit_extra1 ]);
     $records = GADS::Records->new(
-        user                => $user,
         layout              => $layout,
-        schema              => $schema,
         view_limit_extra_id => $limit_extra2->id,
     );
     is ($records->count, 1, 'Correct number of results with both view limits and extra limits');
@@ -1590,72 +1440,42 @@ foreach my $multivalue (0..1)
 }
 
 # Check sorting functionality
-# First check default_sort functionality
-$records = GADS::Records->new(
-    default_sort => {
-        type => 'asc',
-        id   => $layout->column_id->id,
-    },
-    user    => $user,
-    layout  => $layout,
-    schema  => $schema,
-);
-is( $records->results->[0]->current_id, 3, "Correct first record for default_sort (asc)");
-is( $records->results->[-1]->current_id, 9, "Correct last record for default_sort (asc)");
-$records = GADS::Records->new(
-    default_sort => {
-        type => 'desc',
-        id   => $layout->column_id->id,
-    },
-    user    => $user,
-    layout  => $layout,
-    schema  => $schema,
-);
-is( $records->results->[0]->current_id, 9, "Correct first record for default_sort (desc)");
-is( $records->results->[-1]->current_id, 3, "Correct last record for default_sort (desc)");
-$records = GADS::Records->new(
-    default_sort => {
-        type => 'desc',
-        id   => $columns->{integer1}->id,
-    },
-    user    => $user,
-    layout  => $layout,
-    schema  => $schema,
-);
-is( $records->results->[0]->current_id, 6, "Correct first record for default_sort (column in view)");
-is( $records->results->[-1]->current_id, 7, "Correct last record for default_sort (column in view)");
 
-# Standard sort parameter for search()
-$records = GADS::Records->new(
-    sort => {
-        type => 'desc',
-        id   => $columns->{integer1}->id,
-    },
-    user    => $user,
-    layout  => $layout,
-    schema  => $schema,
-);
-is( $records->results->[0]->current_id, 6, "Correct first record for standard sort");
-is( $records->results->[-1]->current_id, 7, "Correct last record for standard sort");
+{   # First check default_sort functionality
 
-# Standard sort parameter for search() with invalid column. This can happen if the
-# user switches tables and there is still a sort parameter in the session. In this
-# case, it should revert to the default search.
-$records = GADS::Records->new(
-    sort => {
-        type => 'desc',
-        id   => -1000,
-    },
-    default_sort => {
-        type => 'desc',
-        id   => $columns->{integer1}->id,
-    },
-    user    => $user,
-    layout  => $layout,
-    schema  => $schema,
-);
-is( $records->results->[0]->current_id, 6, "Correct first record for standard sort");
-is( $records->results->[-1]->current_id, 7, "Correct last record for standard sort");
+    # ASC
+    $sheet->sheet_update({sort_column => $layout->column('_id'), sort_type => 'asc'});
+    my $page1 = $sheet->data->search;
+    is $page1->row(0)->current_id, 3, "Correct first record for default_sort (asc)";
+    is $page1->row(-1)->current_id, 9, "Correct last record for default_sort (asc)";
+
+    # DESC
+    $sheet->sheet_update({sort_column => $layout->column('_id'), sort_type => 'desc'});
+    my $page2 = $sheet->data->search;
+    is $page2->row(0)->current_id, 9, "Correct first record for default_sort (desc)";
+    is $page2->row(-1)->current_id, 3, "Correct last record for default_sort (desc)";
+
+    # Column from view
+    $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_type => 'asc'});
+    my $page3 = $sheet->data->search;
+    is $page3->row(0)->current_id, 6, "Correct first record for default_sort (column in view)";
+    is $page3->row(-1)->current_id, 7, "Correct last record for default_sort (column in view)";
+
+    # Standard sort parameter for search()
+    my $page4 = $sheet->data->search(
+        sort => { type => 'desc', id   => $layout->column('integer1')->id },
+    );
+    is $page4->row(0)->current_id, 6, "Correct first record for standard sort";
+    is $page4->row(-1)->current_id, 7, "Correct last record for standard sort";
+
+    # Standard sort parameter for search() with invalid column. This can happen if the
+    # user switches tables and there is still a sort parameter in the session. In this
+    # case, it should revert to the default search.
+    $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_type => 'desc' });
+    my $page5 = $sheet->data->search(sort => { type => 'desc', id => -1000 });
+    is $page5->row(0)->current_id, 6, "Correct first record for standard sort";
+    is $page5->row(-1)->current_id, 7, "Correct last record for standard sort";
+}
 
 my @sorts = (
     {
@@ -1772,13 +1592,13 @@ my @sorts = (
         filter       => {
             rules => [
                 {
-                    name     => 'curval1_'.$curval_columns->{enum1}->id,
+                    name     => 'curval1_'.$curval_layout->column('enum1')->id,
                     type     => 'string',
                     value    => 'foo2',
                     operator => 'equal',
                 },
                 {
-                    name     => 'curval2_'.$curval_columns->{enum1}->id,
+                    name     => 'curval2_'.$curval_layout->column('enum1')->id,
                     type     => 'string',
                     value    => 'foo1',
                     operator => 'equal',
@@ -1789,8 +1609,8 @@ my @sorts = (
     },
     {
         name         => 'Sort by curval with filter on curval',
-        show_columns => [qw/enum1 curval1 curval2/],
-        sort_by      => [qw/curval1/],
+        show_columns => [ qw/enum1 curval1 curval2/ ],
+        sort_by      => [ qw/curval1/ ],
         sort_type    => ['asc'],
         first        => qr/^(4|5)$/,
         last         => qr/^(3)$/,
@@ -1798,20 +1618,17 @@ my @sorts = (
         min_id       => 3,
         count        => 3,
         filter       => {
-            rules => [
-                {
-                    name     => 'curval1_'.$curval_columns->{enum1}->id,
-                    type     => 'string',
-                    value    => 'foo1',
-                    operator => 'equal',
-                },
-                {
-                    name     => 'curval1_'.$curval_columns->{enum1}->id,
-                    type     => 'string',
-                    value    => 'foo2',
-                    operator => 'equal',
-                },
-            ],
+            rules => [ {
+                name     => 'curval1_'.$curval_layout->column('enum1')->id,
+                type     => 'string',
+                value    => 'foo1',
+                operator => 'equal',
+            }, {
+                name     => 'curval1_'.$curval_layout->column('enum1')->id,
+                type     => 'string',
+                value    => 'foo2',
+                operator => 'equal',
+            } ],
             condition => 'OR',
         },
     },
@@ -1855,187 +1672,186 @@ my @sorts = (
 foreach my $multivalue (0..1)
 {
     $sheet->clear_not_data(multivalue => $multivalue);
-    my $layout     = $sheet->layout;
-    my $columns    = $sheet->columns;
+
     my $cid_adjust = 9; # For some reason database restarts at same ID second time
 
     foreach my $sort (@sorts)
-    {
-        # If doing a count with the sort, then do an extra pass, one to check that actual
-        # number of rows retrieved, and one to check the count calculation function
-        my $passes = $sort->{count} ? 4 : 3;
-        foreach my $pass (1..$passes)
-        {
-            my $filter = GADS::Filter->new(
-                as_hash => ($sheet->convert_filter($sort->{filter}) || {}),
-            );
+    {   my @sort_types = @{$sort->{sort_type}};
+        my $sort_by    = $sort->{sort_by};
+        my $filter     = $sheet->convert_filter($sort->{filter}) || {};
 
-            my @show_columns = map { $columns->{$_}->id } @{$sort->{show_columns}};
-            my $view = GADS::View->new(
-                name        => 'Test view',
-                columns     => [@show_columns],
-                filter      => $filter,
-                instance_id => 1,
-                layout      => $layout,
-                schema      => $schema,
-                user        => $user,
-            );
-            $view->write;
-            my $sort_type = @{$sort->{sort_type}} > 1
-                ? $sort->{sort_type}
-                : $sort->{sort_type}->[0] eq 'asc' && $pass == 2
-                ? ['asc']
-                : $sort->{sort_type}->[0] eq 'asc' && $pass == 3
-                ? ['desc']
-                : $sort->{sort_type}->[0] eq 'desc' && $pass == 2
-                ? ['desc']
-                : $sort->{sort_type}->[0] eq 'desc' && $pass == 3
-                ? ['asc']
-                : $sort->{sort_type};
-
-            my @sort_by;
-            if ($sort->{sort_by_parent})
-            {
-                my @children = @{$sort->{sort_by}};
-                foreach my $parent (@{$sort->{sort_by_parent}})
-                {
-                    my $cname = shift @children;
-                    my $id    = $curval_columns->{$cname}->id;
-                    my $parent_id = $columns->{$parent}->id;
-                    push @sort_by, "${parent_id}_$id";
-                }
-            }
-            else {
-                @sort_by = map { $_ ? $columns->{$_}->id : $layout->column_id->id } @{$sort->{sort_by}};
-            }
-            $view->set_sorts([@sort_by], $sort_type);
-
-            $records = GADS::Records->new(
-                page    => 1,
-                user    => $user,
-                view    => $view,
-                layout  => $layout,
-                schema  => $schema,
-            );
-            $records->sort({ type => 'desc', id => $layout->column_id->id })
-                if $pass == 1;
-
-            # Test override of sort first
-            if ($pass == 1)
-            {
-                my $first = $sort->{max_id} || 9;
-                my $last  = $sort->{min_id} || 3;
-                # 1 record per page to test sorting across multiple pages
-                $records->clear;
-                $records->rows(1);
-                is( $records->results->[0]->current_id - $cid_adjust, $first, "Correct first record for sort override and test $sort->{name}");
-                if ($sort->{first_string})
-                {
-                    foreach my $colname (keys %{$sort->{first_string}})
-                    {
-                        my $colid = $columns->{$colname}->id;
-                        is(
-                            $records->results->[0]->fields->{$colid}->as_string,
-                            $sort->{first_string}->{$colname},
-                            "Correct first record value for $colname in test $sort->{name}"
-                        );
-                    }
-                }
-                $records->clear;
-                $records->page($sort->{count} || 7);
-                is( $records->results->[-1]->current_id - $cid_adjust, $last, "Correct last record for sort override and test $sort->{name}");
-                if ($sort->{last_string})
-                {
-                    foreach my $colname (keys %{$sort->{last_string}})
-                    {
-                        my $colid = $columns->{$colname}->id;
-                        is(
-                            $records->results->[0]->fields->{$colid}->as_string,
-                            $sort->{last_string}->{$colname},
-                            "Correct last record value for $colname in test $sort->{name}"
-                        );
-                    }
-                }
-            }
-            elsif ($pass == 2 || $pass == 3)
-            {
-                next if $pass == 3 && @{$sort->{sort_type}} > 1;
-                # First check number of results for page of all records
-                is( @{$records->results}, $sort->{count}, "Correct number of records in results for sort $sort->{name}" )
-                    if $sort->{count};
-
-                # First with full page of results
-                $records->clear;
-                if ($pass == 2)
-                {
-                    like( $records->results->[0]->current_id - $cid_adjust, $sort->{first}, "Correct first record for sort $sort->{name}");
-                    like( $records->results->[-1]->current_id - $cid_adjust, $sort->{last}, "Correct last record for sort $sort->{name}");
-                }
-                else {
-                    like( $records->results->[0]->current_id - $cid_adjust, $sort->{last}, "Correct first record for sort $sort->{name} in reverse");
-                    like( $records->results->[-1]->current_id - $cid_adjust, $sort->{first}, "Correct last record for sort $sort->{name} in reverse");
-                }
-
-                # Then switch to 1 record per page to test sorting across multiple pages
-                $records->clear;
-                $records->rows(1);
-                if ($pass == 2)
-                {
-                    like( $records->results->[0]->current_id - $cid_adjust, $sort->{first}, "Correct first record for sort $sort->{name}");
-                    $records->clear;
-                    $records->page($sort->{count} || 7);
-                    like( $records->results->[0]->current_id - $cid_adjust, $sort->{last}, "Correct last record for sort $sort->{name}");
-                }
-                else {
-                    like( $records->results->[0]->current_id - $cid_adjust, $sort->{last}, "Correct first record for sort $sort->{name} in reverse");
-                    $records->clear;
-                    $records->page($sort->{count} || 7);
-                    like( $records->results->[0]->current_id - $cid_adjust, $sort->{first}, "Correct last record for sort $sort->{name} in reverse");
-                }
-            }
-            else {
-                is( $records->count, $sort->{count}, "Correct record count for sort $sort->{name}" )
-            }
-
-            if ($pass == 1)
-            {
-                # Basic graph test. Total of points on graph should match the number of results.
-                # Even though graphs do not use sorting, so a test with a sort
-                # as the user may still be using a view with a sort defined.
-                my $graph = GADS::Graph->new(
-                    layout       => $layout,
-                    schema       => $schema,
-                    current_user => $sheet->user,
-                );
-                $graph->title('Test');
-                $graph->type('bar');
-                my $axis = $columns->{string1}->id;
-                $graph->x_axis($axis);
-                $graph->y_axis($axis);
-                $graph->y_axis_stack('count');
-                $graph->write;
-
-                my $records_group = GADS::RecordsGraph->new(
-                    user   => $user,
-                    layout => $layout,
-                    schema => $schema,
-                );
-                my $graph_data = GADS::Graph::Data->new(
-                    id      => $graph->id,
-                    view    => $view,
-                    records => $records_group,
-                    schema  => $schema,
-                );
-
-                my $graph_total = 0;
-                $graph_total += $_ foreach @{$graph_data->points->[0]}; # Count total number of records
-                my $count = $sort->{filter} ? $sort->{count} : 7;
-                is($graph_total, $count, "Item total on graph matches table for $sort->{name}");
+        my @sort_by;
+        if(my $parents = $sort->{sort_by_parent})
+        {   my @children = @$sort_by;
+            foreach my $parent (@$parents)
+            {   my $cname = shift @children;
+                my $id    = $curval->layout->column($cname)->id;
+                my $parent_id = $layout->column($parent)->id;
+                push @sort_by, "${parent_id}_$id";
             }
         }
+        else
+        {   @sort_by = map $layout->column($_ || '_id'), @$sort_by;
+        }
+
+        my $view = $sheet->views->view_create({
+            name     => 'Test view',
+            columns  => $sort->{show_columns},
+            filter   => $filter,
+            sortings => [ [ \@sort_by, $sort_type ] ],
+        });
+
+        foreach my $pass (1..$passes)
+        {    my $sort_type  = @sort_types==1 && $pass==3
+              ? [ $sort_types[0] eq 'asc' ? 'desc' : 'asc' ]
+              : \@sort_types;
+
+            $view->view_update({ sortings => [ [ \@sort_by, $sort_type ] ] });
+            my $page = $sheet->data->search(
+                view     => $view,
+                sortings => $sorting,
+            );
+
+        ### Test override of sort first     XXX was "pass1"
+
+        {   ok 1, "testing sort $sort->{name} is overriden";
+
+            my $page = $sheet->data->search(
+                view     => $view,
+                sortings => +{ type => 'desc', id => $layout->column('_id'),
+            );
+
+            my $first = $sort->{max_id} || 9;
+            my $last  = $sort->{min_id} || 3;
+
+            # 1 record per page to test sorting across multiple pages
+            $page->window(rows_per_page => 1);
+
+            is $page->row(0)->current_id - $cid_adjust,
+               $first,
+               '... first record for sort override';
+
+            if(my $fs = $sort->{first_string})
+            {   foreach my $colname (keys %$fs)
+                {   is $page->row(0)->field($colname)->as_string,
+                       $sort->{first_string}->{$colname},
+                       "... first record value for $colname";
+                }
+            }
+
+            my $new_pagenr = $sort->{count} || 7;
+            $page->window(page_number => $new_pagenr);
+
+            ok defined $new_page, "... moved to other page";
+            is $new_page->page_number, $sort->{count} || 7,
+               "... moved to page $newpagenr";
+
+            is $new_page->row(-1)->current_id - $cid_adjust,
+               $last,
+               "... last record for sort override";
+
+            if(my $ls = $sort->{last_string})
+            {   foreach my $colname (keys %$ls)
+                {   is $page->row(0)->field($colname)->as_string,
+                       $sort->{last_string}->{$colname},
+                       "last record value for $colname";
+                }
+            }
+
+            # Basic graph test. Total of points on graph should match the number of results.
+            # Even though graphs do not use sorting, so a test with a sort
+            # as the user may still be using a view with a sort defined.
+            my $axis = $layout->column('string1')->id;
+            my $graph = $sheet->graphs->graph_create({
+                title        => 'Test',
+                type         => 'bar',
+                current_user => $sheet->user,
+                x_axis       => $axis,
+                y_axis       => $axis,
+                y_axis_stack => 'count',
+                view         => $view,
+            });
+
+            # Count total number of records  XXX $graph->data_points?
+            my $graph_total = sum map { scalar @$_ }, $graph->data->points->[0]};
+
+            my $count = $sort->{filter} ? $sort->{count} : 7;
+            is $graph_total, $count, "Item total on graph matches table for $sort->{name}";
+            $sheet->graphs->graph_delete($graph);
+        }
+
+        ### Use the sort from the view    XXX was pass2
+
+        {   ok 1, "testing sort $sort->{name}, sort defined by view";
+
+            my $page = $sheet->data->search(view => $view);
+
+            is $page->all_rows, $sort->{count},
+                '... number of records in results'
+                if $sort->{count};
+
+            like $page->row(0)->current_id - $cid_adjust, $sort->{first},
+                 '... first record';
+
+            like $page->row(-1)->current_id - $cid_adjust, $sort->{last},
+                '... last record';
+
+            # Then switch to 1 record per page to test sorting across multiple pages
+            $page->window(rows_per_page => 1);
+
+            like $page->row(0)->current_id - $cid_adjust, $sort->{first},
+                '... correct first record';
+
+            $page->window(page_number => $sort->{count} || 7);
+
+            like $page->row(0)->current_id - $cid_adjust, $sort->{last},
+                '... last record';
+        }
+
+        ### Reverse sorting     XXX was pass3
+
+        if(@sort_types==1)
+        {   ok 1, "testing sort $sort->{name}, sort reversed by view";
+
+            my $rev = $sort_types[0] eq 'asc' ? 'desc' : 'asc';
+            $view->view_update({ sortings => [ [ \@sort_by, $rev ] ] });
+
+            my $page = $sheet->data->search(view => $view);
+
+            is $page->all_rows, $sort->{count}, '... number of records in results'
+                if $sort->{count};
+
+            like $page->row(0)->current_id - $cid_adjust, $sort->{last},
+                '... first record in reverse';
+
+            like $page->row(-1)->current_id - $cid_adjust, $sort->{last},
+                '... last record in reverse';
+
+            # Then switch to 1 record per page to test sorting across multiple pages
+            $page->window(rows_per_page => 1);
+
+            like( $page->row(0)->current_id - $cid_adjust, $sort->{last}, "Correct first record for sort $sort->{name} in reverse");
+
+                $records->page($sort->{count} || 7);
+            like $page->row(0)->current_id - $cid_adjust, $sort->{first}, "Correct last record for sort $sort->{name} in reverse");
+        }
+
+        #### Count only    XXX was pass4
+        # If doing a count with the sort, then do an extra pass, one to check that actual
+        # number of rows retrieved, and one to check the count calculation function
+        if(my $count = $sort->{count})
+        {   ok 1, "testing sort $sort->{name}, count only";
+
+            my $page = $sheet->data->search(view => $view);
+            is $page->count, $count, '... record count';
+
+ok ! $page->_loaded_any_record;
+        }
+
+        $sheet->views->view_delete($view);
     }
 }
 
 restore_time();
 
-done_testing();
+done_testing;

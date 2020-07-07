@@ -58,7 +58,7 @@ sub _compare_parents
 sub _add_children
 {   my ($self, $join, $column, %options) = @_;
     $join->{children} ||= [];
-    my %existing = map { $_->{column}->id => 1 } @{$join->{children}};
+    my %existing = map +($_->{column}->id => 1), @{$join->{children}};
     foreach my $c (@{$column->curval_fields_retrieve(all_fields => $options{all_fields}, already_seen => $options{already_seen})})
     {
         next if $c->is_internal;
@@ -91,7 +91,7 @@ sub _add_jp
 
     trace __x"Checking or adding {field} to the store", field => $column->field;
 
-    my $prefetch = (!$column->multivalue || $options{include_multivalue}) && $options{prefetch};
+    my $prefetch = (!$column->is_multivalue || $options{include_multivalue}) && $options{prefetch};
 
     # A hash to ensure that we don't recurse into the same fields over and
     # over. For example, if we are viewing a curval which has an autocur that
@@ -151,25 +151,22 @@ sub _add_jp
     {
         # Find parent and add to that
         foreach my $c (@{$self->_jp_store})
-        {
-            if ($c->{column}->id == $parent->id)
-            {
-                my %existing = map { $_->{column}->id => $_ } @{$c->{children}};
-                if (my $exists = $existing{$join_add->{column}->id})
-                {
-                    $exists->{search} ||= $options{search};
-                    $exists->{sort}   ||= $options{sort};
-                    $exists->{group}  ||= $options{group};
-                    $exists->{drcol}  ||= $options{drcol};
-                }
-                else {
-                    push @{$c->{children}}, $join_add
-                }
+        {   $c->{column}->id == $parent->id or next;
+
+            my %existing = map { $_->{column}->id => $_ } @{$c->{children}};
+            if (my $exists = $existing{$join_add->{column}->id})
+            {   $exists->{search} ||= $options{search};
+                $exists->{sort}   ||= $options{sort};
+                $exists->{group}  ||= $options{group};
+                $exists->{drcol}  ||= $options{drcol};
+            }
+            else
+            {   push @{$c->{children}}, $join_add;
             }
         }
     }
-    else {
-        push @{$self->_jp_store}, $join_add;
+    else
+    {   push @{$self->_jp_store}, $join_add;
     }
 }
 
@@ -252,50 +249,47 @@ sub record_later_search
 
     my @search;
     for (1..$count)
-    {
-        my $id = $_ == 1 ? '' : "_$_";
-        my $alt = $options{alt} ? "_alternative" : "";
-        push @search, {
-            "record_later$alt$id.current_id" => undef,
-        };
+    {   my $id = $_ == 1 ? '' : "_$_";
+        my $alt = $options{alt} ? '_alternative' : '';
+        push @search, +{ "record_later$alt$id.current_id" => undef };
     }
     @search;
 }
 
 sub _jpfetch
 {   my ($self, %options) = @_;
-    my $joins = [];
+    my @joins;
 
+    my $jp_store = $self->_jp_store;
     my @jpstore;
-    # Normally we want joins to be added and then prefetches, as they are
-    # numbered in that order by DBIx::Class. However, sometimes prefetches will
-    # be used as joins (during graph creation) in which case we want to retain
-    # the order
+
     if($options{retain_join_order})
-    {   @jpstore = @{$self->_jp_store};
+    {   # Normally we want joins to be added and then prefetches, as they are
+        # numbered in that order by DBIx::Class. However, sometimes prefetches will
+        # be used as joins (during graph creation) in which case we want to retain
+        # the order
+        @jpstore = @$jp_store;
     }
     else
-    {   @jpstore = grep !$_->{prefetch}, @{$self->_jp_store};
-        push @jpstore, grep $_->{prefetch}, @{$self->_jp_store};
+    {   @jpstore = grep !$_->{prefetch}, @$jp_store;
+        push @jpstore, grep $_->{prefetch}, @$jp_store;
     }
 
     my @jpstore2 =  grep  $_->{linked}, @jpstore;
     push @jpstore2, grep !$_->{linked}, @jpstore;
 
-    foreach (@jpstore2)
-    {
-        # Include only aggregate columns if requested. This is used when a
+    foreach my $add (@jpstore2)
+    {   # Include only aggregate columns if requested. This is used when a
         # records object has been built, but then only the aggregate columns
         # within that are required for an aggregate query
-        next if $options{aggregate} && !$_->{column}->aggregate;
-        next if exists $options{prefetch} && !$options{prefetch} && $_->{prefetch} && !$options{group} && !$options{drcol};
-        $self->_jpfetch_add(options => \%options, join => $_, return => $joins);
+        next if $options{aggregate} && !$add->{column}->aggregate;
+        next if exists $options{prefetch} && !$options{prefetch} && $add->{prefetch} && !$options{group} && !$options{drcol};
+        $self->_jpfetch_add($add, options => \%options, join => $_, return => \@joins);
     }
 
     my @return;
-    if($options{limit} && @$joins)
-    {   my @joins  = @$joins;
-        my $offset = ($options{page} - 1) * $options{limit};
+    if($options{limit} && @joins)
+    {   my $offset = ($options{page} - 1) * $options{limit};
         return if @joins < $offset;
 
         my $end = $options{limit}-1 +$offset;
@@ -308,32 +302,31 @@ sub _jpfetch
     {   @return = @$joins;
     }
 
-      ! defined $options{linked} ? @return
-    : $options{linked}           ? grep  $_->{linked}, @return
+      ! defined $options{linked} ? @return                      #XXX exists
+    :   $options{linked}         ? grep  $_->{linked}, @return
     :                              grep !$_->{linked}, @return;
 }
 
 sub _jpfetch_add
-{   my ($self, %params) = @_;
+{   my ($self, $add, %params) = @_;
     my $options = $params{options};
     my $join    = $params{join};
     my $return  = $params{return};
     my $parent  = $params{parent};
-    if (
-        ($options->{search} && $_->{search})
-        || ($options->{sort} && $_->{sort})
-        || ($options->{group} && $_->{group})
-        || ($options->{drcol} && $_->{drcol})
-        || ($options->{prefetch} && $_->{prefetch})
-        || ($options->{extra_column} && $_->{column}->id == $options->{extra_column}->id)
+    if (   ($options->{search}   && $add->{search})
+        || ($options->{sort}     && $add->{sort})
+        || ($options->{group}    && $add->{group})
+        || ($options->{drcol}    && $add->{drcol})
+        || ($options->{prefetch} && $add->{prefetch})
+        || ($options->{extra_column} && $add->{column}->id == $options->{extra_column}->id)
     )
     {
         if ($join->{column}->is_curcommon)
         {
             my $children = [];
             foreach my $child (@{$join->{children}})
-            {
-                $self->_jpfetch_add(options => $options, join => $child, return => $children, parent => $join->{column});
+            {   $self->_jpfetch_add($add, options => $options, join => $child,
+                    return => $children, parent => $join->{column});
             }
             my $simple = {%$join};
             $simple->{join} = $join->{column}->sprefix;
@@ -341,20 +334,20 @@ sub _jpfetch_add
             # These will be fetched later as individual columns.
             # Keep any for a sort - these still need to be used when fetching rows.
             my @children = @$children;
-            @children = grep { $_->{search} || $_->{sort} || !$_->{column}->multivalue || $options->{include_multivalue} || $_->{group} || $_->{drcol} } @$children
+            @children = grep { $add->{search} || $add->{sort} || !$add->{column}->can_multivalue || $options->{include_multivalue} || $add->{group} || $add->{drcol} } @$children
                 if $options->{prefetch};
 
             push @$return, +{
                 parent    => $parent,
                 column    => $join->{column},
-                join      => $join->{column}->make_join(map {$_->{join}} @children),
+                join      => $join->{column}->make_join(map $add->{join}, @children),
                 search    => $join->{search},
                 sort      => $join->{sort},
                 group     => $join->{group},
                 drcol     => $join->{drcol},
                 prefetch  => $join->{prefetch},
                 linked    => $join->{linked},
-                all_joins => [$simple, @children],
+                all_joins => [ $simple, @children ],
                 children  => \@children,
             };
         }
@@ -434,14 +427,15 @@ sub record_name
     $count == 1 ? 'record_single' : "record_single_$count";
 }
 
-=pod
+
+=head2 my $name = $data->table_name($column, %options)
 Return a fully-qualified value field for a table.
 
-%options signifies what will be counted when getting the join numbers. For
-example, if tables that are joined for both searches and prefetches should be
-included, then use
+The C<%options> signifies what will be counted when getting the join
+numbers. For example, if tables that are joined for both searches and
+prefetches should be included, then use
 
-  ->table_name($col, search => 1, prefetch => 1)
+  my $name = $data->table_name($col, search => 1, prefetch => 1)
 
 =cut
 
@@ -472,7 +466,7 @@ sub _join_number
     my @store = $self->_jpfetch(%options, linked => undef);
     my $stash = {};
 
-    if ($options{find_value})
+    if($options{find_value})
     {   trace "Looking in the store for all joins for find_value";
     }
     else
@@ -483,7 +477,7 @@ sub _join_number
     {
         trace "Checking join ".$j->{column}->id;
         my $n;
-        if ($j->{all_joins})
+        if($j->{all_joins})
         {
             trace "This join has other joins, checking...";
             foreach my $j2 (@{$j->{all_joins}})
@@ -499,27 +493,28 @@ sub _join_number
                         return $n if $n;
                     }
                 }
-                else {
-                    trace "Looking at join ".$j2->{column}->id;
+                else
+                {   trace "Looking at join ".$j2->{column}->id;
                     $n = _find($column, $j2, $stash, %options);
                     trace __x"return from find request is: {n}", n => $n;
                     return $n if $n;
                 }
             }
         }
-        else {
-            $n = _find($column, $j, $stash, %options);
+        else
+        {   $n = _find($column, $j, $stash, %options);
             trace __x"return from find request is: {n}", n => $n;
         }
         return $n if $n;
     }
 
-    return $stash->{value} if $options{find_value};
+    return $stash->{value}
+        if $options{find_value};
 
-    # This shouldn't happen. If we get here then we're trying to get a
-    # join number for a table that hasn't been added.
+    # This shouldn't happen. If we get here then we're trying to get a join number for
+    # a table that hasn't been added. Prevent dumping of whole parent and extra_column.
     my $cid = $column->id;
-    $options{parent} = $options{parent}->id if $options{parent}; # Prevent dumping of whole object
+    $options{parent} = $options{parent}->id if $options{parent};
     $options{extra_column} = $options{extra_column}->id if $options{extra_column};
     panic "Unable to get join number: column $cid hasn't been added for options ".Dumper(\%options);
 }
@@ -531,61 +526,58 @@ sub _find
 {   my ($needle, $jp, $stash, %options) = @_;
 
     trace "Checking against join ".$jp->{column}->id;
+    my $parent  = $jp->{parent}; 
+    my $jp_join = $jp->{join};
 
-    if (ref $jp->{join} eq 'HASH')
-    {
-        my ($key, $value) = %{$jp->{join}};
-        trace __x"This join is a hash with key:{key} and value: {value}", key => $key, value => Dumper($value);
+    if (ref $jp_join eq 'HASH')
+    {   my ($key, $value) = %$jp_join;
+        trace __x"This join is a hash '{key}' => '{value}'", key => $key, value => Dumper($value);
         trace __x"We are looking for value being equal to {needle}", needle => $needle->sprefix if $needle;
-        if (
-            ($options{find_value} && $value eq 'value')
+        if(    ($options{find_value} && $value eq 'value')
             || $needle->sprefix eq $value)
-        {
-            trace "Incrementing key and value counters";
+        {   trace "Incrementing key and value counters";
+
             $stash->{$key}++;
             $stash->{$value}++;
-            if ($jp->{parent} && !$stash->{parents_included}->{$jp->{parent}->id})
-            {
-                if ($jp->{parent}->type eq 'curval')
-                {
-                    # A curval join has an extra "value" join whereas an
-                    # autocur does not
+
+            if($parent && !$stash->{parents_included}{$parent->id})
+            {   if ($parent->type eq 'curval')
+                {   # A curval join has an extra "value" join whereas an autocur does not
                     trace "Incrementing value count to account for parent";
                     $stash->{value}++;
                 }
-                $stash->{parents_included}->{$jp->{parent}->id} = 1;
+                $stash->{parents_included}{$parent->id} = 1;
             }
-            if (!$options{find_value}
-                && $needle->field eq $key && _compare_parents($options{parent}, $jp->{parent}))
+
+            if( !$options{find_value}
+                && $needle->field eq $key && _compare_parents($options{parent}, $parent))
             {
                 trace "We have a match, returning";
                 return $stash->{$value};
             }
         }
     }
-    elsif(ref $jp->{join} eq 'ARRAY')
-    {
-        trace "This join is an array";
-        foreach (@{$jp->{join}})
-        {
-            my $n = _find($needle, $_, $stash);
+    elsif(ref $jp_join eq 'ARRAY')
+    {   trace "This join is an array";
+
+        foreach my $join (@$jp_join)
+        {   my $n = _find($needle, $join, $stash);
             trace "Return from find is $n";
             return $n if $n;
         }
     }
     else
-    {   trace "This join is a standard join";
-        $stash->{$jp->{join}}++;
-        if(my $parent = $jp->{parent})
+    {   trace "This join is a standard join $jp_join";
+        $stash->{$jp_join}++;
+        if($parent)
         {   unless($stash->{parents_included}{$parent->id}++)
             {   $stash->{value}++ if $parent->value_field eq 'value';
             }
         }
 
-        if (!$options{find_value} && $needle->sprefix eq $jp->{join})
-        {
-            # Single table join
-            if (_compare_parents($options{parent}, $jp->{parent})
+        if (!$options{find_value} && $needle->sprefix eq $jp_join)
+        {   # Single table join
+            if (_compare_parents($options{parent}, $parent)
                 # Account for autocur joins, in which case only match when
                 # it's the one we need
                 && ($needle->sprefix ne 'current' || $needle->id == $jp->{column}->id))
@@ -595,6 +587,7 @@ sub _find
             }
         }
     }
+
     trace "No match";
     return undef;
 }
@@ -631,8 +624,7 @@ sub _dump_child
     chomp $join;
     my $parent_id = $child->{parent}->id;
 
-my $ret = "
-child is ".$child->{column}->id." (".$child->{column}->name.") => {
+    my $ret = "\nchild is ".$child->{column}->id." (".$child->{column}->name.") => {
     join     => $join,
     prefetch => $child->{prefetch},
     curval   => $child->{curval},

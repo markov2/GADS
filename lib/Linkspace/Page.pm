@@ -36,7 +36,7 @@ use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
 
-with 'GADS::RecordsJoin', 'GADS::Role::Presentation::Records';
+with 'GADS::RecordsJoin';
 
 # Preferably this is passed in to prevent extra
 # DB reads, but loads it if it isn't
@@ -237,16 +237,6 @@ has has_children => (
     isa     => Bool,
 );
 
-sub rewind_formatted
-{   my $self = shift;
-    $::db->format_datetime($self->rewind);
-}
-
-has include_approval => (
-    is      => 'rw',
-    default => 0,
-);
-
 # Internal parameter to set the exact current IDs that will be retrieved,
 # without running any search queries. Used when downloading chunked data, when
 # all the current IDs have already been retrieved
@@ -399,8 +389,6 @@ has results => (
     isa       => ArrayRef,
     predicate => 1,
 );
-
-sub _search_construct;
 
 # Shortcut to generate the required joining hash for a DBIC search
 sub linked_hash
@@ -1508,382 +1496,10 @@ sub order_by
     \@order_by;
 }
 
-# $ignore_perms means to ignore any permissions on the column being
-# processed. For example, if the current user is updating a record,
-# we want to process columns that the user doesn't have access to
-# for things like alerts, but not for their normal viewing.
-sub _search_construct
-{   my ($self, $filter, $layout, %options) = @_;
-
-    my $ignore_perms = $options{ignore_perms} || $self->layout->user_permission_override_search;
-    if (my $rules = $filter->{rules})
-    {
-        # Previous values for a group. This allows previous values to be
-        # searched only for a whole group (e.g. to include previous values only
-        # between certain edit dates). Construct the whole group as a
-        # GADS::Records and return that as a query
-        if ($filter->{previous_values})
-        {
-            my $encoded = GADS::Filter->new(
-                as_hash => {%$filter, previous_values => 0}
-            );
-
-            my $view = $sheet->views->new_view(
-                filter      => $encoded,
-            );
-
-            my $page = $view->search(
-                # Don't limit by view this as well, otherwise recursive loop
-                _view_limits => [],
-                previous_values => 1,
-            );
-
-            my $match = $filter->{previous_values} eq 'negative' ? '-not_in' : '-in';
-            return +{ 'me.id' => { $match => $page->_current_ids_rs->as_query } };
-        }
-        # Filter has other nested filters
-        my @final;
-        foreach my $rule (@$rules)
-        {
-            my @res = $self->_search_construct($rule, $layout, %options);
-            push @final, @res if @res;
-        }
-        my $condition = $filter->{condition} && $filter->{condition} eq 'OR' ? '-or' : '-and';
-        return @final ? ($condition => \@final) : ();
-    }
-
-    my %ops = (
-        equal            => '=',
-        greater          => '>',
-        greater_or_equal => '>=',
-        less             => '<',
-        less_or_equal    => '<=',
-        contains         => '-like',
-        not_contains     => '-not_like',
-        begins_with      => '-like',
-        not_begins_with  => '-not_like',
-        not_equal        => '!=',
-        is_empty         => '=',
-        is_not_empty     => '!=',
-    );
-
-    my %permission = $ignore_perms ? () : (permission => 'read');
-    my ($parent_column, $column);
-    $filter->{id} or return; # Used to ignore filter
-    if ($filter->{id} =~ /^([0-9]+)_([0-9]+)$/)
-    {
-        $column        = $layout->column($2, %permission);
-        $parent_column = $layout->column($1, %permission);
-    }
-    else
-    {   $column   = $layout->column($filter->{id}, %permission);
-    }
-
-    $column
-        or return;
-
-    # Empty values can sometimes arrive as empty arrays, which evaluate true
-    # when they should evaluate false. Therefore convert.
-    $filter->{value} = ''
-        if ref $filter->{value} eq 'ARRAY' && !@{$filter->{value}};
-
-    # Whether we are also searching previous record values
-    my $previous_values = $filter->{previous_values};
-    # If we're searching previous record values and we have a negative search,
-    # then we have to flip things round to use a not_in condition (see below).
-    # This is because otherwise an -in condition will match records even though
-    # other values do not match. E.g. old value is Foo, new value is Bar, a
-    # not_equal value of "Foo" will match the new record and therefore return
-    # the result, even though the old value should have caused it to not be
-    # included
-    my $reverse         = $previous_values && $filter->{operator} =~ /^not/;
-
-    # If testing a comparison but we have no value, then assume search empty/not empty
-    # (used during filters on curval against current record values)
-    my $filter_operator = $filter->{operator}; # Copy so as not to affect original hash ref
-    $filter_operator = $filter_operator eq 'not_equal' ? 'is_not_empty' : 'is_empty'
-    if $filter_operator !~ /(?:is_empty|is_not_empty)/
-        && (
-            !defined $filter->{value}
-            || $filter->{value} eq ''
-            || (ref $filter->{value} && "@{$filter->{value}}" eq '')
-        ); # Not zeros (valid search)
-
-    $filter_operator = 'equal'
-        if $reverse && $filter_operator eq 'not_equal';
-    $filter_operator = 'begins_with'
-        if $reverse && $filter_operator eq 'not_begins_with';
-    $filter_operator = 'contains'
-        if $reverse && $filter_operator eq 'not_contains';
-
-    my $operator = $ops{$filter_operator}
-        or error __x"Invalid operator {filter}", filter => $filter_operator;
-
-    my @conditions;
-    my $gate = 'and';
-    my $transform_date; # Whether to convert date value to database format
-    if ($column->type eq "daterange")
-    {
-        # If it's a daterange, we have to be intelligent about the way the
-        # search is constructed. Greater than, less than, equals all require
-        # different values of the date range to be searched
-        if ($operator eq "!=" || $operator eq "=") # Only used for empty / not empty
-        {
-            push @conditions, {
-                type     => $filter_operator,
-                operator => $operator,
-                s_field  => "value",
-            };
-        }
-        elsif ($operator eq ">" || $operator eq "<=")
-        {
-            $transform_date = 1;
-            push @conditions, {
-                type     => $filter_operator,
-                operator => $operator,
-                s_field  => "from",
-            };
-        }
-        elsif ($operator eq ">=" || $operator eq "<")
-        {
-            $transform_date = 1;
-            push @conditions, {
-                type     => $filter_operator,
-                operator => $operator,
-                s_field  => "to",
-            };
-        }
-        elsif ($operator eq "-like" || $operator eq "-not_like")
-        {
-            $transform_date = 1;
-            # Requires 2 searches ANDed together
-            push @conditions, {
-                type     => $filter_operator,
-                operator => $operator eq '-like' ? '<=' : '>=',
-                s_field  => "from",
-            };
-            push @conditions, {
-                type     => $filter_operator,
-                operator => $operator eq '-like' ? '>=' : '<=',
-                s_field  => "to",
-            };
-            $operator = $operator eq '-like' ? 'equal' : 'not_equal';
-            $gate = 'or' if $operator eq 'not_equal';
-        }
-        else {
-            error __x"Invalid operator {operator} for date range", operator => $operator;
-        }
-    }
-    else {
-        push @conditions, {
-            type     => $filter_operator,
-            operator => $operator,
-            s_field  => $filter->{value_field} || $column->value_field,
-        };
-    }
-
-    my $vprefix = ''; my $vsuffix = '';
-    if ($operator eq '-like' || $operator eq '-not_like') # Do not apply to "contains" for daterange
-    {
-        $vprefix = '%'
-            if $filter_operator eq 'contains' || $filter_operator eq 'not_contains';
-        $vsuffix = '%';
-    }
-
-    my @values;
-
-    if ($filter_operator eq 'is_empty' || $filter_operator eq 'is_not_empty')
-    {
-        push @values, $column->string_storage ? (undef, "") : undef;
-    }
-    else {
-        my @original_values = ref $filter->{value} ? @{$filter->{value}} : ($filter->{value});
-
-        foreach (@original_values)
-        {
-            $_ = $vprefix.$_.$vsuffix;
-
-            # This shouldn't normally happen, but sometimes we can end up with an
-            # invalid search value, such as if the date format has changed and the
-            # filters still have the old format. In this case, match nothing rather
-            # than matching all or borking.
-            return ( \"0 = 1" ) if !$column->validate_search($_);
-
-            # Sub-in current date as required. Ideally we would use the same
-            # code here as the calc/rag fields, but this can be accessed by
-            # any user, so should be a lot tighter.
-            if ($_ && $_ =~ /CURDATE/)
-            {   my $vdt = GADS::Filter->parse_date_filter($_);
-                $_ = $::db->format_date($vdt);
-            }
-            elsif ($transform_date || ($column->return_type eq 'date' && $_))
-            {   $_ = $self->_date_for_db($column, $_);
-            }
-
-            $_ =~ s/\_/\\\_/g if $operator eq '-like';
-
-            if( $_ =~ /\[CURUSER\]/)
-            {   my $user = $options{user} || $self->user;
-                if ($column->type eq 'person')
-                {   my $curuser = $user->id || ''
-                        or warning "FIXME: user not set for person filter";
-                    $_ =~ s/\[CURUSER\]/$curuser/g;
-                    $conditions[0]->{s_field} = "id";
-                }
-                elsif ($column->return_type eq 'string')
-                {   my $curuser = $user->value || ''
-                        or warning "FIXME: user not set for string filter";
-                    $_ =~ s/\[CURUSER\]/$curuser/g;
-                }
-            }
-            push @values, $_;
-        }
-    }
-
-    @values or return ( \"0 = 1" ); # Nothing to match, return nothing
-
-    if ($column->type eq "string")
-    {
-        # The normal value search of a string is not indexed, due to the potential size
-        # of the data. Therefore, add the second indexed value field, to speed up
-        # the search.
-        # $value can be an array ref from above.
-        push @conditions, {
-            type     => $filter_operator,
-            operator => $operator,
-            s_field  => "value_index",
-            values   => [ map { $_ && lc(substr($_, 0, 128)) } @values ],
-        };
-    }
-
-    my @final = map {
-        $self->_resolve($column, $_, \@values, 0,
-            parent          => $parent_column,
-            filter          => $filter,
-            previous_values => $previous_values,
-            reverse         => $reverse,
-            %options
-        );
-    } @conditions;
-
-    my $parent_column_link = $parent_column && $parent_column->link_parent;
-    $parent_column_link || $column->link_parent
-        or return "-$gate" => \@final;
-
-    my $link_parent = $parent_column ? $column : $column->link_parent;
-
-    my @final2 = map {
-        $self->_resolve($link_parent, $_, \@values, 1,
-            parent          => $parent_column_link,
-            filter          => $filter,
-            previous_values => $previous_values,
-            reverse         => $reverse,
-            %options
-        );
-    } @conditions;
-
-    [ -or => ["-$gate" => \@final], [ "-$gate" => \@final2] ];
-}
-
-sub _resolve
-{   my ($self, $column, $condition, $default_value, $is_linked, %options) = @_;
-
-    my $value = $condition->{values} || $default_value;
-
-    # If the column is a multivalue, then normally a not_equal would match
-    # even if we're not expecting it to (if the record's value contains
-    # "foo" and "bar", then a search for "not foo" would still return the
-    # "bar" and hence the whole record including "foo".  We therefore have
-    # to instead negate the record IDs containing that negative match.
-    my $multivalue = $options{parent} ? $options{parent}->multivalue : $column->multivalue;
-    my $reverse         = $options{reverse};
-    my $previous_values = $options{previous_values};
-    if ($multivalue && $condition->{type} eq 'not_equal' && !$previous_values)
-    {
-        # Create a non-negative match of all the IDs that we don't want to
-        # match. Use a Records object so that all the normal requirements are
-        # dealt with, and pass it the current filter reversed
-        my $records = GADS::Records->new(
-            schema       => $self->schema,
-            user         => $self->user,
-            layout       => $self->layout,
-            _view_limits => [], # Don't limit by view this as well, otherwise recursive loop happens
-            view  => GADS::View->new(
-                filter      => { %{$options{filter}}, operator => 'equal' }, # Switch
-                instance_id => $self->layout->instance_id,
-                layout      => $self->layout,
-                schema      => $self->schema,
-                user        => $self->user,
-            ),
-        );
-        return (
-            'me.id' => {
-                # We want everything that is *not* those records
-                -not_in => $records->_current_ids_rs->as_query,
-            }
-        );
-    }
-    elsif ($previous_values)
-    {
-        my %filter = %{$options{filter}};
-        delete $filter{previous_values};
-        %filter = ( %filter, operator => $filter{operator} =~ s/^not_//r )
-            if $reverse; # Switch
-        my $records = GADS::Records->new(
-            schema       => $self->schema,
-            user         => $self->user,
-            layout       => $self->layout,
-            _view_limits => [], # Don't limit by view this as well, otherwise recursive loop happens
-            previous_values => 1,
-            view  => GADS::View->new(
-                filter      => \%filter,
-                instance_id => $self->layout->instance_id,
-                layout      => $self->layout,
-                schema      => $self->schema,
-                user        => $self->user,
-            ),
-        );
-
-        if ($reverse)
-        {
-            return (
-                'me.id' => {
-                    -not_in => $records->_current_ids_rs->as_query,
-                }
-            );
-        }
-        else {
-            return (
-                'me.id' => {
-                    -in => $records->_current_ids_rs->as_query,
-                }
-            );
-        }
-    }
-    else {
-        my $combiner = $condition->{type} =~ /(is_not_empty|not_equal|not_begins_with)/ ? '-and' : '-or';
-        $value    = @$value > 1 ? [ $combiner => @$value ] : $value->[0];
-        my $sq = {$condition->{operator} => $value};
-        $sq = [ $sq, undef ] if $condition->{type} eq 'not_equal'
-            || $condition->{type} eq 'not_begins_with' || $condition->{type} eq 'not_contains';
-        $self->add_join($options{parent}, search => 1, linked => $is_linked, all_fields => $self->curcommon_all_fields)
-            if $options{parent};
-        $self->add_join($column, search => 1, linked => $is_linked, parent => $options{parent}, all_fields => $self->curcommon_all_fields);
-        my $s_table = $self->table_name($column, %options, search => 1);
-        +( "$s_table.$condition->{s_field}" => $sq );
-    }
-}
-
-sub _date_for_db
-{   my ($self, $column, $value) = @_;
-    $::db->format_date($column->parse_date($value));
-}
-
 has _csv => (
     is => 'lazy',
+    builder => sub { Text::CSV::Encoded->new({ encoding  => undef }) },
 );
-
-sub _build__csv { Text::CSV::Encoded->new({ encoding  => undef }) }
 
 sub csv_header
 {   my $self = shift;
@@ -1931,18 +1547,27 @@ sub csv_line
 }
 
 sub _filter_items
-{   my ($self, $from, $to) = (shift, shift, shift);
+{   my ($self, $from, $to, $items) = @_;
 
     if($self->exclusive_of_to)
     {   my $to_tick = $to->epoch * 1000;
-        return grep { $_->{single} ? $_->{dt} >= $from && $_->{dt} <= $to : $_->{end} < $to_tick } @_;
+        return grep { $_->{single} ? $_->{dt} >= $from && $_->{dt} <= $to : $_->{end} < $to_tick } @$items;
     }
     elsif($self->exclusive_of_from)
     {   my $from_tick = $from->epoch * 1000;
-        return grep { $_->{single} ? $from <= $_->{dt} && $_->{dt} <= $to : $from_tick < $_->{start} } @_;
+        return grep { $_->{single} ? $from <= $_->{dt} && $_->{dt} <= $to : $from_tick < $_->{start} } @$items;
     }
 
-    grep { $_->{single} ? $_->{dt} >= $from && $_->{dt} <= $to : 1 } @_;
+    grep { $_->{single} ? $_->{dt} >= $from && $_->{dt} <= $to : 1 } @$items;
+}
+
+### in Page
+
+sub timeline(%)
+{   my ($self, %args) = @_;
+    $args{type}    ||= 'timeline';
+    $args{records}   = $self;
+    Linkspace::Widget::Timeline->new(%args);
 }
 
 sub data_timeline
@@ -1952,9 +1577,7 @@ sub data_timeline
     my $original_to   = $self->to;
     my $limit_qty     = $original_from && ! $original_to;
 
-    my $timeline = GADS::Timeline->new(
-        type         => 'timeline',
-        records      => $self,
+    my $timeline = $self->timeline(
         label_col_id => $options{label},
         group_col_id => $options{group},
         color_col_id => $options{color},
@@ -2032,26 +1655,25 @@ sub data_timeline
         $max->set_time_zone('UTC')->add(days => 2) if $max;
     }
     elsif($original_from && $original_to)
-    {   @items = $self->_filter_items($original_from, $original_to, @{$timeline->items});
+    {   @items = $self->_filter_items($original_from, $original_to, $timeline->items);
         ($min, $max) = ($original_from, $original_to);
     }
     else
     {   @items = @{$timeline->items};
     }
 
-    # Remove dt (DateTime) value, otherwise JSON encoding borks
-    delete @{$_}{ qw/dt dt_to/ }
-        for @items;
+    # Remove dt (DateTime) value, otherwise JSON encoding borks  XXX where?
+    delete @{$_}{ qw/dt dt_to/ } for @items;
 
-    if($options{overlay} && $options{overlay} != $self->layout->instance_id)
-    {   my $overlay = $::session->site->document->sheet($options{overlay});
+    my $overlay_sheet_id = $options{overlay} || 0;
+    if($overlay_sheet_id != $self->sheet_id)
+    {   my $overlay_sheet = $::session->site->sheet($$overlay_sheet_id);
 
         # Only show the first field, plus all the date fields
         my ($picked, @to_show);
-        my $columns = $overlay->columns_search(user_can_read => 1);
+        my $columns = $overlay_sheet->layout->columns_search(user_can_read => 1);
         foreach my $column (@$columns)
-        {
-            if($column->returns_date)
+        {   if($column->returns_date)
             {   push @to_show, $column;
             }
             elsif(!$picked)
@@ -2060,28 +1682,23 @@ sub data_timeline
             }
         }
 
-        my $records = GADS::Records->new(
-            columns => [ map $_->id, @to_show ],
+        my $overlay_page = $overlay_sheet->data->search({
+            columns => \@to_show,
             from    => $min,
             to      => $max,
-            layout  => $overlay,
-        );
+        });
 
-        my $timeline_overlay = GADS::Timeline->new(
-            type    => 'timeline',
-            records => $records,
-        );
+        my $timeline_overlay = $overlay_page->timeline;
 
-        my @retrieved = @{$timeline_overlay->items};
-        @retrieved = $self->_filter_items($original_from, $original_to, @retrieved);
+        my @retrieved = $self->_filter_items($original_from, $original_to,
+           $timeline_overlay->items);
 
-        foreach my $overlay (@retrieved)
-        {
-            delete $overlay->{dt};
-            delete $overlay->{dt_to};
-            $overlay->{type} = 'background';
-            $overlay->{end}  = $overlay->{start} if !$overlay->{end};
-            push @items, $overlay;
+        foreach my $item (@retrieved)
+        {   delete $item->{dt};
+            delete $item->{dt_to};
+            $item->{type} = 'background';
+            $item->{end}  = $item->{start} if !$item->{end};
+            push @items, $item;
         }
     }
 
@@ -2104,6 +1721,7 @@ sub data_timeline
     };
 }
 
+# in ::Page
 sub data_calendar
 {   my ($self, %options) = @_;
     my $timeline = GADS::Timeline->new(
@@ -2711,7 +2329,7 @@ sub _build_group_results
             # force is_group to be 1 if calculating total aggregates, which
             # will then force the sum. At the moment the only aggregate is sum,
             # but that may change in the future
-            is_group                => $options{is_group} || $self->needs_column_grouping,
+            is_grouping             => $options{grouping} || $self->needs_column_grouping,
             group_cols              => \%group_cols,
             user                    => $self->user,
             columns_retrieved_no    => $self->columns_retrieved_no,
@@ -2724,5 +2342,54 @@ sub _build_group_results
     return \@all;
 }
 
-1;
+sub presentation() {
+    my $self  = shift;
+    my $view  = $self->view;
+    my $current_group_id = $view ? $view->first_grouping_column_id : undef;
+    
+    my @show = map $_->presentation(group => $current_group_id, @_),
+         @{$self->results};
+    
+    \@show;
+}
 
+sub aggregate_presentation
+{   my $self   = shift;
+    
+    my $record = $self->aggregate_results
+        or return undef;
+
+    my @presentation = map {
+        my $field = $record->field($_);
+        $field && $_->presentation(datum_presentation => $field->presentation)
+    } @{$self->columns_view};
+    
+     +{ columns => \@presentation };
+}
+
+#--------------------------------
+=head1 METHODS: Paging
+
+=head2 $page->window(%settings);
+Change the window of search results which are shown in this page view.  Possible
+parameters are C<page_number> (starts at zero), C<page_length> (minimal 1),
+=cut
+
+sub window(%)
+{   my ($self, %args) = @_;
+    ...
+}
+
+=head2 $page->next_page;
+Move the result window after the current page.
+=cut
+
+sub next_page()
+{
+}
+
+sub all_rows()
+{
+}
+
+1;

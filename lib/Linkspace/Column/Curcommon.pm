@@ -252,15 +252,16 @@ sub _records_from_db
 #XXX       $self->filter->sub_values($layout->record);
     }
 
-    my $records = GADS::Records->new(
+    # Sort on all columns displayed as the Curval. Don't do all columns
+    # retrieved, as this could include a whole load of multivalues which
+    # are then fetched from the DB
+    my @sort = map +(id => $_), @{$self->curval_field_ids};
+
+    my $records = $sheet->data->search(
         view               => $view,
-        layout             => $layout,
         columns            => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
         limit_current_ids  => $ids,
-        # Sort on all columns displayed as the Curval. Don't do all columns
-        # retrieved, as this could include a whole load of multivalues which
-        # are then fetched from the DB
-        sort               => [ map +(id => $_), @{$self->curval_field_ids} ],
+        sort               => \@sort,
         is_draft           => 1, # XXX Only set this when parent record is draft?
     );
 
@@ -476,20 +477,13 @@ sub values_beginning_with
             condition => 'AND',
             rules     => \@rules,
         },
-        layout => $self->layout_parent,
     );
 
-    my $view = GADS::View->new(
-        instance_id => $self->related_sheet_id,
-        layout      => $self->layout_parent,
-        filter      => $match ? $filter : undef,
-    );
-
-    my $records = GADS::Records->new(
+    my $records = $related_sheet->data->search(
         rows    => 10,
         view    => $view,
-        layout  => $self->layout_parent,
         columns => $self->curval_field_ids,
+        filter    => $match ? $filter : undef,
     );
 
     map +{ id => $_->{id}, name => $_->{name} },

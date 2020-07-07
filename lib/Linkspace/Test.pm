@@ -172,6 +172,8 @@ sub switch_user($)
 #XXX to be tested
 sub make_sheet($@)
 {   my ($seqnr, %args) = @_;
+    $args{name} ||= "sheet $seqnr";
+
     my $sheet = test_site->document->sheet_create(\%args);
 
     is logline, "info: Instance created ${\$sheet->id}: ${\$sheet->path}",

@@ -49,18 +49,16 @@ GetOptions (
     'site'               => \$host,
 ) or exit;
 
-my ($dbic) = values %{config->{plugins}->{DBIC}}
+my ($dbic) = values %{config->{plugins}{DBIC}}
     or die "Please create config.yml before running this script";
 
 unless ($initial_username)
-{
-    say "Please enter the email address of the first user";
+{   say "Please enter the email address of the first user";
     chomp ($initial_username = <STDIN>);
 }
 
 unless ($host)
-{
-    say "Please enter the hostname that will be used to access this site";
+{   say "Please enter the hostname that will be used to access this site";
     chomp ($host = <STDIN>);
 }
 
@@ -76,6 +74,7 @@ my $migration = DBIx::Class::Migration->new(
 
 say "Installing schema...";
 $migration->install;
+
 say "Inserting permissions fixtures...";
 $migration->populate('permissions');
 
@@ -86,7 +85,7 @@ $migration->populate('permissions');
 rset('Permission')->count
     or die "No permissions populated. Do the fixtures exist?";
 
-say qq(Creating site "$host"...);
+say "Creating site '$host';
 my $site = rset('Site')->create({
     host                       => $host,
     register_organisation_name => 'Organisation',
@@ -94,158 +93,92 @@ my $site = rset('Site')->create({
 
 schema->site_id($site->id);
 
-say qq(Creating initial username "$initial_username"...);
-my $user = rset('User')->create({
-    username => $initial_username,
-    email    => $initial_username,
+say "Creating initial username '$initial_username'";
+my @all_global_permissions = map $_->name, @{$site->users->global_permissions};
+
+my $user = $site->users->user_create({
+    email       => $initial_username,
+    permissions => $site->users->permission_shorts,
 });
 
-say "Adding all permissions to initial username...";
-foreach my $perm (rset('Permission')->all)
-{
-    rset('UserPermission')->create({
-        user_id       => $user->id,
-        permission_id => $perm->id,
-    });
-}
+my $group  = $site->groups->group_create({ name => 'Read/write' });
+$site->groups->group_add_user($group, $user);
 
-my $group  = GADS::Group->new(schema => schema);
-$group->name('Read/write');
-$group->write;
+my $perms = { $group->id =>
+    [qw/read write_existing write_existing_no_approval write_new write_new_no_approval/]
+};
 
-rset('UserGroup')->create({
-    user_id  => $user->id,
-    group_id => $group->id,
-});
-
-my $perms = {$group->id => [qw/read write_existing write_existing_no_approval write_new write_new_no_approval/]};
-
-my $activities = _create_table("Activities", string => 50, tree => 5, enum => 50, intgr => 50);
+my $activities = _create_sheet("Activities", string => 50, tree => 5, enum => 50, intgr => 50);
 
 for my $i (1..10)
 {
-    my $curval_layout = _create_table("Curval$i", string => 3, tree => 0, enum => 3, intgr => 1);
+    my $curval_sheet = _create_sheet("Curval$i", string => 3, tree => 0, enum => 3, intgr => 1);
+    my $curval_layout = $curval_sheet->layout;
 
-    my $curval = GADS::Column::Curval->new(
-        optional   => 1,
-        schema     => schema,
-        user       => $user,
-        layout     => $activities,
-    );
-    $curval->refers_to_instance_id($curval_layout->instance_id);
-    my @curval_field_ids = schema->resultset('Layout')->search({
-        internal    => 0,
-        instance_id => $curval_layout->instance_id,
-    })->get_column('id')->all;
-    $curval->curval_field_ids(\@curval_field_ids);
-    $curval->type('curval');
-    $curval->name("curval$i");
-    $curval->delete_not_used(1);
-    $curval->show_add(1);
-    $curval->value_selector('noshow');
-    $curval->set_permissions($perms);
-    $curval->write;
+    
+    my @curval_field_ids = map $_->id,
+        $curval_layout->search_columns({exclude_internal => 1});
+
+    my $curval = $curval_layout->create_column(curval => {
+        name             => "curval$i",
+        is_optional      => 1,
+        curval_field_ids => \@curval_field_ids,
+        delete_not_used  => 1,
+        show_add         => 1,
+        value_selector   => 'noshow',
+        permissions      => $perms,
+        refers_to_sheet  => $curval_sheet,
+    });
 }
 
-sub _create_table
+sub _create_sheet
 {   my ($name, %counts) = @_;
 
-    say "Creating table";
+    say "Creating table $name";
 
-    my $activities = rset('Instance')->create({
-        name => "$name",
-    });
+    my $sheet  = $site->document->create_sheet({name => "$name"});
+    my $layout = $sheet->layout;
 
-    my $layout = Linkspace::Layout->new(
-        user        => $user,
-        schema      => schema,
-        config      => config,
-        instance_id => $activities->id,
-    );
-    $layout->create_internal_columns;
-
-    say "Creating string fields";
-
+    say "... creating $counts{string} string fields";
     for my $i (1..$counts{string})
-    {
-        my $string = GADS::Column::String->new(
-            optional => 1,
-            schema   => schema,
-            user     => $user,
-            layout   => $layout,
-        );
-        $string->type('string');
-        $string->name("string$i");
-        $string->set_permissions($perms);
-        $string->write;
+    {   $layout->create_column(string => {
+            name        => "string$i",
+            is_optional => 1,
+            permissions => $perms,
+         });
     }
 
-    say "Creating tree fields";
-
+    say "... creating $counts{tree} tree fields";
     for my $i (1..$counts{tree})
-    {
-        my $tree = GADS::Column::Tree->new(
-            optional => 1,
-            schema   => schema,
-            user     => $user,
-            layout   => $layout,
-        );
-        $tree->type('tree');
-        $tree->name("tree$i");
-        $tree->set_permissions($perms);
-        $tree->write;
+    {    my @nodes = map +{ text => "Node $i $j", children => [] }, 1..200;
+         $layout->create_column(tree => {
+            name        => "tree$i",
+            is_optional => 1,
+            permissions => $perms,
+            nodes       => \@nodes,
+         });
 
-        my @nodes;
-        for my $j (1..200)
-        {
-            push @nodes, {
-                text => "Node $i $j",
-                children => [],
-            };
-        }
-        $tree->update(\@nodes);
     }
 
-    say "Creating enum fields";
-
+    say "... creating $counts{enum} enum fields";
     for my $i (1..$counts{enum})
-    {
-        my $enum = GADS::Column::Enum->new(
-            optional => 1,
-            schema   => schema,
-            user     => $user,
-            layout   => $layout,
-        );
-        $enum->type('enum');
-        $enum->name("enum$i");
-        $enum->set_permissions($perms);
-        my @enumvals;
-        for my $j (1..100)
-        {
-            push @enumvals, {
-                value => "foo$j",
-            };
-        }
-        $enum->enumvals(\@enumvals);
-        $enum->write;
+    {   $layout->create_column(enum => {
+            name        => "enum$1",
+            is_optional => 1,
+            permissions => $perms,
+            enumvals    => [ map +{ value => "foo$j" }, 1..100 ],
+         });
     }
 
-    say "Creating integer fields";
-
+    say "... creating $counts{intgr} integer fields";
     for my $i (1..$counts{intgr})
-    {
-        my $intgr = GADS::Column::Intgr->new(
-            optional => 1,
-            schema   => schema,
-            user     => $user,
-            layout   => $layout,
-        );
-        $intgr->type('intgr');
-        $intgr->name("integer$i");
-        $intgr->set_permissions($perms);
-        $intgr->write;
+    {   $layout->create_column(intgr => {
+            name        => "integer$i",
+            is_optional => 1,
+            permissions => $perms,
+        });
     }
 
-    return $layout;
+    $sheet;
 }
 

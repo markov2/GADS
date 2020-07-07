@@ -62,7 +62,9 @@ single value will result in an empty return, but C<undefs> in the array will
 be kept.
 =cut
 
-sub flat(@) { map { ref $_ eq 'ARRAY' ? @$_ : defined $_ ? $_ : () } @_ }
+sub flat(@) {
+    map { ref $_ eq 'ARRAY' ? @$_ : defined $_ ? $_ : () } @_;
+}
 
 =head2 is_valid_email $email or die;
 Returns a true value when a C<user@domain.tld> string is passed: not a full
@@ -77,7 +79,6 @@ sub is_valid_email($)
 {   $_[0] =~ m/^[=+\'a-z0-9._-]+\@[a-z0-9.-]+\.[a-z]{2,10}$/i;
 }
 
-
 =head2 my $index = index_by_id @objects;
 
 =head2 my $index = index_by_id \@objects;
@@ -89,7 +90,7 @@ not forget to weaken those relations.  Otherwise, you may leak in a loop.
 =cut
 
 sub index_by_id(@)
-{   +{ map +($_->id => $_), (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_) };
+{   +{ map +($_->id => $_), flat @_ };
 }
 
 =head2 my $dt = iso2datetime $string;
@@ -173,7 +174,7 @@ De-duplicate objects, based on their id.  Maintains order.
 
 sub uniq_objects
 {   my %seen;
-    grep ! $seen{$_->id}++, (ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_);
+    grep ! $seen{$_->id}++, flat @_);
 }
  
 =head2 my ($added, $deleted, $both) = list_diff $from, $to;
@@ -199,7 +200,7 @@ May also be called with an array.
 =cut
 
 sub make_wordlist(@)
-{   my @words = @_==1 && ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_;
+{   my @words = flat @_;
     return '' if !@words;
     return $words[0] if @words==1;
 

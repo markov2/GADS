@@ -16,17 +16,15 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-# 'fields' are datum objects, for each column in a row (record)
-# each 'column' object describes the datum objects in a column
-package GADS::Record;
+package Linkspace::Sheet::Data::Row;
+
+use Log::Report 'linkspace';
 
 use CtrlO::PDF;
 use DateTime;
 use DateTime::Format::Strptime qw( );
-use Log::Report 'linkspace';
 use JSON qw(encode_json);
 use PDF::Table 0.11.0; # Needed for colspan feature
-use Scope::Guard qw(guard);
 use Session::Token;
 use URI::Escape;
 use Scalar::Util  qw(blessed);
@@ -42,7 +40,34 @@ use MooX::Types::MooseLike::Base qw(:all);
 use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
 use namespace::clean;
 
-with 'GADS::Role::Presentation::Record';
+extends 'Linkspace::DB::Table';
+
+sub db_table { 'Record' }
+
+sub db_field_rename { +{
+    approval   => 'needs_approval',
+    approvedby => 'approved_by_id',
+    createdby  => 'created_by_id',
+} };
+
+### 2020-06-30: columns in GADS::Schema::Result::Record
+# id         approvedby createdby  record_id
+# approval   created    current_id
+
+#---------------
+=head1 NAME
+
+Linkspace::Row - manage a row in the data of a sheet
+
+=head1 DESCRIPTION
+A row can be in C<draft>, which means that it does not yet belong to the sheet
+because it is incomplete.
+
+An existing row may have additional to-be-approved datums, which will overwrite
+existing values once someone with approval rights agrees on them.  When those
+datums exist, the C<needs_approval> attribute is set.
+
+=cut
 
 # The raw parent linked record from the database, if applicable
 has linked_record_raw => (
@@ -51,41 +76,17 @@ has linked_record_raw => (
 
 # The parent linked record as a GADS::Record object
 has linked_record => (
-    is => 'lazy',
+    is      => 'lazy',
+    builder => sub
+    {   my $self = shift;
+        $self->sheet->data->find_current_id($self->linked_id);
+        $linked;
+    },
 );
 
 sub has_rag_column() { !! first { $_->type eq 'rag' } @{$_[0]->columns_view} }
 
-sub _sibling_record(%) {
-    my ($self, %sibling) = @_;
-    $sibling{user}   //= $self->user;
-    $sibling{layout} //= $self->layout;
-    (ref $self)->new(%sibling);
-}
-
-sub _build_linked_record
-{   my $self = shift;
-    my $linked = $self->_sibling_record;
-    $linked->find_current_id($self->linked_id);
-    $linked;
-}
-
-has set_record_created => (
-    is      => 'rw',
-);
-
-has set_record_created_user => (
-    is      => 'rw',
-);
-
-has curcommon_all_fields => (
-    is      => 'ro',
-    isa     => Bool,
-    default => 0,
-);
-
-# Should be set true if we are processing an approval
-has doing_approval => (
+has curcommon_all_cells => (
     is      => 'ro',
     isa     => Bool,
     default => 0,
@@ -96,15 +97,15 @@ has columns => (
     isa     => ArrayRef,
 );
 
-sub has_fields
-{   my ($self, $field_ids) = @_;
-    foreach my $id (@$field_ids)
-    {   return 0 if !$self->_columns_retrieved_index->{$id};
+sub has_cells
+{   my ($self, $col_ids) = @_;
+    foreach my $col_id (@$col_ids)
+    {   return 0 if !$self->_columns_retrieved_index->{$col_id};
     }
     return 1;
 }
 
-has is_group => (
+has is_grouping => (
     is => 'ro',
 );
 
@@ -121,8 +122,7 @@ has _columns_retrieved_index => (
     builder = sub { index_by_id $_[0]->columns_retrieved_do },
 );
 
-# XXX Can we not reference the parent Records entry somehow
-# or vice-versa?
+#XXX Can we not reference the parent Records entry somehow or vice-versa?
 # Value containing the actual columns retrieved.
 # In "normal order" as per layout.
 has columns_retrieved_no => (
@@ -140,44 +140,15 @@ has columns_view => (
     is => 'rw',
 );
 
-# Whether this is a new record, not yet in the database
-has new_entry => (
-    is      => 'ro',
-    isa     => Bool,
-    lazy    => 1,
-    clearer => 1,
-    builder => sub { !$_[0]->current_id },
-);
-
-has record_id => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        $self->_set_record_id($self->record);
-    },
-);
-
-has record_id_old => (
-    is => 'rw',
-);
-
 # The ID of the parent record that this is related to, in the
 # case of a linked record
 has linked_id => (
-    is      => 'rw',
-    isa     => Maybe[Int],
-    lazy    => 1,
-    coerce  => sub { $_[0] || undef }, # empty string from form submit
+    is      => 'lazy',
     builder => sub {
-        my $self = shift;
-        my $cid     = $self->current_id or return;
-        my $current = $::db->get_record(Current => $cid);
-        $current ? $current->linked_id : undef;
+        my $row  = $self->sheet->data->row_current($self->current_id);
+        $row ? $row->linked_id : undef;
     },
 );
-
-sub forget_history { $_[0]->sheet->forget_history }
 
 # The ID of the parent record that this is a child to, in the
 # case of a child record
@@ -185,25 +156,15 @@ sub forget_history { $_[0]->sheet->forget_history }
 
 has parent => (
     is      => 'lazy',
-    builder => sub { $_[0]->sheet->data->row($_[0]->parent_id) },
+    builder => sub { $_[0]->page->row_current($_[0]->parent_id) },
 );
 
+sub has_parent { !! $_[0]->parent_id }
+
 has child_record_ids => (
-    is      => 'rwp',
-    isa     => ArrayRef,
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        return [] if $self->parent_id;
-
-        my $children = $::db->search(Current => {
-            parent_id         => $self->current_id,
-            'me.deleted'      => undef,
-            'me.draftuser_id' => undef,
-        });
-
-        [ $children->get_column('id')->all ];
-    },
+    is        => 'lazy',
+    predicate => 1,
+    builder   => sub { $_[0]->page->child_ids($self) },
 );
 
 has serial => (
@@ -215,12 +176,6 @@ has serial => (
     },
 );
 
-has is_draft => (
-    is      => 'lazy',
-    isa     => Bool,
-    coerce  => sub { $_[0] ? 1 : 0 }, # Allow direct passing of draftuser_id
-);
-
 sub _build_is_draft
 {   my $self = shift;
     return !!$self->{record}->{draftuser_id}
@@ -230,28 +185,11 @@ sub _build_is_draft
     !! $::db->get_record(Current => $self->current_id)->draftuser_id;
 }
 
-has approval_id => (
-    is => 'rw',
-);
-
-# Whether this is an approval record for a new entry.
-# Used when checking permissions for approving
-has approval_of_new => (
-    is      => 'lazy',
-    isa     => Bool,
-);
-
-# Whether to initialise fields that have no value
+# Whether to initialise cells that have no value
 has init_no_value => (
     is      => 'rw',
     isa     => Bool,
     default => 1,
-);
-
-# Whether this is a record for approval
-has approval_flag => (
-    is  => 'rwp',
-    isa => Bool,
 );
 
 # The associated record if this is a record for approval
@@ -264,79 +202,27 @@ has include_approval => (
     is => 'rw',
 );
 
-# A way of forcing the write function to know that this record
-# has changed. For example, if removing a field from a child
-# record, which would otherwise go unnoticed
-has changed => (
-    is      => 'rw',
-    isa     => Bool,
-    default => 0,
-);
-
-# Whether the record has changed (i.e. if any fields have changed). This only
-# includes fields that are input as a user, as a record will often have a value
-# changed just by performing an edit (e.g. last edited time)
-sub is_edited
-{   my $self = shift;
-    !! grep $_->changed && grep $_->column->userinput,
-         values %{$self->fields};
-}
-
-has current_id => (
-    is      => 'rw',
-    isa     => Maybe[Int],
-    lazy    => 1,
-    coerce  => sub { defined $_[0] ? int $_[0] : undef }, # Ensure integer for JSON encoding
-    builder => sub {
-        my $self = shift;
-        $self->record or return undef;
-        $self->record->{current_id};
-    },
-);
-
-has fields => (
-    is      => 'rw',
-    lazy    => 1,
+has _cells => (
+    is      => 'lazy',
     builder => sub {
         my $self = shift;
         $self->_transform_values;
     },
 );
 
-sub field($)
+sub cell($)
 {   my ($self, $col) = @_;
-
-    my $fields = $self->fields;
-    return $fields->{$col->id} # ::Column object
-        if blessed $col;
-
-    return $fields->{$col}     # numeric
-        if $col !~ /\D/;
-
-    my $c = $self->layout->column_by_name_short($col)
-         || $self->layout->column_by_name($col);
-
-    $c ? $fields->{$col->id} : undef;
+    my $c = $self->column($col);
+    $c ? $self->_cells->{$c->id} : undef;
 }
 
-has createdby => (
-    is      => 'rw',
-    lazy    => 1,
+has created_by => (
+    is      => 'lazy',
     builder => sub {
         my $self = shift;
-        return undef if $self->new_entry;
-
-        return $self->field('_version_user')
-            if $self->record;
-
-        my $creator = $::db->get_record(Record => $self->record_id)->createdby;
-        $self->_person({ id => $creator->id }, '_version_user');
+_version_user
+        $::session->site->users->user($self->created_by_id);
     },
-);
-
-has set_deletedby => (
-    is      => 'rw',
-    trigger => sub { shift->clear_deletedby },
 );
 
 has deletedby => (
@@ -359,19 +245,6 @@ has deletedby => (
         $self->_person($value, '_deleted_by');
     },
 );
-
-sub _person
-{   my ($self, $value, $column_name) = @_;
-    my $column = $self->layout->column_by_name_short($column_name);
-    GADS::Datum::Person->new(
-        record           => $self,
-        record_id        => $self->record_id,
-        current_id       => $self->current_id,
-        column           => $column,
-        layout           => $self->layout,
-        init_value       => $value,
-    );
-}
 
 has created => (
     is      => 'lazy',
@@ -442,15 +315,6 @@ sub _build_is_historic
     $current_rec_id && $current_rec_id != $self->record_id;
 }
 
-# Remove IDs from record, to effectively make this a new unwritten
-# record. Used when prefilling values.
-sub remove_id
-{   my $self = shift;
-    $self->current_id(undef);
-    $self->linked_id(undef);
-    $self->clear_new_entry;
-}
-
 sub find_record_id
 {   my ($self, $record_id, %options) = @_;
     my $search_instance_id = $options{instance_id};
@@ -519,19 +383,18 @@ sub find_deleted_recordid
     $self->find_record_id($record_id, deleted => 1)
 }
 
-# Returns new GADS::Record object, doesn't change current one
+# Returns new Row object, doesn't change current one
 sub find_unique
 {   my ($self, $column, $value, $retrieve_columns) = @_;
 
     return $self->find_current_id($value)
-        if $column->id == $self->layout->column_id;
+        if $column->name eq '_id';
 
-    my $serial_col = $self->layout->column_by_name_short('_serial');
     return $self->find_serial_id($value)
-        if $column->id == $serial_col->id;
+        if $column->name eq '_serial';
 
     # First create a view to search for this value in the column.
-    my $filter = encode_json({
+    my $filter = Linkspace::Filter->from_hash({
         rules => [{
             field       => $column->id,
             id          => $column->id,
@@ -541,34 +404,26 @@ sub find_unique
             operator    => 'equal',
         }]
     });
-    my $view = GADS::View->new(
-        filter      => $filter,
-        instance_id => $self->layout->instance_id,
-        layout      => $self->layout,
-        user        => undef,
-    );
+
     $retrieve_columns = [ $column->id ]
         unless @$retrieve_columns;
 
-    my $records = GADS::Records->new(
-        user    => undef, # Do not want to limit by user
-        rows    => 1,
-        view    => $view,
-        layout  => $self->layout,
-        columns => $retrieve_columns,
+    my $page = $sheet->data->search(
+        user     => undef,   # Do not want to limit by user
+        filter   => $filter,
+        columns  => $retrieve_columns,
+        max_rows => 1,
     );
 
-    # Might be more, but one will do
-    pop @{$records->results};
+    $page->row(-1);
 }
+
+#XXX Probably this all has to move towards "page"
 
 # XXX This whole section is getting messy and duplicating a lot of code from
 # GADS::Records. Ideally this needs to share the same code.
 sub _find
 {   my ($self, %find) = @_;
-
-    # First clear applicable properties
-    $self->clear;
 
     # If deleted, make sure user has access to purged records
     error __"You do not have access to this deleted record"
@@ -577,8 +432,8 @@ sub _find
     my $is_draft = !! $find{draftuser_id};
     my $record_id = $find{record_id};
 
-    my $records = GADS::Records->new(
-        curcommon_all_fields => $self->curcommon_all_fields,
+    my $page = $self->sheet->data->search(
+        curcommon_all_cells => $self->curcommon_all_cells,
         columns              => $self->columns,
         rewind               => $self->rewind,
         is_deleted           => $find{deleted},
@@ -588,10 +443,6 @@ sub _find
         include_children     => 1,
         view_limit_extra_id  => undef, # Remove any default extra view
     );
-
-    $self->columns_retrieved_do($records->columns_retrieved_do);
-    $self->columns_retrieved_no($records->columns_retrieved_no);
-    $self->columns_view($records->columns_view);
 
     my $record = {}; my $limit = 10; my $page = 1; my $first_run = 1;
     while (1)
@@ -695,7 +546,7 @@ sub _find
         @recs or error __"Requested record not found";
 
         # We shouldn't normally receive more than one record here, as multiple
-        # values for single fields are retrieved separately. However, if a
+        # values for single cells are retrieved separately. However, if a
         # field was previously a multiple-value field, and it was subsequently
         # changed to a single-value field, then there may be some remaining
         # multiple values for the single-value field. In that case, multiple
@@ -715,8 +566,8 @@ sub _find
                         if ! grep $rec->{$key}->{id} == $_->{id}, @existing;
                     $record->{$key} = \@existing;
                 }
-                else {
-                    $record->{$key} = $rec->{$key};
+                else
+                {   $record->{$key} = $rec->{$key};
                 }
             }
         }
@@ -757,22 +608,10 @@ sub _find
         retrieved            => [ $record ],
         records              => [ $self ],    #XXX refref?
         is_draft             => $find{draftuser_id},
-        curcommon_all_fields => $self->curcommon_all_fields,
+        curcommon_all_cells => $self->curcommon_all_cells,
     );
 
     $self; # Allow chaining
-}
-
-sub clone
-{   my $self = shift;
-    my $cloned = $self->_sibling_record;
-
-    my %fields;
-    $fields{$_} = $self->field($_)->clone(fresh => 1, record => $cloned, current_id => undef, record_id => undef)
-        for keys %{$self->fields};
-
-    $cloned->fields(\%fields);
-    $cloned;
 }
 
 sub load_remembered_values
@@ -782,11 +621,9 @@ sub load_remembered_values
     # First see if there's a draft. If so, use that instead
     if($user->has_draft($self->sheet))
     {
-        $self->_set_instance_id($self->sheet->id)  #XXX
-            if !$options{instance_id};
-
         if($self->find_draftuser($user))
-        {   $self->remove_id;
+        {   #XXX remove current_id, record_id etc.  Why?
+            #XXX $self->remove_id;
             return;
         }
         $self->initialise;
@@ -798,36 +635,33 @@ sub load_remembered_values
     my $cursor_id = $user->row_cursor_id($sheet)
         or return;
 
-    my $previous = $self->_sibling_record;
-    $previous->columns(\@remember);
-    $previous->include_approval(1);
-    $previous->find_record_id($cursor_id);
+    my $previous = $sheet->data->find_record_id($cursor_id,
+        columns => \@remember,
+        include_approval => 1,
+    );
 
-    # Use the column object from the current record not the "previous" record,
-    # as otherwise the column's layout object goes out of scope and is not
-    # available due to its weakref
-    $self->field($_) = $previous->field($_)->clone(record => $self, column => $self->layout->column($_->id))
+    $self->cell($_) = $previous->cell($_)->clone(record => $self, column => $_)
         for @{$previous->columns_retrieved_do};
 
-    if ($previous->approval_flag)
+    if($previous->needs_approval)
     {
         # The last edited record was one for approval. This will
         # be missing values, so get its associated main record,
         # and use the values for that too.
         # There will only be an associated main record if some
         # values did not need approval
-        if ($previous->approval_record_id)
+        if(my $app_id = $previous->approval_record_id)
         {
             my $child = $self->_sibling_record(include_approval => 1);
-            $child->find_record_id($self->approval_record_id);
+            $child->find_record_id($app_id);
 
-            my $fields = $self->fields;
+            my $cells = $self->cells;
             foreach my $col ($sheet->layout->columns_search(user_can_write_new => 1, userinput => 1))
             {
                 # See if the record above had a value. If not, fill with the
                 # approval record's value
-                my $field = $self->field($col);
-                $fields->{$col->id} = $field->clone(record => $self)
+                my $field = $self->cell($col);
+                $cells->{$col->id} = $field->clone(record => $self)
                     if ! $field->has_value && $col->remember;
             }
         }
@@ -859,12 +693,13 @@ sub _transform_values
 
     my $original = $self->record or panic "Record data has not been set";
 
-    my $fields = {};
+    my $cells = {};
     # If any columns are multivalue, then the values will not have been
     # prefetched, as prefetching can result in an exponential amount of
     # rows being fetched from the database in one go. It's better to pull
     # all types of value together though, so we store them in this hashref.
     my $multi_values = {};
+
     # We must do these columns in dependent order, otherwise the
     # column values may not exist for the calc values.
     foreach my $column (@{$self->columns_retrieved_do})
@@ -875,9 +710,8 @@ sub _transform_values
         # then the field key will be appended with "_sum". XXX Ideally we'd
         # have a better way of knowing this has happened, but this should
         # suffice for the moment.
-        if ($self->is_group)
-        {
-            if ($column->is_numeric)
+        if($self->is_grouping)
+        {   if ($column->is_numeric)
             {   $key = $key."_sum";
             }
             elsif(!$self->group_cols->{$column->id})
@@ -886,9 +720,9 @@ sub _transform_values
         }
 
         #XXX $original in either case
-        my $value = $self->linked_id && $column->link_parent ? $original->{$key} : $original->{$key};
-        $value = $self->linked_record_raw && $self->linked_record_raw->{$key}
-            if $self->linked_record_raw && $column->link_parent && !$self->is_historic;
+        my $value = $self->linked_record_raw && $column->link_parent && !$self->is_historic
+          ? $self->linked_record_raw->{$key}
+          : $original->{$key};
 
         my $child_unique = ref $value eq 'ARRAY' && @$value > 0
             ? $value->[0]->{child_unique} # Assume same for all parts of value
@@ -906,22 +740,23 @@ sub _transform_values
             init_no_value    => $self->init_no_value,
             layout           => $self->layout,
         );
-        # For curcommon fields, flag that this field has had all its columns if
+        # For curcommon cells, flag that this field has had all its columns if
         # that is what has happened. Then we know during any later process of
         # this column that there is no need to retrieve any other columns
         $column->retrieve_all_columns(1)
-            if $self->curcommon_all_fields && $column->is_curcommon;
-        my $class = $self->is_group && !$column->is_numeric && !$self->group_cols->{$column->id}
+            if $self->curcommon_all_cells && $column->is_curcommon;
+
+        my $class = $self->is_grouping && !$column->is_numeric && !$self->group_cols->{$column->id}
             ? 'GADS::Datum::Count'
             : $column->class;
 
-        $fields->{$column->id} = $class->new(%params);
+        $cells->{$column->id} = $class->new(%params);
     }
 
     $self->_set_id_count($original->{id_count});
 
-    my $column_id = $self->layout->column_id;
-    $fields->{$column_id->id} = GADS::Datum::ID->new(
+    my $column_id = $self->column('_id');
+    $cells->{$column_id->id} = GADS::Datum::ID->new(
         record           => $self,
         record_id        => $self->record_id,
         current_id       => $self->current_id,
@@ -929,7 +764,7 @@ sub _transform_values
         layout           => $self->layout,
     );
     my $created = $self->layout->column_by_name_short('_version_datetime');
-    $fields->{$created->id} = GADS::Datum::Date->new(
+    $self->cells->{$created->id} = GADS::Datum::Date->new(
         record           => $self,
         record_id        => $self->record_id,
         current_id       => $self->current_id,
@@ -940,7 +775,7 @@ sub _transform_values
 
     my $version_user_col = $self->layout->column_by_name_short('_version_user');
     my $version_user_val = $original->{createdby} || $original->{$version_user_col->field};
-    $fields->{$version_user_col->id} = $self->_person($version_user_val, '_version_user');
+    $cells->{$version_user_col->id} = $self->_person($version_user_val, '_version_user');
 
     my $createdby_col = $self->layout->column_by_name_short('_created_user');
     my $created_val = $self->set_record_created_user;
@@ -950,9 +785,9 @@ sub _transform_values
             current_id => $self->current_id,
         })->get_column('created')->min;
     }
-    $fields->{$createdby_col->id} = $self->_person($created_val, '_created_user');
+    $cells->{$createdby_col->id} = $self->_person($created_val, '_created_user');
 
-    my $record_created_col = $self->layout->column_by_name_short('_created');
+    my $record_created_col = $self->column('_created');
     my $record_created = $self->set_record_created;
     if (!$record_created) # Single record retrieval does not set this
     {
@@ -961,7 +796,7 @@ sub _transform_values
         })->get_column('created')->min;
     }
 
-    $fields->{$record_created_col->id} = GADS::Datum::Date->new(
+    $cells->{$record_created_col->id} = GADS::Datum::Date->new(
         record           => $self,
         record_id        => $self->record_id,
         current_id       => $self->current_id,
@@ -970,8 +805,8 @@ sub _transform_values
         init_value       => [ { value => $record_created } ],
     );
 
-    my $serial_col = $self->layout->column_by_name_short('_serial');
-    $fields->{$serial_col->id} = GADS::Datum::Serial->new(
+    my $serial_col = $self->column('_serial');
+    $cells->{$serial_col->id} = GADS::Datum::Serial->new(
         record           => $self,
         value            => $self->serial,
         record_id        => $self->record_id,
@@ -979,7 +814,7 @@ sub _transform_values
         column           => $serial_col,
         layout           => $self->layout,
     );
-    $fields;
+    $cells;
 }
 
 sub values_by_shortname
@@ -992,7 +827,7 @@ sub values_by_shortname
             or error __x"Short name {name} does not exist", name => $name;
 
         my $linked = $self->linked_id && $col->link_parent;
-        my $datum  = $self->field($col)
+        my $datum  = $self->cell($col)
             or panic __x"Value for column {name} missing. Possibly missing entry in layout_depend?", name => $col->name;
 
         my $d = $datum->is_awaiting_approval
@@ -1020,11 +855,11 @@ sub initialise
     my $all_columns = $self->sheet->layout->columns_search(include_internal => 1);
     $self->columns_retrieved_do($all_columns);
 
-    my %fields;
+    my %cells;
     foreach my $column (@$all_columns)
-    {   $fields{$column->id}
+    {   $cells{$column->id}
            = $self->linked_id && $column->link_parent
-           ? $self->linked_record->field($column->link_parent)
+           ? $self->linked_record->cell($column->link_parent)
            : $column->class->new(
                 record           => $self,
                 record_id        => $self->record_id,
@@ -1032,7 +867,7 @@ sub initialise
                 layout           => $self->layout,
              );
     }
-    $self->fields(\%fields);
+    $self->cells(\%cells);
 }
 
 sub approver_can_action_column
@@ -1040,12 +875,12 @@ sub approver_can_action_column
     $column->user_can($self->approval_of_new ? 'approve_new' : 'approve_existing');
 }
 
-=head2 $data->blank_fields(@cols);
+=head2 $data->blank_cells(@cols);
 =cut
 
-sub blank_fields(@)
+sub blank_cells(@)
 {   my $self = shift;
-    $self->field($_)->set_value('') for @cols;
+    $self->cell($_)->set_value('') for @cols;
 }
 
 sub write_linked_id
@@ -1059,7 +894,7 @@ sub write_linked_id
     if ($linked_id)
     {   # Blank existing values first, otherwise they will be read instead of
         # linked values under some circumstances
-        $sheet->blank_fields(linked => 1);
+        $sheet->blank_cells(linked => 1);
 
         # There is some mileage in sending alerts here, but given that the
         # values are probably about to be updated with a linked value, there
@@ -1087,7 +922,7 @@ sub delete_user_drafts($)
             or last;
 
         # Find and delete any draft subrecords associated with this draft
-        my @curval = map $draft->field($_),
+        my @curval = map $draft->cell($_),
             grep $_->type eq 'curval', $draft->columns;
 
         $draft->delete_current($sheet);
@@ -1143,10 +978,10 @@ has already_submitted_error => (
 # - version_datetime: write version date as this instead of now
 # - version_userid: user ID for this version if override required
 # - missing_not_fatal: whether missing mandatory values are not fatal (but still reported)
-# - submitted_fields: an array ref of the fields to check on initial
+# - submitted_cells: an array ref of the cells to check on initial
 #   submission. Fields not contained in here will not be checked for missing
 #   values. Used in conjunction with missing_not_fatal to only report on some
-#   fields
+#   cells
 sub write
 {   my ($self, %options) = @_;
 
@@ -1163,7 +998,7 @@ sub write
         if ($sub) # Should always be found, but who knows
         {
             # The submission table has a unique constraint on the token and
-            # submitted fields. If we have already been submitted, then we
+            # submitted cells. If we have already been submitted, then we
             # won't be able to write a new submitted version of this token, and
             # the record insert will therefore fail.
             try {
@@ -1189,7 +1024,7 @@ sub write
 
     # See whether this instance is set to not record history. If so, override
     # update_only option to ensure it is only an update
-    $options{update_only} = 1 if $self->forget_history;
+    $options{update_only} = 1 if $self->sheet->forget_history;
 
     ! $options{draft} || $self->new_entry
         or error __"Cannot save draft of existing record";
@@ -1225,14 +1060,14 @@ sub write
     my ($need_app, $need_rec, $child_unique); # Whether a new approval_rs or record_rs needs to be created
     $need_rec = 1 if $self->changed;
 
-    # Whether any topics cannot be written because of missing fields in
+    # Whether any topics cannot be written because of missing cells in
     # other topics
     my %no_write_topics;
-    my $cols = $options{submitted_fields}
+    my $cols = $options{submitted_cells}
        || $self->sheet->layout->columns_search(exclude_internal => 1);
 
     foreach my $column (grep $_->userinput, @$cols)
-    {   my $datum = $self->field($column)
+    {   my $datum = $self->cell($column)
             or next; # Will not be set for child records
 
         # Check for blank value
@@ -1275,19 +1110,16 @@ sub write
             }
         }
 
-        if ($self->doing_approval && $self->approval_of_new)
-        {
-            error __x"You do not have permission to approve new values of new records"
+        if($self->doing_approval && $self->approval_of_new)
+        {   error __x"You do not have permission to approve new values of new records"
                 if $datum->changed && !$column->user_can('approve_new');
         }
-        elsif ($self->doing_approval)
-        {
-            error __x"You do not have permission to approve edits of existing records"
+        elsif($self->doing_approval)
+        {   error __x"You do not have permission to approve edits of existing records"
                 if $datum->changed && !$column->user_can('approve_existing');
         }
-        elsif ($self->new_entry)
-        {
-            error __x"You do not have permission to add data to field {name}", name => $column->name
+        elsif($self->new_entry)
+        {   error __x"You do not have permission to add data to field {name}", name => $column->name
                 if !$datum->is_blank && !$column->user_can('write_new');
         }
         elsif ($datum->changed && !$column->user_can('write_existing'))
@@ -1342,7 +1174,7 @@ sub write
         # dependent values already set.
         if ($self->parent_id && !$column->can_child && $column->userinput)
         {   # Calc values always unique
-            my $parent = $self->parent->field($column);
+            my $parent = $self->parent->cell($column);
             $datum->set_value($parent->set_values, is_parent_value => 1);
         }
 
@@ -1353,13 +1185,13 @@ sub write
         elsif ($self->new_entry)
         {
             # New record. Approval needed?
-            if ($column->user_can('write_new_no_approval') || $options{draft})
+            if($column->user_can('write_new_no_approval') || $options{draft})
             {
                 # User has permission to not need approval
                 $need_rec = 1;
             }
-            elsif ($column->user_can('write_new')) {
-                # This needs an approval record
+            elsif ($column->user_can('write_new'))
+            {   # This needs an approval record
                 trace __x"Approval needed because of no immediate write access to column {id}",
                     id => $column->id;
                 $need_app = 1;
@@ -1386,21 +1218,21 @@ sub write
 
     my $created_date = $options{version_datetime} || DateTime->now;
 
-    $self->field('_created')->set_value($created_date, is_parent_value => 1)
+    $self->cell('_created')->set_value($created_date, is_parent_value => 1)
         if $self->new_entry;
 
     my $user_id = $self->user ? $self->user->id : undef;
 
     my $createdby = $options{version_userid} || $user_id;
-    if (!$options{update_only} || $self->forget_history)
+    if (!$options{update_only} || $self->sheet->forget_history)
     {
         # Keep original record values when only updating the record, except
         # when the update_only is happening for forgetting version history, in
         # which case we want to record these details
-        $self->field('_version_datetime')
+        $self->cell('_version_datetime')
              ->set_value($created_date, is_parent_value => 1);
 
-        $self->field('_version_user')
+        $self->cell('_version_user')
              ->set_value($createdby, no_validation => 1, is_parent_value => 1);
     }
 
@@ -1408,7 +1240,7 @@ sub write
     foreach my $column (@{$self->sheet->layout->columns})
     {
         next if !$column->has_cache || !$column->isunique;
-        my $datum = $self->field($column);
+        my $datum = $self->cell($column);
         if (
                ! $datum->is_blank
             && ($self->new_entry || $datum->changed)
@@ -1435,16 +1267,16 @@ sub write
     # written to yet
     foreach my $topic (values %no_write_topics)
     {
-        foreach my $col ($topic->{topic}->fields)
+        foreach my $col ($topic->{topic}->cells)
         {
-            error __x"You cannot write to {col} until the following fields have been completed: {fields}",
-                col => $col->name, fields => [ map $_->name, @{$topic->{columns}} ]
-                    if ! $self->field($col)->is_blank;
+            error __x"You cannot write to {col} until the following cells have been completed: {cells}",
+                col => $col->name, cells => [ map $_->name, @{$topic->{columns}} ]
+                    if ! $self->cell($col)->is_blank;
         }
     }
 
-    # Error if child record as no fields selected
-    error __"There are no child fields defined to be able to create a child record"
+    # Error if child record as no cells selected
+    error __"There are no child cells defined to be able to create a child record"
         if $self->parent_id && !$child_unique && $self->new_entry;
 
     # Anything to update?
@@ -1454,86 +1286,54 @@ sub write
         return;
     }
 
-    # New record?
-    if ($self->new_entry)
-    {
-        $self->delete_user_drafts($sheet)
-             unless $options{no_draft_delete}; # Delete any drafts first, for both draft save and full save
+my $current_id;
+my $record_id;   # sequential per sheet
 
-        my $instance_id = $self->layout->instance_id;
-        my $current = $::db->create(Current => {
+    # New record?
+    if($self->new_entry)
+    {   # Delete any drafts first, for both draft save and full save
+        $self->delete_user_drafts($sheet)
+             unless $options{no_draft_delete};
+
+        $current_id = $sheet->current->row_create(
             parent_id    => $self->parent_id,
             linked_id    => $self->linked_id,
-            instance_id  => $sheet->id,
             draftuser_id => $options{draft} && $user_id,
         });
-
-        # Create unique serial. This should normally only take one attempt, but
-        # if multiple records are being written concurrently, then the unique
-        # constraint on the serial column will fail on a duplicate. In that
-        # case, roll back to the save point and try again.
-        while (1)
-        {
-            last if $options{draft};
-            my $serial = $::db->search(Current => {
-                instance_id => $sheet->id,
-            })->get_column('serial')->max;
-            $serial++;
-
-            my $svp = $self->schema->storage->svp_begin;
-            try {
-                $current->update({ serial => $serial });
-            };
-            if ($@) {
-                $::db->schema->storage->svp_rollback;
-            }
-            else {
-                $::db->schema->storage->svp_release;
-                last;
-            }
-        }
-
-        $self->current_id($current->id);
     }
 
-    if ($need_rec && !$options{update_only})
-    {
-        my $id = $::db->create(Record => {
-            current_id => $self->current_id,
+    if($need_rec && !$options{update_only})
+    {    my $row = $self->create( {
+            current_id => $current_id,
             created    => $created_date,
             createdby  => $createdby,
-        })->id;
+        });
         $self->record_id_old($self->record_id) if $self->record_id;
-        $self->record_id($id);
+#XXX switch to $row
     }
-    elsif ($self->forget_history)
-    {
+    elsif ($self->sheet->forget_history)
+    {   # All versions get new 'created'
         $::db->update(Record => $self->record_id, {
             created   => $created_date,
             createdby => $createdby,
         });
     }
 
-    my $column_id = $self->layout->column_id;
-    my $datum     = $self->field($column_id);
-    $datum->current_id($self->current_id);
-    $datum->clear_value; # Will rebuild as current_id
+    $self->cell('_id')->set_current_id($current_id);  #XXX prob not needed
 
     if ($need_app)
-    {
-        my $id = $::db->create(Record => {
-            current_id => $self->current_id,
-            created    => DateTime->now,
-            record_id  => $self->record_id,
-            approval   => 1,
-            createdby  => $user_id,
-        })->id;
-        $self->approval_id($id);
+    {   my $row = $data->row_create({
+            current_id     => $current_id,
+            record_id      => $record_id,
+            needs_approval => 1,
+            created_by     => $user,
+        });
+
+        $self->update({approval => $row});
     }
 
-    if ($self->new_entry && $user_id && !$options{draft})
-    {
-        # New entry, so save record ID to user for retrieval of previous
+    if($self->new_entry && $user_id && !$options{is_draft})
+    {   # New entry, so save record ID to user for retrieval of previous
         # values if needed for another new entry. Use the approval ID id
         # it exists, otherwise the record ID.
         my $row_id = $self->approval_id || $self->record_id;
@@ -1547,12 +1347,10 @@ sub write
 
     $self->_need_rec($need_rec);
     $self->_need_app($need_app);
-    $self->write_values(%options) unless $options{no_write_values};
-
     $guard->commit;
 }
 
-sub record_in_use($)
+sub in_column_specific_tables($)
 {   my ($self, $record_id) = @_;
 
     my $tables = Linkspace::Column->meta_tables;
@@ -1569,8 +1367,11 @@ sub write_values
     $self->_has_need_app && $self->_has_need_rec
         or panic "Called out of order - need_app and need_rec not set";
 
-    my $guard = $self->schema->txn_scope_guard;
+    my $guard = $::db->begin_work;
     my $is_new = $self->new_entry;
+
+    # Draft records may be incomplete
+    my $is_draft = $options{is_draft};
 
     # Write all the values
     my %columns_changed = ($self->current_id => []);
@@ -1578,16 +1379,18 @@ sub write_values
 
     my $approval_id = $self->approval_id;
 
-    my $columns = $self->sheet->layout->columns_search(order_dependencies => 1, exclude_internal => 1);
+    my $layout  = $self->sheet->layout;
+
+    my $columns = $layout->columns_search(order_dependencies => 1, exclude_internal => 1);
     foreach my $column (@$columns)
     {
         # Prevent warnings when writing incomplete calc values on draft
-        next if $options{draft} && !$column->userinput;
+        next if $is_draft && !$column->userinput;
 
-        my $datum = $self->field($column);
+        my $datum = $self->cell($column);
         next if $self->linked_id && $column->link_parent; # Don't write all values if this is a linked record
 
-        if ($self->_need_rec || $options{update_only}) # For new records, $need_rec is only set if user has create permissions without approval
+        if($self->_need_rec || $options{update_only}) # For new records, $need_rec is only set if user has create permissions without approval
         {
             my $v;
             # Need to write all values regardless. This will either be the
@@ -1596,7 +1399,7 @@ sub write_values
             if ($self->doing_approval)
             {
                 # Write value regardless (either new approved or existing)
-                $self->_field_write($column, $datum);
+                $self->_cell_write($column, $datum);
 
                 # Leave records where they are unless this user can
                 # action the approval
@@ -1614,7 +1417,7 @@ sub write_values
             )
             {
                 # Write new value
-                $self->_field_write($column, $datum, %options);
+                $self->_cell_write($column, $datum, %options);
 
                 push @{$columns_changed{$self->current_id}}, $column->id
                     if $datum->changed;
@@ -1623,19 +1426,19 @@ sub write_values
             {   # Write value. It's a new entry and the user doesn't have
                 # write access to this field. This will write a blank
                 # value.
-                $self->_field_write($column, $datum) if !$column->userinput;
+                $self->_cell_write($column, $datum) if !$column->userinput;
             }
             elsif($column->user_can('write'))
             {   # Approval required, write original value
                 panic "update_only set but attempt to hold write for approval"
                     if $options{update_only}; # Shouldn't happen, makes no sense
-                $self->_field_write($column, $datum, old => 1);
+                $self->_cell_write($column, $datum, old => 1);
             }
             else
             {   # Value won't have changed. Write current value (old
                 # value will not be set if it hasn't been updated)
                 # Write old value
-                $self->_field_write($column, $datum, %options);
+                $self->_cell_write($column, $datum, %options);
             }
 
             # Note any records that will need updating that have an autocur field that refers to this
@@ -1654,7 +1457,7 @@ sub write_values
                     my %affected = map { $_ => 1 }
                         grep !$deleted{$_}, @{$datum->ids_affected};
 
-                    # Then see if any fields depend on this autocur (e.g. code fields)
+                    # Then see if any cells depend on this autocur (e.g. code cells)
                     if ($autocur->layouts_depend_depends_on->count)
                     {
                         # If they do, we will need to re-evaluate them all
@@ -1680,7 +1483,7 @@ sub write_values
         {
             # Only need to write values that need approval
             next unless $datum->is_awaiting_approval;
-            $self->_field_write($column, $datum, approval => 1)
+            $self->_cell_write($column, $datum, approval => 1)
                 if $is_new ? !$datum->is_blank : $datum->changed;
         }
     }
@@ -1690,12 +1493,12 @@ sub write_values
     my $internals = $self->sheet->layout->columns_search(only_internal => 1);
     foreach my $column (@$internals)
     {   push @{$columns_changed{$self->current_id}}, $column->id
-            if $self->field($column)->changed;
+            if $self->cell($column)->changed;
     }
 
     # If this is an approval, see if there is anything left to approve
     # in this record. If not, delete the stub record.
-    if($self->doing_approval && ! $self->record_in_use($approval_id))
+    if($self->doing_approval && ! $self->in_column_specific_tables($approval_id))
     {
         # Nothing left for this approval record. Is there a last_record flag?
         # If so, change that to the main record's flag instead.
@@ -1705,24 +1508,21 @@ sub write_values
         $::db->delete(Record => $approval_id);
     }
 
-    # Do we need to update any child records that rely on the
-    # values of this parent record?
-    if (!$options{draft})
+    # Do we need to update any child records that rely on the values of this parent record?
+    if(!$options{is_draft})
     {
-        foreach my $child_id (@{$self->child_record_ids})
-        {
-            my $child = $self->_sibling_record(user_permission_override => 1);
-            $child->find_current_id($child_id);
+        my @columns = $self->layout->columns_search(order_dependencies => 1, exclude_internal => 1);
 
-            my $columns = $self->sheet->layout->columns_search(order_dependencies => 1, exclude_internal => 1);
+        foreach my $child_id (@{$self->child_record_ids})
+        {   my $child = $data->find_current_id($child_id);
+
             foreach my $col (@$columns)
             {   $col->userinput or next; # Calc/rag values will be evaluated during write()
+                next if $col->can_child;
 
-                my $datum_child = $child->field($col);
-                my $datum_parent = $self->field($col);
-                $datum_child->set_value($datum_parent->set_values, is_parent_value => 1)
-                    unless $col->can_child;
-
+                my $datum_child  = $child->cell($col);
+                my $datum_parent = $self->cell($col);
+                $datum_child->set_value($datum_parent->set_values, is_parent_value => 1);
             }
             $child->write(%options, update_only => 1);
         }
@@ -1736,15 +1536,13 @@ sub write_values
 
             my $record = $self->_sibling_record;
             $record->find_current_id($cid);
-            $record->field($_)->changed(1) for @{$update_autocurs{$cid}};
+            $record->cell($_)->changed(1) for @{$update_autocurs{$cid}};
             $record->write(%options, update_only => 1, re_evaluate => 1);
         }
     }
 
     $_->write_values(%options)
         for @{$self->_records_to_write_after};
-
-    $self->_clear_records_to_write_after;
 
     # Alerts can cause SQL errors, due to the unique constraints
     # on the alert cache columns. Therefore, commit what we've
@@ -1805,33 +1603,20 @@ sub write_values
             }
         }
     }
-    $self->clear_new_entry; # written to database, no longer new
-    $self->_clear_need_rec;
-    $self->_clear_need_app;
 }
 
 sub set_blank_dependents
 {   my $self = shift;
 
     foreach my $column ($self->layout->columns_search(exclude_internal => 1))
-    {
-        my $datum = $self->field($column);
+    {   my $datum = $self->cell($column);
         $datum->set_value('')
             if ! $datum->dependent_shown
             && ($datum->column->can_child || !$self->parent_id);
     }
 }
 
-# A list of any records to write at the end of writing this one. This is used
-# when writing subrecords - the full record may not be able to be written at
-# the time of write as it may refer to this one
-has _records_to_write_after => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => sub { [] },
-);
-
-sub _field_write
+sub _cell_write
 {   my ($self, $column, $datum, %options) = @_;
 
     $column->value_to_write
@@ -1839,7 +1624,7 @@ sub _field_write
 
     if ($column->userinput)
     {
-        # No datum for new invisible fields
+        # No datum for new invisible cells
         my $child_unique = $datum ? $column->can_child : 0;
 
         my $layout_id    = $column->id;
@@ -1863,27 +1648,23 @@ sub _field_write
         {
             # Would be better to use find() here, but not all tables currently
             # have unique constraints. Also, we might want to add multiple values
-            # for each field in the future
+            # for each field in the future.
             my @rows = $::db->search($table => {
                 record_id => $entry->{record_id},
                 layout_id => $entry->{layout_id},
             })->all;
 
             foreach my $row (@rows)
-            {
-                if (my $entry = pop @entries)
+            {   if(my $entry = pop @entries)
                 {   $row->update($entry);
                 }
                 else
                 {   $row->delete; # Now less values than before
                 }
             }
-        }
 
-        #XXX ???
-        # For update_only, there might still be some @entries to be written
-        $::db->create($table => $_)
-            for @entries;
+            $::db->create($table => $_) for @entries;
+        }
     }
     else
     {   $datum->record_id($self->record_id);
@@ -1902,7 +1683,6 @@ sub user_can_purge
     $self->current_id ? $self->sheet->user_can("purge") : 0;
 }
 
-# Mark this entire record and versions as deleted
 sub delete_current
 {   my ($self, $sheet, %options) = @_;
     my $cur_id = $self->current_id or return;
@@ -1943,7 +1723,7 @@ sub as_json
     my $columns = $self->sheet->layout->columns_search(user_can_read => 1);
     foreach my $col (@$columns)
     {   my $short = $col->name_short or next;
-        $return->{$short} = $self->field($col)->as_string;
+        $return->{$short} = $self->cell($col)->as_string;
     }
     encode_json $return;
 }
@@ -1955,7 +1735,7 @@ sub as_query
     foreach my $col (@$columns)
     {   next if $options{exclude_curcommon} && $col->is_curcommon;
         push @queries, $col->field."=".uri_escape_utf8($_)
-            for @{$self->field($col)->html_form};
+            for @{$self->cell($col)->html_form};
     }
     join '&', @queries;
 }
@@ -1983,7 +1763,7 @@ sub pdf
     my @data    = ['Field', 'Value'];
     my $columns = $self->sheet->layout->columns_search(user_can_read => 1);
     foreach my $col (@$columns)
-    {   my $datum = $self->field($col);
+    {   my $datum = $self->cell($col);
         $datum->dependent_shown or next;
 
         if ($col->is_curcommon)
@@ -1999,7 +1779,7 @@ sub pdf
         }
     }
 
-    my $max_fields = max map +@$_, @data;
+    my $max_cells = max map +@$_, @data;
 
     #XXX not used
     my $hdr_props = {
@@ -2012,8 +1792,8 @@ sub pdf
     foreach my $d (@data)
     {
         my $has = @$d;
-        # $max_fields does not include field name
-        my $gap = $max_fields - $has + 1;
+        # $max_cells does not include field name
+        my $gap = $max_cells - $has + 1;
         push @$d, (undef) x $gap;
         push @cell_props, [
             (undef) x ($has - 1),
@@ -2046,7 +1826,7 @@ sub purge_current
     })->first
         or error __x"Invalid ID {id}", id => $id;
 
-    $crs->deleted
+    $crs->is_deleted
         or error __"Cannot purge record that is not already deleted";
 
     my @recs = $::db->search(Current => {
@@ -2057,37 +1837,28 @@ sub purge_current
 
     if(@recs)
     {   my $recs = join ', ', map {
-            my %fields;
+            my %cells;
             foreach my $record ($_->records) {
-                $fields{$_->layout->name} = 1 for $record->curvals;
+                $cells{$_->sheet->name} = 1 for $record->curvals;
             }
-            my $names = join ', ', keys %fields;
+            my $names = join ', ', keys %cells;
             $_->id." ($names)";
         } @recs;
         error __x"The following records refer to this record as a value (possibly in a historical version): {records}",
             records => $recs;
     }
 
-    my @records = $self->schema->resultset('Record')->search({
-        current_id => $id
-    })->all;
+    my @records = $self->search_objects({ current_id => $id });
 
     # Get creation details for logging at end
     my $createdby = $self->createdby;
     my $created   = $self->created;
 
-    # Start transaction.
-    # $@ may be the result of a previous Log::Report::Dispatcher::Try block (as
-    # an object) and may evaluate to an empty string. If so, txn_scope_guard
-    # warns as such, so undefine to prevent the warning
-    undef $@;
-
     my $guard = $::db->begin_work;
 
     # Delete child records first
     foreach my $child (@{$self->child_record_ids})
-    {
-        my $record = $self->_sibling_record;
+    {   my $record = $self->_sibling_record;
         $record->find_current_id($child);
         $record->purge_current;
     }
@@ -2120,5 +1891,11 @@ sub _purge_record_values
     $self->user->row_remove_cursors($rid);
 }
 
-1;
+sub delete_current($)
+{   my ($self, $which) = @_;
+    my $current_id = blessed $which ? $which->id : $which;
+    $self->find_current_id($id_deleted);
+    $self->delete_current(override => 1);
+}
 
+1;

@@ -42,7 +42,7 @@ sub db_fields_unused { [ qw/no_overnight_update/ ] }
 #XXX no_hide_blank cannot be changed
 
 sub db_field_rename { +{
-    sort_layout_id => 'sort_column_id',
+    sort_layout_id => 'sort_column',
 }; }
 
 ### 2020-04-22: columns in GADS::Schema::Result::Instance
@@ -54,7 +54,10 @@ sub db_field_rename { +{
 # forget_history              sort_layout_id
 # forward_record_after_create sort_type
 
-sub db_also_bools { [ qw/forget_history/ ] }
+sub db_also_bools { [ qw/
+    forget_history
+    forward_record_after_create
+/ ] }
 
 __PACKAGE__->db_accessors;
 
@@ -97,7 +100,7 @@ sub sheet_update($)
 
 sub validate($)
 {   my ($thing, $insert) = @_;
-    my $slid = $insert->{sort_layout_id};
+    my $slid = $insert->{sort_column_id};
     ! defined $slid || is_valid_id $slid
         or error __x"Invalid sheet sort_layout_id '{id}'", id => $slid;
 
@@ -408,15 +411,17 @@ sub column_unuse($)
     $self->views->column_unuse($column);
 }
 
-=head2 \%h = $self->sort_defaults;
+=head2 \%h = $self->default_sort;
 Returns a HASH which contains the default values to sort row displays.  It returns
 a HASH with a column C<id> and a direction (C<type>).
 =cut
 
-sub sort_defaults()
+sub default_sort()
 {   my $self = shift;
-     +{ id   => $self->sort_layout_id,
-        type => $self->sort_type,
+    my $col_id = $self->sort_column_id || $self->layout->column('_id');
+
+     +{ id   => $col_id,
+        type => $self->sort_type || 'asc',
       };
 }
 

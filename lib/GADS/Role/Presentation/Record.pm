@@ -22,8 +22,8 @@ sub edit_columns
     \@columns;
 }
 
-sub presentation($%) {
-    my ($self, $sheet, %options) = @_;
+sub presentation(%) {
+    my ($self, %options) = @_;
 
     # For an edit show all relevant fields for edit, otherwise assume record
     # read and show all view columns
@@ -31,7 +31,7 @@ sub presentation($%) {
         = $options{edit}          ? $self->edit_columns(%options)
         : $options{curval_fields} ? @{$options{curval_fields}}
         : $options{group}         ? @{$self->columns_view}
-        : $options{purge}         ? $self->sheet->layout->column_id
+        : $options{purge}         ? $self->column('_id')
         :                           @{$self->columns_view};
 
     # Work out the indentation each field should have. A field will be indented
@@ -66,7 +66,7 @@ sub presentation($%) {
     my @mapped  = map $_->presentation(datum_presentation =>
        $self->field($_->id)->presentation, %options), @columns;
 
-    return {
+    +{
         parent_id       => $self->parent_id,
         current_id      => $cur_id,
         record_id       => $self->record_id,
@@ -76,10 +76,10 @@ sub presentation($%) {
         deleted         => $self->deleted,
         deletedby       => $self->deletedby,
         createdby       => $self->createdby,
-        user_can_delete => ($cur_id && $sheet->user_can('delete') ? 1 : 0),
+        user_can_delete => ($cur_id && $sheet->user_can('delete')),
         user_can_edit   => $sheet->user_can('write_existing'),
         id_count        => $self->id_count,
-    }
+     };
 }
 
 1;

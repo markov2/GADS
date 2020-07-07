@@ -80,31 +80,32 @@ sub fetch_multivalues
 {   my ($self, $record_ids) = @_;
 
     my @values = $self->multivalue_rs($record_ids)->all;
-    my $records = GADS::Records->new(
-        layout               => $self->layout_parent,
-        columns              => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
-        limit_current_ids    => [ map $_->{record}{current_id}, @values ],
-        include_children     => 1, # Ensure all autocur records are shown even if they have the same text content
+    my @current_ids = map $_->{record}{current_id}, @values;
+
+    my $page   = $self->parent_sheet->data->search(
+        columns           => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
+        limit_current_ids => \@current_ids,
+        include_children  => 1, # Ensure all autocur records are shown even if they have the same text content
     );
+
     my %retrieved;
-    while (my $record = $records->next)
-    {   $retrieved{$record->current_id} = $record;
+    while(my $row = $page->next_row)
+    {   $retrieved{$row->current_id} = $row;
     }
 
     # It shouldn't happen under normal circumstances, but there is a chance
     # that a record will have multiple values of the same curval. In this case
     # the autocur will contain multiple values, so we de-duplicate here.
-    my @v; my %done;
+    my (@v, %done);
     foreach (@values)
-    {
-        my $cid = $_->{record}->{current_id};
-        next unless exists $retrieved{$cid};
+    {   my $cid = $_->{record}->{current_id};
+        next if $done{$cid}++ ||  ! exists $retrieved{$cid};
+
         push @v, +{
             layout_id => $self->id,
             record_id => $_->{value}->{records}->[0]->{id},
             value     => $retrieved{$cid},
-        } unless $done{$cid};
-        $done{$cid} = 1;
+        };
     }
     return @v;
 }

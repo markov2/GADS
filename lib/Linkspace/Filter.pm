@@ -260,8 +260,8 @@ sub parse_date_filter
     $value =~ /^(\h*([0-9]+)\h*([+])\h*)?CURDATE(\h*([-+])\h*([0-9]+)\h*)?$/
         or return;
 
-    my $now = DateTime->now;
     my ($v1, $op1, $op2, $v2) = ($2, $3, $5, $6);
+    my $now = DateTime->now;
     if ($op1 && $op1 eq '+' && $v1) { $now->add(seconds => $v1) }
 
 #   if ($op1 eq '-' && $v1) # Doesn't work, needs coding differently  XXX

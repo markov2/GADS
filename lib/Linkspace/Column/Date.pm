@@ -67,7 +67,6 @@ sub is_valid_value($%)
 {   my ($self, $date, %options) = @_;
     return 1 if !$date || $self->parse_date($date);
 
-    return 0 unless $options{fatal};
     error __x"Invalid date '{value}' for {col}. Please enter as {format}.",
         value => $date, col => $self->name, format => $self->dateformat;
 }
