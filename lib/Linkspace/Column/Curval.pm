@@ -222,7 +222,7 @@ sub fetch_multivalues
     })->all;
 
     my $user = $self->override_permissions ? undef : $::->session->user;
-    my $page = $self->sheet_parent->data->search(
+    my $page = $self->sheet_parent->content->search(
         user              => $self->override_permissions ? undef : $self->layout->user,
         limit_current_ids => [ map $_->{value}, @values ],
         is_draft          => $options{is_draft},
@@ -325,7 +325,7 @@ sub field_values($$%)
                     }],
                 });
 
-                my $refers_page = $refers_sheet->data->search(
+                my $refers_page = $refers_sheet->content->search(
                     user    => undef,
                     filter  => $filter,
                     columns => [],
@@ -336,7 +336,7 @@ sub field_values($$%)
             }
 
             if(!$is_used)
-            {   $sheet->data->current->row_delete($id_deleted);
+            {   $sheet->content->current->row_delete($id_deleted);
                 push @ids_deleted, $id_deleted;
             }
         }

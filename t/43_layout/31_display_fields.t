@@ -47,7 +47,7 @@ sub _filter
 $integer1->display_fields(_filter(col_id => $string1->id, regex => 'foobar'));
 $integer1->write;
 
-my $row = $sheet->data->find_current_id(3);
+my $row = $sheet->content->find_current_id(3);
 sub _field($)   { $row->field($_[0]->id) }
 sub _set($$)    { _field($_[0])->set_value($_[1]) }
 sub _content($) { _field($_[0])->as_string }

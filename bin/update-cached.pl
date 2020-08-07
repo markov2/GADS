@@ -23,7 +23,7 @@ use Tie::Cache;
 
 my $linkspace = Linkspace->new;
 
-tie %{::db->schema->storage->dbh->{CachedKids}}, 'Tie::Cache', 100;
+tie %{$::db->schema->storage->dbh->{CachedKids}}, 'Tie::Cache', 100;
 
 foreach my $site (@{$linkspace->all_sites})
 {
@@ -34,7 +34,7 @@ foreach my $site (@{$linkspace->all_sites})
         my $cols = $layout->col_ids_for_cache_update;
         next if !@$cols;
 
-        my $page = $sheet->data->records(
+        my $page = $sheet->content->search(
             columns              => $cols,
             curcommon_all_fields => 1, # Code might contain curcommon fields not in normal display
             include_children     => 1, # Update all child records regardless

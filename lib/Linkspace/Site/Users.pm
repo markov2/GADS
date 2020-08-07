@@ -141,7 +141,7 @@ sub user($)
 =head2 my $user = $users->user_by_name($username)
 =cut
 
-sub user_by_name()
+sub user_by_name($)
 {   my ($self, $name) = @_;
     my $index = $self->_users_index;
     my $found = first { $_->username eq $name || $_->email eq $name} values %$index;

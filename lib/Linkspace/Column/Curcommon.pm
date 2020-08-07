@@ -205,7 +205,6 @@ sub has_curval_field
 
 has all_ids => (
     is      => 'lazy',
-    isa     => ArrayRef,
     builder => sub
     {  [ $::db->search(Current => { instance_id => $self->related_sheet_id })
           ->get_column('id')->all ];
@@ -257,7 +256,7 @@ sub _records_from_db
     # are then fetched from the DB
     my @sort = map +(id => $_), @{$self->curval_field_ids};
 
-    my $records = $sheet->data->search(
+    my $records = $sheet->content->search(
         view               => $view,
         columns            => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
         limit_current_ids  => $ids,
@@ -456,6 +455,7 @@ sub validate_search
 
 sub values_beginning_with
 {   my ($self, $match) = @_;
+    my $fields = $self->curval_fields;
 
     # First create a view to search for this value in the column.
     my @conditions = map +{
@@ -464,49 +464,39 @@ sub values_beginning_with
         type     => $_->type,
         value    => $match,
         operator => $_->return_type eq 'string' ? 'begins_with' : 'equal',
-    }, @{$self->curval_fields};
-
-    my @rules = +{
-        condition => 'OR',
-        rules     => \@conditions,
-    };
-
-    push @rules, $self->filter->sub_values($self->layout->records);
+    }, @$fields;
 
     my $filter = Linkspace::Filter->from_hash( +{
             condition => 'AND',
-            rules     => \@rules,
+            rules     => [
+                +{ condition => 'OR', rules => \@conditions },
+                $self->filter->sub_values($self->layout->records),
+            ],
         },
     );
 
-    my $records = $related_sheet->data->search(
+    my $page = $related_sheet->content->search(
         rows    => 10,
         view    => $view,
-        columns => $self->curval_field_ids,
-        filter    => $match ? $filter : undef,
+        columns => $fields,
+        filter  => $match ? $filter : undef,
     );
 
     map +{ id => $_->{id}, name => $_->{name} },
         map $self->_format_row($_, value_key => 'name'),
-            @{$records->results};
+            @{$page->rows};
 }
 
 sub _format_row
 {   my ($self, $row, %options) = @_;
     my $value_key = $options{value_key} || 'value';
-    my @values;
-    my $layout_parent = $self->layout_parent;
-
-    foreach my $fid (@{$self->curval_field_ids})
-    {   push @values, $row->field($fid)
-            if $layout_parent->column($fid, permission => 'read');
-    }
+    my $fields    = $self->curval_fields;
 
     +{
         id         => $row->current_id,
         record     => $row,
         $value_key => $self->format_value(@values),
-        values     => \@values,
+        values     => [ grep $_->has_permission('read'), @$fields ],
     };
 }
 

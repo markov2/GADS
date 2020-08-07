@@ -190,7 +190,7 @@ hook before_template => sub {
     if($sheet &&
        ($sheet->user_can('approve_new') || $sheet->user_can('approve_existing')))
     {   $tokens->{user_can_approve} = 1;
-        my $approval_info = $sheet->data->current->requires_approval;
+        my $approval_info = $sheet->content->current->requires_approval;
         $tokens->{approve_waiting} = keys %$approval_info;
     }
 
@@ -1300,7 +1300,7 @@ prefix '/:layout_name' => sub {
             $fromdt->set(hour => 0, minute => 0, second => 0);
         }
 
-        my $page = $sheet->data->search(
+        my $page = $sheet->content->search(
             view                => current_view(),
             search              => session('search'),
             view_limit_extra_id => current_view_limit_extra_id(),
@@ -1319,7 +1319,7 @@ prefix '/:layout_name' => sub {
         my $fromdt = DateTime->from_epoch( epoch => int (param('from')/1000) );
         my $todt   = DateTime->from_epoch( epoch => int (param('to')  /1000) );
 
-        my $page = $sheet->data->search(
+        my $page = $sheet->content->search(
             from                => $fromdt,
             to                  => $todt,
             exclusive           => param('exclusive'),
@@ -1386,7 +1386,7 @@ prefix '/:layout_name' => sub {
             $params{limit_current_ids} = \@delete_ids
                 if @delete_ids;
 
-            my $page = $sheet->data->search(%params);
+            my $page = $sheet->content->search(%params);
 
             my $count; # Count actual number deleted, not number reported by search result
 
@@ -1427,7 +1427,7 @@ prefix '/:layout_name' => sub {
             session 'search' => $search;
             if ($search)
             {
-                my $page = $sheet->data->search(
+                my $page = $sheet->content->search(
                     search              => $search,
                     view_limit_extra_id => current_view_limit_extra_id(),
                 );
@@ -1540,7 +1540,7 @@ prefix '/:layout_name' => sub {
         elsif ($viewtype eq 'calendar')
         {
             # Get details of the view and work out color markers for date fields
-            my $page = $sheet->data->current;
+            my $page = $sheet->content->current;
             my @colors;
             my $graph = GADS::Graph::Data->new(records => undef);
 
@@ -1558,7 +1558,7 @@ prefix '/:layout_name' => sub {
             $params->{viewtype} = 'calendar';
         }
         elsif ($viewtype eq 'timeline')
-        {   my $page = $sheet->data->search(
+        {   my $page = $sheet->content->search(
                 view                => $view,
                 search  => session('search'),
                 # No "to" - will take appropriate number from today
@@ -1674,7 +1674,7 @@ prefix '/:layout_name' => sub {
                 session sort => $sort;
             }
 
-            my $page = $sheet->data->search(
+            my $page = $sheet->content->search(
                 view => $view,
                 rows => $is_download ? undef : session('rows'),
                 page => $is_download ? undef : session('page'),
@@ -1858,17 +1858,17 @@ prefix '/:layout_name' => sub {
         {   my @current_ids = body_parameters->get_all('record_selected')
 
             if(param 'purge')
-            {   $sheet->data->rows_purge(\@current_ids);
+            {   $sheet->content->rows_purge(\@current_ids);
                 forwardHome({ success => "Records have now been purged" }, $sheet->identifier.'/purge');
             }
 
             if (param 'restore')
-            {   $sheet->data->rows_restore(\@current_ids);
+            {   $sheet->content->rows_restore(\@current_ids);
                 forwardHome({ success => "Records have now been restored" }, $sheet->identifier.'/purge');
             }
         }
 
-        my $page = $sheet->data->search(
+        my $page = $sheet->content->search(
             columns             => [],
             is_deleted          => 1,
             view_limit_extra_id => undef
@@ -2306,7 +2306,7 @@ prefix '/:layout_name' => sub {
         {   # If we're viewing or approving an individual record, first
             # see if it's a new record or edit of existing. This affects
             # permissions.
-            $row = $sheet->data->row($record_id, include_approval => 1);
+            $row = $sheet->content->row($record_id, include_approval => 1);
         }
 
         my $approval_of_new = $row ? $row->approval_of_new : 0;
@@ -2314,7 +2314,7 @@ prefix '/:layout_name' => sub {
         if (param 'submit')
         {
             my $cur = $sheet->row(current_id => $current_id) ||
-                $sheet->data->row_create(
+                $sheet->content->row_create(
                     current_id     => $current_id,
                     approval_id    => $record_id,
                     init_no_value  => 0,           #XXX
@@ -2360,7 +2360,7 @@ prefix '/:layout_name' => sub {
         }
         else
         {   $page  = 'approval';
-            $params->{records}     = $sheet->data->current->requires_approval;
+            $params->{records}     = $sheet->content->current->requires_approval;
             $params->{breadcrumbs} = [
                 Crumb($sheet),
                 Crumb($sheet, '/approval' => 'approve records'),
@@ -2454,7 +2454,7 @@ prefix '/:layout_name' => sub {
 
         my @limit_current_ids = query_parameters->get_all('id');
 
-        my $page = $sheet->data->search(
+        my $page = $sheet->content->search(
             view                => $view,
             search              => session('search'),
             view_limit_extra_id => current_view_limit_extra_id(),
@@ -2842,7 +2842,7 @@ sub _page_as_mech
 sub _data_graph
 {   my $id = shift;
 
-    my $page = $sheet->data->search(
+    my $page = $sheet->content->search(
         view                => current_view(),
         search              => session('search'),
         view_limit_extra_id => current_view_limit_extra_id(),
@@ -2874,7 +2874,7 @@ sub _process_edit
         $sheet->user_can("delete")
             or error __"You do not have permission to delete records";
 
-#XXX    $sheet->data->delete_current_record;
+#XXX    $sheet->content->delete_current_record;
         if (process( sub { $record->delete_current($sheet) }))
         {
             return forwardHome(
@@ -2887,7 +2887,7 @@ sub _process_edit
         $sheet->user_can("delete")
             or error __"You do not have permission to delete records";
 
-#XXX    $sheet->data->delete_drafts
+#XXX    $sheet->content->delete_drafts
         if (process( sub { $record->delete_user_drafts($sheet) }))
         {
             return forwardHome(
@@ -2921,7 +2921,7 @@ sub _process_edit
     {
         my $failed;
 
-        !$child || $id || $sheet->user_can('create_child')
+        $id || !$child || $sheet->user_can('create_child')
             or error __"You do not have permission to create a child record";
 
         $record->parent_id($child);
@@ -3011,16 +3011,15 @@ sub _process_edit
                 if $record->already_submitted_error;
         }
     }
-    elsif($id) {
-        # Do nothing, record already loaded
+    elsif($id)
+    {   # Do nothing, record already loaded
     }
     elsif(my $from = is_valid_id(param 'from'))
-    {   my $toclone = $sheet->data->row(current_id => $from,
-           curcommon_all_fields => 1);
+    {   my $toclone = $sheet->content->row(current_id => $from, curcommon_all_fields => 1);
         $record = $toclone->clone;
     }
-    else {
-        $record->load_remembered_values;
+    else
+    {   $record->load_remembered_values;
     }
 
     # Clear all fields which we may write but not read.

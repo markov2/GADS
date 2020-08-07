@@ -149,7 +149,7 @@ post '/api/record/:sheet' => require_api_user sub {
     error "Invalid field: id; Use the PUT method to update an existing record"
         if exists $request->{id};
 
-    $sheet->data->create_record(datums => $data);
+    $sheet->content->create_record(datums => $data);
 
     status 'Created';
     header 'Location' => request->base.'record/'.$record->current_id;
@@ -167,11 +167,11 @@ put '/api/record/:sheet/:id' => require_api_user sub {
     my $row;
 
     if(my $api_index = $sheet->api_index_layout)
-    {   $row = $sheet->data->find_unique($api_index, $id);
+    {   $row = $sheet->content->find_unique($api_index, $id);
         $row || $request->{$api_index->name_short} = $id; #XXX row = undef
     }
     else
-    {   $record_to_update = $sheet->data->find_current_id($id);
+    {   $record_to_update = $sheet->content->find_current_id($id);
     }
 
     $row->columns_update($request);
@@ -191,12 +191,12 @@ get '/api/record/:sheet/:id' => require_api_user sub {
 
     my $row;
     if(my $api_index = $layout->api_index_layout)
-    {   $row = $sheet->data->find_unique($api_index, $id)
+    {   $row = $sheet->content->find_unique($api_index, $id)
             or error __x"Record ID {id} not found", id => $id; # XXX Would be nice to reuse GADS::Record error
-        $row = $sheet->data->find_current_id($record->current_id);
+        $row = $sheet->content->find_current_id($record->current_id);
     }
     else
-    {   $row = $sheet->data->find_current_id($id);
+    {   $row = $sheet->content->find_current_id($id);
     }
 
     content_type 'application/json; charset=UTF-8';
@@ -320,7 +320,7 @@ prefix '/:sheet_name' => sub {
                 push @datums, $column->datum_create($col, \@vals, validate => 1);
             }
 
-            $sheet->data->add_row(\@datums,
+            $sheet->content->add_row(\@datums,
                 validate          => 1,
                 missing_not_fatal => 1,
                 submitted_fields  => $required_columns,

@@ -123,8 +123,8 @@ my $curval3 = $curval_layout->column_create(curval => {
     permissions      => { $sheet->group->id => $sheet->default_permissions },
 );
 
-my $r = $curval_sheet->data->current->record_for_row(0);
-my ($curval3_value) = $curval_sheet2->data->current->column_ids;
+my $r = $curval_sheet->content->current->record_for_row(0);
+my ($curval3_value) = $curval_sheet2->content->current->column_ids;
 $r->set_value($curval3, $curval3_value);
 
 
@@ -942,7 +942,7 @@ foreach my $multivalue (0..1)
 #XXX impossible
             $view->write(no_errors => $filter->{no_errors});
 
-            my $page = $sheet->data->search(view => $view);
+            my $page = $sheet->content->search(view => $view);
 
             cmp_ok $records->count, '==', $filter->{count},
                  "$filter->{name} for record count()";
@@ -958,7 +958,7 @@ foreach my $multivalue (0..1)
             }
 
             $sheet->views->view_update($view, { sortings => [ [$view_columns, ['asc']] ]});
-            my $page = $sheet->data->search(view => $view);
+            my $page = $sheet->content->search(view => $view);
 
             cmp_ok $records->count, '==', $filter->{count},
                 "$filter->{name} for record count()";
@@ -1017,12 +1017,6 @@ foreach my $multivalue (0..1)
     $layout = $sheet->layout;
     $columns = $sheet->columns;
 
-    # Search with a limited view defined
-    $records = GADS::Records->new(
-        user    => $user,
-        layout  => $layout,
-    );
-
     my $rules1 = {
         rules     => [{
             id       => $layout->column('date1')->id,
@@ -1032,11 +1026,11 @@ foreach my $multivalue (0..1)
         }],
     };
 
-    my $view_limit = $sheet->views->view_create({{{
+    my $view_limit = $sheet->views->view_create({
         name        => 'Limit to view',
-        filter      => $rules,
+        filter      => $rules1,
         is_for_admins => 1,
-    );
+    });
 
     $user->set_view_limits([$view_limit]);
 
@@ -1054,7 +1048,7 @@ foreach my $multivalue (0..1)
         filter      => $rules2,
     });
 
-    my $data = $sheet->data;
+    my $data = $sheet->content;
     my $page = $data->search(view => $view);
 
     cmp_ok $page->count, '==', 1, 'Correct number of results when limiting to a view';
@@ -1086,108 +1080,80 @@ foreach my $multivalue (0..1)
         like $@, qr/Requested record not found/, "Failed to find deleted record ID 5";
 
         # Draft record whilst view limit in force
-        my $draft = $data->draft_create({
-            cells => [ string1 => 'Draft' ]
-        });
-
-        $draft->load_remembered_values(instance_id => $layout->instance_id);
-        is($draft->fields->{$layout->column('string1')->id}->as_string, "Draft", "Draft sub-record retrieved");
+        my $draft = $data->draft_create({ cells => [ string1 => 'Draft' ] });
+        $draft->load_remembered_values;
+        is $draft->field('string1')->as_string, "Draft", "Draft sub-record retrieved";
 
         # Reset
         $schema->resultset('Current')->find(5)->update({ deleted => undef });
     }
 
     # Add a second view limit
-    $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $layout->column('date1')->id,
-                type     => 'date',
-                value    => '2015-10-10',
-                operator => 'equal',
-            }],
-        },
-    );
+    my $rules2 = {
+        rules     => [{
+            id       => $layout->column('date1')->id,
+            type     => 'date',
+            value    => '2015-10-10',
+            operator => 'equal',
+        }],
+    };
 
-    my $view_limit2 = GADS::View->new(
+    my $view_limit2 = $sheet->views->create_view({
         name        => 'Limit to view2',
-        filter      => $rules,
-        instance_id => 1,
-        layout      => $layout,
-        user        => $user,
+        filter      => $rules2,
     );
-    $view_limit2->write;
 
     $user->set_view_limits([$view_limit, $view_limit2]);
 
-    $records = GADS::Records->new(
-        user    => $user,
-        view    => $view,
-        layout  => $layout,
-    );
-
-    is ($records->count, 2, 'Correct number of results when limiting to 2 views');
+    my $page = $sheet->search(view => $view);
+    cmp_ok $records->count, '==', 2, 'Correct number of results when limiting to 2 views';
 
     # view limit with a view with negative match multivalue filter
     # (this has caused recusion in the past)
     {
         # First define limit view
-        $rules = GADS::Filter->new(
-            as_hash => {
-                rules     => [{
-                    id       => $layout->column('enum1')->id,
-                    type     => 'string',
-                    value    => 'foo1',
-                    operator => 'not_equal',
-                }],
-            },
-        );
+        my $rules3 = {
+            rules     => [{
+                id       => $layout->column('enum1')->id,
+                type     => 'string',
+                value    => 'foo1',
+                operator => 'not_equal',
+            }],
+        };
 
-        my $view_limit3 = GADS::View->new(
+        my $view_limit3 = $sheet->views->create_view({
             name        => 'limit to view',
-            filter      => $rules,
-            instance_id => 1,
-            layout      => $layout,
-            user        => $user,
-        );
-        $view_limit3->write;
+            filter      => $rules3,
+        });
 
         $user->set_view_limits([ $view_limit3 ]);
 
         # Then add a normal view
-        $rules = GADS::Filter->new(
-            as_hash => {
-                rules     => [{
-                    id       => $layout->column('date1')->id,
-                    type     => 'string',
-                    value    => '2014-10-10',
-                    operator => 'equal',
-                }],
-            },
-        );
-        $view = GADS::View->new(
+        my $rules4 = {
+            rules     => [{
+                id       => $layout->column('date1')->id,
+                type     => 'string',
+                value    => '2014-10-10',
+                operator => 'equal',
+            }],
+        };
+
+        my $view = $sheet->views->create_view({
             name        => 'date1',
-            filter      => $rules,
-            instance_id => 1,
-            layout      => $layout,
-            user        => $user,
-        );
-        $view->write;
-
-        $records = GADS::Records->new(
-            user   => $user,
-            view   => $view,
-            layout => $layout,
+            filter      => $rules4,
         );
 
-        is ($records->count, 1, 'Correct result count when limiting to negative multivalue view');
-        is (@{$records->results}, 1, 'Correct number of results when limiting to negative multivalue view');
+        my $page = $sheet->search(view => $view);
 
+        cmp_ok $page->number_rows, '==', 1,
+            'Correct result count when limiting to negative multivalue view';
+
+        cmp_ok scalar @{$page->rows}, '==', 1,
+            'Correct number of results when limiting to negative multivalue view';
     }
 
     # Quick searches
     # Limited view still defined
-    $records->clear;
     $records->search('Foobar');
     is (@{$records->results}, 0, 'Correct number of quick search results when limiting to a view');
     # And again with numerical search (also searches record IDs). Current ID in limited view
@@ -1224,6 +1190,7 @@ foreach my $multivalue (0..1)
         },
     ));
     $view_limit->write;
+
     $records = GADS::Records->new(
         user    => $user,
         layout  => $layout,
@@ -1445,24 +1412,24 @@ foreach my $multivalue (0..1)
 
     # ASC
     $sheet->sheet_update({sort_column => $layout->column('_id'), sort_type => 'asc'});
-    my $page1 = $sheet->data->search;
+    my $page1 = $sheet->content->search;
     is $page1->row(0)->current_id, 3, "Correct first record for default_sort (asc)";
     is $page1->row(-1)->current_id, 9, "Correct last record for default_sort (asc)";
 
     # DESC
     $sheet->sheet_update({sort_column => $layout->column('_id'), sort_type => 'desc'});
-    my $page2 = $sheet->data->search;
+    my $page2 = $sheet->content->search;
     is $page2->row(0)->current_id, 9, "Correct first record for default_sort (desc)";
     is $page2->row(-1)->current_id, 3, "Correct last record for default_sort (desc)";
 
     # Column from view
     $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_type => 'asc'});
-    my $page3 = $sheet->data->search;
+    my $page3 = $sheet->content->search;
     is $page3->row(0)->current_id, 6, "Correct first record for default_sort (column in view)";
     is $page3->row(-1)->current_id, 7, "Correct last record for default_sort (column in view)";
 
     # Standard sort parameter for search()
-    my $page4 = $sheet->data->search(
+    my $page4 = $sheet->content->search(
         sort => { type => 'desc', id   => $layout->column('integer1')->id },
     );
     is $page4->row(0)->current_id, 6, "Correct first record for standard sort";
@@ -1472,7 +1439,7 @@ foreach my $multivalue (0..1)
     # user switches tables and there is still a sort parameter in the session. In this
     # case, it should revert to the default search.
     $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_type => 'desc' });
-    my $page5 = $sheet->data->search(sort => { type => 'desc', id => -1000 });
+    my $page5 = $sheet->content->search(sort => { type => 'desc', id => -1000 });
     is $page5->row(0)->current_id, 6, "Correct first record for standard sort";
     is $page5->row(-1)->current_id, 7, "Correct last record for standard sort";
 }
@@ -1707,7 +1674,7 @@ foreach my $multivalue (0..1)
               : \@sort_types;
 
             $view->view_update({ sortings => [ [ \@sort_by, $sort_type ] ] });
-            my $page = $sheet->data->search(
+            my $page = $sheet->content->search(
                 view     => $view,
                 sortings => $sorting,
             );
@@ -1716,7 +1683,7 @@ foreach my $multivalue (0..1)
 
         {   ok 1, "testing sort $sort->{name} is overriden";
 
-            my $page = $sheet->data->search(
+            my $page = $sheet->content->search(
                 view     => $view,
                 sortings => +{ type => 'desc', id => $layout->column('_id'),
             );
@@ -1772,8 +1739,8 @@ foreach my $multivalue (0..1)
                 view         => $view,
             });
 
-            # Count total number of records  XXX $graph->data_points?
-            my $graph_total = sum map { scalar @$_ }, $graph->data->points->[0]};
+            # Count total number of records  XXX $graph->content_points?
+            my $graph_total = sum map { scalar @$_ }, $graph->content->points->[0]};
 
             my $count = $sort->{filter} ? $sort->{count} : 7;
             is $graph_total, $count, "Item total on graph matches table for $sort->{name}";
@@ -1784,7 +1751,7 @@ foreach my $multivalue (0..1)
 
         {   ok 1, "testing sort $sort->{name}, sort defined by view";
 
-            my $page = $sheet->data->search(view => $view);
+            my $page = $sheet->content->search(view => $view);
 
             is $page->all_rows, $sort->{count},
                 '... number of records in results'
@@ -1816,7 +1783,7 @@ foreach my $multivalue (0..1)
             my $rev = $sort_types[0] eq 'asc' ? 'desc' : 'asc';
             $view->view_update({ sortings => [ [ \@sort_by, $rev ] ] });
 
-            my $page = $sheet->data->search(view => $view);
+            my $page = $sheet->content->search(view => $view);
 
             is $page->all_rows, $sort->{count}, '... number of records in results'
                 if $sort->{count};
@@ -1842,7 +1809,7 @@ foreach my $multivalue (0..1)
         if(my $count = $sort->{count})
         {   ok 1, "testing sort $sort->{name}, count only";
 
-            my $page = $sheet->data->search(view => $view);
+            my $page = $sheet->content->search(view => $view);
             is $page->count, $count, '... record count';
 
 ok ! $page->_loaded_any_record;

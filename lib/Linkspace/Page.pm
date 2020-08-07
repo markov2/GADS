@@ -1682,7 +1682,7 @@ sub data_timeline
             }
         }
 
-        my $overlay_page = $overlay_sheet->data->search({
+        my $overlay_page = $overlay_sheet->content->search({
             columns => \@to_show,
             from    => $min,
             to      => $max,

@@ -16,22 +16,23 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Sheet::Data;
+package Linkspace::Sheet::Content;
 
 use Linkspace::Page::Current ();
 
 use Data::Dumper qw/Dumper/;
 use DateTime;
 use DBIx::Class::Helper::ResultSet::Util qw(correlate);
-use GADS::Graph::Data;
-use GADS::Record;
-use GADS::Timeline;
-use GADS::View;
 use HTML::Entities;
 use Log::Report 'linkspace';
 use POSIX qw(ceil);
 use Scalar::Util qw(looks_like_number);
 use Text::CSV::Encoded;
+
+use GADS::Graph::Data;
+use GADS::Record;
+use GADS::Timeline;
+use GADS::View;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -40,7 +41,7 @@ with 'GADS::RecordsJoin', 'GADS::Role::Presentation::Records';
 
 =head1 NAME
 
-Linkspace::Sheet::Data - maintain the data, part of a sheet
+Linkspace::Sheet::Content - maintain the data, part of a sheet
 
 =head1 SYNOPSIS
 =head1 DESCRIPTION
@@ -48,7 +49,7 @@ Linkspace::Sheet::Data - maintain the data, part of a sheet
 
 =head1 METHODS: Maintaining pages
 
-=head2 my $count = $data->nr_pages;
+=head2 my $count = $content->nr_pages;
 Returns the number of pages
 =cut
 
@@ -66,7 +67,7 @@ has nr_pages => (
 #-----------------
 =head1 METHODS: Other
 
-=head2 my $page = $data->search(%options);
+=head2 my $page = $content->search(%options);
 This expensive function will produce a L<Linkspace::Page> object which can be
 used to retrieve the results.
 =cut
@@ -2387,12 +2388,12 @@ sub rows_restore($)
 #--------------------------
 =head1 METHODS: Single rows
 
-=head2 my $row = $data->row_create($insert, %options);
+=head2 my $row = $content->row_create($insert, %options);
 =cut
 
 sub row_create($%)
 {   my ($self, $insert, %args) = @_;
-    $insert->{created}    ||= DataTime->now;
+    $insert->{created}    ||= DateTime->now;
     $insert->{created_by} ||= $::session->user;
 
     #XXX cells = [ $name|$col_id|$col => $value ]

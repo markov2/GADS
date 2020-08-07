@@ -464,7 +464,7 @@ sub _record_converter
         {   $run{$1}    ||= $make->($int,
 'return $_[0]->id if blessed $_[0];
  return $_[0] if $_[0] !~ /\D/;
- my $col = $self->column($_[0]); $col ? $col->id : undef;'
+ my $col = $self->column($_[0]); $col ? $col->id : undef;');
             $run{$ext}  ||= $make->($int, '$_[0]');
         }
         elsif(_is_boolean_field_name($ext) || $bools{$int} )

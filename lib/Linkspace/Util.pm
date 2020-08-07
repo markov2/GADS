@@ -174,7 +174,7 @@ De-duplicate objects, based on their id.  Maintains order.
 
 sub uniq_objects
 {   my %seen;
-    grep ! $seen{$_->id}++, flat @_);
+    grep ! $seen{$_->id}++, flat @_;
 }
  
 =head2 my ($added, $deleted, $both) = list_diff $from, $to;

@@ -20,7 +20,7 @@ my $site1b  = Linkspace::Site->from_id($site1->id);
 cmp_ok scalar @{$site1b->all_sheets}, '==', 1, 'no leak sheets';
 my $sheet1b = $site1b->sheet($sheet1->id);
 
-my @current_ids = map $_->current_id, @{$site1->data->rows};
+my @current_ids = map $_->current_id, @{$site1->content->rows};
 is( "@current_ids", "1 2", "Current IDs correct for site 1" );
 
 # Try and access record from site 2
@@ -28,23 +28,23 @@ my $site2b  = Linkspace::Site->from_id($site2->id);
 cmp_ok scalar @{$site2b->sheets}, '==', 2, 'no leak sheets';
 my $sheet2b = $site2b->sheet($sheet2->id);
 
-is $site1->data->find_current_id(1)->current_id, 1,
+is $site1->content->find_current_id(1)->current_id, 1,
    "Retrieved record from same site (1)";
 
-try { $site1->data->find_current_id(3) };
+try { $site1->content->find_current_id(3) };
 ok( $@, "Failed to retrieve record from other site (2)" );
 
-is $site2->data->count, 2, "Correct number of records in site 2";
+is $site2->content->count, 2, "Correct number of records in site 2";
 
-my @current_ids2 = map $_->current_id, @{$site2->data->rows};
+my @current_ids2 = map $_->current_id, @{$site2->content->rows};
 is "@current_ids2", "3 4", "Current IDs correct for site 2";
 
 # Try and access record from site 1
-is $site2->data->find_current_id(3)->current_id, 3,
+is $site2->content->find_current_id(3)->current_id, 3,
    "Retrieved record from same site (2)";
 
 $record->clear;
-try {$site2->data->find_current_id(1)};
+try {$site2->content->find_current_id(1)};
 ok $@, "Failed to retrieve record from other site (1)";
 
 ### Try and access columns between layouts

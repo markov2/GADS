@@ -23,17 +23,17 @@ use Clone        'clone';
 use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
 
-use Linkspace::Sheet::Layout ();
-#use Linkspace::Sheet::Data   ();
-#use Linkspace::Sheet::Views  ();
-#use Linkspace::Sheet::Graphs ();
+use Linkspace::Sheet::Layout   ();
+#use Linkspace::Sheet::Content ();
+#use Linkspace::Sheet::Views   ();
+#use Linkspace::Sheet::Graphs  ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::DB::Table';
 
 ###!!!!  The naming is confusing, because that's legacy.
-###  table Instance      contains Sheet data
+###  table Instance      contains Sheet configuration
 ###  table InstanceGroup relates Sheets to Users
 
 sub db_table { 'Instance' }
@@ -178,16 +178,16 @@ has layout => (
 );
 
 #--------------------
-=head1 METHODS: Sheet Data, Keeping records
-Each Sheet has a Data object to maintain it's data.  It does not have it's
+=head1 METHODS: Sheet Content, Keeping records
+Each Sheet has a Content object to maintain it's data.  It does not have it's
 own table but maintains the 'Records' table.
 
-=head2 my $data = $sheet->data;
+=head2 my $content = $sheet->content;
 =cut
 
-has data => (
+has content => (
     is      => 'lazy',
-    builder => sub { Linkspace::Sheet::Data->new(sheet => $_[0]) },
+    builder => sub { Linkspace::Sheet::Content->new(sheet => $_[0]) },
 );
 
 =head2 $sheet->blank_fields(%search);
@@ -196,7 +196,7 @@ Find columns which match the C<%search>, and set those values to blank ('').
 
 sub blank_records(%)
 {   my $self = shift;
-    $self->data->blank_fields($self->columns_search(@_));
+    $self->content->blank_fields($self->columns_search(@_));
 }
 
 #----------------------
@@ -330,7 +330,7 @@ sub get_page($)
 
     $args{view_limit_extra} = $views->view($view_limit_extra_id);
 
-    $self->data->search(%args);
+    $self->content->search(%args);
 }
 
 #----------------------

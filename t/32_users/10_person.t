@@ -14,12 +14,15 @@ ok defined $orga, 'created org "my orga"';
 
 $site->workspot_create(department => 'my dept');
 my $dept = $site->workspot(department => 'my dept');
+ok defined $dept, 'created dept "my dept"';
 
 $site->workspot_create(team => 'heroes');
 my $team = $site->workspot(team => 'heroes');
+ok defined $team, 'created team "team"';
 
 $site->workspot_create(title => 'superman');
 my $title = $site->workspot(title => 'superman');
+ok defined $title, 'created title "superman"';
 
 ### Create session
 # We cannot use session->login yet: first need to test that creating

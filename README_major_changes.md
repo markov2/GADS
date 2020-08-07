@@ -61,7 +61,7 @@ Includes a part of GADS::Layout.
 Manage the Columns which are available for this sheet: the configurable
 fields which appear in any Row.
 
-### Class Linkspace::Sheet::Data (was part of GADS::Records)
+### Class Linkspace::Sheet::Content (was part of GADS::Records)
 
 Manage searching in the Sheets' data, creating access to sub-sets (Pages)
 of each

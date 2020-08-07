@@ -188,8 +188,8 @@ sub update_cached
     my $layout = $self->layout;
     my $sheet = $self->sheet;
 
-    my $records = $sheet->data->search(
-        columns              => [ @{$self->depends_on_ids}, $self->id ],
+    my $records = $sheet->content->search(
+        columns              => [ @{$self->depends_on}, $self ],
         view_limit_extra_id  => undef,
         curcommon_all_fields => 1, # Code might contain curcommon fields not in normal display
         include_children     => 1, # Update all child records regardless
@@ -197,7 +197,7 @@ sub update_cached
 
     my @changed;
     while (my $record = $records->single)
-    {   my $datum = $record->fields->{$self->id};
+    {   my $datum = $record->field($self);
         $datum->re_evaluate(no_errors => 1);
         $datum->write_value;
         push @changed, $record->current_id if $datum->changed;

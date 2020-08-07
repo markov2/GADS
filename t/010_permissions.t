@@ -213,7 +213,7 @@ foreach my $user_type (qw/readwrite read limited/)
         $record->delete_current;
         $record->purge_current;
 
-        my $page = $sheet->data->search;
+        my $page = $sheet->content->search;
         cmp_ok $page->row_count, '==', 1, "Record purged correctly";
     }
 }

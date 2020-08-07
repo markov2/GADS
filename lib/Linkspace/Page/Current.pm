@@ -44,7 +44,7 @@ use namespace::clean;
 Linkspace::Page::Current - the latest version of the sheet content
 
 =head1 SYNOPSIS
-  my $page = $sheet->data->current;
+  my $page = $sheet->content->current;
 
 =head1 DESCRIPTION
 This is the current status of the sheet.

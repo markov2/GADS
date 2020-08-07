@@ -124,7 +124,7 @@ foreach my $multivalue (0..1)
     # field joins
     $view->set_sorts([$enum1->id], ['asc']);
 
-    my $page = $sheet->data->search(view => $view);
+    my $page = $sheet->content->search(view => $view);
 
     my @results = @{$page->rows};
     is(@results, 2, "Correct number of rows for group by string");
@@ -151,7 +151,7 @@ foreach my $multivalue (0..1)
     });
 
     @expected = @$expected;
-    my $page2 = $sheet->data->search(view => $view2);
+    my $page2 = $sheet->content->search(view => $view2);
     @results = @{$page2->results};
     is(@results, 2, "Correct number of rows for group by string");
     foreach my $row (@results)
@@ -170,7 +170,7 @@ foreach my $multivalue (0..1)
         columns     => [ $autocur->id ],
     );
     $view3->set_groups([$curval_sheet->columns->{string1}->id]);
-    my $page3 = $curval_sheet->data->search(view => $view3);
+    my $page3 = $curval_sheet->content->search(view => $view3);
 
     @results = @{$page3->rows};
     is(@results, 2, "Correct number of rows for group by string with autocur");

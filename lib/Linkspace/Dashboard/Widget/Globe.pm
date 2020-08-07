@@ -51,7 +51,7 @@ has page => (
         my $search = $self->selection || {};
         $search->{max_results} //= 1000;
         $search->{group_values_as_index} = 0;
-        $self->sheet->data->search($search);
+        $self->sheet->content->search($search);
     },
 }
 

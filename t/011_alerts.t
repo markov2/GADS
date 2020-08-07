@@ -935,12 +935,12 @@ foreach my $curuser_type (qw/person string/)
         'No null user_id values after filter change';
 
     # Update a record so as to cause a search_views with CURUSER
-    my $row = $sheet->data->find_current_id(1);
+    my $row = $sheet->content->find_current_id(1);
     if ($curuser_type eq 'person')
-    {   $row->field($columns->{string1})->set_value('FooBar');
+    {   $row->field('string1')->set_value('FooBar');
     }
     else {
-    {   $row->field($columns->{integer1})->set_value(150);
+    {   $row->field('integer1')->set_value(150);
     }
 
     # And remove curuser filter

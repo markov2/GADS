@@ -82,7 +82,7 @@ sub fetch_multivalues
     my @values = $self->multivalue_rs($record_ids)->all;
     my @current_ids = map $_->{record}{current_id}, @values;
 
-    my $page   = $self->parent_sheet->data->search(
+    my $page   = $self->parent_sheet->content->search(
         columns           => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
         limit_current_ids => \@current_ids,
         include_children  => 1, # Ensure all autocur records are shown even if they have the same text content

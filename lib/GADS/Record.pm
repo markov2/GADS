@@ -79,7 +79,7 @@ has linked_record => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        $self->sheet->data->find_current_id($self->linked_id);
+        $self->sheet->content->find_current_id($self->linked_id);
         $linked;
     },
 );
@@ -145,7 +145,7 @@ has columns_view => (
 has linked_id => (
     is      => 'lazy',
     builder => sub {
-        my $row  = $self->sheet->data->row_current($self->current_id);
+        my $row  = $self->sheet->content->row_current($self->current_id);
         $row ? $row->linked_id : undef;
     },
 );
@@ -408,7 +408,7 @@ sub find_unique
     $retrieve_columns = [ $column->id ]
         unless @$retrieve_columns;
 
-    my $page = $sheet->data->search(
+    my $page = $sheet->content->search(
         user     => undef,   # Do not want to limit by user
         filter   => $filter,
         columns  => $retrieve_columns,
@@ -432,7 +432,7 @@ sub _find
     my $is_draft = !! $find{draftuser_id};
     my $record_id = $find{record_id};
 
-    my $page = $self->sheet->data->search(
+    my $page = $self->sheet->content->search(
         curcommon_all_cells => $self->curcommon_all_cells,
         columns              => $self->columns,
         rewind               => $self->rewind,
@@ -635,7 +635,7 @@ sub load_remembered_values
     my $cursor_id = $user->row_cursor_id($sheet)
         or return;
 
-    my $previous = $sheet->data->find_record_id($cursor_id,
+    my $previous = $sheet->content->find_record_id($cursor_id,
         columns => \@remember,
         include_approval => 1,
     );
