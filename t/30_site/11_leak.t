@@ -11,7 +11,7 @@ my $site1  = test_site;
 my $sheet1 = test_sheet with_columns => 1;
 
 my $site2  = make_site '2';
-my $sheet2 = make_sheet '2', site => $site2, with_columns => 1
+my $sheet2 = make_sheet '2', site => $site2, with_columns => 1,
   current_ids_from => 3; #XXX
 
 ### Check site 1 records
@@ -43,8 +43,7 @@ is "@current_ids2", "3 4", "Current IDs correct for site 2";
 is $site2->content->find_current_id(3)->current_id, 3,
    "Retrieved record from same site (2)";
 
-$record->clear;
-try {$site2->content->find_current_id(1)};
+try { $site2->content->find_current_id(1) };
 ok $@, "Failed to retrieve record from other site (1)";
 
 ### Try and access columns between layouts

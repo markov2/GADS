@@ -24,6 +24,7 @@ use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
 
 use Linkspace::Sheet::Layout   ();
+use Linkspace::Sheet::Access   ();
 #use Linkspace::Sheet::Content ();
 #use Linkspace::Sheet::Views   ();
 #use Linkspace::Sheet::Graphs  ();
@@ -35,11 +36,11 @@ extends 'Linkspace::DB::Table';
 ###!!!!  The naming is confusing, because that's legacy.
 ###  table Instance      contains Sheet configuration
 ###  table InstanceGroup relates Sheets to Users
+#XXX no_hide_blank cannot be changed
 
 sub db_table { 'Instance' }
 
 sub db_fields_unused { [ qw/no_overnight_update/ ] }
-#XXX no_hide_blank cannot be changed
 
 sub db_field_rename { +{
     sort_layout_id => 'sort_column',
@@ -164,6 +165,11 @@ sub identifier { $_[0]->name_short || 'table'.$_[0]->id }
 
 sub path { $_[0]->site->path.'/'.$_[0]->identifier }
 
+has allow_everything => (
+    is       => 'rw',
+    default  => sub { 0 },
+);
+
 #--------------------
 =head1 METHODS: Sheet Layout
 Each Sheet has a Layout object which manages the Columns.  It is a management
@@ -201,85 +207,14 @@ sub blank_records(%)
 
 #----------------------
 =head1 METHODS: Sheet permissions
+
+=head2 my $access = $sheet->access;
 =cut
 
-my @sheet_permissions = qw/
-    bulk_update
-    create_child
-    delete
-    download
-    layout
-    link
-    message
-    purge
-    view_create
-    view_group
-    view_limit_extra
-/;
-
-my %is_valid_permission = map +($_ => 1), @sheet_permissions;
-my %superadmin_rights   = map +($_ => 1), qw/layout view_create/;
-
-# The index contains a HASH of permissions per (user)group_id.
-has _permission_index => (
+has access => (
     is      => 'lazy',
-    builder => sub {
-        my $self = shift;
-        my %perms = map +($_->group_id => $_->permission),
-            $::db->search(InstanceGroup => { instance_id => $self->id })->all;
-        \%perms;
-    },
+    builder => sub { Linkspace::Sheet::Access->new(sheet => $_[0]) },
 );
-
-=head2 $sheet->set_permissions(@perms|\@perms);
-Change the Sheet wide permissions for Groups.  There are also (user)group
-permissions which span multiple sheets, and column specific permissions.
-
-The C<@perms> are in the form C<< ${group_id}_${permission} >>, probably
-directly from a web-form.
-=cut
-
-sub set_permissions
-{   my $self  = shift;
-    my @perms = ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_;
-
-    my $sheet_id = $self->id;
-    my $index    = $self->_permission_index;
-
-    my %missing  = clone %$index;
-
-	my @create;
-    foreach my $perm (@perms)
-    {   my ($group_id, $permission) = $perm =~ /^([0-9]+)\_(.*)/;
-        $group_id && $is_valid_permission{$permission}
-            or panic "Invalid permission $perm";
-
-        next if delete $missing{$group_id}{$permission};
-
-		$index->{$group_id}{$permission} = 1;
-		push @create, +{
-            instance_id => $sheet_id,
-            group_id    => $group_id,
-            permission  => $permission,
-        };
-    }
-
-    my @delete;
-    foreach my $group_id (keys %missing)
-    {   push @delete, map +{ 
-            instance_id => $sheet_id,
-            group_id    => $group_id,
-            permission  => $_,
-        }, keys $missing{$group_id};
-    }
-
-    @create || @delete or return;
-
-    my $guard = $::db->begin_work;
-    $::db->resultset('InstanceGroup')->populate(\@create) if @create;
-    $::db->delete(InstanceGroup => \@delete) if @delete;
-    $guard->commit;
-}
 
 =head2 my $allowed = $sheet->user_can($perm, [$user]);
 Check whether a certain C<$user> (defaults to the session user) has
@@ -287,20 +222,15 @@ a specific permission flag.
 
 Most components of the program should try to avoid other access check
 routines: where permissions reside change.
-
 =cut
 
 sub user_can($;$)
 {   my ($self, $permission, $user) = @_;
     $user ||= $::session->user;
 
-      $self->allow_everything
-    ? 1
-    : $is_valid_permission{$permission}
-    ? $self->_permission_index->{$user->group_id}{$permission}
-    : $user->is_permitted('superadmin') && $superadmin_rights{$permission}
-    ? 1
-    : $user->is_permitted($permission);
+       $self->allow_everything
+    || $self->access->group_can($permission, $user->group_id)
+    || $user->has_permission($permission);
 }
 
 =head2 $sheet->is_writable($user?);

@@ -171,7 +171,7 @@ sub path() { panic "path() not implemented for ".ref $_[0] }
 # This attribute shall not be used outside the object which manages the table:
 # always use clean abstraction to address the fields.
 has _record => (
-	is       => 'ro',
+    is       => 'ro',
     required => 1,
     trigger  => sub { $_[0]{_coldata} = $_[1]{_column_data} },
 );
@@ -460,11 +460,10 @@ sub _record_converter
       };
 
     while(my ($int, $ext) = each %map)
-    {   if($ext =~ /(.*)_id$/)
-        {   $run{$1}    ||= $make->($int,
-'return $_[0]->id if blessed $_[0];
- return $_[0] if $_[0] !~ /\D/;
- my $col = $self->column($_[0]); $col ? $col->id : undef;');
+    {	$info->{$int} or panic "No '$ext' in $class";
+
+        if($ext =~ /(.*)_id$/)
+        {   $run{$1}    ||= $make->($int, 'blessed $_[0] ? $_[0]->id : $_[0]');
             $run{$ext}  ||= $make->($int, '$_[0]');
         }
         elsif(_is_boolean_field_name($ext) || $bools{$int} )

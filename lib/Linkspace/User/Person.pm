@@ -394,6 +394,7 @@ L<Linkspace::Site::Users> object manages the permission names.
 # id            user_id       permission_id
 
 my %change_by_admin_only = map +($_ => 1), qw/useradmin audit superadmin/;
+my %superadmin_rights    = map +($_ => 1), qw/layout view_create/;
 
 has _permissions => (
     is        => 'lazy',
@@ -414,11 +415,16 @@ Check whether the user has a permission (by name).
 =head2 my $is_admin = $user->is_admin;
 Short for C<<$user->has_permission('superadmin')>>.
 
-=head2 \@perms = $user->permssions;
+=head2 \@perms = $user->permissions;
 Sorted permissions.
 =cut
 
-sub has_permission($) { $_[0]->_permissions->{$_[1]} }
+sub has_permission($) {
+{   my ($self, $perm) = @_;
+    my $perms = $self->_permissions;
+    $perms->{$perm} || ($superadmin_rights{$perm} && $perm->{superadmin});
+}
+
 sub is_admin { $_[0]->has_permission('superadmin') }
 sub permissions { [ sort keys %{$_[0]->_permissions} ] }
 

@@ -428,10 +428,10 @@ sub column_create($%)
 =cut
 
 my %filters_invariant = (
-    exclude_hidden   => sub { ! $_[0]->hidden },
-    exclude_internal => sub { ! $_[0]->internal },
-    only_internal    => sub {   $_[0]->internal },
-    only_unique      => sub {   $_[0]->isunique },
+    exclude_hidden   => sub { ! $_[0]->is_hidden },
+    exclude_internal => sub { ! $_[0]->is_internal },
+    only_internal    => sub {   $_[0]->is_internal },
+    only_unique      => sub {   $_[0]->is_unique },
     can_child        => sub {   $_[0]->can_child },
     linked           => sub {   $_[0]->link_parent },
     is_globe         => sub {   $_[0]->return_type eq 'globe' },

@@ -80,11 +80,11 @@ sub _user_index_full
 {   my $self  = shift;
     my $index = $self->_users_index;
     unless($self->_users_complete)
-    {   $index->{$_->id} ||= $_ for    # ignore objects we already have
-            Linkspace::User::Person->search_objects({
-                deleted => undef,
-                site    => $self->site,
-            });
+    {   my $people = Linkspace::User::Person->search_objects({
+            deleted => undef,
+            site    => $self->site,
+        });
+		$index->{$_->id} ||= $_ for @$people;   # ignore objects we already have
         $self->_users_complete(1);
     }
     $index;

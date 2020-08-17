@@ -113,6 +113,8 @@ sub make_user($@)
     is logline, "info: User ${\$user->path} add permission '$_'", "... perm $_"
         for @{$perms || []};
 
+    # All users are in the $test_group
+    $site->groups->group_add_user(test_group, $user);
     $user;
 }
 
@@ -174,6 +176,8 @@ sub make_sheet($@)
 {   my ($seqnr, %args) = @_;
     $args{name} ||= "sheet $seqnr";
 
+    my $with_columns = delete $args{with_columns};  #XXX TBI
+
     my $sheet = test_site->document->sheet_create(\%args);
 
     is logline, "info: Instance created ${\$sheet->id}: ${\$sheet->path}",
@@ -183,10 +187,14 @@ sub make_sheet($@)
 }
 
 sub test_sheet(@)
-{   $test_sheet ||= make_sheet '1',
+{   return $test_sheet if $test_sheet;
+
+    $test_sheet = make_sheet '1',
         name_short => 'test_sheet',
         @_;
 
+    # The $test_group contains all generated users with superadmin rights
+    $test_sheet->group_allow(test_group, qw/layout view_create/);
 }
 
 1;
