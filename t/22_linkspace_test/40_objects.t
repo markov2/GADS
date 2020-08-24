@@ -1,6 +1,6 @@
 # Test the creation of some often used objects
 
-use Linkspace::Test;
+use Linkspace::Test start_test_session => 0;
 
 ### Site
 

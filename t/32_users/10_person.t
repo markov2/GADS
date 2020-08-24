@@ -1,5 +1,5 @@
 # Test the creations of bare persons: not (yet) with their relations
-use Linkspace::Test;
+use Linkspace::Test start_test_session => 0;
 
 use_ok 'Linkspace::User';
 use_ok 'Linkspace::User::Person';

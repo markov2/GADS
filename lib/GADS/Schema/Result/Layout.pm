@@ -1,34 +1,17 @@
 use utf8;
 package GADS::Schema::Result::Layout;
 
-=head1 NAME
-
-GADS::Schema::Result::Layout
-
-=cut
-
 use strict;
 use warnings;
 
 use base 'DBIx::Class::Core';
 
-=head1 COMPONENTS LOADED
-
-=over 4
-
-=item * L<DBIx::Class::InflateColumn::DateTime>
-
-=back
-
-=cut
-
+__PACKAGE__->table("layout");
 __PACKAGE__->load_components("InflateColumn::DateTime");
 
-=head1 TABLE: C<layout>
+=head1 NAME
 
-=cut
-
-__PACKAGE__->table("layout");
+GADS::Schema::Result::Layout
 
 =head1 ACCESSORS
 
@@ -551,6 +534,26 @@ __PACKAGE__->has_many(
   "GADS::Schema::Result::Graph",
   { "foreign.x_axis" => "self.id" },
   { cascade_copy => 0, cascade_delete => 0 },
+);
+
+=head2 instance
+
+Type: belongs_to
+
+Related object: L<GADS::Schema::Result::Instance>
+
+=cut
+
+__PACKAGE__->belongs_to(
+  "instance",
+  "GADS::Schema::Result::Instance",
+  { id => "instance_id" },
+  {
+    is_deferrable => 1,
+    join_type     => "LEFT",
+    on_delete     => "NO ACTION",
+    on_update     => "NO ACTION",
+  },
 );
 
 =head2 intgrs

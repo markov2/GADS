@@ -5,16 +5,15 @@ use_ok 'Linkspace::Site::Users';
 use_ok 'Linkspace::Group';
 
 my $site = test_site;
-test_session;
 
 # test user always member of test group: avoid both
-my $user2 = make_user '2';
-my $group2       = make_group '2';
+my $user2  = make_user '2';
+my $group2 = make_group '2';
 
 my $groups = $site->groups;
 ok defined $groups, 'Load user group handler';
 
-my $path = $group2->path;
+my $path   = $group2->path;
 
 ### Adding
 

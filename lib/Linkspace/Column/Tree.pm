@@ -75,8 +75,7 @@ has end_node_only => (
 # The root node, which all other nodes are referenced from.
 # Gets value from _tree once it's built
 has _root => (
-    is      => 'rw',
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub { $_[0]->_tree->{root} },
 );
 
@@ -86,7 +85,6 @@ has _nodes => (
     is      => 'rw',
     lazy    => 1,
     builder => sub { $_[0]->_tree->{nodes} },
-    clearer => 1,
 );
 
 # An array of all the enumvals. Also gets value from
@@ -95,7 +93,6 @@ has _nodes => (
 has enumvals => (
     is      => 'lazy',
     isa     => ArrayRef,
-    clearer => 1,
 );
 
 sub _build_enumvals

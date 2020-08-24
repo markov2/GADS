@@ -1938,9 +1938,9 @@ prefix '/:layout_name' => sub {
         $sheet->user_can("layout")
             or forwardHome({ danger => "You do not have permission to manage metrics" }, '');
 
-        template 'metrics' => {
-            layout      => $sheet,
+        template metrics => {
             page        => 'metric',
+            layout      => $sheet,
             metrics     => $sheet->metrics->all_groups,
             breadcrumbs => [
                 Crumb($sheet),
@@ -2068,9 +2068,8 @@ prefix '/:layout_name' => sub {
             }
         }
 
-        if (param 'delete_topic')
-        {
-            if (process(sub {$sheet->topic_delete(topic))
+        if(param 'delete_topic')
+        {   if(process(sub {$sheet->topic_delete($topic))
             {
                 return forwardHome(
                     { success => "The topic has been deleted successfully" }, $sheet->identifier.'/topics' );

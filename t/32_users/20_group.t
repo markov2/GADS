@@ -5,7 +5,6 @@ use_ok 'Linkspace::Site::Users';
 use_ok 'Linkspace::Group';
 
 my $site = test_site;
-test_session;
 
 my $groups = $site->groups;
 ok defined $groups, 'Load user group handler';

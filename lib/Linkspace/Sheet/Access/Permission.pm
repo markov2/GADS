@@ -28,6 +28,11 @@ __PACKAGE__->db_accessors;
 ### 2020-08-17: columns in GADS::Schema::Result::InstanceGroup
 # id          instance_id group_id    permission
 
+sub path()
+{   my $self = shift;
+    $self->sheet->path . '/'.$self->group->name.'='.$self->permission;
+}
+
 # List also hard-coded in table.tt
 my @sheet_permissions = qw/
     bulk_update
@@ -61,5 +66,10 @@ sub _permission_create($)
 }
 
 # No permission_update needed
+
+has group => (
+    is      => 'lazy',
+    builder => sub { $::session->site->groups->group($_[0]->group_id) },
+);
 
 1;

@@ -16,9 +16,8 @@ sub presentation {
         if ($filter->{id} == $self->id)
         {
             $has_filter = 1;
-            if ($self->fixedvals)
-            {
-                push @filter_values, map +{
+            if($self->fixedvals)
+            {   push @filter_values, map +{
                     id      => $_,
                     value   => $self->id_as_string($_),
                     checked => \1,
@@ -64,12 +63,12 @@ sub presentation {
     # XXX Reference to self when this is used within edit.tt. Ideally this
     # wouldn't be needed and all parameters that are needed would be passed as
     # above.
-    $return->{column} = $self
+    $val{column} = $self
         if $options{edit};
 
     my $sorter;
     if (my $sort = $options{sort})
-    {    $return{sort}
+    {    $val{sort}
            = $sort->{id} != $self->id ? +{
                 symbol  => '&darr;',
                 text    => 'ascending',
@@ -89,11 +88,10 @@ sub presentation {
                 link    => $self->id.'asc',
                 aria    => 'descending',
             };
-        }
     }
 
-    $self->after_presentation($return);
-    $return;
+    $self->after_presentation(\%val, %options);
+    \%val;
 }
 
 sub after_presentation {}; # Dummy, overridden

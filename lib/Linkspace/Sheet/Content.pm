@@ -18,21 +18,19 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Sheet::Content;
 
+use Log::Report 'linkspace';
 use Linkspace::Page::Current ();
 
 use Data::Dumper qw/Dumper/;
 use DateTime;
 use DBIx::Class::Helper::ResultSet::Util qw(correlate);
 use HTML::Entities;
-use Log::Report 'linkspace';
 use POSIX qw(ceil);
 use Scalar::Util qw(looks_like_number);
 use Text::CSV::Encoded;
 
-use GADS::Graph::Data;
-use GADS::Record;
-use GADS::Timeline;
-use GADS::View;
+use Linkspace::View;
+use Linkspace::Util qw(column_id);
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -80,7 +78,7 @@ sub search(%)
 
     my $view   = $args{view};
 
-    my %search = (
+    my %query = (
         search           => $args{search},       # text pattern
         only_deleted     => $args{is_deleted},
         only_drafts      => $args{is_draft},
@@ -114,8 +112,8 @@ view_limit_extra_id
     # is part of a closure configuration for a filter rule.
 
     if(my $rewind = $args{rewind})
-    {   $search{rewind} = $rewind;
-        $search{rewind_formatted} = $::db->format_datetime($rewind);
+    {   $query{rewind} = $rewind;
+        $query{rewind_formatted} = $::db->format_datetime($rewind);
     }
 
     ### Date boundaries
@@ -123,30 +121,31 @@ view_limit_extra_id
     my ($from_dt, $to_dt);
     if($from_dt = $args{from})
     {   $from_dt->truncate(to => 'day');
-        $search{from} = $from_dt;
+        $query{from} = $from_dt;
     }
 
     if($to_dt = $args{to})
     {   $to_dt->truncate(to => 'day')->add(days => 1)
             if $to_dt->hms('') ne '000000';
-        $search{to} = $to_dt;
+        $query{to} = $to_dt;
     }
 
-    $search{time_bounded_by}
+    $query{time_bounded_by}
       = $from_dt && $to_dt ? undef
       : $from_dt ? 'from'
       : $to_dt   ? 'to' : undef;
 
-    $search{exclusive} = $args{exclusive} || 'none';
+    $query{exclusive} = $args{exclusive} || 'none';
 
     ### Sort
 
     if(my $sort = $args{sort})
     {   # User-specified sort override
-        $search{sort_overrule} = ref $sort eq 'ARRAY' ? $sort : [ $sort ];
+        $query{sort_overrule} = ref $sort eq 'ARRAY' ? $sort : [ $sort ];
     }
 
     Linkspace::Page->new(
+        query    => \%query,
         nr       => $page_nr,
         nr_pages => $nr_pages,
         is_draft => $only_drafts,
@@ -157,9 +156,7 @@ view_limit_extra_id
 
 has current => (
     is      => 'lazy',
-    builder => sub
-    {   Linkspace::Page::Current->new(sheet => $_[0]);
-    }
+    builder => sub { Linkspace::Page::Current->new(sheet => $_[0]->sheet) }
 );
 
 sub delete_current($)
@@ -176,43 +173,19 @@ has curcommon_all_fields => (
     default => 0,
 );
 
+# Get the user search criteria
 sub _view_limits_search
-{   my ($self, %options) = @_;
+{   my ($self, $query, %options) = @_;
     my @search;
     return [] if $self->no_view_limits;
-    foreach my $view (@{$self->_view_limits})
-    {
-        if (my $filter = $view->filter)
-        {
-            my $decoded = $filter->as_hash;
-            if (keys %$decoded)
-            {
-                # Get the user search criteria
-                push @search, $self->_search_construct($decoded, $self->layout, %options);
-            }
-        }
-    }
+
+    my @search, map $self->_construct_filter($query, $_, %options),
+        @{$query->{view_limits}};
+    
     my $limit = [ '-or' => \@search ];
-
-    if (my $filter = $self->_view_limit_extra && $filter->filter)
-    {
-        my $decoded = $filter->as_hash;
-        if (keys %$decoded)
-        {
-            # Get the user search criteria
-            $limit = [
-                -and => [ $limit, $self->_search_construct($decoded, $self->layout, %options) ],
-            ];
-        }
-    }
-
-    return $limit;
+    my $extra = $self->_construct_filter($query, $query->{view_limit_extra}, %options);
+    $extra ? [ -and => [ $limit, $extra ]] : $limit;
 }
-
-# Array ref with column IDs
-has columns => (
-    is => 'rw',
-);
 
 # Array ref with any additional column IDs requested
 has columns_extra => (
@@ -372,16 +345,12 @@ has _sorts_limit => (
 # The first sort of the calculated list of sorts
 sub sort_first { $_[0]->_sorts->[0] }
 
-has results => (
-    is        => 'lazy',
-    predicate => 1,
-    builder   =>
-    {   my $self = shift;
-        $self->needs_column_grouping ? $self->_build_group_results : $self->_build_standard_results;
-    },
-);
+sub results($)
+{   my ($self, $query) = @_;
+    $self->needs_column_grouping ? $self->_build_group_results($query) : $self->_build_standard_results($query);
+}
 
-sub _search_construct;
+sub _construct_filter;
 
 # Shortcut to generate the required joining hash for a DBIC search
 sub linked_hash
@@ -391,21 +360,18 @@ sub linked_hash
 
     my $alt    = $options{alt} ? "_alternative" : "";
 
-     +{
-        linked => [
-            {
-                "record_single$alt" => [
-                    "record_later$alt",
-                    $self->jpfetch(%options, linked => 1);   
-                ]
-            },
-        ],
+    +{ linked => [
+        {   "record_single$alt" => [
+                "record_later$alt",
+                $self->jpfetch(%options, linked => 1);   
+             ]
+        } ],
      };
 }
 
 # Any views which have a particular record within
-sub search_views
-{   my ($self, $current_ids, @views) = @_;
+sub search_views($)
+{   my ($self, $query, $current_ids, @views) = @_;
 
     @views && @$current_ids
         or return;
@@ -416,26 +382,24 @@ sub search_views
 
     my @foundin;
     foreach my $view (@views)
-    {   my $filter  = $view->filter;
-
-        # Treat each view with CURUSER as a separate view for each user
+    {   # Treat each view with CURUSER as a separate view for each user
         # that has it set as an alert
-        my $user_ids = $view->alert_users_ids;
+        my $user_ids = $view->alert_users_ids || [ undef ];
 
-        my $filter_hash = $filter->as_hash;
-        unless(keys %$filter_hash)
+        my $filter  = $view->filter;
+        unless($filter)
         {   # No filter, definitely in view
-            foreach my $user_id ($user_ids ? @$user_ids : undef)
+            foreach my $user_id (@$user_ids)
             {   push @foundin,
                     map +{ view => $view, user_id => $user_id, id => $_ }, @$current_ids;
             }
             next;
         }
 
-        foreach my $user_id ($user_ids ? @$user_ids : undef)
+        foreach my $user_id (@$user_ids)
         {   my %search = (
                 'me.instance_id' => $self->sheet->id,
-                $self->_search_construct($filter_hash, $self->layout, ignore_perms => 1, user => $user),
+                $self->_construct_filter($query, $filter, ignore_perms => 1, user => $user),
                 (map %$_, $self->record_later_search(linked => 1, search => 1)),
             );
 
@@ -603,8 +567,7 @@ sub _build__search_all_fields
     my $count = @cids;
     my $limit;
     if ($count > 500)
-    {
-        @cids  = @cids[0 .. 499];
+    {   @cids  = @cids[0 .. 499];
         $limit = 500;
     }
 
@@ -709,11 +672,12 @@ sub _cid_search_query
     $search;
 }
 
-sub _build_standard_results
-{   my $self = shift;
-    local $GADS::Schema::Result::Record::REWIND = $query{rewind_formatted};
+sub _build_standard_results($)
+{   my ($self, $query) = @_;
+    local $GADS::Schema::Result::Record::REWIND = $query->{rewind_formatted};
 
-    my $search_query = $self->search_query(search => 1, sort => 1, linked => 1); # Need to call first to build joins
+    # Need to call first to build joins
+    my $search_query = $self->search_query(search => 1, sort => 1, linked => 1);
 
     my @prefetches = $self->jpfetch(prefetch => 1, linked => 0);
     my $rec1 = @prefetches ? +{ record_single => \@prefetches } : 'record_single';
@@ -721,32 +685,27 @@ sub _build_standard_results
     # Add joins for sorts, but only if they're not already a prefetch (otherwise ordering can be messed up).
     # We also add the join for record_later, so that we can take only the latest required record
     my @j    = $self->jpfetch(sort => 1, prefetch => 0, linked => 0);
-    my $rec2 = @j ? { record_single => [ @j, 'record_later' ] }
-        : { record_single => 'record_later' };
-
-    my @linked_prefetch = $self->linked_hash(prefetch => 1);
-
-    my $select_creation_date = $::db->resultset('Current')
-        ->correlate('records')
-        ->get_column('created')
-        ->min_rs->as_query;
-
-    my $select_first_record = $::db->resultset('Current')
-        ->correlate('records')
-        ->get_column('id')
-        ->min_rs->as_query;
+    my $rec2 = { record_single => (@j ? [ @j, 'record_later' ] : 'record_later') };
 
     # This makes the assumption that the lowest record ID will be the first created.
+
+    my $select_first_record = $::db->resultset('Current')->correlate('records')
+        ->get_column('id')->min_rs->as_query;
+
     my $select_creator = $::db->search(Record => {
        'me_created.id' => { -in => $select_first_record },
     }, { 
        alias => 'me_created',
     })->get_column('createdby')->as_query;
 
+
+    my $select_creation_date = $::db->resultset('Current')->correlate('records')
+        ->get_column('created')->min_rs->as_query;
+
     my %select = (
         prefetch => [
             'deletedby',
-            \@linked_prefetch,
+            [ $self->linked_hash(prefetch => 1) ],
             $rec1,
         ],
         join     => [
@@ -1132,10 +1091,11 @@ sub _build_columns_retrieved_no
 }
 
 sub _build_columns_view
-{   my $self = shift;
+{   my ($self, $query) = @_;
+    my $layout = $self->layout;
 
     my @cols;
-    if (my $view = $self->view)
+    if(my $view = $query->{view})
     {   my $group_col_ids = $view->grouping_column_ids;
 
         my %view_layouts = map +($_ => 1),
@@ -1152,17 +1112,17 @@ sub _build_columns_view
             include_column_ids => \%view_layouts,  #XXX unused
         ));
 
-        unshift @cols, $self->layout->column($current_group_id)
+        unshift @cols, $layout->column($current_group_id)
             if $current_group_id;
     }
     else
-    {   @cols = @{$self->layout->columns_search(user_can_read => 1)};
+    {   @cols = @{$layout->columns_search(user_can_read => 1)};
     }
 
-    unshift @cols, $self->layout->column_id
+    unshift @cols, $layout->column('_id')
         unless $self->needs_column_grouping;
 
-    return \@cols;
+    \@cols;
 }
 
 has additional_filters => (
@@ -1211,65 +1171,56 @@ sub _search_date
 # Construct various parameters used for the query. These are all
 # related, so it makes sense to construct them together.
 sub _query_params
-{   my ($self, %options) = @_;
+{   my ($self, $query, %options) = @_;
 
     my $layout = $self->layout;
 
     # The search criteria to narrow-down by date range
-    my $search_date = [];
-    $self->_search_date($_, $search_date)
+    my @search_dates;
+    $self->_search_date($_, \@search_dates)
         for @{$self->columns_retrieved_no};
 
     my @limit;  # The overall limit, for example reduction by date range or approval field
     my @search; # The user search
     # The following code needs to be run twice, to make sure that join numbers
     # are worked out correctly. Otherwise, a search criteria might not take
-    # into account a subsuquent sort, and vice-versa.
-    for (1..2)
+    # into account a subsequent sort, and vice-versa.
+    for (1..2)  #XXX
     {
         @search = (); @limit = (); # Reset from first loop
 
         # Add any date ranges to the search from above
-        if (@$search_date)
-        {
-            my @res = $self->_search_construct({condition => 'OR', rules => $search_date}, $layout);
-            push @limit, @res if @res;
+        if(@search_dates)
+        {   push @limit, $self->_construct_filter($query, +{
+               condition => 'OR', rules => \@search_date
+            });
         }
 
-        foreach my $additional (@{$self->additional_filters})
-        {
-            my $col = $layout->column($additional->{id});
-            my $f = {
+        foreach my $additional (@{$query->{additional_filters}})
+        {   my $col = $layout->column($additional->{id});
+            push @limit, $self->_construct_filter($query, +{
                 id          => $col->id,
                 operator    => $col->string_storage ? 'begins_with' : 'equal',
                 value       => $additional->{value},
                 value_field => $col->value_field_as_index($additional->{value}),
-            };
-            push @limit, $self->_search_construct($f, $layout);
+            });
         }
 
         # Now add all the filters as joins (we don't need to prefetch this data). However,
         # the filter might also be a column in the view from before, in which case add
         # it to, or use, the prefetch. We use the tracking variables from above.
-        if (my $view = $self->view)
-        {
-            # Apply view filter, but not if quick search has been used
-            if ($view->filter && !$self->search)
-            {
-                my $decoded = $view->filter->as_hash;
 
-                # Get the user search criteria
-                @search = $self->_search_construct($decoded, $layout, %options)
-                    if keys %$decoded;
-            }
-        }
-        push @search, $self->_view_limits_search(%options);
+        @search = $self->_construct_filter($query, $query->{view}, %options)
+            unless $query->{quick_search};
+
+        push @search, $self->_view_limits_search($query, %options);
+
         # Finish by calling order_by. This may add joins of its own, so it
         # ensures that any are added correctly.
         $self->order_by;
     }
 
-    (@limit, @search);
+    (@limit, @search);  #XXX
 }
 
 
@@ -1432,49 +1383,45 @@ my %op_to_sql = (
     is_not_empty     => '!=',
 );
 
-sub _search_construct
-{   my ($self, $filter, %options) = @_;
+sub _construct_filter($$%)
+{   my ($self, $query, $filter, %options) = @_;
+    $filter = $filter->filter  if blessed $filter && $filter->isa('Linkspace::View');
+    $filter = $filter->as_hash if blessed $filter && $filter->isa('Linkspace::Filter');
+    $filter && keys %$filter or return ();
 
     my $ignore_perms = $options{ignore_perms};
+
     if(my $rules = $filter->{rules})
-    {
-        # Previous values for a group. This allows previous values to be
+    {   # Previous values for a group. This allows previous values to be
         # searched only for a whole group (e.g. to include previous values only
         # between certain edit dates). Construct the whole group as a
         # GADS::Records and return that as a query
-        if($filter->{previous_values})
-        {
-            my $f = Linkspace::Filter->from_hash(+{ %$filter, previous_values => 0 });
-
-            my $page = $self->search(
-                filter => $f,
-                _view_limits => [], # Don't limit by view, otherwise recursive loop
+        if(my $pv = $filter->{previous_values})
+        {   my $page  = $self->search({
+                %$query,
+                filter => Linkspace::Filter->from_hash({%$filter, previous_values => 0}),
+                view_limits     => [], # Don't limit by view, otherwise recursive loop
                 previous_values => 1,
-            );
+            };
 
-            my $match = $filter->{previous_values} eq 'negative' ? '-not_in' : '-in';
+            my $match = $pv eq 'negative' ? '-not_in' : '-in';
             return +{ 'me.id' => { $match => $page->_current_ids_rs->as_query } };
         }
 
         # Filter has other nested filters
-        my @final = map $self->_search_construct($rule, $layout, %options), @$rules;
+        my @final = map $self->_construct_filter($query, $_, %options), @$rules;
         @final or return ();
 
         my $op    = ($filter->{condition} // 'AND') eq 'OR' ? '-or' : '-and';
         return ($op => \@final);
     }
 
-    my $fid = $filter->{id} or return; # Used to ignore filter
+    my $fid           = $filter->{id} or return; # Used to ignore filter  XXX
 
-    my ($parent_column, $column);
-    my %permission = $ignore_perms ? () : (permission => 'read');
-    if(my ($parent, $child) = $fid =~ /^([0-9]+)_([0-9]+)$/)
-    {   $column        = $layout->column($child, %permission);
-        $parent_column = $layout->column($parent, %permission);
-    }
-    else
-    {   $column        = $layout->column($fid, %permission);
-    }
+    my @permission    = $ignore_perms ? () : (permission => 'read');
+    my ($parent_id, $child_id) = $fid =~ /^([0-9]+)_([0-9]+)$/ ? ($1, $2) : (undef, $fid);
+    my $parent_column = $layout->column($parent_id, @permission);
+    my $column        = $layout->column($child_id, @permission);
 
     $column
         or return;
@@ -1506,7 +1453,7 @@ sub _search_construct
 
     my $reverse  = $previous_values && $filter_operator =~ s/^not_//;
     my $operator = $op_to_sql{$filter_operator}
-        or error __x"Invalid operator {filter}", filter => $filter_operator;
+        or panic "Invalid operator $filter_operator";
 
     my @conditions;
     my $gate = 'and';
@@ -1531,7 +1478,7 @@ sub _search_construct
                 s_field  => 'from',
             };
         }
-        elsif ($operator eq '>=' || $operator eq '<')
+        elsif($operator eq '>=' || $operator eq '<')
         {   $transform_date = 1;
             push @conditions, {
                 type     => $filter_operator,
@@ -1580,9 +1527,7 @@ sub _search_construct
     {   push @values, $column->string_storage ? (undef, "") : undef;
     }
     else
-    {   my @original_values = ref $filter->{value} ? @{$filter->{value}} : $filter->{value};
-
-        foreach (@original_values)
+    {   foreach (flat $filter->{value})
         {   my $match = "$vprefix$_$vsuffix";
 
             # This shouldn't normally happen, but sometimes we can end up with an
@@ -1642,6 +1587,7 @@ sub _search_construct
     ), @conditions;
 
     my $parent_column_link = $parent_column && $parent_column->link_parent;
+
     $parent_column_link || $column->link_parent
         or return "-$gate" => \@final;
 
@@ -1896,49 +1842,47 @@ sub _build_aggregate_results
     $results->[0];
 }
 
-sub _build_group_results
-{   my ($self, %options) = @_;
-    my $aggregate = $options{aggregate};
+sub _build_group_results($%)
+{   my ($self, $query, %options) = @_;
+    my $aggregate = $query->{aggregate};
 
     # Build the full query first, to ensure that all join numbers etc are
     # calculated correctly
     my $search_query    = $self->search_query(search => 1, sort => 1);
 
-    # Work out the field name to select, and the appropriate aggregate function
-    my @select_fields;
-    my @cols;
-    my $view = $self->view;
+    my $view = $query->{view};
 
+    my @cols;
     my $is_table_group = !$self->isa('GADS::RecordsGraph') && !$self->isa('GADS::RecordsGlobe');
 
-    if(my $cols = $options{columns})
+    if(my $cols = $query->{columns})
     {   @cols = @$cols;
     }
-    elsif ($view && $view->needs_column_grouping && $is_table_group)
-    {
-        my %view_group_cols = map +($_->layout_id => 1), @{$view->groups};
-        @cols = map +{
-            id       => $_->id,
-            column   => $_,
-            operator => $_->is_numeric ? 'sum' : $view_group_cols{$_->id} ? 'max' : 'distinct',
-            group    => $view_group_cols{$_->id},
-        }, @{$self->columns_view};
-    }
-    else
-    {   @cols = @{$self->columns};
+    elsif($view && $view->does_column_grouping && $is_table_group)
+    {   foreach my $column (@{$self->columns_view($query})
+        {   my $has_grouping = $view->grouping_on($column);
+            push @cols, +{
+                id       => $column->id,
+                column   => $column,
+                operator => $column->is_numeric ? 'sum' : $has_grouping ? 'max' : 'distinct',
+                group    => $has_grouping,
+            };
+        }
     }
 
     my @parents;
     my %group_cols;
-    %group_cols = map { $_->layout_id => 1 } @{$view->groups}
+    %group_cols = map +($_->column_id => 1), @{$view->groupings}
         if $is_table_group && $view && !$aggregate;
+
+    my $dr_col_id = column_id $query->{dr_column} || 0; # Date-range column
 
     foreach my $col (@cols)
     {
-        my $column = $self->layout->column($col->{id});
-        $col->{column} = $column;
+        my $column         = $self->layout->column($col->{id});
+        $col->{column}     = $column;
         $col->{operator} ||= 'max';
-        $col->{drcol} = $self->dr_column && $self->dr_column == $column->id;
+        $col->{is_drcol}   = $dr_column == $column->id;
 
         # Only include full fields as a group column, otherwise all curval
         # sub-fields will be added, which for a multivalue curval will mean
@@ -1948,26 +1892,22 @@ sub _build_group_results
             if $col->{group} && !$col->{parent};
 
         # If it's got a parent curval, then add that too
-        if ($col->{parent_id})
-        {
-            my $parent = $self->layout->column($col->{parent_id});
-            push @parents, {
+        if(my $parent = $col->{parent} = $column->parent)
+        {   push @parents, {
                 id       => $parent->id,
                 column   => $parent,
                 operator => $col->{operator},
                 group    => $col->{group},
-                drcol    => $self->dr_column && $self->dr_column == $column->id,
+                drcol    => $col->{is_drcol},
             };
-            $col->{parent} = $parent;
         }
+
         # If it's a curval, then add all its subfields
-        if ($column->type eq 'curval' && !$is_table_group)
-        {
-            foreach (@{$column->curval_fields})
-            {
-                push @cols, {
-                    id       => $_->id,
-                    column   => $_,
+        if($column->type eq 'curval' && !$is_table_group)
+        {   foreach my $curval (@{$column->curval_fields})
+            {   push @cols, {
+                    id       => $curval->id,
+                    column   => $curval,
                     operator => $col->{operator},
                     parent   => $column,
                     group    => $col->{group},
@@ -2000,7 +1940,7 @@ sub _build_group_results
         # excluded). The reason is that it will otherwise not cause the related
         # record_later searches to be generated when the curval sub-field is
         # retrieved in the same query
-        if ($self->dr_column && $self->dr_column == $column->id)
+        if($col->{is_drcol})
         {
             if ($self->dr_column_parent)
             {   $self->add_drcol($self->dr_column_parent);
@@ -2019,6 +1959,9 @@ sub _build_group_results
 
     my $as_index = $self->group_values_as_index;
     my $drcol    = !!$self->dr_column;
+
+    # Work out the field name to select, and the appropriate aggregate function
+    my @select_fields;
 
     foreach my $col (@cols)
     {   my $op     = $col->{operator};
@@ -2039,7 +1982,7 @@ sub _build_group_results
         # to the multiple joins)
 
         # Field is either multivalue or its parent is
-        if (($column->multivalue || ($parent && $parent->multivalue)) && !$col->{group} && !$col->{drcol})
+        if(($column->is_multivalue || ($parent && $parent->is_multivalue)) && !$col->{group} && !$col->{is_drcol})
         {
             # Assume curval if it's a parent - we need to search the curval
             # table for all the curvals that are part of the records retrieved.

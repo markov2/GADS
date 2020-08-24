@@ -25,6 +25,7 @@ our @EXPORT = qw/
 /;
 
 our $guard;  # visible for guard test only
+sub test_session();
 
 sub import(%)
 {   my ($class, %args) = @_;
@@ -52,6 +53,9 @@ sub import(%)
 
     # All database changes get lost when the test script terminates.
     $guard = $::db->begin_work;
+
+    test_session
+        unless exists $args{start_test_session} && !$args{start_test_session};
 }
 
 END { $guard->rollback if $guard }
@@ -93,6 +97,29 @@ sub make_site($@)
 }
 sub test_site(@) { $test_site ||= make_site '1', @_ } 
 
+sub make_group($@)
+{   my ($seqnr, %args) = @_;
+    my $site  = $args{site} || $::session->site;
+    my $group = $site->groups->group_create({name => "group$seqnr"});
+
+    is logline, "info: Group created ${\$group->id}: ${\$site->path}/group$seqnr",
+        "created group ${\$group->id}, ".$group->path;
+
+    $group;
+}
+
+sub test_user(@);
+sub test_group(@)
+{   return $test_group if $test_group;
+
+    my $user = test_user;
+    $test_group = make_group '1', owner => $user, @_;
+
+    test_site->groups->group_add_user($test_group, $user);
+    like logline, qr/^info: user.*added to.*/, '... log added user to group';
+
+    $test_group;
+}
 
 sub make_user($@)
 {   my ($seqnr, %args) = @_;
@@ -113,31 +140,18 @@ sub make_user($@)
     is logline, "info: User ${\$user->path} add permission '$_'", "... perm $_"
         for @{$perms || []};
 
-    # All users are in the $test_group
-    $site->groups->group_add_user(test_group, $user);
+    # All users are in the $test_group.  Recursive problem with test_group/test_user
+    if($postfix)
+    {   test_site->groups->group_add_user(test_group, $user);
+        like logline, qr/^info: user.*added to.*/;
+    }
+
     $user;
 }
 
 sub test_user(@)
 {   $test_user ||= make_user '1',
         permissions => ['superadmin'],
-        @_;
-}
-
-sub make_group($@)
-{   my ($seqnr, %args) = @_;
-    my $site  = $args{site} || $::session->site;
-    my $group = $site->groups->group_create({name => "group$seqnr"});
-
-    is logline, "info: Group created ${\$group->id}: ${\$site->path}/group$seqnr",
-        "created group ${\$group->id}, ".$group->path;
-
-    $group;
-}
-
-sub test_group(@)
-{   $test_group ||= make_group '1',
-        owner => test_user,
         @_;
 }
 
@@ -165,10 +179,11 @@ sub test_session()
 }
 
 sub switch_user($)
-{   my ($self, $user) = @_;
+{   my ($user) = @_;
 
-    $::session->login($user);
-    is logline, '', 'Switch to user '.$user->path;
+    $::session->user_login($user);
+    like logline, qr!^info: login_success .* by admin!, 'switch to user '.$user->path;
+    like logline, qr!^info: User .* changed fields!, '... successfull login';
 }
 
 #XXX to be tested
@@ -194,7 +209,15 @@ sub test_sheet(@)
         @_;
 
     # The $test_group contains all generated users with superadmin rights
-    $test_sheet->group_allow(test_group, qw/layout view_create/);
+    $test_sheet->access->group_allow(test_group, qw/layout view_create/);
+
+    like logline, qr/^info: InstanceGroup created.*layout/,
+        '... test_user can layout';
+
+    like logline, qr/^info: InstanceGroup created.*view_create/,
+        '... test_user can view_create';
+
+    $test_sheet;
 }
 
 1;

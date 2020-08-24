@@ -34,6 +34,10 @@ sub db_accessors(%)
 
     my $table  = $class->db_table;
     my $rclass = $class->db_result_class;
+
+    #XXX some packages are loaded, but not all.  Why not?
+    eval "require $rclass" or panic $@;
+
     my $info   = $rclass->columns_info or panic "schema $rclass not loaded";
     my $rename = $class->_db_rename($info);
 
@@ -57,12 +61,14 @@ sub { \@_==1 or error "Read-only accessor ${class}::$attr"; \$_[0]{_coldata}{$ac
 __ACCESSOR
     }
 
-    foreach my $acc (keys %$rename)
-    {   next if $class->can($acc);  # some other implementation of the method
-        *{"${class}::$acc"} = eval <<__RENAME;
-sub { error "Accessor ${class}::$acc renamed to $rename->{$acc}" }
-__RENAME
-    }
+#XXX would like to install this helper, but the original names often have a new
+#XXX implementation, for instance ::Column::link_parent()
+#   foreach my $acc (keys %$rename)
+#   {   next if $class->can($acc);  # some other implementation of the method
+#       *{"${class}::$acc"} = eval <<__RENAME;
+#sub { error "Accessor ${class}::$acc renamed to $rename->{$acc}" }
+#__RENAME
+#    }
 }
 
 # To be overwritten
@@ -121,6 +127,8 @@ unique C<id> column in the table.
 
 sub from_id($%)
 {   my ($class, $obj_id) = (shift, shift);
+    $obj_id or return;
+
     my $record = $::db->get_record($class->db_table => $obj_id);
     $record ? $class->new(@_, _record => $record) : undef;
 }
@@ -187,7 +195,7 @@ the site-wide column index.
 =cut
 
 # Cache the looked-up function address which translates column ids/name into
-# column objects.
+# column objects.  This will add some speed.
 has _get_column => (
     is      => 'lazy',
     builder => sub
@@ -208,11 +216,12 @@ looked-up under fly.
 =cut
 
 has sheet => (
-    is        => 'lazy',
-    weakref   => 1,
-    builder   => sub
-    {   $_[0]->can('sheet_id') or panic "Object has no sheet";
-        $::session->site->sheet($_[0]->sheet_id);
+    is      => 'lazy',
+    weakref => 1,
+    builder => sub
+    {   my $self = shift;
+        $self->can('sheet_id') or panic "Object is not related to a sheet";
+        $self->site->sheet($self->sheet_id);
     },
 );
 

@@ -1,7 +1,7 @@
 
 # Check that the Test object loads stuff in this namespace
 
-use Linkspace::Test;
+use Linkspace::Test start_test_session => 0;
 
 ok exists $INC{'warnings.pm'}, 'use warnings';     # may already be on before
 ok exists $INC{'strict.pm'}, 'use strict';         # may already be on before

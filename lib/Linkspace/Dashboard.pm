@@ -45,12 +45,14 @@ The dashboard may be sheet related, but there is also one connected to the Site.
 =head1 METHODS: Constructors
 =cut
 
+sub delete()
+{   my $self = shift;
+    $::db->delete(Widget => { dashboard_id => $self->id });
+    $self->SUPER::delete;
+}
+
 =head1 METHODS: Accessors
 =cut
-
-has '+sheet' => (
-    required => 0,
-);
 
 sub owner
 {   my $self = shift;
@@ -78,8 +80,10 @@ sub download_url { $_[0]->url . '&download=pdf' }
 sub can_write(;$)
 {   my ($self, $user) = @_;
     $user ||= $::session->user;
-       ($self->sheet && $self->sheet->user_can(layout => $user))
-    || ($self->owner_id //0) == $user->id;
+    return 1 if +($self->owner_id //0) == $user->id;
+
+    my $sheet = $self->sheet;
+    $sheet && $sheet->user_can(layout => $user);
 }
 
 #-------------------------
@@ -129,11 +133,10 @@ sub widget_update($)
 
 sub widget_delete($)
 {   my ($self, $widget) = @_;
-
     my $index = $self->_widget_index;
     delete $index->{$widget->id};
     delete $index->{$grid_id};
-    $widget->delete
+    $widget->delete;
 }
 
 sub static_widgets

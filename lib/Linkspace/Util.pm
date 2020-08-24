@@ -23,6 +23,7 @@ package Linkspace::Util;
 use parent 'Exporter';
 
 our @EXPORT_OK = qw/
+    column_id
     flat
     is_valid_email
     index_by_id
@@ -55,6 +56,13 @@ to decide whether some code should be in a function or as method to an
 object.  Keep it simple!
 
 =head1 FUNCTIONS
+
+=head2 my $col_id = column_id $column|$col_id;
+Returns the column id.  This may passed a column object or column id (which
+results in a no-op).
+=cut
+
+sub column_id($) { blessed $_[0] ? $_[0]->id : $_[0] }
 
 =head2 my @values = flat \@array|$value, ...
 Flatten a LIST into values.  It will not go into nested ARRAYs.  An C<undef>

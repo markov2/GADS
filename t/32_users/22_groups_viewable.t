@@ -7,8 +7,7 @@ use Linkspace::Test;
 use_ok 'Linkspace::Site::Users';
 use_ok 'Linkspace::Group';
 
-my $site = test_site;
-test_session;
+my $site   = test_site;
 
 my $groups = $site->groups;
 ok defined $groups, 'Load user group administrator';
@@ -22,14 +21,18 @@ my $group1 = test_group;
 ok $user1->is_in_group($group1);
 ok $user2->is_in_group($group1);
 
-$sheet->group_allow($group1, 'view_group');
+$sheet->access->group_allow($group1, 'view_group');
+like logline, qr/^info: InstanceGroup create.*group1=view_group$/,
+    'group1 can view_group';
 
 # Create a second group
 my $group2 = $groups->group_create({name => 'group2'});
-$group2->add_user($user1);
+is logline, "info: Group created ${\($group2->id)}: test-site/group2", 'Group2 created';
+
+$groups->group_add_user($group2, $user1);
+like logline, qr!^info: user .* added to test-site/group2!, 'Add user to group2';
 ok   $user1->is_in_group($group2);
 ok ! $user2->is_in_group($group2);
-
 switch_user $user2;
 
 # Check what groups each user can see for sharing graphs.
@@ -44,7 +47,7 @@ $column2->group_allow($group3, 'read');
 
 # Group4 is a group which has layout permissions on the new table
 my $group4 = $groups->group_create({name => 'group4'});
-$sheet->group_allow($group4, 'layout');
+$sheet->access->group_allow($group4, 'layout');
 
 # Finally a third sheet with its own group to check this group is only
 # shown to owner.
@@ -72,7 +75,7 @@ is _viewable($user1), 'group1 group2 group3 group4 group5',
 # also see group3 which is used in the table that group4 has layour permission
 # on.
 
-$group4->add_user($user1);
+$groups->group_add_user($group4, $user1);
 is _viewable($user1), 'group1 group2 group3 group4',
     'Normal user has access to groups in its tables';
 

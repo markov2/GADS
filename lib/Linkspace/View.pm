@@ -238,9 +238,13 @@ has _view_groupings => (
 
 sub groupings { [ sort {$a->order <=> $b->order} $_[0]->_view_groupings ] }
 sub grouping_column_ids { [ grep $_->column_id, @{$_[0]->groupings} ] }
+sub does_column_grouping { !! keys %{$_[0]->_view_groupings} }
 
-#XXX is_grouped?  does_column_grouping?
-sub is_group { !! keys %{$_[0]->_view_groupings} }
+sub grouping_on($)
+{   my ($self, $which) = @_;
+    my $col_id = blessed $which ? $which->id : defined $which ? $which : return 0;
+    $self->_view_groupings->{$col_id};
+}
 
 #XXX???
 # The current field that is being grouped by in the table view, where a view

@@ -22,34 +22,39 @@ use Log::Report   'linkspace';
 use JSON          qw/decode_json encode_json/;
 use List::Compare ();
 
-use Linkspace::Column::Id;
+use Linkspace::Column::Id          ();
+use Linkspace::Column::Intgr       ();
 
 =pod
-use Linkspace::Column::Autocur;
-use Linkspace::Column::Calc;
-use Linkspace::Column::Createdby;
-use Linkspace::Column::Createddate;
-use Linkspace::Column::Curval;
-use Linkspace::Column::Date;
-use Linkspace::Column::Daterange;
-use Linkspace::Column::Deletedby;
-use Linkspace::Column::Enum;
-use Linkspace::Column::File;
-use Linkspace::Column::Intgr;
-use Linkspace::Column::Person;
-use Linkspace::Column::Rag;
-use Linkspace::Column::Serial;
-use Linkspace::Column::String;
-use Linkspace::Column::Tree;
 
-use Linkspace::Filter::DisplayField;
+use Linkspace::Column::Autocur     ();
+use Linkspace::Column::Calc        ();
+use Linkspace::Column::Createdby   ();
+use Linkspace::Column::Createddate ();
+use Linkspace::Column::Curval      ();
+use Linkspace::Column::Date        ();
+use Linkspace::Column::Daterange   ();
+use Linkspace::Column::Deletedby   ();
+use Linkspace::Column::Enum        ();
+use Linkspace::Column::File        ();
+use Linkspace::Column::Person      ();
+use Linkspace::Column::Rag         ();
+use Linkspace::Column::Serial      ();
+use Linkspace::Column::String      ();
+use Linkspace::Column::Tree        ();
+
+use Linkspace::Filter::DisplayField ();
+
 =cut
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::DB::Table';
 
-sub db_table { 'Layout' }
+#use namespace::clean; # Otherwise Enum clashes with MooseLike
+#with 'Linkspace::Role::Presentation::Column';
+
+sub db_table() { 'Layout' }
 
 sub db_field_rename { +{
     display_field => 'display_field_old',  # unused
@@ -62,14 +67,14 @@ sub db_field_rename { +{
     optional      => 'is_optional',
     related_field => 'related_field_id',
 #   permission    => ''   XXX???
-    };
-}
+} }
 
 # 'display_field' is also unused, but we do not want a stub for it: its
 # method name has a new purpose.
 sub db_fields_unused { [ qw/display_matchtype display_regex/ ] }
 
 __PACKAGE__->db_accessors;
+
 ### 2020-04-14: columns in GADS::Schema::Result::Layout
 # id                display_field     internal          permission
 # instance_id       display_matchtype isunique          position
@@ -80,9 +85,6 @@ __PACKAGE__->db_accessors;
 # description       group_display     options           typeahead
 # display_condition helptext          ordering          width
 
-
-use namespace::clean; # Otherwise Enum clashes with MooseLike
-with 'Linkspace::Role::Presentation::Column';
 
 ###
 ### META information about the column implementations.
@@ -143,29 +145,31 @@ my @simple_export_attributes =
 ### Class
 ###
 
-sub column_create
-{   my ($class, $sheet, $insert) = @_;
-    $insert->{is_internal} = $class->internal;
+sub _column_create
+{   my ($class, $insert, %options) = @_;
+    $insert->{is_internal} = $class->is_internal;
 
-    my $display_field = delete $insert->{display_field};
     my $extra         = delete $insert->{extra};
     my $perms         = delete $insert->{permissions};
-    $insert->{display_condition} = $display_field->as_hash->{condition};
 
-    my $col_id = $::db->create(Layout => $insert);
-    my $column = $class->from_id($col_id, sheet => $sheet);
+    my $display_field = delete $insert->{display_field};
+    $insert->{display_condition} = $display_field->as_hash->{condition}
+        if $display_field;  #XXX weird.  Why here?
 
-    $column->column_extra_update($extra);
-    $column->column_perms_update($perms);
-    $column->display_fields_update($display_field);
+    my $column = $class->create($insert, sheet => $insert->{sheet});
 
 #XXX
-    #$self->_write_permissions(id => $col_id, %options);
+#   $column->column_extra_update($extra);
+#   $column->column_perms_update($perms);
+#   $column->display_fields_update($display_field);
+#   #$self->_write_permissions(id => $col_id, %options);
 }
 
 ###
 ### Instance
 ###
+
+sub path { $_[0]->sheet->path .'/'. $_[0]->type .'='. $_[0]->name_short }
 
 sub is_numeric { 0 }
 sub name_long  { $_[0]->name . ' (' . $_[0]->sheet->name . ')' }
@@ -226,18 +230,12 @@ has depends_on_ids => (
     isa     => ArrayRef,
     builder => sub {
         my $self = shift;
-        return [] if $self->userinput;
+        return [] if $self->is_userinput;
 
         my $depends = $::db->search(LayoutDepend => { layout_id => $self->id });
         [ $depends->get_column('depends_on')->all ];
     },
 );
-
-sub dependencies_ids
-{   my $self = shift;
-    my $df = $self->display_field;
-    $df ? $df->column_ids : $self->depends_on_ids;
-}
 
 has dateformat => (
     is      => 'lazy',
@@ -456,7 +454,7 @@ sub collect_form($$$)
     if(my $link_parent = $layout->column($params->{link_parent_id}))
     {    # Check whether the parent linked field goes to a sheet that has a curval
          # back to the current layout: no reference loop
-         ! $link_parent->refers_to_sheet($self->sheet)
+         ! $link_parent->refers_to_sheet($sheet)
             or error __x"Cannot link to column '{col}' which contains columns from this sheet",
                 col => $link_parent->name;
     }
@@ -731,6 +729,13 @@ has display_field => (
     is      => 'lazy',
     builder => sub { Linkspace::Filter::DisplayField->from_column($_[0]) },
 );
+
+sub dependencies_ids
+{   my $self = shift;
+    my $df = $self->display_field;
+    $df ? $df->column_ids : $self->depends_on_ids;
+}
+
 
 ### Only used by Autocur/Curval
 has related_field => (

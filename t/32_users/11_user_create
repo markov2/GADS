@@ -1,11 +1,5 @@
 #!/usr/bin/env perl
-use Test::More;
-use strict;
-use warnings;
-
-use Log::Report;
 use Linkspace::Test;
-use Linkspace::Util qw/is_valid_id/;
 
 sub _template_user { +{
     surname          => 'Bloggs',
@@ -15,8 +9,7 @@ sub _template_user { +{
     @_,
 }; }
 
-my $session = test_session;
-my $site    = $session->site;
+my $site    = test_site;
 
 my $users1  = $site->users;
 isa_ok $users1, 'Linkspace::Site::Users', '...';

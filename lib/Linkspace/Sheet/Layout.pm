@@ -22,7 +22,10 @@ use warnings;
 use strict;
 
 use Log::Report 'linkspace';
-use List::Util  qw/first max/;
+use List::Util   qw/first max/;
+use Scalar::Util qw/blessed/;
+
+use Linkspace::Column ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -96,6 +99,12 @@ has api_index_layout_id => (
     isa     => Maybe[Int],
 );
 
+has sheet => (
+    is       => 'ro',
+    required => 1,
+    weakref  => 1,
+);
+
 #------------------
 =head1 METHODS: Constructors
 
@@ -109,17 +118,6 @@ return; #XXX
          for @internal_columns;
 }
 
-sub layout_update($)
-{   my ($self, %update) = @_;
-
-    my $permissions = delete $update{permissions};
-
-    $self->set_permissions($permissions)
-         if $self->groups;
-
-    $self;
-}
-
 #-------------
 =head1 METHODS: Generic Accessors
 =cut
@@ -131,7 +129,7 @@ has has_globe => (
 
 has has_children => (
     is      => 'lazy',
-    builder => sub { !! first { $_->can_child } $_[0]->all_columns },
+    builder => sub { !! first { $_->can_child } @{$_[0]->all_columns} },
 );
 
 # All the column IDs needed to update all cached fields. This is all the
@@ -159,7 +157,7 @@ sub col_ids_for_cache_update
     # Finally ensure all the calc/rag fields are included. If they only use an
     # internal column, then they won't have been part of the layout_depend
     # table
-    $cols{$_->id} = 1 for grep $_->has_cache, $self->all_columns;
+    $cols{$_->id} = 1 for grep $_->has_cache, @{$self->all_columns};
 
     [ keys %cols ];
 }
@@ -190,7 +188,7 @@ sub columns_for_filter
 
 has max_width => (
     is      => 'lazy',
-    builder => sub { max map $_->width, $_[0]->all_columns },
+    builder => sub { max map $_->width, @{$_[0]->all_columns} },
 );
 
 sub reposition
@@ -371,7 +369,7 @@ Layout maintains is a subset of these definitions.
 # a sheet.
 has all_columns => (
     is      => 'lazy',
-    builder => sub { $_[0]->document->columns_for_sheet($_[0]->sheet) },
+    builder => sub { $_[0]->sheet->document->columns_for_sheet($_[0]->sheet) },
 );
 
 =head2 my $column = $layout->column($which, %options);
@@ -393,7 +391,7 @@ sub column($)
 
     # Local names have preferenx
     my $column = $self->_column_index->{$which}
-        or return $self->document->column($which, @_);
+        or return $self->site->document->column($which, @_);
 
     @_ or return $column;
     my %args = @_;
@@ -413,14 +411,14 @@ sub columns(@)
 
 sub column_create($%)
 {   my ($self, $insert, %args) = @_;
-
-    my $column = Linkspace::Column->column_create($self, $insert);
-    $self->sheet->document->publish_column($column);
+    my $sheet  = $insert->{sheet} = $self->sheet;
+    my $column = Linkspace::Column->_column_create($insert);
+    $sheet->document->publish_column($column);
 
     push @{$self->all_columns}, $column;
     my $index = $self->_column_index;
     $index->{$column->id} = $column;
-    $index->{$column->short_name} = $column;
+    $index->{$column->name_short} = $column;
     $column;
 }
 
@@ -625,8 +623,8 @@ sub column_delete($)
     $guard->commit;
 }
 
-sub sheet_unuse($)
-{   my ($self, $sheet) = @_;
+sub sheet_unuse()
+{   my ($self) = @_;
 
     $self->column_delete($_) for $self->all_columns;
     # Layout has no substance itself
@@ -648,10 +646,10 @@ need to be able to lookup columns names in Filters.
 =cut
 
 sub load_columns($)
-{   my ($class, $site) = @_;
+{   my ($class, $document) = @_;
 
     my $cols = $::db->search(Layout => {
-        'instance.site_id' => $site->id,
+        'instance.site_id' => $document->site->id,
     },{
         select   => 'me.*',
         join     => 'instance',

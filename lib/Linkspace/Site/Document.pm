@@ -72,8 +72,8 @@ has _sheets_by_name => (
     is        => 'lazy',
     predicate => 1,
     builder   => sub
-    {   my $by_id = shift->_sheet_index_by_id;
-         +{ map +('table'.$_->id => $_, $_->name => $_, $_->short_name => $_),              values %$by_id };
+    {   my $by_id = shift->_sheets_by_id;
+         +{ map +('table'.$_->id => $_, $_->name => $_, $_->name_short => $_),              values %$by_id };
     },
 );
 
@@ -92,12 +92,11 @@ sub _sheet_indexes_update($;@)
     my $to = @_ ? shift : $sheet;
     $self->_sheets_by_id->{$sheet->id} = $to;
 
-    if($self->_has_sheets_by_name)
-    {   my $index = $self->_sheets_by_name;
-        $index->{'table'.$sheet->id} =
-        $index->{$sheet->name}       =
-        $index->{$sheet->short_name} = $to;
-    }
+    my $index = $self->_sheets_by_name;
+    $index->{'table'.$sheet->id} =
+    $index->{$sheet->name}       =
+    $index->{$sheet->name_short} = $to;
+    $sheet;
 }
 
 
@@ -125,37 +124,32 @@ sub sheet_delete($)
 
     $self->_sheet_indexes_update($sheet => undef);
     $sheet->delete;
-
-    $self->site->structure_changed;
     $self;
 }
 
-=head2 my $new_sheet = $doc->sheet_update($which, %changes);
-When a sheet gets updated, it may need result in a new sheet (which may
-be the same as the old sheet).
+=head2 $doc->sheet_update($which, %changes);
+When a sheet gets updated.
 =cut
 
-sub sheet_update($%)
-{   my ($self, $which, %changes) = @_;
-
+sub sheet_update($$%)
+{   my ($self, $which, $update, %args) = @_;
     my $sheet = $self->sheet($which) or return;
-    keys %changes or return $sheet;
+	keys %$update or return $sheet;
 
     $self->_sheet_indexes_update($sheet => undef);
-    $sheet->update(%changes);
+    $sheet->_sheet_update($update);
 
-    my $fresh = Linkspace::Sheet->from_id($sheet->id, document => $self);
+    my $fresh = Linkspace::Sheet->from_id($sheet->id, document => $self, %args);
     $self->_sheet_indexes_update($fresh);
     $fresh;
 }
 
-=head2 my $sheet = $doc->sheet_create(%insert);
+=head2 my $sheet = $doc->sheet_create(\%insert, %options);
 =cut
 
-sub sheet_create(%)
-{   my $self   = shift;
-    my $insert = @_==1 ? shift : +{ @_ };
-    my $sheet  = Linkspace::Sheet->sheet_create($insert, document => $self);
+sub sheet_create($%)
+{   my ($self, $insert, %args) = @_;
+    my $sheet  = Linkspace::Sheet->_sheet_create($insert, document => $self, %args);
     $self->_sheet_indexes_update($sheet);
     $sheet;
 }
@@ -185,7 +179,7 @@ has _column_index_by_id => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        my $doc_cols = Linkspace::Sheet::Layout->load_columns($self);
+        my $doc_cols = Linkspace::Sheet::Layout->load_columns($self->site);
 
         $::db->schema->setup_record_column_finder($doc_cols);
         +{ map +($_->id => $_, $_->short_name => $_), @$doc_cols }
@@ -228,7 +222,7 @@ sub column($%)
 Gets columns (by id or object) and returns objects.
 =cut
 
-sub columns { [ map +(blessed $_ ? $_ : $_[0]->column($_)), @{$_[0]} ] }
+sub columns { [ map +(blessed $_ ? $_ : $_[0]->column($_)), @{$_[1]} ] }
 
 =head2 \@cols = $doc->columns_for_sheet($which);
 Returns all columns which are linked to a certain sheet.  Pass sheet by
@@ -238,16 +232,8 @@ id or object.
 sub columns_for_sheet($)
 {   my ($self, $which) = @_;
     my $sheet_id = blessed $which ? $which->id : $which;
-    $self->columns(grep $_->instance_id == $sheet_id, @{$self->_column_index_by_id});
-}
-
-=head2 \@cols = $doc->columns_with_filters;
-=cut
-
-sub columns_with_filters()
-{   my $self  = shift;
-    my $index = $self->_column_index_by_id;
-    $self->columns(grep $_->filter ne '{}' && $_->filter ne '', @$index);
+    my $by_id    = $self->_column_index_by_id;
+    $self->columns( [ grep $_->instance_id == $sheet_id, values %$by_id ]);
 }
 
 =head2 \@cols = $doc->columns_relating_to($which);
@@ -258,7 +244,7 @@ an column-id or -object.
 sub columns_relating_to($)
 {   my ($self, $which) = @_;
     my $col_id = blessed $which ? $which->id : defined $which ? $which : return;
-    [ grep $col_id==($_->related_field_id // 0), $self->all_columns ];
+    [ grep $col_id==($_->related_field_id // 0), @{$self->all_columns} ];
 }
 
 =head2 $doc->publish_column($column);
@@ -359,11 +345,10 @@ sub column_unuse($)
 {   my ($self, $column) = @_;
 
     $_->filter_remove_column($column)
-       for @{$self->columns_with_filters};
+       for grep defined, map $_->filter, @{$self->all_columns};
 
     $_->column_unuse($column)
        for @{$self->all_sheets};
-
 }
 
 1;

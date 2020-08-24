@@ -23,11 +23,12 @@ use Clone        'clone';
 use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
 
-use Linkspace::Sheet::Layout   ();
+#use Linkspace::Sheet::Layout   ();
 use Linkspace::Sheet::Access   ();
 #use Linkspace::Sheet::Content ();
 #use Linkspace::Sheet::Views   ();
 #use Linkspace::Sheet::Graphs  ();
+#use Linkspace::Sheet::Dashboards  ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -43,7 +44,7 @@ sub db_table { 'Instance' }
 sub db_fields_unused { [ qw/no_overnight_update/ ] }
 
 sub db_field_rename { +{
-    sort_layout_id => 'sort_column',
+    sort_layout_id => 'sort_column_id',
 }; }
 
 ### 2020-04-22: columns in GADS::Schema::Result::Instance
@@ -90,16 +91,23 @@ the database and to clear all the cacheing.  But when there are no
 changes to the record, it will return the original object.
 =cut
 
-sub sheet_update($)
-{   my ($self, $changes) = @_;
-    $self->validate($changes);
-    $self->update($changes);
+around BUILDARGS => sub ($$%)
+{   my ($orig, $class, %args) = @_;
+    $args{site} ||= $args{document}->site;
+    $class->$orig(%args);
+};
+
+sub _sheet_update($)
+{   my ($self, $update) = @_;
+    my $permissions = delete $update->{permissions};
+
+    $self->_validate($update);
+    $self->update($update);
+    $self->access->set_permissions($permissions);
+    $self;
 }
 
-=head2 my $changes = $class->validate(\%data);
-=cut
-
-sub validate($)
+sub _validate($)
 {   my ($thing, $insert) = @_;
     my $slid = $insert->{sort_column_id};
     ! defined $slid || is_valid_id $slid
@@ -112,35 +120,29 @@ sub validate($)
     $insert;
 }
 
-=head2 $sheet->sheet_delete;
-Remove the sheet.
-=cut
-
-sub sheet_delete($)
+sub _sheet_delete($)
 {   my $self     = shift;
     my $sheet_id = $self->id;
 
     $self->site->users->sheet_unuse($self);
-    $self->layout->sheet_unuse($self);
-
-    my $dash = $::db->search(Dashboard => { instance_id => $sheet_id });
-    $::db->delete(Widget => { dashboard_id =>
-       { -in => $dash->get_column('id')->as_query }});
-    $dash->dashboard_delete;
+    $self->layout->sheet_unuse;
+    $self->access->sheet_unuse;
+#   $self->dashboards->sheet_unuse;
 
     $self->delete;
 }
 
-=head2 $sheet = $class->sheet_create(\%settings, %args);
-Create a new sheet object, which is saved to the database with its
-initial C<%settings>.
-=cut
-
-sub sheet_create($%)
+sub _sheet_create($%)
 {   my ($class, $insert, %args) = @_;
-    my $self = $class->create($insert, %args);
+    my $doc = $args{document} or panic;
 
+    my $permissions = delete $insert->{permissions};
+    $insert->{site} = $doc->site;
+
+    $class->_validate($insert);
+    my $self = $class->create($insert, %args);
     $self->layout->insert_initial_columns;
+    $self->access->set_permissions($permissions) if $permissions;
     $self;
 }
 
@@ -276,6 +278,10 @@ sub metric_group_create { $metric_group->import_hash($mg) }
 XXX Move to a separate sub-class?
 =cut
 
+### 2020-08-19: columns in GADS::Schema::Result::Topic
+# id                    click_to_edit         prevent_edit_topic_id
+# instance_id           description
+# name                  initial_state
 has _topics_index => (
     is      => 'lazy',
     builder => sub {

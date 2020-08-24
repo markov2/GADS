@@ -1,6 +1,6 @@
 # Test Linkspace::DB::Table create and update
 
-use Linkspace::Test;
+use Linkspace::Test start_test_session => 0;
 
 # Let's use Linkspace::Site: it does not depend on anything else, and
 # implements no object caching.

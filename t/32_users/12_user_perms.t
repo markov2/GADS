@@ -1,12 +1,11 @@
 # Test the loading of the Permission table
 
 use Linkspace::Test;
-use Log::Report 'test';
 
 my $session = test_session;
 my $user1   = $session->user;
 
-my $users = $session->site->users;
+my $users   = $session->site->users;
 ok defined $users, 'Get site users';
 
 ### The Permission table

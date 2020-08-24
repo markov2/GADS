@@ -241,7 +241,7 @@ has _in_group => (
         my $self = shift;
         my $groups = $self->site->groups;
         my $gids   = $::db->search(UserGroup => { user_id => $self->id })->get_column('group_id');
-        my $index = index_by_id(map $groups->group($_), $gids->all);
+        my $index  = index_by_id(map $groups->group($_), $gids->all);
         weaken $_ for values %$index;
         $index;
     },
@@ -419,7 +419,7 @@ Short for C<<$user->has_permission('superadmin')>>.
 Sorted permissions.
 =cut
 
-sub has_permission($) {
+sub has_permission($)
 {   my ($self, $perm) = @_;
     my $perms = $self->_permissions;
     $perms->{$perm} || ($superadmin_rights{$perm} && $perm->{superadmin});
