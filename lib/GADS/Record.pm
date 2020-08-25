@@ -632,10 +632,10 @@ sub load_remembered_values
     my @remember = map $_->id, $sheet->layout->columns_search(remember => 1);
     @remember or return;
 
-    my $cursor_id = $user->row_cursor_id($sheet)
+    my $cursor = $user->row_cursor($sheet)
         or return;
 
-    my $previous = $sheet->content->row(cursor => $cursor,
+    my $previous = $cursor->row_revision(
         columns          => \@remember,
         include_approval => 1,
     );
@@ -1337,12 +1337,7 @@ my $record_id;   # sequential per sheet
         # values if needed for another new entry. Use the approval ID id
         # it exists, otherwise the record ID.
         my $row_id = $self->approval_id || $self->record_id;
-        my $this_last = {
-            user_id     => $user_id,
-            instance_id => $sheet->id,
-        };
-
-        $user->set_row_cursor($sheet, $row_id);
+        $user->row_cursor_point($sheet, $row_id);
     }
 
     $self->_need_rec($need_rec);

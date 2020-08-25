@@ -12,6 +12,7 @@ use Scalar::Util qw/blessed weaken/;
 use JSON         qw/decode_json/;
 
 use Linkspace::Util qw/index_by_id to_id/;
+user Linkspace::Row::Cursor ();
 
 sub db_table { 'User' }
 
@@ -135,6 +136,7 @@ sub _user_delete(%)
 {   my $self = shift;
     $self->retire(@_);
     $self->_record->delete_related('audits');
+    $self->_record->delete_related('user_lastrecords');
     $self->delete;
     $self;
 }
@@ -720,36 +722,38 @@ sub can_column($$)
 For each sheet, a read cursor is kept for the user: the place where we
 are reading.
 
-=head2 my $revision_id = $user->row_cursor($sheet);
-Returns the row revision that the user was watching last, unless it
-disappeared or the whole row got deleted since.
+Currently, there is no caching implemented: does not seem useful.
+
+=head2 my $cursor = $user->row_cursor($sheet);
+Returns the row revision that the user was watching last.  It may have
+disappeared, however.
 =cut
 
 sub row_cursor($)
 {   my ($self, $sheet) = @_;
-
-    my $cursor = $::db->get_record(UserLastrecord => {
-        'me.instance_id'  => $sheet->id,
-        user_id           => $self->id,
-        'current.deleted' => undef,
-    }, { join => { record => 'current' } });
-
-    $cursor ? $cursor->record_id : undef;
+    Linkspace::Row::Cursor->for_user($self, $sheet);
 }
 
-=head2 $user->set_row_cursor($sheet, $revision);
+=head2 my $cursor = $user->row_cursor_create($sheet, $revision);
+=cut
+
+sub row_cursor_create($$)
+{   my ($self, $sheet, $revision) = @_;
+    Linkspace::Row::Cursor->_cursor_create({ user => $self, sheet => $sheet });
+}
+
+=head2 my $cursor = $user->row_cursor_point($sheet, $revision);
 Set the cursor for processing in C<$sheet> to the specified row C<$revision>, which
 can be a object or id.
 =cut
 
-sub set_row_cursor($$)
-{   my ($self, $sheet, $where) = @_;
-    my $row_id = to_id $where // return;
+sub row_cursor_point($$)
+{   my ($self, $sheet, $revision) = @_;
+    if(my $cursor = $self->row_cursor($sheet))
+    {   return $cursor->move($revision);
+    }
 
-    my @unique = (user_id => $self->id, instance_id => $sheet->id);
-    if(my $last = $::db->get_record(UserLastrecord => { @unique }))
-         { $last->update({ record_id => $row_id }) }
-    else { $::db->create(UserLastrecord => { @unique, record_id => $row_id }) }
+    $self->row_cursor_create($sheet, $revision);
 }
 
 1;

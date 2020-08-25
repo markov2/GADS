@@ -86,8 +86,9 @@ sub _db_rename(;$)
 {   my ($thing, $info) = @_;
     $info ||= $thing->db_result_class->columns_info;
     my %rename = %{$thing->db_field_rename};
-    $rename{instance_id} = 'sheet_id' if $info->{instance_id};
-    $rename{layout_id}  = 'column_id' if $info->{layout_id};
+    $rename{instance_id} = 'sheet_id'    if $info->{instance_id};
+    $rename{layout_id}   = 'column_id'   if $info->{layout_id};
+    $rename{record_id}   = 'revision_id' if $info->{record_id};
     \%rename;
 }
 

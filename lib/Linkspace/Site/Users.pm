@@ -34,8 +34,6 @@ use Linkspace::Group        ();
 use Linkspace::Permission   ();
 
 use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
-
 use namespace::clean;
 
 =head1 NAME
