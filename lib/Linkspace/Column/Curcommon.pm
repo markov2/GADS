@@ -33,10 +33,10 @@ extends 'Linkspace::Column';
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
 sub can_multivalue { 1 }
-sub fixedvals      { 1 }
+sub has_fixedvals  { 1 }
 sub has_filter_typeahead { 1 }
 sub is_curcommon   { 1 }
 sub is_multivalue  { 1 }
@@ -47,7 +47,7 @@ sub variable_join  { 1 }
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Curval      => { layout_id => $col_id });
     $::db->delete(CurvalField => { parent_id => $col_id });

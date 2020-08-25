@@ -316,7 +316,7 @@
         <div class="form-group">
             <div class="checkbox">
                 <label>
-                    <input id="textbox" type="checkbox" name="textbox" [% IF column.textbox %]checked[% END %]>Make this a multi-line text box
+                    <input id="textbox" type="checkbox" name="is_textbox" [% IF column.is_textbox %]checked[% END %]>Make this a multi-line text box
                 </label>
             </div>
         </div>

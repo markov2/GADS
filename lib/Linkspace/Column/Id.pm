@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::Id;
 
 use Log::Report 'linkspace';
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column::Intgr';
@@ -27,19 +28,19 @@ extends 'Linkspace::Column::Intgr';
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
-sub internal    { 1 }
-sub table       { 'Current' }
-sub userinput   { 0 }
-sub value_field { 'id' }
+sub is_internal_type { 1 }
+sub is_userinput { 0 }
+sub value_table  { 'Current' }
+sub value_field  { 'id' }
 
 ###
 ### Instance
 ###
 
-sub sprefix     { 'current' }
-sub tjoin       {}
+sub sprefix      { 'current' }
+sub tjoin        {}
 
 1;
 

@@ -25,10 +25,30 @@ use Log::Report 'linkspace';
 use List::Util   qw/first max/;
 use Scalar::Util qw/blessed/;
 
-use Linkspace::Column ();
-
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
+
+use Linkspace::Column              ();
+use Linkspace::Column::Id          ();
+use Linkspace::Column::Intgr       ();
+
+=pod
+use Linkspace::Column::Autocur     ();
+use Linkspace::Column::Calc        ();
+use Linkspace::Column::Createdby   ();
+use Linkspace::Column::Createddate ();
+use Linkspace::Column::Curval      ();
+use Linkspace::Column::Date        ();
+use Linkspace::Column::Daterange   ();
+use Linkspace::Column::Deletedby   ();
+use Linkspace::Column::Enum        ();
+use Linkspace::Column::File        ();
+use Linkspace::Column::Person      ();
+use Linkspace::Column::Rag         ();
+use Linkspace::Column::Serial      ();
+use Linkspace::Column::String      ();
+use Linkspace::Column::Tree        ();
+=cut
 
 my @internal_columns = (
     {   name        => 'ID',
@@ -446,11 +466,11 @@ my %filters_invariant = (
 );
 
 my %filters_compare = (
-    type       => sub { $_[0]->type       eq $_[1] },
-    remember   => sub { $_[0]->remember   == $_[1] },
-    userinput  => sub { $_[0]->userinput  == $_[1] },
-    multivalue => sub { $_[0]->multivalue == $_[1] },
-    topic      => sub { $_[0]->topic_id   == $_[1] },
+    type       => sub { $_[0]->type          eq $_[1] },
+    remember   => sub { $_[0]->do_remember   == $_[1] },
+    userinput  => sub { $_[0]->is_userinput  == $_[1] },
+    multivalue => sub { $_[0]->is_multivalue == $_[1] },
+    topic      => sub { $_[0]->topic_id      == $_[1] },
 );
 
 # Order the columns in the order that the calculated values depend
@@ -651,9 +671,7 @@ sub load_columns($)
     my $cols = $::db->search(Layout => {
         'instance.site_id' => $document->site->id,
     },{
-        select   => 'me.*',
         join     => 'instance',
-        result_class => 'HASH',
     });
 
     [ $cols->all ];

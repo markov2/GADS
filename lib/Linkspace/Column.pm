@@ -22,27 +22,7 @@ use Log::Report   'linkspace';
 use JSON          qw/decode_json encode_json/;
 use List::Compare ();
 
-use Linkspace::Column::Id          ();
-use Linkspace::Column::Intgr       ();
-
 =pod
-
-use Linkspace::Column::Autocur     ();
-use Linkspace::Column::Calc        ();
-use Linkspace::Column::Createdby   ();
-use Linkspace::Column::Createddate ();
-use Linkspace::Column::Curval      ();
-use Linkspace::Column::Date        ();
-use Linkspace::Column::Daterange   ();
-use Linkspace::Column::Deletedby   ();
-use Linkspace::Column::Enum        ();
-use Linkspace::Column::File        ();
-use Linkspace::Column::Person      ();
-use Linkspace::Column::Rag         ();
-use Linkspace::Column::Serial      ();
-use Linkspace::Column::String      ();
-use Linkspace::Column::Tree        ();
-
 use Linkspace::Filter::DisplayField ();
 
 =cut
@@ -57,7 +37,6 @@ extends 'Linkspace::DB::Table';
 sub db_table() { 'Layout' }
 
 sub db_field_rename { +{
-    display_field => 'display_field_old',  # unused
     filter        => 'filter_json',
     force_regex   => 'force_regex_string',
     internal      => 'is_internal',
@@ -66,12 +45,13 @@ sub db_field_rename { +{
     multivalue    => 'is_multivalue',
     optional      => 'is_optional',
     related_field => 'related_field_id',
+    textbox       => 'is_textbox',
 #   permission    => ''   XXX???
 } }
 
-# 'display_field' is also unused, but we do not want a stub for it: its
-# method name has a new purpose.
-sub db_fields_unused { [ qw/display_matchtype display_regex/ ] }
+sub db_fields_unused    { [ qw/display_field display_matchtype display_regex/ ] }
+sub db_fields_also_bool { [ qw/end_node_only/ ] }
+sub db_fields_no_export { [ qw/display_fields/ ] }
 
 __PACKAGE__->db_accessors;
 
@@ -96,7 +76,7 @@ my %type2class;
 
 sub register_type(%)
 {   my ($class, %args) = @_;
-    my $type = $args{type} || lc(ref $class =~ s/.*:://r);
+    my $type = $args{type} || lc($class =~ s/.*:://r);
     $type2class{$type}   = $class;
 }
 
@@ -105,22 +85,22 @@ sub types()        { [ keys %type2class ] }
 sub all_column_classes() { [ values %type2class ] }
 
 #XXX some of these should have been named is_*()
-sub addable        { 0 }   # support sensible addition/subtraction
+sub is_addable     { 0 }   # support sensible addition/subtraction
 sub can_multivalue { 0 }
-sub fixedvals      { 0 }
+sub has_fixedvals  { 0 }
 sub form_extras($) { panic } # returns extra scalar and array parameter names 
 sub has_cache      { 0 }   #XXX autodetect with $obj->can(write_cache)?
 sub has_filter_typeahead { 0 } # has typeahead when inputting filter values
 sub has_multivalue_plus  { 0 }
-sub hidden         { 0 }   # column not shown by default (only deletedBy)
-sub internal       { 0 }   # the type is internal, see is_internal() on objects
+sub is_hidden      { 0 }   # column not shown by default (only deletedBy)
+sub is_internal_type { 0 }   # the type is internal, see is_internal() on objects
 sub is_curcommon   { 0 }
 sub meta_tables    { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] }
 sub option_names   { shift; [ @_ ] };
 sub retrieve_fields{ [ $_[0]->value_field ] }
 sub return_type    { 'string' }
 sub sort_field     { $_[0]->value_field }
-sub userinput      { 1 }
+sub is_userinput   { 1 }
 sub value_field    { 'value' }
 sub value_to_write { 1 }   #XXX only in Autocur, may be removed
 sub variable_join  { 0 }   # joins can be different on the config
@@ -147,7 +127,7 @@ my @simple_export_attributes =
 
 sub _column_create
 {   my ($class, $insert, %options) = @_;
-    $insert->{is_internal} = $class->is_internal;
+    $insert->{is_internal} = $class->is_internal_type;
 
     my $extra         = delete $insert->{extra};
     my $perms         = delete $insert->{permissions};
@@ -171,11 +151,11 @@ sub _column_create
 
 sub path { $_[0]->sheet->path .'/'. $_[0]->type .'='. $_[0]->name_short }
 
-sub is_numeric { 0 }
+sub is_numeric { 0 }    # some fields can contain different types
 sub name_long  { $_[0]->name . ' (' . $_[0]->sheet->name . ')' }
 sub sprefix    { $_[0]->field }
 
-#XXX sometimes a ref, sometimes a column name.  Unclear why
+#XXX can be HASH, ARRAY or a single value.
 sub tjoin      { $_[0]->field }
 
 sub filter_value_to_text { $_[1] }
@@ -200,11 +180,6 @@ sub datum_class    { ref $_[0] =~ s/::Column/::Datum/r }
 # $self->is_valid_value($value, %options)
 # option 'fatal'
 sub is_valid_value { 1 }   
-
-has set_values => (
-    is      => 'rw',
-    trigger => sub { shift->build_values(@_) },
-);
 
 sub topic { $_[0]->sheet->topic($_[0]->topic_id) }
 
@@ -290,11 +265,14 @@ sub group_summary
         sort keys %groups;
 }
 
-#-------------------
-=head2 $column->column_update(%);
-=cut
+sub _column_insert($%)
+{   my ($self, $insert, %args) = @_;
+    $insert->{is_textbox} = 0;
+    $insert->{end_node_only} = 0;
+#XXX
+}
 
-sub column_update($%)
+sub _column_update($%)
 {   my ($self, $update, %args) = @_;
 
     my $new_id = $update->{related_field};
@@ -316,6 +294,10 @@ sub column_update($%)
 #   {   $self->set_filter($original->{filter});
 #       is_multivalue { $self->show_add && $self->value_selector eq 'noshow' {
 #   }
+
+
+#set_values => (
+#    $self->build_values(@_) },
 
     $self->display_fields_update(delete $update->{display_fields});
     $self->update($update);
@@ -388,7 +370,7 @@ so we have to check all classes.
 
 sub remove_history()
 {   my $self = shift;
-    $_->remove($self) for ${$self->all_column_classes};
+    $_->remove_column($self) for ${$self->all_column_classes};
 }
 
 =head2 \%changes = $class->collect_form($column, $sheet, \%params);
@@ -482,8 +464,8 @@ sub refers_to_sheet($) { 0 }
 
 sub user_can
 {   my ($self, $permission, $user) = @_;
-    return 1 if  $self->internal  && $permission eq 'read';
-    return 0 if !$self->userinput && $permission ne 'read'; # Can't write to code fields
+    return 1 if  $self->is_internal  && $permission eq 'read';
+    return 0 if !$self->is_userinput && $permission ne 'read';
 
     $user ||= $::session->user;
     if($permission eq 'write') # shortcut
@@ -603,7 +585,7 @@ sub values_beginning_with
         : {};
 
     my $match_result = $resultset->search($search, { rows => 10 });
-    if($options{with_id} && $self->fixedvals)
+    if($options{with_id} && $self->has_fixedvals)
     {
         @value = map +{
            id   => $_->get_column('id'),
@@ -655,25 +637,28 @@ sub import_hash
         ${$self->option_names};
 }
 
-sub export_hash
-{   my $self = shift;
 
-    my @display_fields = map +{
+sub export_hash
+{   my ($self, %args) = @_;
+
+    my @dfs_filters = map +{
         id       => $_->{column_id},
         value    => $_->{value},
         operator => $_->{operator},
     }, @{$self->display_fields->filters};
 
+    my ($extra_scalars, $extra_arrays) = $class->form_extras;
+
     my %export = (
-        display_fields    => \@display_fields,
-        link_parent       => $self->link_parent_id,
-        permissions       => $self->permissions_by_group_export,
-        @_,                               # from extensions
+        display_fields => \@dfs_filters,
+        link_parent    => $self->link_parent,
+        permissions    => $self->permissions_by_group_export,
     );
 
     $export{$_} = $self->$_ for
         @simple_import_attributes,
         @simple_export_attributes,
+        @$extra_scalars,
         @{$self->option_names};
 
     \%export;
@@ -690,7 +675,7 @@ Tricky part, during schema initiation where methods are produced for fields.
 sub how_to_link_to_record
 {   my ($class, $record) = @_;
 
-    ( $class->table, sub {
+    ( $class->value_table, sub {
        +{ "$_[0]->{foreign_alias}.record_id" => { -ident => "$_[0]->{self_alias}.id" },
           "$_[0]->{foreign_alias}.layout_id" => $record->id,
         };

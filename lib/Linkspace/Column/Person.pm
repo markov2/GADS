@@ -29,16 +29,16 @@ my @option_names      = qw/default_to_login/;
 
 my @person_properties = qw/
    id email username firstname surname freetext1 freetext2
-   organisation department_id team_id title value/;
+   organisation_id department_id team_id title_id value/;
 
 ###
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
 sub has_filter_typeahead { 1 }
-sub fixedvals            { 1 }
+sub has_fixedvals        { 1 }
 sub option_names         { shift->SUPER::option_names(@_, @options_names) }
 sub retrieve_fields      { \@person_properties }
 
@@ -50,7 +50,7 @@ sub person_properties    { @person_properties }
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Person => { layout_id => $col_id });
 }
@@ -61,6 +61,7 @@ sub remove($)
 
 sub sprefix { 'value' }
 sub tjoin   { +{ $_[0]->field => 'value' } }
+sub default_to_login     { $_[0]->options->{default_to_login} }
 
 # Convert based on whether ID or full name provided
 sub value_field_as_index
@@ -75,12 +76,8 @@ sub value_field_as_index
     $type;
 }
 
-sub default_to_login()
-{   my $self = shift;
-    $self->has_options ? $self->options->{default_to_login} : 0;
-)
-
-sub people { $_[0]->site->users->all }
+sub people { $_[0]->site->users->all_users }
+sub resultset_for_values { $self->people }
 
 sub id_as_string
 {   my ($self, $id) = @_;
@@ -96,7 +93,6 @@ after build_values => sub {
     }
 };
 
-sub resultset_for_values { $self->site->users->all_users }
 
 sub import_value
 {   my ($self, $value) = @_;

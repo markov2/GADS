@@ -11,7 +11,7 @@ use Log::Report 'linkspace';
 use Scalar::Util qw/blessed weaken/;
 use JSON         qw/decode_json/;
 
-use Linkspace::Util qw/index_by_id/;
+use Linkspace::Util qw/index_by_id to_id/;
 
 sub db_table { 'User' }
 
@@ -716,11 +716,13 @@ sub can_column($$)
 }
 
 #-----------------------
-=head1 METHODS: Last used row
+=head1 METHODS: Last used row per sheet
 For each sheet, a read cursor is kept for the user: the place where we
 are reading.
 
-=head2 my $row_id = $user->row_cursor($sheet);
+=head2 my $revision_id = $user->row_cursor($sheet);
+Returns the row revision that the user was watching last, unless it
+disappeared or the whole row got deleted since.
 =cut
 
 sub row_cursor($)
@@ -735,30 +737,19 @@ sub row_cursor($)
     $cursor ? $cursor->record_id : undef;
 }
 
-=head2 $user->set_row_cursor($sheet, $row);
-Set the cursor for processing in C<$sheet> to the C<$row>, which can be a
-object or id.
+=head2 $user->set_row_cursor($sheet, $revision);
+Set the cursor for processing in C<$sheet> to the specified row C<$revision>, which
+can be a object or id.
 =cut
 
 sub set_row_cursor($$)
 {   my ($self, $sheet, $where) = @_;
-    my $row_id = blessed $where ? $where->id : defined $where ? $where : return;
+    my $row_id = to_id $where // return;
 
     my @unique = (user_id => $self->id, instance_id => $sheet->id);
     if(my $last = $::db->get_record(UserLastrecord => { @unique }))
          { $last->update({ record_id => $row_id }) }
     else { $::db->create(UserLastrecord => { @unique, record_id => $row_id }) }
-}
-
-=head2 $any_user->row_cursor_renumber($from, $to);
-Change all references to the C<$from> row id into the C<$to> row id.
-=cut
-
-sub row_cursor_renumber($$)
-{   my ($self, $from_row, $to_row) = @_;
-    my $from_id = blessed $from_row ? $from_row->id : $from_row;
-    my $to_id   = blessed $to_row   ? $to_row->id   : $to_row;
-    $::db->update(UserLastrecord => { record_id => $from_id }, { record_id => $to_id });
 }
 
 1;

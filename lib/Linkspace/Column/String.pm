@@ -28,17 +28,17 @@ extends 'Linkspace::Column';
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
 sub can_multivalue      { 1 }
-sub form_extras         { [ qw/textbox force_regex/ ], [] }
+sub form_extras         { [ qw/is_textbox force_regex/ ], [] }
 sub has_multivalue_plus { 1 }
 
 ###
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(String => { layout_id => $col_id });
 }
@@ -49,42 +49,6 @@ sub remove($)
 
 sub string_storage { 1 }
 
-has textbox => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    default => 0,
-    coerce  => sub { $_[0] ? 1 : 0 },
-);
-
-has force_regex => (
-    is      => 'rw',
-    isa     => Maybe[Str],
-    lazy    => 1,
-);
-
-after build_values => sub {
-    my ($self, $original) = @_;
-    $self->textbox(1) if $original->{textbox};
-
-    if(my $force_regex = $original->{force_regex})
-    {   $self->force_regex($force_regex);
-    }
-};
-
-sub write_special
-{   my ($self, %options) = @_;
-
-    my $rset = $options{rset};
-
-    $rset->update({
-        textbox     => $self->textbox,
-        force_regex => $self->force_regex,
-    });
-
-    return ();
-}
-
 sub resultset_for_values
 {   my $self = shift;
     $::db->search(String => { layout_id => $self->id }, { group_by => 'me.value' });
@@ -92,20 +56,19 @@ sub resultset_for_values
 
 before import_hash => sub {
     my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->id;
-    notice __x"Update: textbox from {old} to {new}", old => $self->textbox, new => $values->{textbox}
-        if $report && $self->textbox != $values->{textbox};
+    my $is_textbox = $values->{is_textbox};
+    notice __x"Update: textbox from {old} to {new}", old => $self->is_textbox, new => $is_textbox
+        if $self->is_textbox != $is_textbox;
 
-    $self->textbox($values->{textbox});
-    notice __x"Update: force_regex from {old} to {new}", old => $self->force_regex, new => $values->{force_regex}
-        if $report && ($self->force_regex || '') ne ($values->{force_regex} || '');
-    $self->force_regex($values->{force_regex});
+    my $force_regex = $values->{force_regex} // '';
+    notice __x"Update: force_regex from {old} to {new}", old => $self->force_regex, new => $force_regex
+        if +($self->force_regex || '') ne $force_regex;
 };
 
 sub export_hash
 {   my $self = shift;
     $self->SUPER::export_hash(@_,
-        textbox => $self->textbox,
+        is_textbox  => $self->is_textbox,
         force_regex => $self->force_regex,
     );
 }

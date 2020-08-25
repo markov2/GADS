@@ -33,10 +33,10 @@ extends 'Linkspace::Column';
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
-sub has_cache { 1 }
-sub userinput { 0 }
+sub has_cache    { 1 }
+sub is_userinput { 0 }
 
 ###
 ### Class

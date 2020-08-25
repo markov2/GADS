@@ -23,7 +23,6 @@ package Linkspace::Util;
 use parent 'Exporter';
 
 our @EXPORT_OK = qw/
-    column_id
     flat
     is_valid_email
     index_by_id
@@ -33,13 +32,14 @@ our @EXPORT_OK = qw/
     make_wordlist
     parse_duration
     scan_for_plugins
+    to_id
     uniq_objects
 /;
 
 use DateTime::Format::ISO8601   ();
 use DateTime::Format::DateManip ();
 
-use Scalar::Util  qw(weaken);
+use Scalar::Util  qw(weaken blessed);
 use List::Util    qw(first);
 use File::Glob    qw(bsd_glob);
 
@@ -57,12 +57,12 @@ object.  Keep it simple!
 
 =head1 FUNCTIONS
 
-=head2 my $col_id = column_id $column|$col_id;
-Returns the column id.  This may passed a column object or column id (which
+=head2 my $id = to_id $object|$object_id
+Returns the object's id.  This may passed an object or object-id (which
 results in a no-op).
 =cut
 
-sub column_id($) { blessed $_[0] ? $_[0]->id : $_[0] }
+sub to_id($) { blessed $_[0] ? $_[0]->id : $_[0] }
 
 =head2 my @values = flat \@array|$value, ...
 Flatten a LIST into values.  It will not go into nested ARRAYs.  An C<undef>

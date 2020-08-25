@@ -18,30 +18,28 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Column::Deletedby;
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
-extends 'Linkspace::Column::Person';
-
 use Log::Report 'linkspace';
+
+use Moo;
+extends 'Linkspace::Column::Person';
 
 ###
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
-sub hidden      { 1 }
-sub internal    { 1 }
-sub table       { 'Current' }
-sub userinput   { 0 }
-sub value_field { 'deletedby' }
+sub is_internal_type { 1 }
+sub is_hidden    { 1 }
+sub is_userinput { 0 }
+sub value_table  { 'Current' }
+sub value_field  { 'deletedby' }
 
 ###
 ### Instance
 ###
 
-sub sprefix     { 'current' }
-sub tjoin       { 'deletedby' }
+sub sprefix      { 'current' }
+sub tjoin        { 'deletedby' }
 
 1;

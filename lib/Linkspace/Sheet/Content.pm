@@ -30,7 +30,7 @@ use Scalar::Util qw(looks_like_number);
 use Text::CSV::Encoded;
 
 use Linkspace::View;
-use Linkspace::Util qw(column_id);
+use Linkspace::Util qw(to_id);
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -1875,11 +1875,10 @@ sub _build_group_results($%)
     %group_cols = map +($_->column_id => 1), @{$view->groupings}
         if $is_table_group && $view && !$aggregate;
 
-    my $dr_col_id = column_id $query->{dr_column} || 0; # Date-range column
+    my $dr_col_id = to_id $query->{dr_column} || 0; # Date-range column
 
     foreach my $col (@cols)
-    {
-        my $column         = $self->layout->column($col->{id});
+    {   my $column         = $self->layout->column($col->{id});
         $col->{column}     = $column;
         $col->{operator} ||= 'max';
         $col->{is_drcol}   = $dr_column == $column->id;
@@ -1898,7 +1897,7 @@ sub _build_group_results($%)
                 column   => $parent,
                 operator => $col->{operator},
                 group    => $col->{group},
-                drcol    => $col->{is_drcol},
+                is_drcol => $col->{is_drcol},
             };
         }
 
@@ -1942,9 +1941,9 @@ sub _build_group_results($%)
         # retrieved in the same query
         if($col->{is_drcol})
         {
-            if ($self->dr_column_parent)
-            {   $self->add_drcol($self->dr_column_parent);
-                $self->add_drcol($column, parent => $self->dr_column_parent);
+            if(my $parent = $self->dr_column_parent)
+            {   $self->add_drcol($parent);
+                $self->add_drcol($column, parent => $parent);
             }
             else
             {   $self->add_drcol($column);
@@ -1957,8 +1956,8 @@ sub _build_group_results($%)
         }
     }
 
-    my $as_index = $self->group_values_as_index;
-    my $drcol    = !!$self->dr_column;
+    my $as_index  = $self->group_values_as_index;
+    my $has_drcol = !!$self->dr_column;
 
     # Work out the field name to select, and the appropriate aggregate function
     my @select_fields;
@@ -2045,8 +2044,8 @@ sub _build_group_results($%)
                 {
                     my $group_col = $self->layout->column($group_id);
                     push @$searchq, {
-                        $self->fqvalue($group_col, as_index => $as_index, search => 1, linked => 0, group => 1, alt => 1, extra_column => $group_col, drcol => $drcol) => {
-                            -ident => $self->fqvalue($group_col, as_index => $as_index, search => 1, linked => 0, group => 1, extra_column => $group_col, drcol => $drcol)
+                        $self->fqvalue($group_col, as_index => $as_index, search => 1, linked => 0, group => 1, alt => 1, extra_column => $group_col, drcol => $has_drcol) => {
+                            -ident => $self->fqvalue($group_col, as_index => $as_index, search => 1, linked => 0, group => 1, extra_column => $group_col, drcol => $has_drcol)
                         },
                     };
                 }
@@ -2065,13 +2064,13 @@ sub _build_group_results($%)
                             },
                         ],
                         select => {
-                            count => { distinct => $self->fqvalue($column, as_index => $as_index, search => 1, linked => 0, group => 1, alt => 1, extra_column => $column, drcol => $drcol) },
+                            count => { distinct => $self->fqvalue($column, as_index => $as_index, search => 1, linked => 0, group => 1, alt => 1, extra_column => $column, drcol => $has_drcol) },
                             -as   => 'sub_query_as',
                         },
                     },
                 );
 
-                my $col_fq = $self->fqvalue($column, as_index => $as_index, search => 1, linked => 0, group => 1, alt => 1, extra_column => $column, drcol => $drcol);
+                my $col_fq = $self->fqvalue($column, as_index => $as_index, search => 1, linked => 0, group => 1, alt => 1, extra_column => $column, drcol => $has_drcol);
                 if($column->is_numeric && $op eq 'sum')
                 {   $select = $select->get_column($col_fq)->sum_rs->as_query;
                     $op = 'max';
@@ -2087,7 +2086,7 @@ sub _build_group_results($%)
         }
         else
         {   # Standard single-value field - select directly, no need for a subquery
-            $select = $self->fqvalue($column, as_index => $as_index, prefetch => 1, group => 1, search => 0, linked => 0, parent => $parent, retain_join_order => 1, drcol => $drcol);
+            $select = $self->fqvalue($column, as_index => $as_index, prefetch => 1, group => 1, search => 0, linked => 0, parent => $parent, retain_join_order => 1, drcol => $has_drcol);
         }
 
         if($op eq 'distinct')
@@ -2100,7 +2099,7 @@ sub _build_group_results($%)
 
         # Also add linked column if required
         push @select_fields, {
-            $op => $self->fqvalue($column->link_parent, as_index => $as_index, prefetch => 1, search => 0, linked => 1, parent => $parent, retain_join_order => 1, drcol => $drcol),
+            $op => $self->fqvalue($column->link_parent, as_index => $as_index, prefetch => 1, search => 0, linked => 1, parent => $parent, retain_join_order => 1, drcol => $has_drcol),
             -as => $as."_link",
         } if $column->link_parent;
     }
@@ -2265,7 +2264,7 @@ __CASE_NO_LINK
         }
     };
 
-    my $q = $self->search_query(prefetch => 1, search => 1, retain_join_order => 1, group => 1, sort => 0, drcol => $drcol); # Called first to generate joins
+    my $q = $self->search_query(prefetch => 1, search => 1, retain_join_order => 1, group => 1, sort => 0, drcol => $has_drcol); # Called first to generate joins
 
     # Ensure that no joins are added here that are multi-value fields,
     # otherwise they will generate multiple rows for a single records, which
@@ -2275,11 +2274,11 @@ __CASE_NO_LINK
     my $select = {
         select => \@select_fields,
         join   => [
-            $self->linked_hash(group => 1, prefetch => 1, search => 0, retain_join_order => 1, sort => 0, aggregate => $aggregate, drcol => $drcol),
+            $self->linked_hash(group => 1, prefetch => 1, search => 0, retain_join_order => 1, sort => 0, aggregate => $aggregate, drcol => $has_drcol),
             {
                 record_single => [
                     'record_later',
-                    $self->jpfetch(group => 1, prefetch => 1, search => 0, linked => 0, retain_join_order => 1, sort => 0, aggregate => $aggregate, drcol => $drcol),
+                    $self->jpfetch(group => 1, prefetch => 1, search => 0, linked => 0, retain_join_order => 1, sort => 0, aggregate => $aggregate, drcol => $has_drcol),
                 ],
             },
         ],

@@ -41,9 +41,9 @@ my %rag_id2string = map @$_, @filter_values;
 
 INIT { __PACKAGE__->register_type }
 
-sub table       { 'Ragval' }
-sub fixedvals   { 1 }
-sub form_extras { [ qw/code_rag no_alerts_rag no_cache_update_rag/ ], [] }
+sub value_table   { 'Ragval' }
+sub has_fixedvals { 1 }
+sub form_extras   { [ qw/code_rag no_alerts_rag no_cache_update_rag/ ], [] }
 
 ### for Rag presentation only
 
@@ -53,7 +53,7 @@ sub _filter_values { @filter_values }
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Rag    => { layout_id => $col_id });
     $::db->delete(Ragval => { layout_id => $col_id });

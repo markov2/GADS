@@ -29,14 +29,15 @@ use Log::Report 'linkspace';
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
-sub addable     { 1 }
-sub internal    { 1 }
-sub return_type { 'integer' }
-sub table       { 'Current' }
-sub userinput   { 0 }
-sub value_field { 'serial' }
+sub is_internal_type { 1 }
+sub is_addable   { 1 }
+sub return_type  { 'integer' }
+sub is_userinput { 0 }
+
+sub value_table  { 'Current' }
+sub value_field  { 'serial' }
 
 ###
 ### Class

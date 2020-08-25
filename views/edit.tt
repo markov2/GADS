@@ -548,7 +548,7 @@
             [% label = label _ " <a class='helptext__questionmark' data-toggle='modal' data-load-url='/helptext/"
                              _ dispcol.id  _ "' data-target='#helptext_modal'>?</a>" %]
         [% END %]
-        [% IF page == "bulk" AND dispcol.addable AND (dispcol.return_type == "date" OR dispcol.return_type == "daterange") %]
+        [% IF page == "bulk" AND dispcol.is_addable AND (dispcol.return_type == "date" OR dispcol.return_type == "daterange") %]
             [% label_add = BLOCK %]
                 (<span style="font-weight:normal !important"><a style="cursor: pointer" data-toggle="popover" title="Add or subtract for cloned value"
                 data-content="You can add or subtract a time period for the updated or cloned values by entering an amount, such as &quot;+ 4 weeks&quot;.
@@ -559,7 +559,7 @@
                 </a>." data-html="true">add/subtract</a></span>)
             [% END %]
             [% label = label _ label_add %]
-        [% ELSIF page == "bulk" AND dispcol.addable %]
+        [% ELSIF page == "bulk" AND dispcol.is_addable %]
             [% label_add = BLOCK %]
                 (<span style="font-weight:normal !important"><a style="cursor: pointer" data-toggle="popover" title="Add or subtract for cloned value"
                 data-content="You can add or subtract a value for the new or cloned values by entering an amount in brackets, such as &lsquo;(+25)&rsquo;.
@@ -716,7 +716,7 @@
                     [% ELSE %]
                         [% class = "form-control" %]
                     [% END %]
-                    [% IF dispcol.textbox %]
+                    [% IF dispcol.is_textbox %]
                         <textarea [%readonly %] class="form-control" id="[% dispcol.id %]" name="[% field %]" rows="10">[% editvalue.html_form.shift | html %]</textarea>
                     [% ELSE %]
                         <input type="text" class="[% class %]" id="[% dispcol.id %]"

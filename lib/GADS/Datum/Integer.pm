@@ -19,23 +19,24 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package GADS::Datum::Integer;
 
 use Log::Report 'linkspace';
+
 use Moo;
 use namespace::clean;
-
 extends 'GADS::Datum';
 
 after set_value => sub {
     my ($self, $value) = @_;
+
     $self->oldvalue($self->clone);
-    ($value) = @$value if ref $value eq 'ARRAY';
-    $value = undef if defined $value && !$value && $value !~ /^0+$/; # Can be empty string, generating warnings
-    if ($value && $value =~ m!^\h*\(\h*([\*\+\-/])\h*([0-9]+)\h*\)\h*$!)
-    {   my ($op, $mount) = ($1, $2)
+    $value = $value->[0] if ref $value eq 'ARRAY';
+    $value = undef if defined $value && $value eq ''; # Can be empty string
+
+    if($value && $value =~ m!^\h*\(\h*([\*\+\-/])\h*([0-9]+)\h*\)\h*$!)
+    {   my ($op, $mount) = ($1, $2);
 
         # Still count as valid written if currently blank
-        if (defined $self->value)
-        {   my $old = $self->value;
-            $value = eval "$old $op $amount";
+        if(defined(my $old = $self->value))
+        {   $value = eval "$old $op $amount";
         }
         else
         {   $value = undef;
@@ -44,6 +45,7 @@ after set_value => sub {
     else
     {   $self->column->is_valid_value($value, fatal => 1);
     }
+
     $self->changed(1) if (!defined($self->value) && defined $value)
         || (!defined($value) && defined $self->value)
         || (defined $self->value && defined $value && $self->value != $value);
@@ -51,8 +53,7 @@ after set_value => sub {
 };
 
 has value => (
-    is      => 'rw',
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub {
         my $self = shift;
         $self->has_init_value or return;
@@ -78,7 +79,7 @@ sub as_string
 
 sub as_integer
 {   my $self = shift;
-    my $int  = int ($self->value // 0);
+    my $int  = int($self->value // 0);
 }
 
 sub _build_for_code

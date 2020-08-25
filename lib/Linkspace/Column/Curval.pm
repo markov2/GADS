@@ -33,7 +33,7 @@ my @option_names = qw/override_permissions value_selector show_add delete_not_us
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
 sub option_names { shift->SUPER::option_names(@_, @option_names) }
 sub form_extras { [ qw/refers_to_instance_id filter/ ], [ 'curval_field_ids' ] }
@@ -49,18 +49,7 @@ sub form_extras { [ qw/refers_to_instance_id filter/ ], [ 'curval_field_ids' ] }
 #XXX Create with refers_to_sheet and related_column.
 #XXX curval_field_ids defaults to all non-internal columns in refers_to_sheet
 
-has value_selector => (
-    is      => 'rw',
-    isa     => sub { $_[0] =~ /^(?:typeahead|dropdown|noshow)$/ or panic "Invalid value_selector: $_[0]" },
-    lazy    => 1,
-    coerce => sub { $_[0] || 'dropdown' },
-    builder => sub {
-        my $self = shift;
-        return 'dropdown' unless $self->has_options;
-        exists $self->options->{value_selector} ? $self->options->{value_selector} : 'dropdown';
-    },
-    trigger => sub { $_[0]->reset_options },
-);
+sub value_selector { $_[0]->options->{value_selector} // 'dropdown' }
 
 has show_add => (
     is      => 'rw',

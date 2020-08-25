@@ -69,17 +69,19 @@ columns of the sheets.
 =cut
 
 sub _add_column
-{   my ($self, $rec_class, $raw_col) = @_;
-    return if $raw_col->is_internal;
+{   my ($self, $rec_class, $col_rec) = @_;
+    return if $col_rec->internal;
 
-    my ($table, $linker) = Linkspace::Column->type2class($raw_col->type)
-       ->how_to_link_to_record($self->id);
+warn join ';', @{Linkspace::Column->types};
+warn $col_rec->type;
+    my ($table, $linker) = Linkspace::Column->type2class($col_rec->type)
+       ->how_to_link_to_record($col_rec);
 
     # We add each column twice, with a standard join and with an alternative
     # join. The alternative join allows correlated sub-queries to be used, with
     # the inner sub-query referencing a value from the main query.
 
-    my $col_id  = $raw_col->id;
+    my $col_id  = $col_rec->id;
     $rec_class->has_many("field${col_id}" => $table, $linker);
     $rec_class->has_many("field${col_id}_alternative" => $table, $linker);
 }

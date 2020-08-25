@@ -19,11 +19,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::Intgr;
 # Extended by ::Id
 
+use Log::Report 'linkspace';
+use Linkspace::Util qw/flat/;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column';
-
-use Log::Report 'linkspace';
 
 my @option_names = qw/show_calculator/;
 
@@ -31,8 +32,9 @@ my @option_names = qw/show_calculator/;
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
+sub value_table  { 'Intgr' }
 sub addable      { 1 }
 sub return_type  { 'integer' }
 sub option_names { shift->SUPER::option_names, @option_names }
@@ -41,7 +43,7 @@ sub option_names { shift->SUPER::option_names, @option_names }
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Intgr => { layout_id => $col_id });
 }
@@ -51,32 +53,19 @@ sub remove($)
 ###
 
 sub is_numeric      { 1 }
-
-has show_calculator => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    builder => sub {
-        my $self = shift;
-        return 0 unless $self->has_options;
-        $self->options->{show_calculator};
-    },
-    trigger => sub { $_[0]->reset_options },
-);
+sub show_calculator { $_[0]->options->{show_calculator} }
 
 sub is_valid_value($%)
-{   my ($self, $value, %options) = @_;
+{   my ($self, $values, %options) = @_;
 
-    foreach my $v (ref $value ? @$value : $value)
-    {
-        if ($v && $v !~ /^-?[0-9]+$/)
-        {
-            return 0 unless $options{fatal};
+    foreach my $v (flat $values)
+    {   if($v && $v !~ /^-?[0-9]+$/)
+        {   return 0 unless $options{fatal};
             error __x"'{int}' is not a valid integer for '{col}'",
                 int => $v, col => $self->name;
         }
     }
+
     1;
 }
 

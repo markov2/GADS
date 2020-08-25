@@ -179,10 +179,10 @@ has _column_index_by_id => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        my $doc_cols = Linkspace::Sheet::Layout->load_columns($self->site);
+        my $doc_col_recs = Linkspace::Sheet::Layout->load_columns($self->site);
 
-        $::db->schema->setup_record_column_finder($doc_cols);
-        +{ map +($_->id => $_, $_->short_name => $_), @$doc_cols }
+        $::db->schema->setup_record_column_finder($doc_col_recs);
+        +{ map +($_->id => $_, $_->short_name => $_), @$doc_col_recs }
     },
 );
 

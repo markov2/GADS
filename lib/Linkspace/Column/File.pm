@@ -39,7 +39,7 @@ sub form_extras     { [ 'filesize' ], [] }
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(File       => { layout_id => $col_id});
     $::db->delete(FileOption => { layout_id => $col_id});

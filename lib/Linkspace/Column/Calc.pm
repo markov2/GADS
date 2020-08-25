@@ -36,16 +36,16 @@ use List::Util   qw(first);
 INIT { __PACKAGE__->register_type }
 
 sub can_multivalue { 1 }
-sub form_extras { [ qw/code_calc no_alerts_calc return_type no_cache_update_calc/ ], [] }
+sub form_extras  { [ qw/code_calc no_alerts_calc return_type no_cache_update_calc/ ], [] }
 sub has_filter_typeahead { $_[0]->return_type eq 'string' }
 sub is_numeric() { my $rt = $_[0]->return_type; $rt eq 'integer' || $rt eq 'numeric' }
-sub table     { 'Calcval' }
+sub value_table  { 'Calcval' }
 
 ###
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Calc    => { layout_id => $col_id });
     $::db->delete(Calcval => { layout_id => $col_id });

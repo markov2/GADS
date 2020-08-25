@@ -30,23 +30,23 @@ use Tree::DAG_Node;
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
-sub can_multivalue { 1 }
-sub fixedvals      { 1 }
-sub form_extras    { [ 'end_node_only' ], [] }
+sub can_multivalue  { 1 }
+sub has_fixedvals   { 1 }
+sub form_extras     { [ 'end_node_only' ], [] }
 sub has_filter_typeahead { 1 }
-sub retrieve_fields{ [ qw/id value/ ] }
-sub table          { 'Enum' }
+sub retrieve_fields { [ qw/id value/ ] }
+sub value_table     { 'Enum' }
 
 ###
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     my %col_ref = (layout_id => $_[0]->id);
-    $::db->update(Enumval => \%col_ref, {parent => undef});  #XXX???
+    $::db->update(Enumval => \%col_ref, {parent => undef});  #XXX two way ref?
     $::db->delete(Enum    => \%col_ref);
     $::db->delete(Enumval => \%col_ref);
 }
@@ -64,62 +64,40 @@ sub DESTROY
     $self->_root->delete_tree if $self->_has_tree;
 }
 
-has end_node_only => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    default => 0,
-);
-
 # The root node, which all other nodes are referenced from.
 # Gets value from _tree once it's built
-has _root => (
-    is      => 'lazy',
-    builder => sub { $_[0]->_tree->{root} },
-);
+sub _root { $_[0]->_tree->{root} }
 
 # A hash of all the tree nodes. Also gets value from
 # _tree once it's built. Contains only DAG_Node nodes
-has _nodes => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { $_[0]->_tree->{nodes} },
-);
+sub _nodes { $_[0]->_tree->{nodes} }
 
 # An array of all the enumvals. Also gets value from
 # _tree once it's built. Contains the enumvals with
 # their actual values in, but no tree relationship info
 has enumvals => (
     is      => 'lazy',
-    isa     => ArrayRef,
+    builder => sub
+    {   my $self = shift;
+    
+        my $enumvals = $::db->search(Enumval => {
+            layout_id => $self->id,
+        },{
+            order_by => 'me.value',
+            result_class => 'HASH',
+        });
+        [ $enumvals->all ];
+    },
 );
-
-sub _build_enumvals
-{   my $self = shift;
-
-    my @enumvals = $::db->search(Enumval => {
-        layout_id => $self->id,
-    },{
-        order_by => 'me.value',
-        result_class => 'HASH',
-    })->all;
-    \@enumvals;
-}
 
 has _enumvals_index => (
-    is      => 'rwp',
-    isa     => HashRef,
-    lazy    => 1,
-    builder => 1,
-    clearer => 1,
+    is      => 'lazy',
+    builder => sub
+    {   my $self = shift;
+        my %enumvals = map +($_->{id} => $_), @{$self->enumvals};
+        \%enumvals;
+    },
 );
-
-sub _build__enumvals_index
-{   my $self = shift;
-    my %enumvals = map {$_->{id} => $_} @{$self->enumvals};
-    \%enumvals;
-}
 
 sub id_as_string
 {   my ($self, $id) = @_;

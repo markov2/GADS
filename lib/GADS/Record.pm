@@ -635,8 +635,8 @@ sub load_remembered_values
     my $cursor_id = $user->row_cursor_id($sheet)
         or return;
 
-    my $previous = $sheet->content->find_record_id($cursor_id,
-        columns => \@remember,
+    my $previous = $sheet->content->row(cursor => $cursor,
+        columns          => \@remember,
         include_approval => 1,
     );
 
@@ -1499,10 +1499,10 @@ sub write_values
     # If this is an approval, see if there is anything left to approve
     # in this record. If not, delete the stub record.
     if($self->doing_approval && ! $self->in_column_specific_tables($approval_id))
-    {
-        # Nothing left for this approval record. Is there a last_record flag?
-        # If so, change that to the main record's flag instead.
-        $user->row_cursor_renumber($approval_id, $self->record_id);
+    {   # Nothing left for this approval record.
+        my $cursor = $user->row_cursor($sheet);
+        $user->set_row_cursor($sheet, $self)
+            if $cursor->revision_id == $approval_id;
 
         # Delete approval stub
         $::db->delete(Record => $approval_id);

@@ -25,26 +25,25 @@ use Linkspace::Util qw(index_by_id);
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 extends 'Linkspace::Column';
-use namespace::clean;
 
 ###
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
-sub can_multivalue { 1 }
-sub fixedvals      { 1 }
-sub form_extras    { [ 'ordering' ], [ qw/enumvals enumval_ids/ ] }
+sub can_multivalue  { 1 }
+sub has+fixedvals   { 1 }
+sub form_extras     { [ 'ordering' ], [ qw/enumvals enumval_ids/ ] }
 sub has_filter_typeahead { 1 }
-sub retrieve_fields      { [ qw/id value deleted/] }
+sub retrieve_fields { [ qw/id value deleted/] }
 
 
 ###
 ### Class
 ###
 
-sub remove($)
+sub remove_column($)
 {   my $col_id = $_[1]->id;
     # Rely on tree cleanup instead. If we have our own here, then
     # it may error for tree types if the rows reference parents.

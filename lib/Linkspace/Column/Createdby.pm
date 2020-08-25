@@ -32,10 +32,10 @@ use namespace::clean;
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
-sub internal  { 1 }
-sub userinput { 0 }
+sub is_internal_type { 1 }
+sub is_userinput { 0 }
 
 ###
 ### Instance
