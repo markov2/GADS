@@ -12,9 +12,11 @@ ok defined $column1, 'Created column1';
 
 my $path1 = $column1->path;
 is $path1, $sheet->path.'/intgr=column1', '... check path';
-is logline, "info: Layout created ${\($column1->id)} $path1", '... creation logged';
+is logline, "info: Layout created ${\($column1->id)}: $path1", '... creation logged';
 
 isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::Intgr', '...';
 
 # is_valid_value
+
+done_testing;

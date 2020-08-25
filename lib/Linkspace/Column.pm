@@ -37,6 +37,7 @@ extends 'Linkspace::DB::Table';
 sub db_table() { 'Layout' }
 
 sub db_field_rename { +{
+    display_field => 'display_field_old',  #XXX to be removed
     filter        => 'filter_json',
     force_regex   => 'force_regex_string',
     internal      => 'is_internal',
@@ -49,7 +50,7 @@ sub db_field_rename { +{
 #   permission    => ''   XXX???
 } }
 
-sub db_fields_unused    { [ qw/display_field display_matchtype display_regex/ ] }
+sub db_fields_unused    { [ qw/display_matchtype display_regex/ ] }
 sub db_fields_also_bool { [ qw/end_node_only/ ] }
 sub db_fields_no_export { [ qw/display_fields/ ] }
 
@@ -83,6 +84,28 @@ sub register_type(%)
 sub type2class($)  { $type2class{$_[1]} }
 sub types()        { [ keys %type2class ] }
 sub all_column_classes() { [ values %type2class ] }
+
+=head1 METHODS: Constructors
+=cut
+
+# This is a bit of a dirty hack: instantiate in the right class, without going
+# a level "up" first to see whether it has a from_record() as well.  We do this
+# far too often to want performance here.
+sub from_record($%)
+{   my ($class, $record) = (shift, shift);
+    defined $record ? $type2class{$record->type}->SUPER::from_record($record, @_) : undef;
+}
+
+sub from_id($%)
+{   my ($class, $col_id) = (shift, shift);
+    defined $col_id or return;
+    my $record = $::db->get_record(Layout => $col_id);
+    $record ? $type2class{$record->type}->SUPER::from_record($record, @_) : undef;
+}
+
+###
+### META
+###
 
 #XXX some of these should have been named is_*()
 sub is_addable     { 0 }   # support sensible addition/subtraction
@@ -143,6 +166,8 @@ sub _column_create
 #   $column->column_perms_update($perms);
 #   $column->display_fields_update($display_field);
 #   #$self->_write_permissions(id => $col_id, %options);
+
+$column;
 }
 
 ###
@@ -647,7 +672,7 @@ sub export_hash
         operator => $_->{operator},
     }, @{$self->display_fields->filters};
 
-    my ($extra_scalars, $extra_arrays) = $class->form_extras;
+    my ($extra_scalars, $extra_arrays) = $self->form_extras;
 
     my %export = (
         display_fields => \@dfs_filters,

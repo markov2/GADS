@@ -70,7 +70,8 @@ columns of the sheets.
 
 sub _add_column
 {   my ($self, $rec_class, $col_rec) = @_;
-    return if $col_rec->internal;
+return;
+    return if $col_rec->is_internal;
 
 warn join ';', @{Linkspace::Column->types};
 warn $col_rec->type;

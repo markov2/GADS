@@ -401,21 +401,24 @@ has _column_index => (
     is      => 'lazy',
     builder => sub {
        my $columns = $_[0]->all_columns;
-       +{ map +($_->id => $_, $_->short_name => $_), @$columns };
+       +{ map +($_->id => $_, $_->name_short => $_), @$columns };
     },
 );
 
 sub column($)
-{   my ($self, $which) = (shift, shift);
-    return $which if blessed $which;
+{   my ($self, $which, %args) = @_;
 
-    # Local names have preferenx
-    my $column = $self->_column_index->{$which}
-        or return $self->site->document->column($which, @_);
+    # Local names have preference
+    my $column = blessed $which ? $which
+      : $self->_column_index->{$which}
+        || $self->site->document->column($which)
+        || return;
 
-    @_ or return $column;
-    my %args = @_;
-    ! $args{permission} || $column->user_can($args{permission}) ? $column : undef;
+    if(my $p = $args{permission})
+    {   $column->user_can($p) or return;
+    }
+
+    $column;
 }
 
 =head2 \@columns = $layout->columns(\@which, %options);
@@ -659,22 +662,22 @@ sub topic_unuse($)
 #-----------------------
 =head1 METHODS: for Document
 
-=head2 my @cols = $class->load_columns;
+=head2 my @cols = $class->load_columns($site);
 Initially load all column information for a certain site.  For the whole
 site!  This is required because sheets do interlink.  For instance,  we
 need to be able to lookup columns names in Filters.
 =cut
 
 sub load_columns($)
-{   my ($class, $document) = @_;
+{   my ($class, $site) = @_;
 
     my $cols = $::db->search(Layout => {
-        'instance.site_id' => $document->site->id,
+        'instance.site_id' => $site->id,
     },{
         join     => 'instance',
     });
 
-    [ $cols->all ];
+    [ map Linkspace::Column->from_record($_), $cols->all ];
 }
 
 1;

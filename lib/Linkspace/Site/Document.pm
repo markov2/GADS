@@ -179,10 +179,9 @@ has _column_index_by_id => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        my $doc_col_recs = Linkspace::Sheet::Layout->load_columns($self->site);
-
-        $::db->schema->setup_record_column_finder($doc_col_recs);
-        +{ map +($_->id => $_, $_->short_name => $_), @$doc_col_recs }
+        my $cols = Linkspace::Sheet::Layout->load_columns($self->site);
+        $::db->schema->setup_record_column_finder($cols);
+        index_by_id $cols;
     },
 );
 
@@ -190,7 +189,7 @@ has _column_index_by_short => (
     is      => 'lazy',
     builder => sub {
         my $id_index = $_[0]->_column_index_by_id;
-        +{ map +($_->short_name => $_), values %$id_index };
+        +{ map +($_->name_short => $_), values %$id_index };
     },
 );
 
@@ -201,28 +200,47 @@ access C<permission> in one go.
 =cut
 
 sub column($%)
-{   my ($self, $which) = @_;
-    my $column = $self->_column_index_by_id->{$which}
-              || $self->_column_index_by_short->{$which};
+{   my ($self, $which, %args) = @_;
 
-    $column->isa('Linkspace::Column')   # upgrade does not change pointer
-        or Linkspace::Column->from_record($column);
+    my $column = blessed $which ? $which
+       : $self->_column_index_by_id->{$which} || $self->_column_index_by_short->{$which};
+    defined $column or return;
 
-    @_ or return $column;
-    my %args = @_;
     if(my $p = $args{permission})
-    {   $::session->user->can_access_colum($column, $args{permission})
-            or return undef;
+    {   $::session->user->can_access_column($column, $p) or return undef;
     }
 
     $column;
 }
 
-=head2 \@columns = $doc->columns(\@ids);
-Gets columns (by id or object) and returns objects.
+=head2 \@columns = $doc->columns(\@which, %options);
+Gets columns (by id or object) and returns ::Column objects.  This is quickly faster
+when more than one column must be looked-up.
 =cut
 
-sub columns { [ map +(blessed $_ ? $_ : $_[0]->column($_)), @{$_[1]} ] }
+sub columns($%)
+{   my ($self, $which, %args) = @_;
+
+    return $which
+        unless first { ! blessed $_ } @$which;
+
+    my $by_id   = $self->_column_index_by_id;
+    my $by_name = $self->_column_index_by_short;
+    my @columns;
+    foreach my $which (@$which)
+    {   my $column = blessed $which ? $which : $by_id->{$which} || $by_name->{$which};
+        defined $column or next;
+        push @columns, $column;
+    }
+
+    if(my $p = $args{permission})
+    {   my $user = $::session->user;
+        @columns = grep $user->can_access_column($_, $p), @columns;
+    }
+
+    \@columns;
+}
+
 
 =head2 \@cols = $doc->columns_for_sheet($which);
 Returns all columns which are linked to a certain sheet.  Pass sheet by
@@ -233,7 +251,7 @@ sub columns_for_sheet($)
 {   my ($self, $which) = @_;
     my $sheet_id = blessed $which ? $which->id : $which;
     my $by_id    = $self->_column_index_by_id;
-    $self->columns( [ grep $_->instance_id == $sheet_id, values %$by_id ]);
+    $self->columns( [ grep $_->sheet_id == $sheet_id, values %$by_id ]);
 }
 
 =head2 \@cols = $doc->columns_relating_to($which);
@@ -255,8 +273,8 @@ the layout.
 sub publish_column($)
 {   my ($self, $column) = @_;
     $self->_column_index_by_id->{$column->id} =
-    $self->_column_index_by_short->{$column->id} = $column;
-    $::db->schema->add_column($column);
+    $self->_column_index_by_short->{$column->name_short} = $column;
+    $::db->schema->add_column($column->_record);
     $column;
 }
 

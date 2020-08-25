@@ -12,7 +12,7 @@ use Scalar::Util qw/blessed weaken/;
 use JSON         qw/decode_json/;
 
 use Linkspace::Util qw/index_by_id to_id/;
-user Linkspace::Row::Cursor ();
+use Linkspace::Row::Cursor ();
 
 sub db_table { 'User' }
 
