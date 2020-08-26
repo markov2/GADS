@@ -50,9 +50,11 @@ sub db_field_rename { +{
 #   permission    => ''   XXX???
 } }
 
-sub db_fields_unused    { [ qw/display_matchtype display_regex/ ] }
 sub db_fields_also_bool { [ qw/end_node_only/ ] }
-sub db_fields_no_export { [ qw/display_fields/ ] }
+
+# The display_field is now in a separate table.
+sub db_fields_unused    { [ qw/display_matchtype display_regex/ ] }
+sub db_fields_no_export { [ qw/display_field/ ] }
 
 __PACKAGE__->db_accessors;
 
@@ -159,15 +161,49 @@ sub _column_create
     $insert->{display_condition} = $display_field->as_hash->{condition}
         if $display_field;  #XXX weird.  Why here?
 
+    $insert->{is_textbox} = 0;
+    $insert->{end_node_only} = 0;
+
     my $column = $class->create($insert, sheet => $insert->{sheet});
 
 #XXX
-#   $column->column_extra_update($extra);
-#   $column->column_perms_update($perms);
-#   $column->display_fields_update($display_field);
+#   $column->_column_extra_update($extra);
+#   $column->_column_perms_update($perms);
+#   $column->_display_fields_update($display_field);
 #   #$self->_write_permissions(id => $col_id, %options);
 
 $column;
+}
+
+sub _column_update($%)
+{   my ($self, $update, %args) = @_;
+
+    my $new_id = $update->{related_field_id};
+    notice __x"Update: related_field_id from {old} to {new}", 
+        old => $self->related_field_id, new => $new_id
+        if $self->related_field_id != $new_id;
+
+    delete $update->{topic_id}
+        unless $update->{topic_id};  # only 1+
+
+    $update->{is_multivalue} ||= 0 if exists $update->{is_multivalue};
+
+    if(my $opts = $update->{options})
+    {   $update->{options} = encode_json $opts if ref $opts eq 'HASH';
+    }
+
+    # XXX Move to curval class
+#   if($self->type eq 'curval')
+#   {   $self->set_filter($original->{filter});
+#       is_multivalue { $self->show_add && $self->value_selector eq 'noshow' {
+#   }
+
+
+#set_values => (
+#    $self->build_values(@_) },
+
+    $self->display_fields_update(delete $update->{display_fields});
+    $self->update($update);
 }
 
 ###
@@ -176,13 +212,8 @@ $column;
 
 sub path { $_[0]->sheet->path .'/'. $_[0]->type .'='. $_[0]->name_short }
 
-sub is_numeric { 0 }    # some fields can contain different types
+sub is_numeric { 0 }    # some fields can contain flexible types
 sub name_long  { $_[0]->name . ' (' . $_[0]->sheet->name . ')' }
-sub sprefix    { $_[0]->field }
-
-#XXX can be HASH, ARRAY or a single value.
-sub tjoin      { $_[0]->field }
-
 sub filter_value_to_text { $_[1] }
 sub value_field_as_index { $_[0]->value_field }
 
@@ -193,10 +224,6 @@ sub sort_columns   { [ $_[0] ] }
 # Whether the data is stored as a string. If so, we need to check for both
 # empty string and null values to test if empty
 sub string_storage { 0 }
-
-###
-### helpers
-###
 
 sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
 sub field_name     { "field".($_[0]->id) }
@@ -213,6 +240,13 @@ has link_parent => (
     builder => sub { $_[0]->column($_[0]->link_parent_id) },
 );
 
+
+#### query build support
+sub sprefix    { $_[0]->field }
+
+#XXX can be HASH, ARRAY or a single value.
+sub tjoin      { $_[0]->field }
+
 sub suffix()
 {   my $self = shift;
       $self->return_type eq 'date' || $self->return_type eq 'daterange'
@@ -223,19 +257,6 @@ sub suffix()
 # Used to provide a blank template for row insertion (to blank existing
 # values). Only used in calc at time of writing
 sub blank_row { +{ $_[0]->value_field => undef }; }
-
-# Which fields this column depends on
-has depends_on_ids => (
-    is      => 'lazy',
-    isa     => ArrayRef,
-    builder => sub {
-        my $self = shift;
-        return [] if $self->is_userinput;
-
-        my $depends = $::db->search(LayoutDepend => { layout_id => $self->id });
-        [ $depends->get_column('depends_on')->all ];
-    },
-);
 
 has dateformat => (
     is      => 'lazy',
@@ -290,44 +311,6 @@ sub group_summary
         sort keys %groups;
 }
 
-sub _column_insert($%)
-{   my ($self, $insert, %args) = @_;
-    $insert->{is_textbox} = 0;
-    $insert->{end_node_only} = 0;
-#XXX
-}
-
-sub _column_update($%)
-{   my ($self, $update, %args) = @_;
-
-    my $new_id = $update->{related_field};
-    notice __x"Update: related_field_id from {old} to {new}", 
-        old => $self->related_field_id, new => $new_id
-        if $self->related_field_id != $new_id;
-
-    delete $update->{topic_id}
-        unless $update->{topic_id};  # only pos int
-
-    $update->{multivalue} ||= 0 if exists $update->{multivalue};
-
-    if(my $opts = $update->{options})
-    {   $update->{options} = encode_json $opts if ref $opts eq 'HASH';
-    }
-
-    # XXX Move to curval class
-#   if($self->type eq 'curval')
-#   {   $self->set_filter($original->{filter});
-#       is_multivalue { $self->show_add && $self->value_selector eq 'noshow' {
-#   }
-
-
-#set_values => (
-#    $self->build_values(@_) },
-
-    $self->display_fields_update(delete $update->{display_fields});
-    $self->update($update);
-}
-
 #-----------------------
 =head1 METHODS: Filters
 ::Layout::columns_for_filter() will change these to include parent information.
@@ -369,22 +352,6 @@ sub fetch_multivalues
         'me.record_id'      => $record_ids,
         'layout.multivalue' => 1,
     }, \%select)->all;
-}
-
-# Used by cur* types
-=head2 my $filter = $column->filter;
-=head2 my $filter = $column->filter($update);
-=cut
-
-sub filter(;$)
-{   my $self = shift;
-    @_ or return Linkspace::Filter->from_json($self->filter_json);
-
-    # Via filter object, to ensure validation
-    my $set    = shift;
-    my $filter = blessed $set ? $set : Linkspace::Filter->from_json($set);
-    $self->update({filter_json => $filter->as_json});
-    $filter;
 }
 
 =head2 $column->remove_history;

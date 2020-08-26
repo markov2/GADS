@@ -22,8 +22,10 @@ package Linkspace::Column::Code;
 use Log::Report        'linkspace';
 use DateTime;
 use Date::Holidays::GB qw/is_gb_holiday gb_holidays/;
-use Linkspace::Util    qw/index_by_id/;
 use List::Utils        qw/uniq/;
+
+use Linkspace::Util    qw/index_by_id/;
+use linkspace::Column::Code::DependsOn;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -46,8 +48,13 @@ sub is_userinput { 0 }
 ### Instance
 ###
 
-# Ignores field in Layout record
-sub can_child { !! @{$_[0]->depends_on_ids} }
+has depends_on => (
+    is      => 'lazy',
+    builder => sub { Linkspace::Column::Code::DependsOn->new(column => $_[0]) },
+);
+
+# Ignores field in Layout record  #XXX
+sub can_child { $_[0]->depends_on->count }
 
 use Inline 'Lua' => q{
     function lua_run(string, vars, working_days_diff, working_days_add)
@@ -139,9 +146,7 @@ use Inline 'Lua' => q{
 };
 
 has code => (
-    is      => 'rw',
-    isa     => Str,
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub {
         my $self = shift;
         my $code = $self->_rset_code && $self->_rset_code->code;
@@ -168,14 +173,14 @@ sub param_columns
             or error __x"Unknown short column name '{name}' in calculation", name => $_;
 
         $col->sheet_id == $sheet_id
-            or error __x"It is only possible to use fields from the same table ({table1}). '{name}' is from {table2}.",
-                name => $_, table1 => $self->sheet->name, table2 => $col->sheet->name;
+            or error __x"It is only possible to use fields from sheet ({sheet1}). '{name}' is from {sheet2}.",
+                name => $_, sheet1 => $self->sheet->name, sheet2 => $col->sheet->name;
         $col;
     } $self->params;
 }
 
 sub update_cached
-{   my ($self, %options) = @_;
+{   my ($self, %args) = @_;
 
     return unless $self->write_cache;
 
@@ -188,26 +193,28 @@ sub update_cached
     my $layout = $self->layout;
     my $sheet = $self->sheet;
 
-    my $records = $sheet->content->search(
-        columns              => [ @{$self->depends_on}, $self ],
+    my $page = $sheet->content->search(
+        columns              => [ @{$self->depends_on->columns}, $self ],
         view_limit_extra_id  => undef,
         curcommon_all_fields => 1, # Code might contain curcommon fields not in normal display
         include_children     => 1, # Update all child records regardless
     );
 
     my @changed;
-    while (my $record = $records->single)
-    {   my $datum = $record->field($self);
+    while(my $row = $page->next_row)
+    {   my $cell = $row->cell($self);
         $datum->re_evaluate(no_errors => 1);
         $datum->write_value;
-        push @changed, $record->current_id if $datum->changed;
+        push @changed, $row->current_id if $datum->changed;
     }
 
-    $options{no_alert_send} # E.g. new column, don't want to alert on all
-        or $sheet->views->trigger_alerts(
-            current_ids => \@changed,
-            columns     => [ $self ],
-        );
+    my $alert = ! exists $args{send_alerts} || $args{send_alerts};
+    $sheet->views->trigger_alerts(
+        current_ids => \@changed,
+        columns     => [ $self ],
+    ) if $alert;
+
+    \@changed;
 }
 
 sub _params_from_code
@@ -227,14 +234,19 @@ sub _parse_code
      };
 }
 
+sub _is_workday($$)
+{   my ($dt, $region) = @_;
+    return 0 if $dt->day_of_week >= 6;  # Sat or Sun
+
+    is_gb_holiday year => $dt->year, month => $dt->month, day => $dt->day,
+        regions => [ $region ];
+}
+
 # XXX These functions can raise exceptions - further investigation needed as to
 # whether this causes problems when called from Lua. Initial experience
 # suggests it might do.
 sub working_days_diff
 {   my ($start_epoch, $end_epoch, $country, $region) = @_;
-
-    @_ == 4
-        or error "parameters for working_days_diff need to be: start, end, country, region";
 
     $country eq 'GB' or error "Only country GB is currently supported";
     $start_epoch     or error "Start date missing for working_days_diff";
@@ -252,46 +264,27 @@ sub working_days_diff
             if !%{gb_holidays(year => $year, regions => [$region])};
     }
 
-    my $days = 0;
-
-    if ($end > $start)
-    {
-        my $marker = $start->clone->add(days => 1);
-
-        while ($marker <= $end)
-        {
-            if (!is_gb_holiday(
-                    year    => $marker->year, month => $marker->month, day => $marker->day,
-                    regions => [$region] )
-            ) {
-                $days++ unless $marker->day_of_week == 6 || $marker->day_of_week == 7;
-            }
+    my $workdays = 0;
+    if($end > $start)
+    {   my $marker = $start->clone->add(days => 1);
+        while($marker <= $end)
+        {   $workdays++ if _is_workday $marker, $region;
             $marker->add(days => 1);
         }
     }
     else
     {   my $marker = $start->clone->subtract(days => 1);
-
-        while ($marker >= $end)
-        {
-            if (!is_gb_holiday(
-                    year => $marker->year, month => $marker->month, day => $marker->day,
-                    regions => [$region] )
-            ) {
-                $days-- unless $marker->day_of_week == 6 || $marker->day_of_week == 7;
-            }
+        while($marker >= $end)
+        {   $workdays-- if _is_workday $marker, $region;
             $marker->subtract(days => 1);
         }
     }
 
-    return $days;
+    $workdays;
 }
 
 sub working_days_add
 {   my ($start_epoch, $days, $country, $region) = @_;
-
-    @_ == 4
-        or error "Parameters for working_days_add need to be: start, end, country, region";
 
     $country eq 'GB' or error "Only country GB is currently supported";
     $start_epoch or error "Date missing for working_days_add";
@@ -301,18 +294,12 @@ sub working_days_add
     error __x"No bank holiday information available for year {year}", year => $start->year
         if !%{gb_holidays(year => $start->year, regions => [$region])};
 
-    while ($days)
-    {
-        $start->add(days => 1);
-	if (!is_gb_holiday(
-		year => $start->year, month => $start->month, day => $start->day,
-		regions => [$region] )
-	) {
-	    $days-- unless $start->day_of_week == 6 || $start->day_of_week == 7;
-	}
+    while($days)
+    {   $start->add(days => 1);
+	    $days-- if _is_workday $start, $region;
     }
 
-    return $start->epoch;
+    $start->epoch;
 }
 
 sub eval
@@ -364,16 +351,11 @@ sub write_special
     my $changed = $self->write_code($id, %options); # Returns true if anything relevant changed
 
     if($options{update_dependents} || $changed)
-    {
-        $return_options{no_alerts} = 1 if $new;
-
-        my @depends_on_ids = map $_->id, grep !$_->is_internal,
+    {   $return_options{no_alerts} = 1 if $new;
+        my @depends_on = grep !$_->is_internal,
             $self->param_columns(is_fatal => $options{override} ? 0 : 1);
 
-        $::db->delete(LayoutDepend => { layout_id => $id });
-
-        $::db->create(LayoutDepend => { layout_id => $id, depends_on => $_ })
-            for uniq @depends_on_ids;
+        $self->depends_on->set_dependencies(\@depends_on);
     }
     else
     {   $return_options{no_cache_update} = 1;
@@ -388,19 +370,5 @@ sub after_write_special
     $self->update_cached(no_alerts => $options{no_alerts})
         unless $options{no_cache_update};
 }
-
-has depends_on_ids => (
-    is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-        [ $::db->search(LayoutDepend => { layout_id => $self->id })
-             ->get_column('depends_on')->all ];
-    },
-);
-
-has depends_on_columns => (
-    is      => 'lazy',
-    builder => sub { [ $_[0]->layout->columns($_[0]->depends_on_ids) ] },
-);
 
 1;
