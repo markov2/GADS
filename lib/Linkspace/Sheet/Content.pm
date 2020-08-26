@@ -740,18 +740,19 @@ sub _build_standard_results($)
             push @record_ids, $linked->id;
         }
 
-        push @all_rows, Linkspace::Page::Row->from_record($row, {
+        push @all_rows, Linkspace::Page::Row->_row_create({
             serial                  => $rec->{serial},
-            parent_id               => $rec->{parent_id},
-            linked_id               => $rec->{linked_id},
-            is_draft                => $rec->{draftuser_id},
-            child_record_ids        => \@children,
-            linked_record_raw       => $linked,
+            parent_row              => $rec->{parent_id},
+            linked_row              => $rec->{linked_id},
+            draft_user                => $rec->{draftuser_id},
+            child_row_ids        => \@children,
+            linked_row              => $linked,
             deleted                 => $rec->{deleted},
-            deletedby               => $rec->{deletedby},
+            deleted_by               => $rec->{deletedby},
+
             record_created          => $rec->{record_created},
             record_created_user     => $rec->{record_created_user},
-        );
+        });
         push @created_ids, $rec->{record_created_user};
     }
 
@@ -2339,6 +2340,16 @@ sub row_create($%)
     $insert->{created_by} ||= $::session->user;
 
     #XXX cells = [ $name|$col_id|$col => $value ]
+}
+
+sub row_by_serial($%)
+{   my ($self, $serial) = (shift, shift);
+    Linkspace::Row->from_serial($serial, @_);
+}
+
+sub row($@)
+{   my ($self, $current_id) = (shift, shift);
+    Linkspace::Row->from_id($current_id, @_);
 }
 
 #--------------------------

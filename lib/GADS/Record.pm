@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package Linkspace::Sheet::Data::Row;
+package Linkspace::Row::Revision;
 
 use Log::Report 'linkspace';
 
@@ -28,18 +28,13 @@ use PDF::Table 0.11.0; # Needed for colspan feature
 use Session::Token;
 use URI::Escape;
 use Scalar::Util  qw(blessed);
-
-use GADS::AlertSend;
-use GADS::Datum::Tree;
-use Linkspace::Sheet::Layout;
+use DateTime ();
 
 use Linkspace::Util qw(index_by_id);
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
-use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
 use namespace::clean;
-
 extends 'Linkspace::DB::Table';
 
 sub db_table { 'Record' }
@@ -50,6 +45,8 @@ sub db_field_rename { +{
     createdby  => 'created_by_id',
 } };
 
+sub db_fields_unused { [ qw/record_id/ ] }}}
+
 ### 2020-06-30: columns in GADS::Schema::Result::Record
 # id         approvedby createdby  record_id
 # approval   created    current_id
@@ -57,7 +54,7 @@ sub db_field_rename { +{
 #---------------
 =head1 NAME
 
-Linkspace::Row - manage a row in the data of a sheet
+Linkspace::Row::Revision - manage a row in the data of a sheet
 
 =head1 DESCRIPTION
 A row can be in C<draft>, which means that it does not yet belong to the sheet
@@ -69,32 +66,23 @@ datums exist, the C<needs_approval> attribute is set.
 
 =cut
 
-# The raw parent linked record from the database, if applicable
-has linked_record_raw => (
-    is      => 'rw',
-);
+sub _revision_create($%)
+{   my ($class, $insert) = (shift, shift);
+    $insert->{created_by} ||= $::session->user unless $insert->{created_by_id};
+    $insert->{created}    ||= DateTime->new;
+    $self->insert($insert, @_, row => $insert->{current});
+}
 
-# The parent linked record as a GADS::Record object
-has linked_record => (
+has row => (
     is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-        $self->sheet->content->find_current_id($self->linked_id);
-        $linked;
-    },
+    weakref => 1,
+    builder => sub { $_[0]->content->row($_[0]->current_id) },
 );
-
-sub has_rag_column() { !! first { $_->type eq 'rag' } @{$_[0]->columns_view} }
 
 has curcommon_all_cells => (
     is      => 'ro',
     isa     => Bool,
     default => 0,
-);
-
-has columns => (
-    is      => 'rw',
-    isa     => ArrayRef,
 );
 
 sub has_cells
@@ -104,14 +92,6 @@ sub has_cells
     }
     return 1;
 }
-
-has is_grouping => (
-    is => 'ro',
-);
-
-has group_cols => (
-    is => 'ro',
-);
 
 has id_count => (
     is      => 'rwp',
@@ -135,31 +115,9 @@ has columns_retrieved_do => (
     is => 'rw',
 );
 
-# Same as GADS::Records property
-has columns_view => (
-    is => 'rw',
-);
-
-# The ID of the parent record that this is related to, in the
-# case of a linked record
-has linked_id => (
-    is      => 'lazy',
-    builder => sub {
-        my $row  = $self->sheet->content->row_current($self->current_id);
-        $row ? $row->linked_id : undef;
-    },
-);
-
 # The ID of the parent record that this is a child to, in the
 # case of a child record
 # from base-class parent_id
-
-has parent => (
-    is      => 'lazy',
-    builder => sub { $_[0]->page->row_current($_[0]->parent_id) },
-);
-
-sub has_parent { !! $_[0]->parent_id }
 
 has child_record_ids => (
     is        => 'lazy',
@@ -167,39 +125,10 @@ has child_record_ids => (
     builder   => sub { $_[0]->page->child_ids($self) },
 );
 
-has serial => (
-    is  => 'lazy',
-    isa => Maybe[Int],
-    builder => sub {
-        my $cid = shift->current_id;
-        $::db->get_record(Current => $cid)->serial;
-    },
-);
-
-sub _build_is_draft
-{   my $self = shift;
-    return !!$self->{record}->{draftuser_id}
-        if exists $self->{record}->{draftuser_id};
-
-    return if $self->new_entry;
-    !! $::db->get_record(Current => $self->current_id)->draftuser_id;
-}
-
-# Whether to initialise cells that have no value
-has init_no_value => (
-    is      => 'rw',
-    isa     => Bool,
-    default => 1,
-);
-
 # The associated record if this is a record for approval
 has approval_record_id => (
     is  => 'rwp',
     isa => Maybe[Int],
-);
-
-has include_approval => (
-    is => 'rw',
 );
 
 has _cells => (
@@ -218,74 +147,12 @@ sub cell($)
 
 has created_by => (
     is      => 'lazy',
-    builder => sub {
-        my $self = shift;
-_version_user
-        $::session->site->users->user($self->created_by_id);
-    },
+    builder => sub { $_[0]->site->users->user($_[0]->created_by_id) },
 );
-
-has deletedby => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        # Don't try and build if we are a new entry. By the time this is called,
-        # the current ID may have been removed from the database due to a rollback
-        return if $self->new_entry;
-
-        if(!$self->record)
-        {   $self->record_id or return;
-            my $user = $::db->get_record(Record => $self->record_id)->deletedby
-                or return undef;
-            return $self->_person({ id => $user->id }, '_deleted_by');
-        }
-
-        my $value = $self->set_deletedby or return undef;
-        $self->_person($value, '_deleted_by');
-    },
-);
-
-has created => (
-    is      => 'lazy',
-    isa     => DateAndTime,
-);
-
-sub _build_created
-{   my $self   = shift;
-    my $record = $self->record
-        or return $::db->get_record(Record => $self->record_id)->created;
-
-    $::db->parse_datetime($record->{created});
-}
-
-has set_deleted => (
-    is      => 'rw',
-    trigger => sub { shift->clear_deleted },
-);
-
-has deleted => (
-    is      => 'lazy',
-    isa     => Maybe[DateAndTime],
-);
-
-sub _build_deleted
-{   my $self = shift;
-    # Don't try and build if we are a new entry. By the time this is called,
-    # the current ID may have been removed from the database due to a rollback
-    return if $self->new_entry;
-    if (!$self->record)
-    {   $self->current_id or return;
-        return $::db->get_record(Record => $self->record_id)->deleted;
-    }
-
-    $::db->parse_datetime($self->set_deleted);
-}
 
 # Whether to take results from some previous point in time
 has rewind => (
     is  => 'ro',
-    isa => Maybe[DateAndTime],
 );
 
 has is_historic => (
@@ -315,41 +182,10 @@ sub _build_is_historic
     $current_rec_id && $current_rec_id != $self->record_id;
 }
 
-sub find_record_id
-{   my ($self, $record_id, %options) = @_;
-    my $search_instance_id = $options{instance_id};
-
-    my $record = $::db->get_record(Record => $record_id)
-        or error __x"Record version ID {id} not found", id => $record_id;
-
-    my $instance_id = $record->current->instance_id;  #XXX id as table name?
-    error __x"Record ID {id} invalid for table {table}", id => $record_id, table => $search_instance_id
-        if $search_instance_id && $search_instance_id != $instance_id;
-
-    $self->_set_instance_id($instance_id);
-    $self->_find(record_id => $record_id, %options);
-}
-
-sub find_current_id
-{   my ($self, $current_id, %options) = @_;
-    my $search_instance_id = $options{instance_id};
-
-    my $current = $::db->get_record(Current => $current_id)
-        or error __x"Record ID {id} not found", id => $current_id;
-
-    !$search_instance_id || $search_instance_id == $current->instance_id
-        or error __x"Record ID {id} invalid for table {table}",
-            id => $current_id, table => $search_instance_id;
-
-    $self->_find(current_id => $current_id, %options);
-}
-
 sub find_draftuser
 {   my ($self, $user, %options) = @_;
-    my $user_id = blessed $user ? $user->id : $user;
-    $user_id =~ /^[0-9]+$/
-        or error __x"Invalid draft user ID {id}", id => $user_id;
 
+    my $user_id = blessed $user ? $user->id : $user;
     $self->_set_instance_id($options{instance_id})
         if $options{instance_id};
 
