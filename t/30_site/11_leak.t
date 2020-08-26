@@ -11,7 +11,7 @@ my $sheet1 = test_sheet
 
 is $sheet1->site, $site1, 'Sheet1 created in site1';
 
-my $site2  = make_site '2',
+my $site2  = make_site '2';
 
 my $sheet2 = make_sheet '2',
     fill_rows        => 2,

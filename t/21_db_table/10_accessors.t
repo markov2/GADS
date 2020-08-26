@@ -65,7 +65,7 @@ like $@->wasFatal->message, qr/^Field .* not expected/, '... expected error';
 
 try { my $d = $object->isunique };
 ok defined $@, 'Use of old column name';
-like $@->wasFatal->message, qr/^Accessor .* renamed to/, '... expected error';
+like $@->wasFatal->message, qr/^Can't locate .* "isunique"/, '... expected error';
 
 done_testing;
 

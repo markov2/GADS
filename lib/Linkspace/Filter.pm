@@ -274,12 +274,13 @@ sub parse_date_filter
 
 
 
-=head2 $filter->_filter_validate($layout);
+=head2 $filter->filter_validate($layout);
+Checks whether the filter contains sensible information.
 =cut
 
 #XXX Only applicable to view filters?
-sub _filter_validate($)
-{   my ($thing, $layout) = @_;
+sub filter_validate($)
+{   my ($self, $layout) = @_;
 
     # Get all the columns in the filter. Check whether the user has
     # access to them.

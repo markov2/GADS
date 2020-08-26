@@ -69,6 +69,7 @@ ok $user2->_set_group_ids([$group2->id, $group3->id, $group4->id, $group5->id]),
 
 my $ug1 = $user2->groups;
 cmp_ok scalar @$ug1, '==', 4, '... user added to 4 groups';
+cmp_ok scalar logs, '==', 4+1, '... logging'; # 4x add + remove test_group
 
 ok $user2->_set_group_ids([$group3->id, $group5->id]), '... remove 2 groups';
 
@@ -77,8 +78,7 @@ cmp_ok scalar @$ug2, '==', 2, '... user now in 2 groups';
 is $ug2->[0], $group3, '... ... group3';
 is $ug2->[1], $group5, '... ... group5';
 
-cmp_ok scalar logs, '==', 4+2, '... logging'; # 4x add, 2x remove
-
+cmp_ok scalar logs, '==', 2, '... logging'; # 2x remove
 
 done_testing;
 
