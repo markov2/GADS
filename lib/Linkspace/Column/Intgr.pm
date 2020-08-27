@@ -59,11 +59,11 @@ sub is_valid_value($%)
 {   my ($self, $values, %options) = @_;
 
     foreach my $v (flat $values)
-    {   if($v && $v !~ /^-?[0-9]+$/)
-        {   return 0 unless $options{fatal};
-            error __x"'{int}' is not a valid integer for '{col}'",
-                int => $v, col => $self->name;
-        }
+    {   next if $v =~ /^[+-]?[0-9]+$/;
+        return 0 unless $options{fatal};
+
+        error __x"'{int}' is not a valid integer for '{col}'",
+            int => $v, col => $self->name;
     }
 
     1;
