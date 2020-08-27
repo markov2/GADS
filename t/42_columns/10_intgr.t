@@ -9,9 +9,9 @@ my $column1 = $sheet->layout->column_create({
     name_short => 'column1',
 });
 ok defined $column1, 'Created column1';
-my $col1_id;
+my $col1_id = $column1->id;
 
-my $path1 = $column1->path;
+my $path1   = $column1->path;
 is $path1, $sheet->path.'/intgr=column1', '... check path';
 is logline, "info: Layout created $col1_id: $path1", '... creation logged';
 
