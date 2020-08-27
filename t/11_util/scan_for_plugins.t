@@ -29,7 +29,7 @@ sub is_loaded($) { my $fn = shift; grep {defined && $_ eq $fn2 } values %INC }
 #use Data::Dumper;
 #warn Dumper \%INC;
 ok ! $INC{'Linkspace/Command/Show.pm'}, '... namespace not loaded';
-ok ! _is_loaded($fn2), '... pm file not loaded';
+ok ! is_loaded($fn2), '... pm file not loaded';
 
 ### Scan, with load
 
@@ -38,6 +38,6 @@ cmp_ok ref $pkg3, 'eq', 'HASH', "Scanned 'Command' with load";
 cmp_ok scalar keys %$pkg3, '>', 0, '... found something';
 
 ok exists $INC{'Linkspace/Command/Show.pm'}, '... namespace loaded';
-ok _is_loaded($fn2), '... pm file loaded';
+ok is_loaded($fn2), '... pm file loaded';
 
 done_testing;

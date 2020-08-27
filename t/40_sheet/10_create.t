@@ -69,7 +69,6 @@ diag 'Many more components to follow';
 
 ### Sheet delete
 
-my $sheet1_id = $sheet1->id;
 $doc->sheet_delete($sheet1);
 ok !defined $doc->sheet($sheet1_id), 'Deleted first sheet';
 ok !defined $site->sheet($sheet1_id), '... missing via site';
