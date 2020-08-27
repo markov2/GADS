@@ -22,10 +22,11 @@ my $sheet1 = $doc->sheet_create({
     name_short => 'first',
 });
 ok defined $sheet1, 'Create my first sheet, id='.$sheet1->id;
+my $sheet1_id = $sheet->id;
 
 my $path = $site->path . '/first';
 isa_ok $sheet1, 'Linkspace::Sheet', '...';
-is logline, "info: Instance created ${\($sheet1->id)}: $path", '... log';
+is logline, "info: Instance created $sheet1_id: $path", '... log';
 
 is $sheet1->site, $site, '... refers to site';
 is $sheet1->document, $doc, '... refers to document';
@@ -42,16 +43,16 @@ is $sheet1a, $sheet1, '... address sheet via cache by sort name';
 my $sheet1b = $site->sheet('first sheet');
 is $sheet1b, $sheet1, '... address sheet via cache by long name';
 
-my $sheet1c = $site->sheet($sheet1->id);
+my $sheet1c = $site->sheet($sheet1_id);
 is $sheet1c, $sheet1, '... address sheet via cache by id';
 
-my $sheet1d = $site->sheet('table'.$sheet1->id);
+my $sheet1d = $site->sheet('table'.$sheet1_id);
 is $sheet1d, $sheet1, '... address sheet via cache by table label';
 
-my $sheet1e = Linkspace::Sheet->from_id($sheet1->id, document => $doc);
+my $sheet1e = Linkspace::Sheet->from_id($sheet1_id, document => $doc);
 ok defined $sheet1e, 'Reloaded first via database';
 isnt $sheet1e, $sheet1, '... is new object';
-is $sheet1e->id, $sheet1->id, '... correct sheet';
+is $sheet1e->id, $sheet1_id, '... correct sheet';
 is $sheet1e->site_id, $sheet1->site_id, '... correct site';
 
 ### Check loading of childs

@@ -11,9 +11,7 @@ use GADS::Record;
 use GADS::Records;
 use GADS::Schema;
 
-use t::lib::DataSheet;
-
-my $data = [
+my @data2 = (
     {
         string1    => 'Foo',
         integer1   => '100',
@@ -34,9 +32,9 @@ my $data = [
         curval1    => 2,
         file1      => undef,
     },
-];
+);
 
-my $data2 = [
+my @data3 = (
     {
         string1    => 'Foo',
         integer1   => 50,
@@ -65,14 +63,10 @@ my $data2 = [
         daterange1 => ['2001-05-12', '2002-03-22'],
         enum1      => 3,
     },
-];
+);
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2, data => $data2);
-$curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
-my $sheet   = t::lib::DataSheet->new(
-    data             => $data,
-    schema           => $schema,
+my $sheet   = make_sheet '2',
+    data             => \@data2,
     multivalue       => 1,
     curval           => 2,
     curval_field_ids => [ $curval_sheet->columns->{string1}->id ],
@@ -84,140 +78,122 @@ my $sheet   = t::lib::DataSheet->new(
     end",
     calc_return_type => 'string',
 );
-my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
-$sheet->create_records;
+
+my $curval_sheet = make_sheet '3', data => \@data3;
 
 # Various tests for field types
 #
 # Code
 
-my $calc = $columns->{calc1};
-$calc->code('function evaluate (_id) return "test“test" end');
-try { $calc->write };
-ok($@, "Failed to write calc code with invalid character");
+try { my $calc = $layout->column_update(calc1 => {
+   code => 'function evaluate (_id) return "test“test" end'
+})  };
+ok $@->wasFatal, "Failed to write calc code with invalid character";
 
 # Curval tests
 #
 # First check that we cannot delete a record that is referred to
-my $record = GADS::Record->new(
-    user   => $sheet->user,
-    layout => $layout,
-    schema => $schema,
-);
-$record->find_current_id(1);
-try { $record->delete_current; $record->purge_current };
-like($@, qr/The following records refer to this record as a value/, "Failed to purge record in a curval");
-# Restore deleted record
-$record->restore;
+
+try { $sheet->content->row(1)->purge };
+like $@, qr/The following records refer to this record as a value/,
+   "Failed to purge record in a curval";
 
 my $user = $sheet->user_normal1;
 my $curval = $columns->{curval1};
 
-is( scalar @{$curval->filtered_values}, 4, "Correct number of values for curval field (filtered)" );
-is( scalar @{$curval->all_values}, 4, "Correct number of values for curval field (all)" );
+cmp_ok @{$curval->filtered_values}, '==', 4,
+   "Correct number of values for curval field (filtered)";
+
+cmp_ok @{$curval->all_values}, '==', 4,
+   "Correct number of values for curval field (all)";
 
 # Create a second curval sheet, and check that we can link to first sheet
 # (which links to second)
-my $curval_sheet2 = t::lib::DataSheet->new(schema => $schema, curval => 1, instance_id => 3, curval_offset => 12);
-$curval_sheet2->create_records;
-is( scalar @{$curval_sheet2->columns->{curval1}->filtered_values}, 2, "Correct number of values for curval field" );
+my $curval_sheet2 = make_sheet '4',
+    curval => 1,
+    curval_offset => 12,
+    rows  => 1;
+
+cmp_ok @{$curval_sheet2->column('curval1')->filtered_values}, '==, 2,
+    "Correct number of values for curval field";
 
 # Add a curval field without any columns. Check that it doesn't cause fatal
 # errors when building values.
 # This won't normally be allowed, but we want to test anyway just in case - set
 # an env variable to allow it.
 $ENV{GADS_ALLOW_BLANK_CURVAL} = 1;
-my $curval_blank = GADS::Column::Curval->new(
-    schema                => $schema,
-    user                  => $user,
-    layout                => $layout,
-    name                  => 'curval blank',
-    type                  => 'curval',
-    refers_to_instance_id => $curval_sheet->layout->instance_id,
-    curval_field_ids      => [],
-);
-$curval_blank->set_permissions({$sheet->group->id => $sheet->default_permissions});
-$curval_blank->write;
-# Clear the layout to force the column to be build, and also to build
-# dependencies properly in the next test
-$layout->clear;
+
+my $curval_blank = $layout->add_column({
+    type             => 'curval',
+    name             => 'curval blank',
+    refers_to_sheet  => $curval_sheet,
+    curval_field_ids => [],
+    permissions => { $sheet->group->id => $sheet->default_permissions },
+)};
+
 # Now force the values to be built. This should not bork
 try { $layout->column($curval_blank->id)->filtered_values };
-ok( !$@, "Building values for curval with no fields does not bork" );
+ok !$@, "Building values for curval with no fields does not bork";
 
 # Check that an undefined filter does not cause an exception.  Normally a blank
 # filter would be written as an empty JSON string, but that may not be there
 # for columns from old versions
-my $curval_blank_filter = GADS::Column::Curval->new(
-    schema                => $schema,
-    user                  => $user,
-    layout                => $layout,
-    name                  => 'curval blank',
-    type                  => 'curval',
-    refers_to_instance_id => $curval_sheet->layout->instance_id,
-    curval_field_ids      => [],
-);
-$curval_blank_filter->set_permissions({$sheet->group->id => $sheet->default_permissions});
-$curval_blank_filter->write;
-# Clear the layout to force the column to be build
-$layout->clear;
+my $curval_blank_filter = $layout->add_column({
+    name             => 'curval blank',
+    type             => 'curval',
+    refers_to_sheet  => $curval_sheet,
+    curval_field_ids => [],
+    permissions => { $sheet->group->id => $sheet->default_permissions },
+});
+
 # Manually blank the filters
 $schema->resultset('Layout')->update({ filter => undef });
+
 # Now force the values to be built. This should not bork
 try { $layout->column($curval_blank_filter->id)->filtered_values };
 ok( !$@, "Undefined filter does not cause exception during layout build" );
 
 # Check that we can add and remove curval field IDs
 my $field_count = $schema->resultset('CurvalField')->count;
-my $curval_add_remove = GADS::Column::Curval->new(
-    schema                => $schema,
-    user                  => $user,
-    layout                => $layout,
-    name                  => 'curval fields',
-    type                  => 'curval',
-    refers_to_instance_id => $curval_sheet->layout->instance_id,
-    curval_field_ids      => [$curval_sheet->columns->{string1}->id],
-);
-$curval_add_remove->set_permissions({$sheet->group->id => $sheet->default_permissions});
-$curval_add_remove->write;
-# Should be one more
+my $curval_add_remove = $layout->add_column({
+    name             => 'curval fields',
+    type             => 'curval',
+    refers_to_sheet  => $curval_sheet->layout->instance_id,
+    curval_fields   => [ 'string1' ],
+    permissions => { $sheet->group->id => $sheet->default_permissions },
+});
+
 is($schema->resultset('CurvalField')->count, $field_count + 1, "Correct number of fields after new");
-$layout->clear;
-$curval_add_remove = $layout->column($curval_add_remove->id);
-$curval_add_remove->curval_field_ids([$curval_sheet->columns->{string1}->id, $curval_sheet->columns->{integer1}->id]);
-$curval_add_remove->write;
+
+$layout->column_update($curval_add_remove, { curval_fields => ['string1', 'integer1'] });
+
 is($schema->resultset('CurvalField')->count, $field_count + 2, "Correct number of fields after addition");
 $layout->clear;
-$curval_add_remove = $layout->column($curval_add_remove->id);
-$curval_add_remove->curval_field_ids([$curval_sheet->columns->{integer1}->id]);
-$curval_add_remove->write;
+
+$layout->column_update($curval_add_remove, { curval_fields => ['integer1'] });
 is($schema->resultset('CurvalField')->count, $field_count + 1, "Correct number of fields after removal");
-$curval_add_remove->delete;
-$layout->clear;
+
+$layout->column_delete($curval_add_remove);
+
 
 # Filter on curval tests
-my $curval_filter = GADS::Column::Curval->new(
-    schema             => $schema,
-    user               => $user,
-    layout             => $layout,
+my $curval_filter = $layout->create_column({
     name               => 'curval filter',
     type               => 'curval',
-    filter             => GADS::Filter->new(
-        as_hash => {
-            rules => [{
-                id       => $curval_sheet->columns->{string1}->id,
-                type     => 'string',
-                value    => 'Foo',
-                operator => 'equal',
-            }],
-        },
-        layout => $layout,
-    ),
-    refers_to_instance_id => $curval_sheet->layout->instance_id,
-    curval_field_ids      => [ $curval_sheet->columns->{integer1}->id ], # Purposefully different to previous tests
+    filter             => Linkspace::Filter->from_hash({
+        rules => [{
+            id       => $curval_sheet->column('string1')->id,
+            type     => 'string',
+            value    => 'Foo',
+            operator => 'equal',
+        }],
+    }),
+
+    refers_to_sheet  => $curval_sheet;
+    curval_field_ids => [ $curval_layout->column('integer1' )], # Purposefully different to previous tests
+    permissions => { $sheet->group->id => $sheet->default_permissions },
 );
-$curval_filter->set_permissions({$sheet->group->id => $sheet->default_permissions});
+
 $curval_filter->write;
 # Clear the layout to force the column to be build, and also to build
 # dependencies properly in the next test
@@ -274,84 +250,74 @@ is( $record->fields->{$curval_filter->id}->as_string, $curval_value, "Curval val
 is( $record->fields->{$curval_filter->id}->for_code->[0]->{field_values}->{L2enum1}, 'foo1', "Curval value for code still correct after filter change (multiple)");
 
 # Add view limit to user
-my $autocur1 = $curval_sheet->add_autocur(refers_to_instance_id => 1, related_field_id => $columns->{curval1}->id);
+my $autocur1 = $curval_sheet->layout->add_autocur(
+    refers_to_sheet => $sheet,
+    related_field => $layout->column('curval1'),
+);
+
 {
     $layout->user($user); # Default sheet layout user is superadmin. Change to normal user
     $curval_sheet->layout->user($user); # Default sheet layout user is superadmin. Change to normal user
-    $layout->clear;
-    is( scalar @{$curval_filter->filtered_values}, 2, "Correct number of filted values for curval before view_limit" );
+
+    cmp_ok @{$curval_filter->filtered_values}, '==', 2,
+        "Correct number of filted values for curval before view_limit";
 
     # Add a view limit
-    my $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $curval_sheet->columns->{enum1}->id,
-                type     => 'string',
-                value    => 'foo2',
-                operator => 'equal',
-            }],
-        },
-    );
+    my $rules = Linkspace::Filter->from_hash({
+        rules     => [{
+            id       => $curval_sheet->column('enum1')->id,
+            type     => 'string',
+            value    => 'foo2',
+            operator => 'equal',
+        }],
+    });
 
-    my $view_limit = GADS::View->new(
+    my $view_limit = $curval_sheet->views->view_create({
         name        => 'Limit to view',
         filter      => $rules,
-        instance_id => 2,
-        layout      => $curval_sheet->layout,
-        schema      => $schema,
-        user        => $user,
-    );
-    $view_limit->write;
+    });
 
     $user->set_view_limits([ $view_limit ]);
 
     $layout->clear;
     $curval_filter = $layout->column($curval_filter->id);
-    is( scalar @{$curval_filter->filtered_values}, 1, "Correct number of filtered values after view_limit applied" );
-    is( scalar @{$curval_filter->all_values}, 1, "Correct number of values after view_limit applied (all)" );
+    cmp_ok @{$curval_filter->filtered_values}, '==', 1,
+        "Correct number of filtered values after view_limit applied";
 
-    # Check that an override ignores the view_limit
+    cmp_ok @{$curval_filter->all_values}, '==', 1,
+        "Correct number of values after view_limit applied (all)";
+
+    # Check that an override ignores the view_limit  #XXX
     $curval_filter->override_permissions(1);
-    $curval_filter->write;
-    $layout->clear;
+
     $curval_filter = $layout->column($curval_filter->id);
-    is( scalar @{$curval_filter->filtered_values}, 2, "Correct number of values for curval field with filter (filtered)" );
+    cmp_ok @{$curval_filter->filtered_values}, '==', 2,
+        "Correct number of values for curval field with filter (filtered)";
 
     # Add view limit to main table and check autocur values.
     # The curval refers to records that this user does not have access to, so
     # it should return a blank value
-    $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $columns->{enum1}->id,
-                type     => 'string',
-                value    => 'foo3', # Nothing matches, should be no autocur values
-                operator => 'equal',
-            }],
-        },
-    );
+    $rules = Linkspace::Filter->from_hash({
+        rules     => [{
+            id       => $layout->column('enum1')->id,
+            type     => 'string',
+            value    => 'foo3', # Nothing matches, should be no autocur values
+            operator => 'equal',
+        }],
+    });
 
-    $view_limit = GADS::View->new(
+    $view_limit = $sheet->views->view_create({
         name        => 'Limit to view',
         filter      => $rules,
-        instance_id => 1,
-        layout      => $layout,
-        schema      => $schema,
-        user        => $user,
-    );
-    $view_limit->write;
+    });
     $user->set_view_limits([ $view_limit ]);
-    my $record = GADS::Record->new(
-        user   => $user,
-        schema => $schema,
-        layout => $curval_sheet->layout,
-    );
-    $record->find_current_id($curval_id);
-    is($record->fields->{$autocur1->id}->as_string, '', "Autocur with limited record not shown");
+
+    my $row = $curval_sheet->content->row($curval_id);
+    is $row->cell($autocur1)->as_string, '', "Autocur with limited record not shown";
 
     # Return to normal for remainder of tests
     $user->set_view_limits([]);
-    $layout->clear;
+
     $curval_filter = $layout->column($curval_filter->id);
 }
 
@@ -368,23 +334,20 @@ my @position = (
 );
 $layout->position(@position);
 # Add multi-value calc for filtering tests
-my $calc2 = GADS::Column::Calc->new(
-    schema         => $schema,
-    user           => $sheet->user,
-    layout         => $layout,
-    name           => 'calc2',
-    name_short     => 'L1calc2',
-    return_type    => 'string',
-    code           => qq(function evaluate (_id, L1date1, L1daterange1) \n return {"Foo", "Bar"} \nend),
-    multivalue     => 1,
-);
-$calc2->set_permissions({$sheet->group->id => $sheet->default_permissions});
+my $calc2 = $sheet->layout->create_column({
+    name          => 'calc2',
+    name_short    => 'L1calc2',
+    return_type   => 'string',
+    code          => qq(function evaluate (_id, L1date1, L1daterange1) \n return {"Foo", "Bar"} \nend),
+    is_multivalue => 1,
+    permissions => {$sheet->group->id => $sheet->default_permissions},
+});
 $calc2->write;
 
 # Add display field for filtering tests
 my $date1 = $columns->{date1};
 my @rules = ({
-    id       => $columns->{string1}->id,
+    id       => $layout->column('string1')->id,
     operator => 'equal',
     value    => 'Foo',
 });
@@ -392,37 +355,27 @@ my $as_hash = {
     condition => undef,
     rules     => \@rules,
 };
-$date1->display_fields(GADS::Filter->new(
-    layout  => $layout,
-    as_hash => $as_hash,
-));
+$date1->display_fields(Linkspace::Filter->from_hash($as_hash, layout=> $layout);
+
 $date1->write;
 
-$layout->clear;
-$curval_filter = $layout->column($curval_filter->id);
 foreach my $test (qw/string1 enum1 calc1 multi negative nomatch invalid calcmulti displayfield/)
 {
-    my $field = $test =~ /(string1|enum1|calc1)/
-        ? $test
-        : $test eq 'calcmulti'
-        ? 'string1'
-        : $test =~ /(multi|negative)/
-        ? 'enum1'
-        : $test eq 'displayfield'
-        ? 'date1'
-        : 'string1';
+    my $field
+      = $test =~ /(string1|enum1|calc1)/ ? $test
+      : $test eq 'calcmulti'             ? 'string1'
+      : $test =~ /(multi|negative)/      ? 'enum1'
+      : $test eq 'displayfield'          ? 'date1'
+      :                                    'string1';
+
     my $match = $test =~ /(string1|enum1|calc1|multi|negative)/ ? 1 : 0;
-    my $value = $test eq 'calc1'
-        ? '$L1calc1'
-        : $test eq 'calcmulti'
-        ? '$L1calc2'
-        : $match
-        ? "\$L1$field"
-        : $test eq 'nomatch'
-        ? '$L1tree1'
-        : $test eq 'displayfield'
-        ? '$L1date1'
-        : '$L1string123';
+    my $value
+      = $test eq 'calc1'        ? '$L1calc1'
+      : $test eq 'calcmulti'    ? '$L1calc2'
+      : $match                  ? "\$L1$field"
+      : $test eq 'nomatch'      ? '$L1tree1'
+      : $test eq 'displayfield' ? '$L1date1'
+      :                           '$L1string123';
 
     my $rules = $test eq 'multi'
         ? {
@@ -486,12 +439,11 @@ foreach my $test (qw/string1 enum1 calc1 multi negative nomatch invalid calcmult
             }],
         };
 
-    $curval_filter->filter(GADS::Filter->new(
-            as_hash => $rules,
+    $curval_filter->filter(Linkspace::Filter->from_hash(
             layout  => $layout,
-        ),
-    );
-    $curval_filter->curval_field_ids([ $curval_sheet->columns->{string1}->id ]);
+    ));
+
+    $curval_filter->curval_fields([ 'string1' ]);
     $curval_filter->write;
     $curval_filter->clear;
 
@@ -507,34 +459,28 @@ foreach my $test (qw/string1 enum1 calc1 multi negative nomatch invalid calcmult
     # Clear the layout to force the column to be build, and also to build
     # dependencies properly in the next test
     $layout->clear;
-    my $record = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record->find_current_id(5);
+
+    my $rrecord = $sheet->content->row(5);
 
     # Hack to make it look like the dependent datums for the curval filter have been written to
     my $written_field = $field eq 'calc1' ? 'string1' : $field;
-    my $datum = $record->fields->{$columns->{$written_field}->id};
+    my $datum = $record->cell($written_field);
     $datum->oldvalue($datum->clone);
     $record->write(
         dry_run           => 1,
         missing_not_fatal => 1,
         submitted_fields  => $curval_filter->subvals_input_required,
     );
-    my $count = $test =~ 'multi'
-        ? 3
-        : $test eq 'negative'
-        ? 2
-        : $test eq 'displayfield'
-        ? 1
-        : $match && $field eq 'enum1'
-        ? 2
-        : $match
-        ? 1
-        : 0;
-    is( scalar @{$curval_filter->filtered_values}, $count, "Correct number of values for curval field with $field filter, test $test" );
+    my $count
+       = $test =~ 'multi' ? 3
+       : $test eq 'negative' ? 2
+       : $test eq 'displayfield' ? 1
+       : $match && $field eq 'enum1' ? 2
+       : $match ? 1
+       : 0;
+
+    cmp_ok @{$curval_filter->filtered_values}, '==', $count,
+        "Correct number of values for curval field with $field filter, test $test";
 
     # Check that we can create a new record with the filtered curval field in
     $layout->clear;
@@ -545,18 +491,15 @@ foreach my $test (qw/string1 enum1 calc1 multi negative nomatch invalid calcmult
     );
     $record_new->initialise;
     my $cv = $layout->column($curval_filter->id);
-    $count = $test eq 'multi'
-        ? 1
-        : $test eq 'negative'
-        ? 3
-        : $test eq 'calcmulti'
-        ? 3
-        : $match && $field eq 'enum1'
-        ? 1
-        : $match
-        ? 0
+    $count = $test eq 'multi' ? 1
+        : $test eq 'negative' ? 3
+        : $test eq 'calcmulti' ? 3
+        : $match && $field eq 'enum1' ? 1
+        : $match ? 0
         : 0;
-    is( scalar @{$layout->column($curval_filter->id)->filtered_values}, $count, "Correct number of values for curval field with filter" );
+
+    cmp_ok @{$layout->column($curval_filter)->filtered_values}, '==' $count,
+        "Correct number of values for curval field with filter";
 
     $curval_filter->delete;
 }
@@ -565,20 +508,16 @@ foreach my $test (qw/string1 enum1 calc1 multi negative nomatch invalid calcmult
 # retrieving individual records
 $ENV{PANIC_ON_CURVAL_BUILD_VALUES} = 1;
 
-my $records = GADS::Records->new(
-    user    => $sheet->user,
-    layout  => $layout,
-    schema  => $schema,
-);
+my $page = $sheeet->content->search;
 
-ok( $_->fields->{$curval->id}->text, "Curval field of record has a textual value" ) foreach @{$records->results};
-
-$layout->clear; # Rebuild layout for dependencies
+ok $_->field($curval)->text, "Curval field of record has a textual value"
+    for @{$page->rows};
 
 # Test addition and removal of tree values
 {
     my $tree = $columns->{tree1};
     my $count_values = $schema->resultset('Enumval')->search({ layout_id => $tree->id, deleted => 0 })->count;
+
     is($count_values, 3, "Number of tree values correct at start");
 
     $tree->clear;

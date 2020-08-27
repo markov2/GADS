@@ -89,13 +89,6 @@ after set_value => sub {
         $self->changed(1);
         $self->column->is_valid_value($_, fatal => 1) for @ids;
         # Need to clear initial values, to ensure new value is built from this new ID
-        $self->clear_values;
-        $self->clear_text;
-        $self->clear_init_value;
-        $self->_clear_init_value_hash;
-        $self->_clear_records;
-        $self->clear_already_seen_code;
-        $self->clear_already_seen_level;
     }
 
     # Even if nothing has changed, we still need to set ids. This is because
@@ -268,7 +261,9 @@ sub id
 # field. These will be removed when the main draft is removed.
 sub purge_drafts
 {   my $self = shift;
-    $_->delete_current, $_->purge_current foreach grep { $_->is_draft } @{$self->_records};
+    foreach my $row (@{$self->_records})
+    {   $row->delete, $row->purge if $row->is_draft;
+    }
 }
 
 # Values as a URI query string. These are values submitted as queries via the

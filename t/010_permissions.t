@@ -126,12 +126,13 @@ foreach my $user_type (qw/readwrite read limited/)
             $layout->columns;
             $layout_curval->columns;
         }
+
         if ($user_type eq 'read')
         {
             ok(!$layout->user_can('write_existing'), "User $user_type cannot write to anything");
         }
-        else {
-            ok($layout->user_can('write_existing'), "User $user_type can write to something in layout");
+        else
+        {   ok($layout->user_can('write_existing'), "User $user_type can write to something in layout");
         }
         if ($user_type eq 'readwrite')
         {
@@ -163,31 +164,21 @@ foreach my $user_type (qw/readwrite read limited/)
         layout => $layout,
     ));
     $curval_column->write;
-    is( @{$curval_column->filtered_values}, 1, "User has access to all curval values after filter" );
+
+    cmp_ok @{$curval_column->filtered_values}, '==', 1,
+        "User has access to all curval values after filter";
+
     # Reset for next test
     $curval_column->clear_filter;
     $curval_column->write;
 
 
     # First try writing to existing record
-    my $records = GADS::Records->new(
-        user    => $user,
-        layout  => $layout,
-        schema  => $schema,
-    );
-    my @records = @{$records->results};
+    my $sheet7 = make_sheet '7', rows => 1;
 
-    is( scalar @records, 1, "One record in test dataset");
+    my $row7_2 = $sheet7->add_row({});
 
-    # Add another blank one
-    my $record = GADS::Record->new(
-        user     => $user,
-        layout   => $layout,
-        schema   => $schema,
-    );
-    $record->initialise;
-    push @records, $record;
-
+...
     foreach my $rec (@records)
     {
         _set_data($data->{b}->[0], $layout, $rec, $user_type);
@@ -197,8 +188,8 @@ foreach my $user_type (qw/readwrite read limited/)
         {
             ok( $@, "Write failed to read-only user" );
         }
-        else {
-            ok( !$@, "Write for user with write access did not bork" );
+        else
+        {   ok( !$@, "Write for user with write access did not bork" );
             my $record_max_new = $schema->resultset('Record')->get_column('id')->max;
             is( $record_max_new, $record_max + 1, "Change in record's values took place for user $user_type" );
             # Reset values to previous
@@ -206,15 +197,14 @@ foreach my $user_type (qw/readwrite read limited/)
             $rec->write(no_alerts => 1);
         }
     }
+
     # Delete created record unless one shouldn't have been created (read only test)
     unless ($user_type eq 'read')
-    {
-        $record->user(undef); # undef users are allowed to purge records
-        $record->delete_current;
-        $record->purge_current;
+    {   $row7_2->delete;
+        $row7_2->purge;
 
         my $page = $sheet->content->search;
-        cmp_ok $page->row_count, '==', 1, "Record purged correctly";
+        cmp_ok $page->row_count, '==', 1, "Row purged correctly";
     }
 }
 

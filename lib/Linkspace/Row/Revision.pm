@@ -55,7 +55,6 @@ sub db_fields_unused { [ qw/record_id/ ] }}}
 =head1 NAME
 
 Linkspace::Row::Revision - manage a row in the data of a sheet
-
 =head1 DESCRIPTION
 A row can be in C<draft>, which means that it does not yet belong to the sheet
 because it is incomplete.
@@ -761,8 +760,7 @@ sub delete_user_drafts($)
         my @curval = map $draft->cell($_),
             grep $_->type eq 'curval', $draft->columns;
 
-        $draft->delete_current($sheet);
-        $draft->purge_current;
+        $draft->purge;
         $_->purge_drafts for @curval;
     }
 }
@@ -1509,11 +1507,6 @@ sub user_can_delete
     $self->current_id ? $self->sheet->user_can("delete") : 0;
 }
 
-sub user_can_purge
-{   my $self = shift;
-    $self->current_id ? $self->sheet->user_can("purge") : 0;
-}
-
 sub delete_current
 {   my ($self, $sheet, %options) = @_;
     my $cur_id = $self->current_id or return;
@@ -1533,7 +1526,7 @@ sub delete_current
 # Delete this this version completely from database
 sub purge
 {   my $self = shift;
-    $self->user_can_purge
+    $self->sheet->user_can('purge')
         or error __"You do not have permission to purge records";
 
     $self->_purge_record_values($self->record_id);
@@ -1542,7 +1535,7 @@ sub purge
 
 sub restore
 {   my $self = shift;
-    $self->user_can_purge
+    $self->sheet->user_can('purge')
         or error __"You do not have permission to restore records";
 
     $::db->update(Current => $self->current_id, { deleted => undef });
@@ -1640,93 +1633,16 @@ sub pdf
     $pdf;
 }
 
-# Delete the record entirely from the database, plus its parent current (entire
-# row) along with all related records
-sub purge_current
-{   my $self = shift;
-
-    $self->user_can_purge
-        or error __"You do not have permission to purge records";
-
-    my $id = $self->current_id
-        or panic __"No current_id specified for purge";
-
-    my $crs = $::db->search(Current => {
-        id => $id,
-        instance_id => $self->sheet->id,
-    })->first
-        or error __x"Invalid ID {id}", id => $id;
-
-    $crs->is_deleted
-        or error __"Cannot purge record that is not already deleted";
-
-    my @recs = $::db->search(Current => {
-        'curvals.value' => $id,
-    },{
-        prefetch => { records => 'curvals' },
-    })->all;
-
-    if(@recs)
-    {   my $recs = join ', ', map {
-            my %cells;
-            foreach my $record ($_->records) {
-                $cells{$_->sheet->name} = 1 for $record->curvals;
-            }
-            my $names = join ', ', keys %cells;
-            $_->id." ($names)";
-        } @recs;
-        error __x"The following records refer to this record as a value (possibly in a historical version): {records}",
-            records => $recs;
-    }
-
-    my @records = $self->search_objects({ current_id => $id });
-
-    # Get creation details for logging at end
-    my $createdby = $self->createdby;
-    my $created   = $self->created;
-
-    my $guard = $::db->begin_work;
-
-    # Delete child records first
-    foreach my $child (@{$self->child_record_ids})
-    {   my $record = $self->_sibling_record;
-        $record->find_current_id($child);
-        $record->purge_current;
-    }
-
-    $self->_purge_record_values($_->id)
-        for @records;
-
-    my $which = +{ current_id => $id };
-    $::db->update(Record     => $which, { record_id => undef });
-    $::db->delete(AlertCache => $which);
-    $::db->delete(Record     => $which);
-    $::db->delete(AlertSend  => $which);
-    $::db->delete(Current    => $id);
-    $guard->commit;
-
-    my $user_id = $self->user->id;
-    info __x"Record ID {id} purged by user ID {user} (originally created by user ID {createdby} at {created}",
-        id => $id, user => $user_id, createdby => $createdby->id, created => $created;
-}
-
 #XXX I have seen similar lists on other places
 my @purge_tables = qw/Ragval Calcval Enum String Intgr Daterange Date Person File Curval/;
 
-sub _purge_record_values
+sub _revision_delete
 {   my ($self, $rid) = @_;
 
     my $which = +{ record_id => $rid };
     $::db->delete($_ => $which) for @purge_tables;
 
     $self->user->row_remove_cursors($rid);
-}
-
-sub delete_current($)
-{   my ($self, $which) = @_;
-    my $current_id = blessed $which ? $which->id : $which;
-    $self->find_current_id($id_deleted);
-    $self->delete_current(override => 1);
 }
 
 1;

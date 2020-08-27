@@ -56,32 +56,30 @@ sub remove_column($)
 sub _column_create($)
 {   my ($class, $insert) = @_;
 
-    $insert->{related_field_id}
+    $insert->{related_field_id} || $insert->{related_field}
         or error __x"Please select a field that refers to this table";
 
     $class->SUPER::_columns_create($insert);
 }
 
-###
-### Instance
-###
-
-sub column_update($)
+sub _column_update($)
 {   my ($self, $update) = @_;
-    my $curval_field_ids = delete $update{curval_field_ids};
+    my $curval_fields = delete $update{curval_fields}
+                     || delete $update{curval_field_ids};
+
     $self->SUPER::column_update($update);
 
     defined $curval_field_ids or return $self;
 
+#XXX to be moved to Linkspace::Column::Curcommon::Reference
     # Skip fields not part of referred instance. This can happen when a
     # user changes the instance that is referred to, in which case fields
     # may still be selected and submitted from the no-longer-displayed
     # table's list of fields
 
-    my $layout_parent    = $self->layout_parent;
-    my $parent_sheet_id  = $layout_parent->sheet_id;
+    my $parent_sheet_id  = $self->layout_parent->sheet_id;
     my @curval_fields    = grep $_->sheet_id == $parent_sheet_id,
-        $self->columns($curval_field_ids);
+        @{$self->columns($curval_fields)};
 
     my @curval_field_ids;
     foreach my $column (@curval_fields)
@@ -106,10 +104,15 @@ sub column_update($)
 
 }
 
+
+###
+### Instance
+###
+
 sub tjoin
 {   my ($self, %options) = @_;
-    $self->make_join(map $_->tjoin,
-        grep !$_->is_internal, @{$self->curval_fields_retrieve(%options)});
+    $self->make_join(map $_->tjoin, grep !$_->is_internal,
+        @{$self->curval_fields_retrieve(%options)});
 }
 
 has layout_parent => (

@@ -32,21 +32,19 @@ my $data = [
     },
 ];
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
-my $schema       = $curval_sheet->schema;
-my $sheet        = t::lib::DataSheet->new(
-    data             => $data,
-    schema           => $schema,
-    user_count       => 2,
-    curval           => 2,
-    curval_field_ids => [ $curval_sheet->columns->{string1}->id, $curval_sheet->columns->{date1}->id ],
-    calc_code        => "function evaluate (L1daterange1) \n return L1daterange1.from.epoch \n end",
+my $sheet         = make_sheet '2',
+    data          => $data,
+    user_count    => 2,
+    curval        => 2,
+    curval_fields => [ 'string1', 'date1' ],
+    calc_code     => "function evaluate (L1daterange1) \n return L1daterange1.from.epoch \n end",
     calc_return_type => 'date',
 );
 my $layout       = $sheet->layout;
-my $columns      = $sheet->columns;
-$sheet->create_records;
+my $colperms     = { $sheet->group->id => $sheet->default_permissions };
+
+my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
+$curval_sheet->create_records;
 
 my $autocur1 = $curval_sheet->add_autocur(
     curval_field_ids      => [$columns->{daterange1}->id],
@@ -56,29 +54,21 @@ my $autocur1 = $curval_sheet->add_autocur(
 $layout->clear; # Ensure main layout takes account of its new child autocurs
 
 # Check that numeric return type from calc can be used in another calc
-my $calc_integer = GADS::Column::Calc->new(
-    schema      => $schema,
-    user        => undef,
-    layout      => $layout,
+my $calc_integer = $layout->column_create({
     name        => 'calc_integer',
     name_short  => 'calc_integer',
     return_type => 'integer',
     code        => "function evaluate (L1string1) \n return 450 \nend",
-);
-$calc_integer->set_permissions({$sheet->group->id => $sheet->default_permissions});
-$calc_integer->write;
-my $calc_numeric = GADS::Column::Calc->new(
-    schema      => $schema,
-    user        => undef,
-    layout      => $layout,
+    permissions => $colperms,
+});
+
+my $calc_numeric = $layout->column_create({
     name        => 'calc_numeric',
     name_short  => 'calc_numeric',
     return_type => 'numeric',
     code        => "function evaluate (L1string1) \n return 10.56 \nend",
+    permissions => $colperms,
 );
-$calc_numeric->set_permissions({$sheet->group->id => $sheet->default_permissions});
-$calc_numeric->write;
-$layout->clear;
 
 my @tests = (
     {
@@ -348,56 +338,40 @@ foreach my $test (@tests)
 {
     # Create a calc field that has something invalid in the nested code
     my $layout_code = $test->{layout} || $layout;
-    my $code_col = "GADS::Column::$test->{type}"->new(
-        schema         => $schema,
-        user           => undef,
-        layout         => $layout_code,
+    my $code_col = $layout_code->column_create({
         name           => 'code col',
         return_type    => $test->{return_type} || 'string',
         decimal_places => $test->{decimal_places},
         code           => $test->{code},
         multivalue     => $test->{multivalue},
+        permissions    => $colperms,
     );
-    $code_col->set_permissions({$sheet->group->id => $sheet->default_permissions});
-    $code_col->write;
-
-    $layout_code->clear;
 
     my @results;
     
     # Code values should have been written to database by now
     $ENV{GADS_PANIC_ON_ENTERING_CODE} = 1;
-    my $record = GADS::Records->new(
-        user    => $sheet->user,
-        layout  => $layout,
-        schema  => $schema,
-    )->single;
-    push @results, $record;
+
+    my $row1 = $sheet->content->row(1);  #XXX any first row
+    push @results, $row1;
+
     # Set env variables to allow record write (after retrieving results)
     $ENV{GADS_PANIC_ON_ENTERING_CODE} = 0;
     $ENV{GADS_NO_FORK} = 1;
 
-    push @results, GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    )->find_current_id($record->current_id);
+    push @results, $sheet->content->row($row1->current_id);
 
     # Plus new record
-    my $record_new = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record_new->initialise;
-    $record_new->fields->{$columns->{daterange1}->id}->set_value(['2000-10-10', '2001-10-10']);
-    $record_new->fields->{$columns->{date1}->id}->set_value('2016-12-20');
-    $record_new->fields->{$columns->{curval1}->id}->set_value(1);
-    $record_new->fields->{$columns->{tree1}->id}->set_value(10);
-    $record_new->fields->{$columns->{integer1}->id}->set_value(10);
-    try { $record_new->write } hide => 'WARNING'; # Hide warnings from invalid calc fields
+    my $row_new = try { $sheet->content->row_create({
+        daterange1 => ['2000-10-10', '2001-10-10'],
+        date1      => '2016-12-20',
+        curval1    => 1,
+        tree1      => 10,
+        integer1   => 10,
+    }) } hide => 'WARNING'; # Hide warnings from invalid calc fields
     $@->reportFatal unless $test->{is_error}; # In case any fatal errors
-    if (defined $test->{is_error})
+
+    if(defined $test->{is_error})
     {
         if ($test->{is_error})
         {
@@ -406,13 +380,11 @@ foreach my $test (@tests)
             next;
         }
         else {
-            ok(!$@, "Successfully wrote record without error $@");
+        {   ok(!$@, "Successfully wrote record without error $@");
         }
     }
-    my $cid = $record_new->current_id;
-    $record_new->clear;
-    $record_new->find_current_id($cid);
-    push @results, $record_new;
+
+    push @results, $sheet->content->row($row_new->current_id);
 
     foreach my $record (@results)
     {
@@ -421,22 +393,19 @@ foreach my $test (@tests)
         $before =~ s/__ID/$cid/ unless ref $before eq 'Regexp';
         my $serial = $schema->resultset('Current')->find($cid)->serial;
         # Check that a serial was actually produced, so we're not comparing 2 null values
-        ok($serial, "Serial is not blank");
+        ok $serial, "Serial is not blank";
+
         $before =~ s/__SERIAL/$serial/ unless ref $before eq 'Regexp';
+        $before = qr/^$before$/ unless ref $before eq 'Regexp';
+
         my $record_check;
         if (my $rcid = $test->{record_check})
-        {
-            $record_check = GADS::Record->new(
-                user   => $sheet->user,
-                layout => $test->{layout},
-                schema => $schema,
-            );
-            $record_check->find_current_id($rcid);
+        {   $record_check = $test->{layout}->sheet->content($rcid);
         }
-        else {
-            $record_check = $record;
+        else
+        {   $record_check = $record;
         }
-        $before = qr/^$before$/ unless ref $before eq 'Regexp';
+
         my $ref = $test->{return_type} && $test->{return_type} eq 'date' ? 'DateTime' : '';
         is(ref $_, $ref, "Return value is not a reference or correct reference")
             foreach @{$record_check->fields->{$code_col->id}->value};
@@ -471,12 +440,14 @@ foreach my $test (@tests)
             my $current_id = $record->current_id;
             $record->clear;
             $record->find_current_id($current_id);
-            $record->fields->{$columns->{string1}->id}->set_value('Foobar'); # Ensure change has happened
+
+            $record->cell_update(string1 => 'Foobar'); # Ensure change has happened
             try { $record->write } hide => 'WARNING';
             $@->reportFatal; # In case any fatal errors
             $record->clear;
             $record->find_current_id($current_id);
-            like( $record->fields->{$code_col->id}->as_string, $after, "Correct code value for test $test->{name} after enum deletion" );
+            like $record->cell($code_col)->as_string, $after,
+                "Correct code value for test $test->{name} after enum deletion";
         }
 
         # Reset values for next test
@@ -484,25 +455,20 @@ foreach my $test (@tests)
         $layout->clear;
         $year++;
         set_fixed_time("10/22/$year 01:00:00", '%m/%d/%Y %H:%M:%S');
-        $record->fields->{$columns->{daterange1}->id}->set_value($data->[0]->{daterange1});
-        $record->fields->{$columns->{curval1}->id}->set_value($data->[0]->{curval1});
-        $record->fields->{$columns->{string1}->id}->set_value('');
-        $record->fields->{$columns->{tree1}->id}->set_value(10);
-        $record->user($schema->resultset('User')->find(1));
+        $record->cell_update(daterange1 => $data->[0]->{daterange1});
+        $record->cell_update(curval1 => $data->[0]->{curval1});
+        $record->cell_update(string1 => '');
+        $record->cell_update(tree1 => 10);
+
         try { $record->write } hide => 'WARNING'; # Hide warnings from invalid calc fields
         $@->reportFatal; # In case any fatal errors
     }
 
     # The user of the Record object at this point does not have permission to
     # delete it. Create new object to delete it
-    my $record_delete = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record_delete->find_current_id($record_new->current_id);
-    $record_delete->delete_current;
-    $record_delete->purge_current;
+    my $record_delete = $sheet->content->row($record_new->current_id);
+    $record_delete->purge;
+
     $code_col->delete;
 }
 
@@ -516,7 +482,7 @@ restore_time();
     # the string value may change but the "changed" status should be false.
     # This is so that when returning a calc based on another multi-value, it
     # doesn't matter if the order of the input changes.
-    my $sheet   = t::lib::DataSheet->new(
+    my $sheet   = make_sheet '8',
         data      => [],
         calc_code => "
             function evaluate (L1integer1)
@@ -533,35 +499,27 @@ restore_time();
                 return a
             end
         ",
-        calc_return_type => 'string',
-    );
-    $sheet->create_records;
-    my $schema  = $sheet->schema;
-    my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
-    my $calc    = $columns->{calc1};
-    my $int     = $columns->{integer1};
-    $calc->multivalue(1);
-    $calc->write;
-    $layout->clear;
+        calc_return_type => 'string';
 
-    my $record = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record->initialise;
+    my $calc    = $layout->column('calc1');
+    my $int     = $layout->column('integer1');
+
+    $layout->column_update($calc => { is_multivalue => 1 });
+
+    my $record = $layout->row_create({});
 
     # First test number of elements being returned and written
     # One element returned
-    $record->fields->{$int->id}->set_value(1);
-    $record->write(no_alerts => 1);
+    $record->cell_update($int => 1);
+
     my $rset = $schema->resultset('Calcval');
-    is($rset->count, 1, "Correct number of calc values written to database");
-    my $datum = $record->fields->{$calc->id};
-    is($datum->as_string, "10", "Correct multivalue calc value, one element");
+    cmp_ok $rset->count, '==', 1, "Correct number of calc values written to database";
+
+    my $datum = $record->cell($calc);
+    is $datum->as_string, "10", "Correct multivalue calc value, one element";
+
     # Now return 2 elements
-    $record->fields->{$int->id}->set_value(2);
+    $record->cell_update($int => 2);
     $datum->re_evaluate;
     is($rset->count, 1, "Second calc value not yet written to database");
     is($datum->as_string, "10, 10", "Correct multivalue calc value for 2 elements");
@@ -569,78 +527,76 @@ restore_time();
     is($rset->count, 2, "Second calc value written to database");
 
     # Test changed status of datum. Should only update after change and
-    # re-evaluation.
-    # Reset record and reload
+    # re-evaluation.  Reset record and reload
     $record->clear;
-    $record->find_current_id(1);
-    $datum = $record->fields->{$calc->id};
+
+    $record = $sheet->content->row(1);
+    $datum = $record->cell($calc);
+
     # Third element
-    $record->fields->{$int->id}->set_value(3);
+    $record->cell_update($int => 3);
+
     # Not changed to begin with
-    is($datum->changed, 0, "Calc value not changed");
+    ok ! $datum->changed, "Calc value not changed";
+
     # Now should change
     $datum->re_evaluate;
-    is($datum->changed, 1, "Calc value changed after re-evaluation");
+    ok $datum->changed, "Calc value changed after re-evaluation");
     is($rset->count, 2, "Correct number of database values before write");
     $datum->write_value;
     is($rset->count, 3, "Correct number of database values after write");
 
     # Set back to one element, check other database values are removed
-    $record->fields->{$int->id}->set_value(1);
+    $record->cell_update($int => 1);
     $datum->re_evaluate;
     $datum->write_value;
+
     is($rset->count, 1, "Old calc values deleted from database");
 
     # Set to value for next set of tests
-    $record->fields->{$int->id}->set_value(10);
-    $record->write(no_alerts => 1);
+    $record->cell_update($int => 10, no_alerts => 1);
     is($rset->search({ record_id => 2 })->count, 2, "Correct number of database calc values");
 
     # Next test that switching array return values does not set changed status
-    $record->clear;
-    $record->find_current_id(1);
-    $datum = $record->fields->{$calc->id};
-    $record->fields->{$int->id}->set_value(10);
+    $record = $layout->row(1);
+    $datum = $record->cell($calc);
+    $record->cell_update($int => 10);
     $datum->re_evaluate;
+
     # Not changed from initial write
-    is($datum->changed, 0, "Calc value not changed after writing same value");
-    is($datum->as_string, "100, 200", "Correct multivalue calc value for int value 10");
+    ok ! $datum->changed, 0, "Calc value not changed after writing same value";
+    is $datum->as_string, "100, 200", "Correct multivalue calc value for int value 10";
+
     # Switch the return elements
-    $record->fields->{$int->id}->set_value(11);
+    $record->cell_update($int => 11);
     $datum->re_evaluate;
-    is($datum->changed, 0, "Calc datum not changed after switching return elements");
-    is($datum->as_string, "200, 100", "Correct multivalue calc value after switching return");
+
+    ok ! $datum->changed, 0, "Calc datum not changed after switching return elements";
+    is $datum->as_string, "200, 100", "Correct multivalue calc value after switching return";
+
     $datum->write_value;
     is($rset->search({ record_id => 2 })->count, 2, "Correct database values after switch");
 }
 
 # More "changed" tests
 {
-    my $sheet   = t::lib::DataSheet->new;
-    $sheet->create_records;
-    my $schema  = $sheet->schema;
+    my $sheet   = make_sheet '42', rows => 0;
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
 
-    my $daterange1_id = $columns->{daterange1}->id;
-    my $calc1_id      = $columns->{calc1}->id;
-    my $rag1_id       = $columns->{rag1}->id;
+    my $daterange1 = $layout->column('daterange1');
+    my $calc1      = $layout->column('calc1');
+    my $rag1       = $layout->column('rag1');
 
-    my $record = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record->initialise;
+    my $record  = $sheet->content->row_create({
+        daterange1 => ['2011-10-10','2015-10-10'],
+    }, no_alerts => 1);
 
-    $record->fields->{$daterange1_id}->set_value(['2011-10-10','2015-10-10']);
-    $record->write(no_alerts => 1);
     my $record_id = $record->current_id;
-    is($record->fields->{$calc1_id}->as_string, '2011', "Calc initially correct");
-    is($record->fields->{$rag1_id}->as_string, 'b_red', "Rag initially correct");
+    is $record->cell($calc1)->as_string, '2011', "Calc initially correct";
+    is $record->cell($rag1)->as_string, 'b_red', "Rag initially correct";
 
-    $record->clear;
-    $record->find_current_id($record_id);
+#XXX
+    $record = $sheet->content($record->current_id);
     ok(!$record->fields->{$calc1_id}->changed, "Calc not changed on load");
     ok(!$record->fields->{$rag1_id}->changed, "Rag not changed on load");
     $record->fields->{$daterange1_id}->set_value(['2011-09-10','2015-10-10']);
@@ -661,6 +617,7 @@ restore_time();
     # First a change to blank
     $record->fields->{$daterange1_id}->set_value(undef);
     $record->write(no_alerts => 1);
+
     ok($record->fields->{$calc1_id}->changed, "Calc initial changed when set to blank");
     $record->clear;
     $record->find_current_id($record_id);
@@ -694,16 +651,14 @@ restore_time();
     # being updated properly
 
     # First try with invalid function
-    my $calc2_col = GADS::Column::Calc->new(
-        schema => $schema,
-        user   => undef,
-        layout => $layout,
+    my $calc2_col = try { $layout->column_create({
         name   => 'calc2',
         code   => "foobar evaluate (L1curval)",
-    );
-    try { $calc2_col->write };
-    like( $@, qr/Invalid code definition/, "Failed to write calc field with invalid function" );
+    ) };
+    like $@, qr/Invalid code definition/,
+       "Failed to write calc field with invalid function";
 
+#XXX
     # Then with invalid short name
     $calc2_col = GADS::Column::Calc->new(
         schema => $schema,
@@ -969,10 +924,8 @@ foreach my $test (qw/string_empty string_null calc_empty calc_null/)
         layout => $layout,
         name   => 'L1calc2',
         code   => $code,
+        permissions => $colperms,
     );
-    $calc2->set_permissions({$sheet->group->id => $sheet->default_permissions});
-    $calc2->write;
-    $layout->clear;
 
     # Manually update database to ensure that both stored empty strings and
     # undefined values are tested

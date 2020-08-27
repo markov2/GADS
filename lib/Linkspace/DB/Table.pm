@@ -131,7 +131,7 @@ sub from_id($%)
     $obj_id or return;
 
     my $record = $::db->get_record($class->db_table => $obj_id);
-    $record ? $class->new(@_, _record => $record) : undef;
+    $record ? $class->from_record($record, @_) : undef;
 }
 
 =head2 my $object = $class->from_search(\%search, %options);
@@ -143,7 +143,7 @@ sub from_search($%)
 {   my $class  = shift;
     my $search = $class->_record_converter->(shift);
     my $record = $::db->get_record($class->db_table => $search);
-    $record ? $class->new(@_, _record => $record) : undef;
+    $record ? $class->from_record($record, @_) : undef;
 }
 
 =head2 \@records = $class->search_records(\%search);

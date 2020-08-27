@@ -65,6 +65,51 @@ sub _row_delete()
     $self->update({ deleted => DateTime->now });
 }
 
+# Delete the record entirely from the database, plus its parent current (entire
+# row) along with all related records
+sub purge
+{   my $self = shift;
+
+    $self->sheet->user_can('purge')
+        or error __"You do not have permission to purge records";
+
+    my @recs = $::db->search(Current => {
+        'curvals.value' => $self->id,
+    },{
+        prefetch => { records => 'curvals' },
+    })->all;
+
+    if(@recs)
+    {   my @use = map {
+            my %cells;
+            foreach my $record ($_->records) {
+                $cells{$_->sheet->name} = 1 for $record->curvals;
+            }
+            my $names = join ', ', keys %cells;
+            $_->id." ($names)";
+        } @recs;
+        error __x"The following records refer to this record as a value (possibly in a historical version): {records}",
+            records => \@use;
+    }
+
+    $_->purge for @{$self->child_rows};
+
+    my $revisions = $self->revisions;
+    $_->_revision_delete for @$revisions;
+
+    my $which = +{ current_id => $id };
+    $::db->delete(AlertCache => $which);
+    $::db->delete(Record     => $which);
+    $::db->delete(AlertSend  => $which);
+
+    $self->delete;
+
+    info __x"Row {id} purged by user {user} (was created by user {createdby} at {created}",
+        id => $self->current_id, user => $::session->user->fullname,
+        createdby => $self->created_by->fullname, created => $self->created_when;
+}
+
+#-----------------
 =head1 METHODS: Accessors
 =cut
 
@@ -103,7 +148,7 @@ sub revision($%)
 sub revision_create($%)
 {   my ($self, $insert) = @_;
     $insert->{current} = $row;
-    Linkspace::Row::Revision->_revision_create($insert, @_);
+    Linkspace::Row::Revision->_revision_create($insert, @_, row => $self);
 }
 
 #-----------------

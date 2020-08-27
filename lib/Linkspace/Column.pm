@@ -45,6 +45,7 @@ sub db_field_rename { +{
     link_parent   => 'link_parent_id',
     multivalue    => 'is_multivalue',
     optional      => 'is_optional',
+    options       => 'options_json',
     related_field => 'related_field_id',
     textbox       => 'is_textbox',
 #   permission    => ''   XXX???
@@ -90,19 +91,13 @@ sub all_column_classes() { [ values %type2class ] }
 =head1 METHODS: Constructors
 =cut
 
-# This is a bit of a dirty hack: instantiate in the right class, without going
-# a level "up" first to see whether it has a from_record() as well.  We do this
-# far too often to want performance here.
 sub from_record($%)
 {   my ($class, $record) = (shift, shift);
-    defined $record ? $type2class{$record->type}->SUPER::from_record($record, @_) : undef;
-}
+    defined $record or return;
 
-sub from_id($%)
-{   my ($class, $col_id) = (shift, shift);
-    defined $col_id or return;
-    my $record = $::db->get_record(Layout => $col_id);
-    $record ? $type2class{$record->type}->SUPER::from_record($record, @_) : undef;
+      $class eq __PACKAGE__
+    ? $type2class{$record->type}->from_record($record, @_)
+    : $class->SUPER::from_record($record, @_);
 }
 
 ###
@@ -150,8 +145,17 @@ my @simple_export_attributes =
 ### Class
 ###
 
+sub _validate($)
+{   my ($thing, $update) = @_;
+
+    delete $update->{topic_id}
+        unless $update->{topic_id};  # only 1+
+}
+
 sub _column_create
 {   my ($class, $insert, %options) = @_;
+    $class->_validate($insert);
+
     $insert->{is_internal} = $class->is_internal_type;
 
     my $extra         = delete $insert->{extra};
@@ -177,20 +181,14 @@ $column;
 
 sub _column_update($%)
 {   my ($self, $update, %args) = @_;
+    $self->_validate($update);
 
     my $new_id = $update->{related_field_id};
     notice __x"Update: related_field_id from {old} to {new}", 
         old => $self->related_field_id, new => $new_id
         if $self->related_field_id != $new_id;
 
-    delete $update->{topic_id}
-        unless $update->{topic_id};  # only 1+
-
     $update->{is_multivalue} ||= 0 if exists $update->{is_multivalue};
-
-    if(my $opts = $update->{options})
-    {   $update->{options} = encode_json $opts if ref $opts eq 'HASH';
-    }
 
     # XXX Move to curval class
 #   if($self->type eq 'curval')

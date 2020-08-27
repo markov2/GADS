@@ -3,28 +3,22 @@ use strict;
 use warnings;
 
 use Log::Report;
-use GADS::Instances;
-use GADS::Users;
 
-use t::lib::DataSheet;
-
-my $sheet1 = t::lib::DataSheet->new(user_permission_override => 0);
-$sheet1->create_records;
-my $schema = $sheet1->schema;
+my $sheet1  = test_sheet rows => [];
 my $layout1 = $sheet1->layout;
 
 # Set up one normal user, one layout admin user
 my $user_normal = $sheet1->user_normal1;
-my $user_admin = $sheet1->user;
+my $user_admin  = $sheet1->user;
 
 is($schema->resultset('Instance')->count, 1, "One instance created initially");
 
 # Create second table, with no groups initially
-my $group2 = $schema->resultset('Group')->create({ name => 'group2' });
+my $group2 = make_group '2';
+
 my $layout2 = Linkspace::Layout->new(
     name       => 'Table2',
     user       => $user_admin,
-    schema     => $schema,
     config     => $sheet1->config,
     set_groups => [],
 )->write;
@@ -35,7 +29,8 @@ is($schema->resultset('Instance')->count, 2, "Second instance created");
 {
     # Admin user has access to both
     my $instances = GADS::Instances->new(schema => $schema, user => $user_admin );
-    is(@{$instances->all}, 2, "Correct number of tables for admin");
+    cmp_ok @{$instances->all}, '==', 2, "Correct number of tables for admin";
+
     # Normal user has access to one
     $instances = GADS::Instances->new(schema => $schema, user => $user_normal );
     is(@{$instances->all}, 1, "Correct number of tables for normal user");
@@ -43,15 +38,13 @@ is($schema->resultset('Instance')->count, 2, "Second instance created");
     ok($instances->is_valid(1), "Main instance is valid for normal user");
     ok(!$instances->is_valid(2), "Other instance not valid for normal user");
     # Add a field to second table that normal user has access to
-    my $string1 = GADS::Column::String->new(
-        schema   => $schema,
+    my $string1 = $layout2->column_create({
         user     => undef,
-        layout   => $layout2,
-    );
-    $string1->type('string');
-    $string1->name('string1');
-    $string1->set_permissions({$sheet1->group->id, [qw/read/]});
-    $string1->write;
+        type  => 'string',
+        name  => 'string1',
+        permissions => {$sheet1->group->id, ['read']},
+    });
+
     $instances = GADS::Instances->new(schema => $schema, user => $user_normal );
     is(@{$instances->all}, 2, "Correct number of tables for normal user after field added");
     $string1->delete;
@@ -62,9 +55,7 @@ $layout2->purge;
 is($schema->resultset('Instance')->count, 1, "Second instance deleted");
 
 # Make sure same users is used from first sheet
-my $sheet2 = t::lib::DataSheet->new(
-    schema                   => $schema,
-    instance_id              => 2,
+my $sheet2 = make_sheet '2',
     user_permission_override => 0,
     curval_offset            => 6,
     group                    => $sheet1->group,
@@ -174,7 +165,7 @@ $sheet2->create_records;
                     # Return to undeleted
                     $schema->resultset('Current')->find($current_id)->update({ deleted => undef });
 
-                    try { $record->purge_current };
+                    try { $record->purge };
 
                     if ($pass == 3)
                     {

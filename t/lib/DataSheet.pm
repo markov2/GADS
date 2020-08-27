@@ -76,15 +76,6 @@ sub clear_not_data
     }
 }
 
-# Set up a config singleton. This will be updated as required
-GADS::Config->instance(
-    config => undef,
-);
-
-has data => (
-    is      => 'lazy',
-);
-
 has curval_offset => (
    is  => 'lazy',
    isa => Int,
@@ -115,33 +106,6 @@ sub _build_data
     ];
 }
 
-has schema => (
-    is => 'lazy',
-);
-
-has site_id => (
-    is      => 'ro',
-);
-
-has site => (
-    is => 'lazy',
-);
-
-sub _build_site
-{   my $self = shift;
-    $self->schema->resultset('Site')->next;
-}
-
-has instance_id => (
-    is      => 'ro',
-    default => 1,
-);
-
-has layout => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
 has no_groups => (
     is      => 'ro',
     isa     => Bool,
@@ -157,59 +121,6 @@ has department => (
     is => 'lazy',
     builder => sub { $::db->create(Department => { name => 'My Department' }) },
 }
-
-has user => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_user
-{   my $self = shift;
-    $self->_users->{superadmin};
-}
-
-# The user used to build the layout - will normally be superadmin
-has user_layout => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { $_[0]->user },
-);
-
-has user_useradmin => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { $_[0]->_users->{useradmin} },
-);
-
-has user_normal1 => (
-    is      => 'lazy',
-);
-
-sub _build_user_normal1
-{   my $self = shift;
-    $self->_users->{normal1};
-}
-
-has user_normal2 => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_user_normal2
-{   my $self = shift;
-    $self->_users->{normal2};
-}
-
-has _users => (
-    is  => 'lazy',
-    isa => HashRef,
-);
-
-has users_to_create => (
-    is => 'ro',
-    isa => ArrayRef,
-    default => sub { [qw/superadmin audit useradmin normal1 normal2/] },
-);
 
 sub _build__users
 {   my $self = shift;
@@ -238,10 +149,6 @@ sub create_user
     my $instance_id = $options{instance_id} || $self->instance_id;
     my $user_id     = $options{user_id};
 
-    my $user = $user_id
-        ? $self->schema->resultset('User')->find_or_create({ id => $user_id })
-        : $self->schema->resultset('User')->create({});
-    $user_id ||= $user->id;
     $user->update({
         username      => "user$user_id\@example.com",
         email         => "user$user_id\@example.com",
@@ -251,10 +158,6 @@ sub create_user
         organisation  => $self->organisation->id,
         department_id => $self->department->id,
     });
-    $::db->create(UserGroup => {
-        user_id  => $user_id,
-        group_id => $self->group->id,
-    }) if $self->group;
 
     foreach my $permission (@permissions)
     {
@@ -271,47 +174,7 @@ sub create_user
             my $name  = "${permission}_$user_id";
             my $group = $::db->get_record(Group => { name => $name });
                ||= $::db->create(Group => { name => $name });
-
-            $self->schema->resultset('InstanceGroup')->find_or_create({
-                instance_id => $instance_id,
-                group_id    => $group->id,
-                permission  => $permission,
-            });
-            $self->schema->resultset('UserGroup')->find_or_create({
-                user_id  => $user_id,
-                group_id => $group->id,
-            });
-        }
-    }
-
-    bless $user, 'Linkspace::User::Extern';
 }
-
-has _permissions => (
-    is  => 'lazy',
-    isa => HashRef,
-);
-
-sub _build__permissions
-{   my $self = shift;
-    my $return;
-    foreach my $permission (qw/superadmin audit useradmin/)
-    {
-        my $existing = $self->schema->resultset('Permission')->search({
-            name => $permission,
-        })->next;
-        my $id = $existing ? $existing->id : $self->schema->resultset('Permission')->create({
-            name => $permission,
-        })->id;
-        $return->{$permission} = $id;
-    }
-    $return;
-}
-
-has group => (
-    is      => 'lazy',
-    clearer => 1,
-);
 
 has columns => (
     is      => 'ro',
@@ -319,25 +182,11 @@ has columns => (
     clearer => 1,
     builder => sub {
         my $self = shift;
-        my $columns = $self->__build_columns
-            # Errors should have been caught and reported during _build_columns
-            or error "Failed to build columns. Check previous messages for details of errors";
-        return $columns;
+        $self->__build_columns;
     },
 );
 
 # Whether to create multiple columns of a particular type
-has column_count => (
-    is      => 'ro',
-    default => sub {
-        +{
-            enum    => 1,
-            curval  => 1,
-            tree    => 1,
-            integer => 1,
-        }
-    },
-);
 
 has curval => (
     is => 'ro',
@@ -347,57 +196,11 @@ has curval_field_ids => (
     is => 'ro',
 );
 
-has calc_code => (
-    is  => 'lazy',
-    isa => Str,
-);
-
-sub _build_calc_code
-{   my $self = shift;
-    my $instance_id = $self->instance_id;
-    "function evaluate (L${instance_id}daterange1)
-        if type(L${instance_id}daterange1) == \"table\" and L${instance_id}daterange1[1] then
-            dr1 = L${instance_id}daterange1[1]
-        elseif type(L${instance_id}daterange1) == \"table\" and next(L${instance_id}daterange1) == nil then
-            dr1 = nil
-        else
-            dr1 = L${instance_id}daterange1
-        end
-        if dr1 == null then return end
-        return dr1.from.year
-    end";
-}
-
 has calc_return_type => (
     is      => 'ro',
     isa     => Str,
     default => 'integer',
 );
-has rag_code => (
-    is  => 'lazy',
-    isa => Str,
-);
-
-sub _build_rag_code
-{   my $self = shift;
-    my $instance_id = $self->instance_id;
-    return "
-        function evaluate (L${instance_id}daterange1)
-            if type(L${instance_id}daterange1) == \"table\" and L${instance_id}daterange1[1] then
-                dr1 = L${instance_id}daterange1[1]
-            elseif type(L${instance_id}daterange1) == \"table\" and next(L${instance_id}daterange1) == nil then
-                dr1 = nil
-            else
-                dr1 = L${instance_id}daterange1
-            end
-            if dr1 == nil then return end
-            if dr1.from.year < 2012 then return 'red' end
-            if dr1.from.year == 2012 then return 'amber' end
-            if dr1.from.year > 2012 then return 'green' end
-        end
-    ";
-}
-
 
 has multivalue => (
     is      => 'rwp',
@@ -438,66 +241,6 @@ has config => (
 sub _build_config
 {   my $self = shift;
     GADS::Config->instance;
-}
-
-sub _build_schema
-{   my $self = shift;
-    my $schema = GADS::Schema->connect({
-        dsn             => 'dbi:SQLite:dbname=:memory:',
-        on_connect_call => 'use_foreign_keys',
-        quote_names     => 1,
-    });
-    $schema->deploy;
-    if ($self->site_id)
-    {
-        $schema->resultset('Site')->create({
-            id => $self->site_id,
-        });
-        $schema->site_id($self->site_id);
-    }
-    $schema;
-}
-
-sub _build_layout
-{   my $self = shift;
-
-    my $site_id = $self->schema->site_id;
-    if ($site_id && !$self->schema->resultset('Site')->find($site_id))
-    {
-        $self->schema->resultset('Site')->create({
-            id => $site_id,
-        });
-    }
-    $self->schema->resultset('Instance')->find_or_create({
-        id      => $self->instance_id,
-        name    => 'Layout'.$self->instance_id,
-        site_id => $self->schema->site_id,
-    });
-
-    my $layout = Linkspace::Layout->new(
-        user                     => $self->user_layout,
-        config                   => $self->config,
-        instance_id              => $self->instance_id,
-    );
-    $layout->create_internal_columns;
-    return $layout;
-}
-
-sub _build_group
-{   my $self = shift;
-    return if $self->no_groups;
-    my $group = GADS::Group->new(schema => $self->schema);
-    my $grs = $::db->search(Group => { name => 'group1' });
-
-    if ($grs->count)
-    {   $group->from_id($grs->next->id);
-    }
-    else
-    {   $group->from_id;
-    }
-    $group->name('group1');
-    $group->write;
-    $group;
 }
 
 has default_permissions => (
@@ -679,7 +422,7 @@ my $rag1 = $layout->column_create(
     name          => 'rag1',
     optional      => $self->optional,
     permissions   => $permissions,
-    code          => $self->rag_code,
+    code          => $args{rag_code} || _default_rag_code($sheet->id);
 
     # At this point, layout will have been built with current columns (it will
     # have been built as part of creating the RAG column). Therefore, clear it,
@@ -692,7 +435,7 @@ my $calc1 = $layout->column_create(
     name        => 'calc1',
     name_short  => "L${instance_id}calc1",
     return_type => $self->calc_return_type,
-    code        => $self->calc_code,
+    code        => $args{calc_code} || _default_calc_code($sheet->id);
     permissions => $permissions,
     is_multivalue => $self->multivalue && $self->multivalue_columns->{calc},
 );
@@ -713,13 +456,11 @@ my $calc1 = $layout->column_create(
 # Add an autocur column to this sheet
 sub add_autocur
 {   my ($self, %options) = @_;
-    my $autocur = GADS::Column::Autocur->new(
-        schema     => $self->schema,
-        user       => undef,
-        layout     => $self->layout,
+
+    $layout->columns_create({
+        type => 'autocur',
+        refers_to_sheet => $options{refers_to_sheet},
     );
-    my $refers_to_instance_id = $options{refers_to_instance_id};
-    $autocur->refers_to_instance_id($refers_to_instance_id);
     my $autocur_field_ids_rs = $self->schema->resultset('Layout')->search({
         instance_id => $refers_to_instance_id,
         internal    => 0,
@@ -744,28 +485,17 @@ sub add_autocur
     $autocur;
 }
 
-sub create_records
-{   my $self = shift;
+sub fill_sheet($$)
+{   my ($sheet, $data) = @_;
     my $columns = $self->columns;
+    my $content = $sheet->content;
 
-    foreach my $datum (@{$self->data})
-    {   my $record = GADS::Record->new(
-            user     => $self->user,
-            layout   => $self->layout,
-            schema   => $self->schema,
+    foreach my $revision (@$data)
+    {   my $row = $content->row_create({
             base_url => undef,
-        );
+        });
 
-        $record->initialise(instance_id => $self->layout->instance_id);
-
-        $record->fields->{$columns->{"integer$_"}->id}->set_value($datum->{"integer$_"})
-            foreach 1..($self->column_count->{integer} || 1);
-        $record->fields->{$columns->{"string$_"}->id}->set_value($datum->{"string$_"})
-            foreach 1..($self->column_count->{string} || 1);
-        $record->fields->{$columns->{"date$_"}->id}->set_value($datum->{"date$_"})
-            foreach 1..($self->column_count->{date} || 1);
-        $record->fields->{$columns->{"daterange$_"}->id}->set_value($datum->{"daterange$_"})
-            foreach 1..($self->column_count->{daterange} || 1);
+        my $revision = $row->revision_create($revision);
 
         # Convert enums and trees from textual values if required
         foreach my $type (qw/enum tree/)
@@ -779,7 +509,7 @@ sub create_records
                     {
                         my $col = $columns->{"$type$count"}; # Same for enum and tree
                         my $in = $_;
-                        my ($e) = grep { $_->{value} eq $in } @{$col->enumvals};
+                        my ($e) = grep $_->{value} eq $in, @{$col->enumvals};
                         $e->{id};
                     }
                     else {

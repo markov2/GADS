@@ -654,12 +654,12 @@ foreach my $multivalue (0..1)
             my @labels = map { $_->{label} } @{$graph_data->labels};
             is_deeply([@labels], $g->{labels}, "Graph labels for $g->{name} is correct");
         }
+
         if ($child2)
-        {
-            $parent2->write_linked_id(undef);
-            $parent2->purge; # Just the record, revert to previous version
-            $child2->delete_current;
-            $child2->purge_current;
+        {   $parent2->write_linked_id(undef);
+            #XXX parent2 a Row::Revision, and $child2 a Row?
+            $parent2->purge; # Just the record, revert to previous version XXX
+            $child2->purge;
         }
     }
 }
