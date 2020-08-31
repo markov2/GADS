@@ -55,18 +55,12 @@ sub remove_column($)
 sub is_numeric      { 1 }
 sub show_calculator { $_[0]->options->{show_calculator} }
 
-sub is_valid_value($%)
-{   my ($self, $values, %options) = @_;
+sub _is_valid_value($)
+{   my ($self, $value) = @_;
+    return $1 if $value =~ /^\s*([+-]?[0-9]+)\s*$/;
 
-    foreach my $v (flat $values)
-    {   next if $v =~ /^[+-]?[0-9]+$/;
-        return 0 unless $options{fatal};
-
-        error __x"'{int}' is not a valid integer for '{col}'",
-            int => $v, col => $self->name;
-    }
-
-    1;
+    error __x"'{int}' is not a valid integer for '{col}'",
+       int => $value, col => $self->name;
 }
 
 sub import_value
