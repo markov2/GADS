@@ -231,17 +231,17 @@ sub datum_class    { ref $_[0] =~ s/::Column/::Datum/r }
 # my $v = $self->is_valid_value($value)
 sub is_valid_value($)
 {   my ($self, $values) = @_;
-    my @v = grep defined, flat @$values;
+    my @v = grep defined, flat $values;
     unless(@v)
     {   return $self->is_multivalue ? [] : undef if $self->is_optional;
-        error __x"Column {name} requires a value.", name => $self->name_short;
+        error __x"Column \'{name}\' requires a value.", name => $self->name;
     }
 
     return $self->_is_valid_value($v[0])
         if @v==1;
 
     $self->is_multivalue
-        or error __x"Column {name} is not a multivalue.", $self->name_short;
+        or error __x"Column \'{name}\' is not a multivalue.", name => $self->name;
 
     [ map $_->_is_valid_value($_), @v ];
 }
