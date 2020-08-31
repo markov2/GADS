@@ -25,7 +25,7 @@
 
     <div class="checkbox stored-value">
         <label>
-            <input type="checkbox" name="optional" [% IF column.is_optional %]checked[% END %]>This field is optional
+            <input type="checkbox" name="is_optional" [% IF column.is_optional %]checked[% END %]>This field is optional
         </label>
     </div>
 
@@ -133,13 +133,13 @@
     </div>
     <div class="checkbox stored-value">
         <label>
-            <input type="checkbox" name="isunique" [% IF column.is_unique %]checked[% END %]>The values for this field must be unique
+            <input type="checkbox" name="is_unique" [% IF column.is_unique %]checked[% END %]>The values for this field must be unique
         </label>
     </div>
     [% IF column.can_multivalue %]
         <div class="checkbox">
             <label>
-                <input type="checkbox" name="multivalue" [% IF column.is_multivalue %]checked[% END %]>Allow multiple values
+                <input type="checkbox" name="is_multivalue" [% IF column.is_multivalue %]checked[% END %]>Allow multiple values
             </label>
         </div>
     [% END %]

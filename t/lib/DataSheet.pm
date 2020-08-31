@@ -6,7 +6,6 @@ use warnings;
 use JSON qw(encode_json);
 use Log::Report;
 use Linkspace::Sheet::Layout;
-use GADS::Record;
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 
@@ -60,7 +59,7 @@ sub clear_not_data
         my $related = $::db->get_record(Layout => $related_id);
         $related->update({ related_field => $f->id });
 
-        # Find and add related cirval fields
+        # Find and add related curval fields
         foreach my $child_name (@{$related{$related_id}->{curval_fields}})
         {
             my $f = $::db->search(Layout => (
@@ -84,26 +83,6 @@ has curval_offset => (
 sub _build_curval_offset
 {   my $self = shift;
     $self->curval ? 6 : 0;
-}
-
-sub _build_data
-{   my $self = shift;
-    [
-        {
-            string1    => 'Foo',
-            integer1   => 50,
-            date1      => '2014-10-10',
-            enum1      => 1 + $self->curval_offset,
-            daterange1 => ['2012-02-10', '2013-06-15'],
-        },
-        {
-            string1    => 'Bar',
-            integer1   => 99,
-            date1      => '2009-01-02',
-            enum1      => 2 + $self->curval_offset,
-            daterange1 => ['2008-05-04', '2008-07-14'],
-        },
-    ];
 }
 
 has no_groups => (
@@ -394,21 +373,22 @@ my $person1 = $layout->column_create(
     {
         foreach my $count (1..($self->column_count->{curval} || 1))
         {
-            my $refers_to_instance_id = $self->curval;
+            my $refers_to_sheet = $config->{curval_sheet};
             my $curval_field_ids_rs = $::db->search(Layout => {
                 type        => { '!=' => 'autocur' },
                 internal    => 0,
-                instance_id => $refers_to_instance_id,
+                instance_id => $refers_to_sheet->id,
             });
-            my $curval_field_ids = $self->curval_field_ids ||
+            my $curval_fields = $config->{curval_fields} ||
                 [ map $_->id, $curval_field_ids_rs->all ];
 
+my $name = 'curval'.$count;
 my $curval = $layout->column_create(
     type          => 'curval',
-    name          => 'curval1',
-    name_short    => "L${instance_id}curval$count",
-    optional      => $self->optional,
-    is_multivalue => $self->multivalue && $self->multivalue_columns->{file},
+    name          => $name,
+    name_short    => "L${instance_id}$name",
+    optional      => $config->{optional},
+    is_multivalue => $self->multivalue && $self->multivalue_columns->{file},  #XXX file?
     permissions   => $permissions,
     refers_to_instance_id => $refers_to_instance_id,
     curval_field_ids => $curval_field_ids.
@@ -440,126 +420,76 @@ my $calc1 = $layout->column_create(
     is_multivalue => $self->multivalue && $self->multivalue_columns->{calc},
 );
 
-    # Only add the columns now to the columns hash, as this will lazily build
-    # the columns index in the layout, which would otherwise be incomplete.
-    # We return the reference to the layout one, in case we change any of
-    # the objects properties, which are used by the datums.
-    $columns->{$_->name}   = $layout->column($_->id)
-        for @strings, @enums, @curvals, @trees, @integers, @dates, @dateranges;
-    $columns->{calc1}      = $layout->column($calc1->id);
-    $columns->{rag1}       = $layout->column($rag1->id);
-    $columns->{file1}      = $layout->column($file1->id);
-    $columns->{person1}    = $layout->column($person1->id);
-    $columns;
+# Add an autocur column to this sheet
+my $autocur_count = 50;
+sub add_autocur
+{   my ($self, $seqnr, $config) = @_;
+
+    my $autocur_fields = $config->{curval_columns}
+        || $layout->columns_search({ internal => 0 });
+
+    my $permissions = $config->{no_groups} ? undef :
+      [ $self->group => $self->default_permissions ];
+
+    my $name = 'autocur' . $autocur_count++,
+    $layout->column_create({
+        type            => 'autocur',
+        name            => $name,
+        name_short      => "L${seqnr}$name",
+        refers_to_sheet => $config->{refers_to_sheet},
+        curval_fields   => $autocur_fields,
+        related_field   => $config->{related_field},
+        permissions     => $permissions,
+    });
 }
 
-# Add an autocur column to this sheet
-sub add_autocur
-{   my ($self, %options) = @_;
+sub 
+    my $sheet = make _sheet...
+    _sheet_layout($sheet, $config);
+    _sheet_fill($sheet, $config);
 
-    $layout->columns_create({
-        type => 'autocur',
-        refers_to_sheet => $options{refers_to_sheet},
-    );
-    my $autocur_field_ids_rs = $self->schema->resultset('Layout')->search({
-        instance_id => $refers_to_instance_id,
-        internal    => 0,
-    });
-    my $autocur_field_ids = $options{curval_field_ids} || [ map { $_->id } $autocur_field_ids_rs->all ];
-    $autocur->curval_field_ids($autocur_field_ids);
-    $autocur->type('autocur');
-    my $count = $self->schema->resultset('Layout')->search({
-        type        => 'autocur',
-        instance_id => $self->layout->instance_id,
-    })->count;
-    $count++;
-    $autocur->name("autocur$count");
+sub sheet_layout($$)
+{   my ($sheet, $config) = @_;
+    my $cc    = $config->{column_count} || {};
+    my $is_mv = $config->{multivalue_columns} || $default_multivalue_columns;
+    $is_mv = map +($_ => 1) @$is_mv if ref $is_mv eq 'ARRAY';
 
-    my $instance_id = $self->layout->instance_id;
-    $autocur->name_short("L${instance_id}autocur$count");
-    $autocur->related_field_id($options{related_field_id});
-    $autocur->set_permissions({$self->group->id => $self->default_permissions})
-        unless $self->no_groups;
-    $autocur->write;
-    $self->columns->{"autocur$count"} = $autocur;
-    $autocur;
+    #XXX to be removed after conversion of tests
+    panic "Rename curval => curval_sheet" if $config->{curval};
+    panic "Rename curval_field_ids => curval_columns" if $config->{curval_field_ids};
+
+    if(my $curval_sheet = $config->{curval_sheet})
+    {   my $columns = $curval_sheet->layout->columns($config->{curval_columns});
+        ...;
+    }
 }
 
 sub fill_sheet($$)
-{   my ($sheet, $data) = @_;
-    my $columns = $self->columns;
+{   my ($sheet, $config) = @_;
     my $content = $sheet->content;
 
-    foreach my $revision (@$data)
+    my $data = $config->{data} || \@default_sheet_rows;
+    $#$data  = $config->{rows} if defined $config->{rows};
+
+    foreach my $row_data (@$data)
     {   my $row = $content->row_create({
             base_url => undef,
         });
 
-        my $revision = $row->revision_create($revision);
+        $row_data->{file1} = \%dummy_file_data
+            if exists $row_data->{file1} && ref $row_data->{file1} ne 'HASH';
 
-        # Convert enums and trees from textual values if required
-        foreach my $type (qw/enum tree/)
-        {
-            foreach my $count (1..($self->column_count->{$type} || 1))
-            {
-                my $v      = $datum->{"$type$count"};
-                my @values = ref $v ? @$v : ($v);
-                @values = map {
-                    if ($_ && $_ !~ /^[0-9]+$/)
-                    {
-                        my $col = $columns->{"$type$count"}; # Same for enum and tree
-                        my $in = $_;
-                        my ($e) = grep $_->{value} eq $in, @{$col->enumvals};
-                        $e->{id};
-                    }
-                    else {
-                        $_;
-                    }
-                } @values;
-                $record->fields->{$columns->{"$type$count"}->id}->set_value([@values])
-            }
-        }
-
-        # $record->fields->{$columns->{tree1}->id}->set_value($datum->{tree1});
-        # Create users on the fly as required
-        if($datum->{person1} && !$::db->get_record(User => $datum->{person1}))
-        {   my $user_id = $datum->{person1};
-            my $user = {
-                id       => $user_id,
-                username => "user$user_id\@example.com",
-                email    => "user$user_id\@example.com",
-                value    => "User$user_id, User$user_id",
-            };
-            $record->fields->{$columns->{person1}->id}->set_value($user);
-        }
-        $record->fields->{$columns->{person1}->id}->set_value($datum->{person1});
-        if ($columns->{curval1})
-        {
-            $record->fields->{$columns->{"curval$_"}->id}->set_value($datum->{"curval$_"})
-                foreach 1..($self->column_count->{curval} || 1);
-        }
-        # Only set file data if exists in data. Add random data if nothing specified
-
-        if(exists $datum->{file1})
-        {   my $file = $datum->{file1} || +{
-                name     => 'myfile.txt',
-                mimetype => 'text/plain',
-                content  => 'My text file',
-            };
-            $record->fields->{$columns->{file1}->id}->set_value($file);
-        }
-
-        $record->write(no_alerts => 1);
+        my $revision = $row->revision_create($row_data, no_alerts => 1);
     }
+
     1;
 };
 
 sub set_multivalue
 {   my ($self, $value) = @_;
-    foreach my $col ($self->layout->all)
+    foreach my $col ($self->layout->all_columns)
     {   if($self->multivalue_columns->{$col->type})
-        {   $col->multivalue($value);
-            $col->write(override_permissions => 1);
+        {   $layout->column_update($col, { is_multivalue => $value });
         }
     }
     $self->layout->clear;

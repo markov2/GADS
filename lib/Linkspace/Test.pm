@@ -221,3 +221,60 @@ sub test_sheet(@)
 }
 
 1;
+__END__
+###
+### Helpers to fill a sheet
+###
+
+my %dummy_file_data = (
+    name     => 'myfile.txt',
+    mimetype => 'text/plain',
+    content  => 'My text file',
+);
+
+sub _default_rag_code($) { my $seqnr = shift; <<__RAG }
+function evaluate (L${seqnr}daterange1)
+    if type(L${seqnr}daterange1) == \"table\" and L${seqnr}daterange1[1] then
+        dr1 = L${seqnr}daterange1[1]
+    elseif type(L${seqnr}daterange1) == \"table\" and next(L${seqnr}daterange1) == nil then
+        dr1 = nil
+    else
+        dr1 = L${seqnr}daterange1
+    end
+    if dr1 == nil then return end
+    if dr1.from.year < 2012 then return 'red' end
+    if dr1.from.year == 2012 then return 'amber' end
+    if dr1.from.year > 2012 then return 'green' end
+end
+__RAG
+
+sub _default_calc_code($) { my $seqnr = shift;  <<__CALC }
+function evaluate (L${seqnr}daterange1)
+    if type(L${seqnr}daterange1) == \"table\" and L${seqnr}daterange1[1] then
+        dr1 = L${seqnr}daterange1[1]
+    elseif type(L${seqnr}daterange1) == \"table\" and next(L${seqnr}daterange1) == nil then
+        dr1 = nil
+    else
+        dr1 = L${seqnr}daterange1
+    end
+    if dr1 == null then return end
+    return dr1.from.year
+end
+__CALC
+
+my @default_sheet_rows = (   # Don't change these: some tests depend on them
+    {   string1    => 'Foo',
+        integer1   => 50,
+        date1      => '2014-10-10',
+        enum1      => 1 + $config->{curval_offset},
+        daterange1 => ['2012-02-10', '2013-06-15'],
+    },
+    {
+        string1    => 'Bar',
+        integer1   => 99,
+        date1      => '2009-01-02',
+        enum1      => 2 + $config->{curval_offset},
+        daterange1 => ['2008-05-04', '2008-07-14'],
+    },
+);
+1;

@@ -55,6 +55,8 @@ sub remove_column($)
 ### Instance
 ###
 
+#XXX at assignment, /\D/ must translate names into numval ids
+
 sub sprefix { 'value' }
 sub tjoin   { +{ $_[0]->field => 'value' } }
 sub value_field_as_index { 'id' }
@@ -149,9 +151,8 @@ sub write_special
     return ();
 };
 
-sub is_valid_value($%)
-{   my ($self, $value, %options) = @_;
-    return 1 if !$value;
+sub _is_valid_value($)
+{   my ($self, $value) = @_;
 
     my $node = $self->node($value)
         or error __x"Node '{int}' is not a valid tree node ID for '{col.name}'",

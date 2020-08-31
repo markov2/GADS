@@ -71,34 +71,27 @@ has show_datepicker => (
     trigger => sub { $_[0]->reset_options },
 );
 
-sub is_valid_value($)
+sub _is_valid_value($)
 {   my ($self, $value, %options) = @_;
-    return 1 if !$value;
-
     my $from = $value->{from};
     my $to   = $value->{to};
-    return 1 if $from || $to;
 
-    if($from xor $to)
-    {   error __x"Please enter 2 date values for '{col}'", col => $self->name;
-    }
+    $from && $to
+        or error __x"Please enter 2 date values for '{col}'", col => $self->name;
 
-    my ($from_dt, $to_dt);
-    if($from && !($from_dt = $self->parse_date($from)))
-    {   error __x"Invalid start date {value} for {col}. Please enter as {format}.",
+    my $from_dt = $self->parse_date($from)
+        or error __x"Invalid start date {value} for {col}. Please enter as {format}.",
             value => $from, col => $self->name, format => $self->dateformat;
-    }
 
-    if($to && !($to_dt = $self->parse_date($to)))
-    {   error __x"Invalid end date {value} for {col}. Please enter as {format}.",
+    my $to_dt = $self->parse_date($to)
+        or error __x"Invalid end date {value} for {col}. Please enter as {format}.",
             value => $to, col => $self->name, format => $self->dateformat;
-    }
 
-    if(DateTime->compare($from_dt, $to_dt) == 1)
-    {   error __x"Start date must be before the end date for '{col}'", col => $self->name;
-    }
+    DateTime->compare($from_dt, $to_dt) <= 1
+        or error __x"Start date must be before the end date for '{col}'",
+            col => $self->name;
 
-    1;
+    +{ from => $from_dt, to => $to_dt };
 }
 
 sub validate_search
@@ -112,7 +105,7 @@ sub validate_search
 
     if($options{full_only})
     {   if(my $hash = $self->split($value))
-        {   return $self->is_valid_value($hash, %options);
+        {   return $self->_is_valid_value($hash, %options);
         }
         # Unable to split
         return 0 unless $options{fatal};
@@ -124,7 +117,7 @@ sub validate_search
     return 1 if $self->parse_date($value);
 
     my $split = $self->split($value);
-    return 1 if $split && $self->is_valid_value($split);
+    return 1 if $split && $self->_is_valid_value($split);
 
     error "Invalid format {value} for {name}",
         value => $value, name => $self->name;

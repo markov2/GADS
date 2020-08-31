@@ -39,9 +39,6 @@ A column's display-field filter has it's rules in the 'DisplayField' table,
 which implies a flat rule-set.
 
 =head1 METHODS: Constructors
-=cut
-
-sub _decode_json_utf8($) { decode_json(encode utf8 => $_[0]) }
 
 =head2 my $filter = $class->from_json($json, %options);
 Create the filter object from a JSON string.  This is the common format
@@ -49,9 +46,18 @@ to store the filter in the database, and (of course) as included in
 Ajax calls.
 =cut
 
+### Rules transforms:
+#       rules/'column' -> id & type (which is $class->return_type)
+#          column => [ $parent, $child ] -> $parent->id .'_'. $child->id
+#              ($type is return_type $child)
+#       rule HASH -> rules \HASH
+#       global @columns may use names, stored as ids
+#       global @values may have name as key,
+#       global layout overrules column-name lookup layout, defaults to sheet
+
 sub from_json($@)
 {   my $class = shift;
-    my $data  = _decode_json_utf8(shift || '{}');
+    my $data  = decode_json(encode utf8 => shift || '{}');
     $class->new(_ruleset => $data, @_);
 }
 

@@ -73,18 +73,17 @@ after build_values => sub {
     }
 };
 
-sub is_valid_value($%)
-{   my ($self, $value, %options) = @_;
-    return 1 if !$value;
-
-    if($value !~ /^[0-9]+$/ || ! $::db->get_record(Fileval => $value))
-    {
-        return 0 unless $options{fatal};
-        error __x"'{int}' is not a valid file ID for '{col}'",
+sub _is_valid_value($)
+{   my ($self, $value) = @_;
+    (my $file_id) = $value =~ /^\s*([0-9]+)\s*$/
+        or error __x"'{int}' is not a valid id of a file for '{col}'",
             int => $value, col => $self->name;
-    }
 
-    1;
+    $::db->get_record(Fileval => $file_id))
+        or error __x"File {int} is not found for '{col}'",
+            int => $value, col => $self->name;
+
+    $file_id;
 }
 
 sub _collect_form_extra

@@ -1,29 +1,22 @@
 use Test::More; # tests => 1;
-use strict;
-use warnings;
-
 use Log::Report;
-use GADS::Record;
 
-use t::lib::DataSheet;
-
-my $data = [
-    {
-        string1    => 'Foobar',
-        date1      => '2014-10-10',
-        daterange1 => ['2000-10-10', '2001-10-10'],
-        enum1      => 'foo1',
-        tree1      => 'tree1',
-        integer1   => 10,
-        person1    => 1,
-        curval1    => 1,
-        file1 => {
-            name     => 'file.txt',
-            mimetype => 'text/plain',
-            content  => 'Text file content',
-        },
+my $user = test_user;
+my %data = (
+    string1    => 'Foobar',
+    date1      => '2014-10-10',
+    daterange1 => ['2000-10-10', '2001-10-10'],
+    enum1      => 'foo1',
+    tree1      => 'tree1',
+    integer1   => 10,
+    person1    => $user,
+    curval1    => 1,
+    file1 => {
+        name     => 'file.txt',
+        mimetype => 'text/plain',
+        content  => 'Text file content',
     },
-];
+);
 
 my %as_string = (
     string1    => 'Foobar',
@@ -32,53 +25,42 @@ my %as_string = (
     enum1      => 'foo1',
     tree1      => 'tree1',
     integer1   => 10,
-    person1    => 'User1, User1',
+    person1    => $user1->fullname,
     curval1    => 'Foo',
     file1      => 'file.txt',
 );
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
-my $sheet   = t::lib::DataSheet->new(
-    data             => $data,
-    schema           => $schema,
-    curval           => 2,
-    curval_field_ids => [$curval_sheet->columns->{string1}->id],
-);
-my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
-$sheet->create_records;
+my $curval_sheet = make_sheet '2';
 
-my $record = GADS::Record->new(
-    user   => $sheet->user,
-    schema => $schema,
-    layout => $layout,
-);
-$record->find_current_id(3);
+my $sheet   = make_sheet '1', rows => 2,
+    curval_sheet     => $curval_sheet,
+    curval_columns   => [ 'string1' ];
+
+$sheet->content->row_create({})->revision_create(\%data);
+
+my $row1 = $sheet->content->current->row(3);
 
 foreach my $field (keys %as_string)
-{
-    my $string = $record->fields->{$columns->{$field}->id}->as_string;
-    is($string, $as_string{$field}, "Correct value retrieved for $field");
+{   is $row1->cell($field)->as_string, $as_string{$field}, "... check $field";
 }
 
 # Tests to ensure correct curval values in record
 foreach my $initial_fetch (0..1)
 {
-    $record = GADS::Record->new(
-        user   => $sheet->user,
-        schema => $schema,
-        layout => $layout,
+    my $row = $sheet->content->current->row(3,
         curcommon_all_fields => $initial_fetch,
     );
-    $record->find_current_id(3);
-    my $datum = $record->fields->{$columns->{curval1}->id};
-    is(@{$datum->field_values}, 1, "Correct number of initial curval fields");
+
+    my $datum  = $row->cell('curval1');
+    my $values = $datum->field_values;
+    cmp_ok @$values, '==', 1, '... initial curval fields';
+
+#XXX ARRAY of HASH with 1 entry?
+    my ($value) = values %{$values->[0]};
+    is $value->as_string, "Foo", '... value of curval field';
+
     my $for_code = $datum->field_values_for_code(level => 1)->{1};
-    is(keys %$for_code, 7, "Correct number of initial curval fields");
-    my ($value) = values %{$datum->field_values->[0]};
-    is($value->as_string, "Foo", "Correct value of curval field");
+    cmp_ok keys %$for_code, '==', 7, '... initial curval fields';
 }
 
-done_testing();
+done_testing;

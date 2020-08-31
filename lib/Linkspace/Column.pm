@@ -20,7 +20,8 @@ package Linkspace::Column;
 
 use Log::Report   'linkspace';
 use JSON          qw/decode_json encode_json/;
-use List::Compare ();
+
+use Linkspace::Util  qw/flat/;
 
 =pod
 use Linkspace::Filter::DisplayField ();
@@ -227,9 +228,23 @@ sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
 sub field_name     { "field".($_[0]->id) }
 sub datum_class    { ref $_[0] =~ s/::Column/::Datum/r }
 
-# $self->is_valid_value($value, %options)
-# option 'fatal'
-sub is_valid_value { 1 }   
+# my $v = $self->is_valid_value($value)
+sub is_valid_value($)
+{   my ($self, $values) = @_;
+    my @v = grep defined, flat @$values;
+    unless(@v)
+    {   return $self->is_multivalue ? [] : undef if $self->is_optional;
+        error __x"Column {name} requires a value.", name => $self->name_short;
+    }
+
+    return $self->_is_valid_value($v[0])
+        if @v==1;
+
+    $self->is_multivalue
+        or error __x"Column {name} is not a multivalue.", $self->name_short;
+
+    [ map $_->_is_valid_value($_), @v ];
+}
 
 sub topic { $_[0]->sheet->topic($_[0]->topic_id) }
 
@@ -606,8 +621,7 @@ sub import_hash
     my $report = $options{report_only} && $self->id;
     my %update;
 
-    # validate/normalize json
-    $values->{filter} = Linkspace::Filter->from_json($values->{filter})->as_json;
+    $values->{filter_json} = delte $values->{filter};
 
     my $take   = sub {
         my $field = shift;

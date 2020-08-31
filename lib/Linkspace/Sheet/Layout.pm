@@ -87,6 +87,7 @@ my @internal_columns = (
         is_unique   => 1,
     },
 );
+sub internal_columns_show_names { [ map $_->{name_short}, @internal_columns ] }
 
 #use Linkspace::Column ();
 

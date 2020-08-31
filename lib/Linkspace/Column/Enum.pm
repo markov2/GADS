@@ -33,7 +33,7 @@ extends 'Linkspace::Column';
 __PACKAGE__->register_type;
 
 sub can_multivalue  { 1 }
-sub has+fixedvals   { 1 }
+sub has_fixedvals   { 1 }
 sub form_extras     { [ 'ordering' ], [ qw/enumvals enumval_ids/ ] }
 sub has_filter_typeahead { 1 }
 sub retrieve_fields { [ qw/id value deleted/] }
@@ -52,6 +52,10 @@ sub remove_column($)
 ###
 ### Instance
 ###
+
+#XXX at assignment, /\D/ must translate names into numval ids
+
+#XXX enumvals configuration possible with array of words. map +{value => $_}
 
 sub sprefix        { 'value' }
 sub tjoin          { +{ $_[0]->field => 'value' } }
@@ -187,13 +191,12 @@ sub write_special
     return ();
 };
 
-sub is_valid_value($%)
-{   my ($self, $value, %options) = @_;
-    return 1 if !$value || defined $self->enumval($value);
-
-    return 0 unless $options{fatal};
-    error __x"'{int}' is not a valid enum ID for '{col}'",
-        int => $value, col => $self->name;
+sub _is_valid_value($)
+{   my ($self, $value) = @_;
+    defined $self->enumval($value)
+        or error __x"'{int}' is not a valid enum ID for '{col}'",
+             int => $value, col => $self->name;
+    $value;
 }
 
 sub enumval

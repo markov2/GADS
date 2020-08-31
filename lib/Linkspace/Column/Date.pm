@@ -63,12 +63,13 @@ sub remove_column($)
 has show_datepicker => ( is => 'ro', default => sub { 1 } );
 has default_today   => ( is => 'ro', default => sub { 0 } );
 
-sub is_valid_value($%)
+sub _is_valid_value($%)
 {   my ($self, $date, %options) = @_;
-    return 1 if !$date || $self->parse_date($date);
+    $self->parse_date($date)
+        or error __x"Invalid date '{value}' for {col}. Please enter as {format}.",
+             value => $date, col => $self->name, format => $self->dateformat;
 
-    error __x"Invalid date '{value}' for {col}. Please enter as {format}.",
-        value => $date, col => $self->name, format => $self->dateformat;
+    $date;
 }
 
 sub validate_search

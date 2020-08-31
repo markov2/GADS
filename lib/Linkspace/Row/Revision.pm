@@ -1645,4 +1645,9 @@ sub _revision_delete
     $self->user->row_remove_cursors($rid);
 }
 
+sub revision_count($)
+{   my ($thing, $sheet) = @_;
+    $::db->search(Record => { sheet => $sheet }, { join => 'current' })->count;
+}
+
 1;

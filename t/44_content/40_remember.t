@@ -22,7 +22,7 @@ my $expected = {
     person1    => $user->fullname,
 };
 
-my $sheet = test_sheet rows => 0;
+my $sheet = test_sheet data => [];
 
 $sheet->content->row_add(\%data, remember => 1);
 

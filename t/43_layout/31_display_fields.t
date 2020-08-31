@@ -13,19 +13,16 @@ use_ok 'Linkspace::Filter::DisplayField';
 # Tests to check that fields that depend on another field for their display are
 # blanked if they should not have been shown
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
+my $curval_sheet = make_sheet 2;
 
-my $sheet   = t::lib::DataSheet->new(
-    curval             => 2,
-    curval_field_ids   => [ $curval_sheet->columns->{string1}->id ],
+my $sheet   = make_sheet 1,
+    curval_sheet       => $curval_sheet,
+    curval_columns     => [ 'string1' ],
     multivalue         => 1,
-    multivalue_columns => { string => 1, tree => 1 },
+    multivalue_columns => [ qw/string tree/ },
     column_count       => { integer => 2 },
 );
-$sheet->create_records;
 
-my $layout   = $sheet->layout;
 my $string1  = $layout->column('string1');  ok $string1;
 my $enum1    = $layout->column('enum1');    ok $enum1;
 my $integer1 = $layout->column('integer1'); ok $integer1;

@@ -7,6 +7,8 @@ use GADS::Record;
 
 use t::lib::DataSheet;
 
+my $user1 = make_user '2';
+
 my $data = {
     string1    => 'Bar',
     integer1   => 99,
@@ -14,7 +16,7 @@ my $data = {
     enum1      => 1,
     tree1      => 4,
     daterange1 => ['2008-05-04', '2008-07-14'],
-    person1    => 1,
+    person1    => $user1,
     file1 => {
         name     => 'file1.txt',
         mimetype => 'text/plain',

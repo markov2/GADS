@@ -88,12 +88,13 @@ my @position = map $layout->column($_)->id,
 
 $layout->position(@position);
 
-$layout->create_column(calc => {
-    user            => undef,
-    name            => 'calc_int',
-    return_type     => 'integer',
-    code            => 'function evaluate (L1integer1) return L1integer1 end',
-    set_permissions => +{ $sheet->group->id => $sheet->default_permissions },
+my $colperms = [ $sheet->group => $sheet->default_permissions ];
+
+$layout->column_create(calc => {
+    name        => 'calc_int',
+    return_type => 'integer',
+    code        => 'function evaluate (L1integer1) return L1integer1 end',
+    permissions => $colperms,
 });
 
 $curval_layout->column_create(autocur => {
@@ -105,25 +106,24 @@ $curval_layout->column_create(autocur => {
 my $curval_columns = $curval_layout->columns;
 my $user = $sheet->user_normal1;
 
-$sheet->current->row_by_current_id(6)->column('enum1')->set_value(8);
+$sheet->content->row(6)->cell_update(enum1 => 8);
 
 $data->[3]->{enum1} = 'foo2';  #XXX ???
 
 # Add another curval field to a new table
 my $curval_sheet2 = make_sheet 3,
     curval_offset    => 12,
-    curval_field_ids => [ $sheet->column('integer1')->id ],
+    curval_fields => [ 'integer1' ],
 );
-$curval_sheet2->create_records;
 
 my $curval3 = $curval_layout->column_create(curval => {
     name             => 'curval3',
     refers_to_sheet  => $curval_sheet2,
-    curval_field_ids => [ $curval_sheet2->column('string1')->id ],
-    permissions      => { $sheet->group->id => $sheet->default_permissions },
+    curval_fields    => [ 'string1' ],
+    permissions      => $colperms,
 );
 
-my $r = $curval_sheet->content->current->record_for_row(0);
+my $r = $curval_sheet->content->current->row(1);
 my ($curval3_value) = $curval_sheet2->content->current->column_ids;
 $r->set_value($curval3, $curval3_value);
 
@@ -134,372 +134,338 @@ $schema->resultset('String')->find(3)->update({ value => undef });
 $schema->resultset('String')->find(4)->update({ value => '' });
 
 my @filters = (
-    {
-        name  => 'string is Foo',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
+    {   name => 'string is Foo',
+        rule => {
+            column   => 'string1',
             value    => 'Foo',
             operator => 'equal',
-        }],
-        count => 1,
+        },
+        count     => 1,
         aggregate => 7,
     },
     {
         name  => 'check case-insensitive search',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
+        rule => {
+            column   => 'string1',
             value    => 'foo',
             operator => 'begins_with',
-        }],
+        },
         count => 2,
         aggregate => 7,
     },
     {
-        name  => 'string is long1',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
+        name => 'string is long1',
+        rule => {
+            column   => 'string1',
             value    => "${long}1",
             operator => 'equal',
-        }],
+        },
         count => 1,
         aggregate => 2,
     },
     {
-        name  => 'string is long',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
+        name => 'string is long',
+        rule => {
+            column   => 'string1',
             value    => $long,
             operator => 'begins_with',
-        }],
+        },
         count => 2,
         aggregate => 5,
     },
     {
-        name  => 'date is equal',
-        rules => [{
-            id       => $layout->column('date1')->id,
-            type     => 'date',
+        name => 'date is equal',
+        rule => {
+            column   => 'date1',
             value    => '2014-10-10',
             operator => 'equal',
-        }],
+        },
         count => 2,
         aggregate => 13,
     },
     {
         name  => 'date using CURDATE',
-        rules => [{
-            id       => $layout->column('date1')->id,
-            type     => 'date',
+        rule => {
+            column   => 'date1',
             value    => 'CURDATE',
             operator => 'equal',
-        }],
+        },
         count => 2,
         aggregate => 13,
     },
     {
-        name  => 'date using CURDATE plus 1 year',
-        rules => [{
-            id       => $layout->column('date1')->id,
-            type     => 'date',
+        name => 'date using CURDATE plus 1 year',
+        rule => {
+            column   => 'date1',
             value    => 'CURDATE + '.(86400 * 365), # Might be leap seconds etc, but close enough
             operator => 'equal',
-        }],
+        },
         count => 1,
         aggregate => '',
     },
     {
-        name  => 'date in calc',
-        rules => [{
-            id       => $layout->column('calc1')->id,
-            type     => 'date',
+        name => 'date in calc',
+        rule => {
+            column   => 'calc1',
+            type     => 'date',   # = return_type in filter
             value    => 'CURDATE - '.(86400 * 365), # Might be leap seconds etc, but close enough
             operator => 'equal',
-        }],
+        },
         count => 1,
         aggregate => 7,
     },
     {
         name  => 'negative filter for calc',
-        rules => [{
-            id       => $calc_int->id,
+        rule => {
+            column   => $calc_int,
             type     => 'string',
             value    => -1,
             operator => 'less',
-        }],
+        },
         count => 1,
         aggregate => -4,
     },
     {
-        name  => 'date is empty',
-        rules => [{
-            id       => $layout->column('date1')->id,
-            type     => 'date',
+        name => 'date is empty',
+        rule => {
+            column   => 'data1',
             operator => 'is_empty',
-        }],
+        },
         count => 4,
         aggregate => 6,
     },
     {
         name  => 'date is empty - value as array ref',
-        rules => [{
-            id       => $layout->column('date1')->id,
-            type     => 'date',
+        rule => {
+            column   => 'date1',
             operator => 'is_empty',
             value    => [],
-        }],
+        },
         count => 4,
         aggregate => 6,
     },
     {
-        name  => 'date is blank string', # Treat as empty
-        rules => [{
-            id       => $layout->column('date1')->id,
-            type     => 'date',
-            value    => '',
+        name => 'date is blank string', # Treat as empty
+        rule => {
+            column   => 'date1',
             operator => 'equal',
-        }],
+            value    => '',
+        },
         count     => 4,
         no_errors => 1, # Would normally bork
         aggregate => 6,
     },
     {
-        name  => 'string begins with Foo',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
-            value    => 'Foo',
+        name => 'string begins with Foo',
+        rule => {
+            column   => 'string1',
             operator => 'begins_with',
-        }],
+            value    => 'Foo',
+        },
         count => 2,
         aggregate => 7,
     },
     {
-        name  => 'string contains ooba',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
-            value    => 'ooba',
+        name => 'string contains ooba',
+        rule => {
+            column   => 'string1',
             operator => 'contains',
-        }],
+            value    => 'ooba',
+        },
         count => 1,
         aggregate => '',
     },
     {
-        name  => 'string does not contain ooba',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
-            value    => 'ooba',
+        name => 'string does not contain ooba',
+        rule => {
+            column   => 'string1',
             operator => 'not_contains',
-        }],
+            value    => 'ooba',
+        },
         count => 6,
         aggregate => 19,
     },
     {
-        name  => 'string does not begin with Foo',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
-            value    => 'Foo',
+        name => 'string does not begin with Foo',
+        rule => {
+            column   => 'string1',
             operator => 'not_begins_with',
-        }],
+            value    => 'Foo',
+        },
         count => 5,
         aggregate => 12,
     },
     {
-        name  => 'string is empty',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
+        name => 'string is empty',
+        rule => {
+            column   => 'string1',
             operator => 'is_empty',
-        }],
+        },
         count => 3,
         aggregate => 7,
     },
     {
-        name  => 'string is not equal to Foo',
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
-            value    => 'Foo',
+        name => 'string is not equal to Foo',
+        rules=> {
+            column   => 'string1',
             operator => 'not_equal',
-        }],
+            value    => 'Foo',
+        },
         count => 6,
         aggregate => 12,
     },
     {
-        name  => 'string is not equal to nothing', # should convert to not empty
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
+        name => 'string is not equal to nothing', # should convert to not empty
+        rule => {
+            column   => 'string1',
+            operator => 'not_equal',
             value    => '',
-            operator => 'not_equal',
-        }],
+        },
         count => 4,
         aggregate => 12,
     },
     {
-        name  => 'string is not equal to nothing (array ref)', # should convert to not empty
-        rules => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
+        name => 'string is not equal to nothing (array ref)', # should convert to not empty
+        rule => {
+            column   => 'string1',
+            operator => 'not_equal',
             value    => [],
-            operator => 'not_equal',
-        }],
+        },
         count => 4,
         aggregate => 12,
     },
     {
-        name  => 'greater than undefined value', # matches against empty instead
-        rules => [{
-            id       => $layout->column('integer1')->id,
-            type     => 'integer',
+        name => 'greater than undefined value', # matches against empty instead
+        rule => {
+            column   => 'integer1',
             operator => 'greater',
-        }],
+        },
         count => 1,
         aggregate => '',
     },
     {
-        name  => 'negative integer filter',
-        rules => [{
-            id       => $layout->column('integer1')->id,
-            type     => 'integer',
+        name => 'negative integer filter',
+        rule => {
+            column   => 'integer1',
             operator => 'less',
             value    => -1,
-        }],
+        },
         count => 1,
         aggregate => -4,
     },
     {
-        name  => 'daterange less than',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
-            value    => '2013-12-31',
+        name => 'daterange less than',
+        rule => {
+            column   => 'daterange1',
             operator => 'less',
-        }],
+            value    => '2013-12-31',
+        },
         count => 1,
         aggregate => 7,
     },
     {
-        name  => 'daterange less or equal',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
-            value    => '2013-12-31',
+        name => 'daterange less or equal',
+        rule => {
+            column   => 'daterange1',
             operator => 'less_or_equal',
-        }],
+            value    => '2013-12-31',
+        },
         count => 2,
         aggregate => 7,
     },
     {
-        name  => 'daterange greater than',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
-            value    => '2013-12-31',
+        name => 'daterange greater than',
+        rule => {
+            column   => 'daterange1',
             operator => 'greater',
-        }],
+            value    => '2013-12-31',
+        },
         count => 1,
         aggregate => 6,
     },
     {
-        name  => 'daterange greater or equal',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
+        name => 'daterange greater or equal',
+        rule => {
+            column   => 'daterange1',
             value    => '2014-10-10',
             operator => 'greater_or_equal',
-        }],
+        },
         count => 2,
         aggregate => 6,
     },
     {
-        name  => 'daterange equal',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
-            value    => '2014-03-21 to 2015-03-01',
+        name => 'daterange equal',
+        rule => {
+            column   => 'daterange1',
             operator => 'equal',
-        }],
+            value    => '2014-03-21 to 2015-03-01',
+        },
         count => 1,
         aggregate => 6,
     },
     {
-        name  => 'daterange not equal',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
-            value    => '2014-03-21 to 2015-03-01',
+        name => 'daterange not equal',
+        rule => {
+            column   => 'daterange1',
             operator => 'not_equal',
-        }],
+            value    => '2014-03-21 to 2015-03-01',
+        },
         count => 6,
         aggregate => 13,
     },
     {
-        name  => 'daterange empty',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
+        name => 'daterange empty',
+        rule => {
+            column   => 'daterange1',
             operator => 'is_empty',
-        }],
+        },
         count => 4,
         aggregate => 6,
     },
     {
-        name  => 'daterange not empty',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
+        name => 'daterange not empty',
+        rule => {
+            column   => 'daterange1',
             operator => 'is_not_empty',
-        }],
+        },
         count => 3,
         aggregate => 13,
     },
     {
-        name  => 'daterange contains',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
-            value    => '2014-10-10',
+        name => 'daterange contains',
+        rule => {
+            column   => 'daterange1',
             operator => 'contains',
-        }],
+            value    => '2014-10-10',
+        },
         count => 2,
         aggregate => 6,
     },
     {
-        name  => 'daterange does not contain',
-        rules => [{
-            id       => $layout->column('daterange1')->id,
-            type     => 'daterange',
-            value    => '2014-10-10',
+        name => 'daterange does not contain',
+        rule => {
+            column   => 'daterange1',
             operator => 'not_contains',
-        }],
+            value    => '2014-10-10',
+        },
         count => 5,
         aggregate => 13,
     },
     {
         name  => 'nested search',
-        rules => [ {
-            id       => $layout->column('string1')->id,
-            type     => 'string',
-            value    => 'Foo',
+        rules => [{
+            column   => 'string1',
             operator => 'begins_with',
+            value    => 'Foo',
         }, {
             rules => [ {
-                id       => $layout->column('date1')->id,
-                type     => 'date',
-                    value    => '2015-10-10',
-                    operator => 'equal',
+                column   => 'date1',
+                operator => 'equal',
+                value    => '2015-10-10',
             }, {
-                id       => $layout->column('date1')->id,
-                type     => 'date',
-                value    => '2014-12-01',
+                column   => 'date1',
                 operator => 'greater',
+                value    => '2014-12-01',
             } ],
         } ],
         condition => 'AND',
@@ -507,237 +473,203 @@ my @filters = (
         aggregate => '',
     },
     {
-        name  => 'Search using enum with different tree in view',
-        rules => [{
-            id       => $layout->column('enum1')->id,
-            type     => 'string',
-            value    => 'foo1',
+        name => 'Search using enum with different tree in view',
+        rule => {
+            column   => 'enum1',
             operator => 'equal',
-        }],
+            value    => 'foo1',
+        },
         count => 3,
         aggregate => 7,
     },
     {
-        name  => 'Search negative multivalue enum',
-        rules => [{
-            id       => $layout->column('enum1')->id,
-            type     => 'string',
-            value    => 'foo1',
+        name => 'Search negative multivalue enum',
+        rule => {
+            column   => 'enum1',
             operator => 'not_equal',
-        }],
+            value    => 'foo1',
+        },
         count => 4,
         aggregate => 12,
     },
     {
-        name  => 'Search using enum with curval in view',
-        columns => [$layout->column('curval1')->id],
-        rules => [{
-            id       => $layout->column('enum1')->id,
-            type     => 'string',
-            value    => 'foo1',
+        name    => 'Search using enum with curval in view',
+        columns => [ 'curval1' ],
+        rule    => {
+            column   => 'enum1',
             operator => 'equal',
-        }],
+            value    => 'foo1',
+        },
         count => 3,
         values => {
-            $layout->column('curval1')->id => "Foo, 50, foo1, , 2014-10-10, 2012-02-10 to 2013-06-15, , , c_amber, 2012",
+            curval1 => "Foo, 50, foo1, , 2014-10-10, 2012-02-10 to 2013-06-15, , , c_amber, 2012",
         },
         aggregate => 7,
     },
     {
         name    => 'Search 2 using enum with different tree in view',
-        columns => [ $layout->column('tree1')->id, $layout->column('enum1')->id ],
-        rules   => [ {
-            id       => $layout->column('tree1')->id,
-            type     => 'string',
-            value    => 'tree1',
+        columns => [ 'tree1', 'enum1' ],
+        rule    => {
+            column   => 'tree1',
             operator => 'equal',
-        } ],
+            value    => 'tree1',
+        },
         count => 2,
         aggregate => 3,
     },
     {
-        name  => 'Search for ID',
-        columns => [ $layout->column('string1')->id ],
-        rules => [ {
-            id       => $layout->column('_id')->id,
-            type     => 'integer',
-            value    => '4',
+        name    => 'Search for ID',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => '_id',
             operator => 'equal',
-        } ],
+            value    => '4',
+        },
         count => 1,
         aggregate => 5,
     },
     {
-        name  => 'Search for multiple IDs',
-        columns => [$layout->column('string1')->id],
-        rules => [ {
-            id       => $layout->column('_id')->id,
-            type     => 'integer',
-            value    => ['4', '5'],
+        name    => 'Search for multiple IDs',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => '_id',
             operator => 'equal',
-        } ],
+            value    => ['4', '5'],
+        },
         count => 2,
         aggregate => 11,
     },
     {
-        name  => 'Search for empty IDs',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('_id')->id,
-                type     => 'integer',
-                value    => [],
-                operator => 'equal',
-            }
-        ],
+        name    => 'Search for empty IDs',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => '_id',
+            operator => 'equal',
+            value    => [],
+        },
         count => 0,
         aggregate => '',
     },
     {
-        name  => 'Search for version date 1',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('_version_datetime')->id,
-                type     => 'date',
-                value    => '2014-10-10',
-                operator => 'greater',
-            },
-            {
-                id       => $layout->column('_version_datetime')->id,
-                type     => 'date',
-                value    => '2014-10-11',
-                operator => 'less',
-            }
-        ],
+        name    => 'Search for version date 1',
+        columns => [ 'string1' ],
+        rules   => [{
+            column   => '_version_datetime',
+            operator => 'greater',
+            value    => '2014-10-10',
+        }, {
+            column   => '_version_datetime',
+            operator => 'less',
+            value    => '2014-10-11',
+        } ],
         condition => 'AND',
         count     => 7,
         aggregate => 19,
     },
     {
-        name  => 'Search for version date 2',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('_version_datetime')->id,
-                type     => 'date',
-                value    => '2014-10-15',
-                operator => 'greater',
-            },
-        ],
+        name    => 'Search for version date 2',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => '_version_datetime',
+            operator => 'greater',
+            value    => '2014-10-15',
+        },
         count => 0,
         aggregate => '',
     },
     {
-        name  => 'Search for created date',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('_created')->id,
-                type     => 'date',
-                value    => '2014-10-15',
-                operator => 'less',
-            },
-        ],
+        name    => 'Search for created date',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => '_created',
+            operator => 'less',
+            value    => '2014-10-15',
+        },
         count => 7,
         aggregate => 19,
     },
     {
-        name  => 'Search for version editor',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('_version_user')->id,
-                type     => 'string',
-                value    => $user->value,
-                operator => 'equal',
-            },
-        ],
+        name    => 'Search for version editor',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => '_version_user',
+            operator => 'equal',
+            value    => $user->value,
+        },
         count     => 1, # Other records written by superadmin user on start
         aggregate => 7,
     },
     {
-        name  => 'Search for invalid date',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('date1')->id,
-                type     => 'date',
-                value    => '20188-01',
-                operator => 'equal',
-            },
-        ],
-        count     => 0,
-        no_errors => 1,
-        aggregate => '',
-    },
-    {
-        name  => 'Search for invalid daterange',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('daterange1')->id,
-                type     => 'date',
-                value    => '20188-01 XX',
-                operator => 'equal',
-            },
-        ],
-        count     => 0,
-        no_errors => 1,
-        aggregate => '',
-    },
-    {
-        name  => 'Search for blank calc date as empty string (array ref)',
-        rules => [{
-            id       => $layout->column('calc1')->id,
-            type     => 'date',
-            value    => [''],
+        name    => 'Search for invalid date',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => 'date1',
             operator => 'equal',
-        }],
+            value    => '20188-01',
+        },
+        count     => 0,
+        no_errors => 1,
+        aggregate => '',
+    },
+    {
+        name    => 'Search for invalid daterange',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => 'daterange1',
+            operator => 'equal',
+            value    => '20188-01 XX',
+        },
+        count     => 0,
+        no_errors => 1,
+        aggregate => '',
+    },
+    {
+        name => 'Search for blank calc date as empty string (array ref)',
+        rule => {
+            column   => 'calc1',
+            type     => 'date',
+            operator => 'equal',
+            value    => [''],
+        },
         count     => 4,
         aggregate => 6,
     },
     {
-        name  => 'Search by curval ID',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('curval1')->id,
-                type     => 'string',
-                value    => '2',
-                operator => 'equal',
-            },
-        ],
+        name    => 'Search by curval ID',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => 'curval1',
+            type     => 'string',
+            operator => 'equal',
+            value    => '2',
+        },
         count     => 2,
         aggregate => 11,
     },
     {
-        name  => 'Search by curval ID not equal',
-        columns => [$layout->column('string1')->id],
-        rules => [
-            {
-                id       => $layout->column('curval1')->id,
-                type     => 'string',
-                value    => '2',
-                operator => 'not_equal',
-            },
-        ],
+        name    => 'Search by curval ID not equal',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => 'curval1',
+            type     => 'string',
+            operator => 'not_equal',
+            value    => '2',
+        },
         count     => 5,
         aggregate => 8,
     },
     {
         name  => 'Search curval ID and enum, only curval in view',
-        columns => [ $layout->column('curval1')->id ], # Ensure it's added as first join
-        rules => [{
-            id       => $layout->column('curval1')->id,
+        columns => [ 'curval1' ], # Ensure it's added as first join
+        rules   => [ {
+            column   => 'curval1',
             type     => 'string',
+            operator => 'equal',
             value    => '1',
-            operator => 'equal',
         }, {
-            id       => $layout->column('enum1')->id,
-            type     => 'string',
-            value    => 'foo1',
+            column   => 'enum1',
             operator => 'equal',
+            value    => 'foo1',
         }],
         condition => 'AND',
         count     => 1,
@@ -745,63 +677,58 @@ my @filters = (
     },
     {
         name    => 'Search by curval field',
-        columns => [ $layout->column('string1')->id ],
-        rules   => [{
-            id       => $layout->column('curval1')->id .'_'. $curval_layout->column('string1')->id,
-            type     => 'string',
-            value    => 'Bar',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => [ curval1 => $curval_layout->column('string1') ],
             operator => 'equal',
-        }],
+            value    => 'Bar',
+        },
         count     => 2,
         aggregate => 11,
     },
     {
         name    => 'Search by curval field not equal',
-        columns => [ $layout->column('string1')->id ],
-        rules   => [ {
-            id       => $layout->column('curval1')->id .'_'. $curval_layout->column('string1')->id,
-            type     => 'string',
-            value    => 'Bar',
+        columns => [ 'string1' ],
+        rules   => {
+            column   => [ curval1 => $curval_layout->column('string1') ],
             operator => 'not_equal',
-        } ],
+            value    => 'Bar',
+        },
         count     => 5,
         aggregate => 8,
     },
     {
-        name  => 'Search by curval enum field',
-        columns => [ $layout->column('enum1')->id ],
-        rules => [ {
-            id       => $layout->column('curval1')->id .'_'. $curval_layout->column('enum1')->id,
-            type     => 'string',
-            value    => 'foo2',
+        name    => 'Search by curval enum field',
+        columns => [ 'enum1' ],
+        rule    => {
+            column   => [ curval1 => $curval_layout->column('enum1') ],
             operator => 'equal',
-        } ],
+            value    => 'foo2',
+        },
         count     => 2,
         aggregate => 11,
     },
     {
         name    => 'Search by curval within curval',
-        columns => [ $layout->column('curval1')->id ],
-        rules   => [ {
-            id       => $layout->column('curval1')->id .'_'. $curval3->id,
+        columns => [ 'curval1' ],
+        rule    => {
+            column   => [ curval1 => $curval3 ],
             type     => 'string',
-            value    => $curval3_value,
             operator => 'equal',
-        } ],
+            value    => $curval3_value,
+        },
         count     => 1,
         aggregate => -4,
     },
     {
         name    => 'Search by curval enum field across 2 curvals',
-        columns => [ $layout->column('enum1')->id ],
+        columns => [ 'enum1' ],
         rules   => [ {
-            id       => $layout->column('curval1')->id .'_'. $curval_layout->column('enum1')->id,
-            type     => 'string',
+            column   => [ curval1 => $curval_layout->column('enum1') ],
             value    => 'foo2',
             operator => 'equal',
         }, {
-            id       => $layout->column('curval2')->id .'_'. $curval_layout->column('enum1')->id,
-            type     => 'string',
+            column   => [ curval2 => $curval_layout->column('enum1') ],
             value    => 'foo1',
             operator => 'equal',
         } ],
@@ -811,25 +738,25 @@ my @filters = (
     },
     {
         name    => 'Search by autocur ID',
-        columns => [$curval_layout->column('autocur1')->id],
-        rules   => [ {
-            id       => $curval_layout->column('autocur1')->id,
+        columns => [ 'autocur1' ],
+        rule    => {
+            column   => 'autocur1',
             type     => 'string',
             value    => '3',
             operator => 'equal',
-        } ],
+        },
         count     => 1,
         layout    => $curval_layout,
         aggregate => 50,
     },
     {
         name    => 'Search by autocur ID not equal',
-        columns => [ $curval_layout->column('autocur1')->id ],
-        rules   => [ {
-            id       => $curval_layout->column('autocur1')->id,
+        columns => [ 'autocur1' ],
+        rule    => {
+            column   => 'autocur1',
             type     => 'string',
-            value    => '3',
             operator => 'not_equal',
+            value    => '3',
         } ],
         count       => 1,
         # Autocur treated as a multivalue with a single row with 2 different
@@ -839,10 +766,10 @@ my @filters = (
         aggregate   => 99,
     },
     {
-        name  => 'Search by autocur enum field',
-        columns => [$curval_layout->column('string1')->id],
-        rules => [ {
-            id       => $curval_layout->column('autocur1')->id .'_'. $layout->column('enum1')->id,
+        name    => 'Search by autocur enum field',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => [ autocur1 => $layout->column('enum1') ],
             type     => 'string',
             value    => 'foo1',
             operator => 'equal',
@@ -852,13 +779,13 @@ my @filters = (
         aggregate => 149,
     },
     {
-        name  => 'Search for invalid autocur',
-        columns => [ $curval_layout->column('autocur1')->id ],
-        rules => [ {
-            id       => $curval_layout->column('autocur1')->id,
+        name    => 'Search for invalid autocur',
+        columns => [ 'autocur1' ],
+        rule    => {
+            column   => 'autocur1',
             type     => 'string',
-            value    => 'Foobar',
             operator => 'equal',
+            value    => 'Foobar',
         } ],
         count     => 0,
         no_errors => 1,
@@ -866,26 +793,24 @@ my @filters = (
         aggregate => '',
     },
     {
-        name  => 'Search by record ID',
-        columns => [ $layout->column('string1')->id ],
-        rules => [ {
-            id       => $layout->column('ID')->id,
-            type     => 'string',
-            value    => '3',
+        name    => 'Search by record ID',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => 'ID',
             operator => 'equal',
-        } ],
+            value    => '3',
+        },
         count     => 1,
         aggregate => -4,
     },
     {
-        name  => 'Search by invalid record ID',
-        columns => [ $layout->column('string1')->id ],
-        rules => [ {
-            id       => $layout->column('ID')->id,
-            type     => 'string',
-            value    => '3DD',
+        name    => 'Search by invalid record ID',
+        columns => [ 'string1' ],
+        rule    => {
+            column   => 'ID',
             operator => 'equal',
-        } ],
+            value    => '3DD',
+        },
         count     => 0,
         no_errors => 1,
         aggregate => '',
@@ -1179,38 +1104,28 @@ foreach my $multivalue (0..1)
     is (@{$records->results}, 1, 'Correct number of quick search results for number when limiting to a view (no match)');
 
     # Same again but limited by enumval
-    $view_limit->filter(GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $layout->column('enum1')->id,
-                type     => 'string',
-                value    => 'foo2',
-                operator => 'equal',
-            }],
+    $views->view_update($view_limit, { filter => {
+        rules     => {
+            id       => $layout->column('enum1')->id,
+            type     => 'string',
+            value    => 'foo2',
+            operator => 'equal',
         },
-    ));
-    $view_limit->write;
+    }});
 
-    $records = GADS::Records->new(
-        user    => $user,
-        layout  => $layout,
-    );
-    is ($records->count, 2, 'Correct number of results when limiting to a view with enumval');
-    {
-        my $limit = $schema->resultset('ViewLimit')->create({
-            user_id => $user->id,
-            view_id => $view_limit->id,
-        });
-        my $record = GADS::Record->new(
-            user   => $user,
-            layout => $layout,
-        );
-        is( $record->find_current_id(7)->current_id, 7, "Retrieved record within limited view" );
-        $limit->delete;
-    }
-    $records->clear;
-    $records->search('2014-10-10');
-    is (@{$records->results}, 1, 'Correct number of quick search results when limiting to a view with enumval');
+#XXX install $view_limit?
+    cmp_ok $sheet->content->current, '==', 2,
+          'Correct number of results when limiting to a view with enumval';
+
+    $user->view_limit($view_limit);   # add?
+    is $sheet->content->current->row(...)->id, 7, "Retrieved record within limited view";
+
+    $views->view_delete($view_limit);
+
+    my $page = $content->search('2014-10-10');
+    cmp_ok $page->row_count, '==', 1,
+        'Correct number of quick search results when limiting to a view with enumval';
+
     # Check that record can be retrieved for edit
     my $record = GADS::Record->new(
         user                 => $user,
@@ -1220,16 +1135,14 @@ foreach my $multivalue (0..1)
     $record->find_current_id($records->single->current_id);
 
     # Same again but limited by curval
-    $view_limit->filter(GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $layout->column('curval1')->id,
-                type     => 'string',
-                value    => '1',
-                operator => 'equal',
-            }],
+    $view_limit->filter({
+        rule     => {
+            column   => 'curval1',
+            type     => 'string',
+            operator => 'equal',
+            value    => '1',
         },
-    ));
+    });
     $view_limit->write;
     $records = GADS::Records->new(
         view_limits => [ $view_limit ],
@@ -1314,96 +1227,59 @@ foreach my $multivalue (0..1)
 {
     # Test view_limit_extra functionality
     my $sheet = t::lib::DataSheet->new(data =>
-    [
-        {
-            string1    => 'FooBar',
-            integer1   => 50,
-        },
-        {
-            string1    => 'Bar',
-            integer1   => 100,
-        },
-        {
-            string1    => 'Foo',
-            integer1   => 150,
-        },
-        {
-            string1    => 'FooBar',
-            integer1   => 200,
-        },
+    [ { string1 => 'FooBar', integer1   =>  50 },
+      { string1 => 'Bar',    integer1   => 100 },
+      { string1 => 'Foo',    integer1   => 150 },
+      { string1 => 'FooBar', integer1   => 200 },
     ]);
-    $sheet->create_records;
-    my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
 
-    my $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $layout->column('string1')->id,
-                type     => 'string',
-                value    => 'FooBar',
+    my $limit_extra1 = $sheet->views->view_create({
+        name    => 'Limit to view extra',
+        filter  => {
+            rule  => {
+                column   => 'string1',
                 operator => 'equal',
-            }],
+                value    => 'FooBar',
+            },
         },
-    );
-
-    my $limit_extra1 = GADS::View->new(
-        name        => 'Limit to view extra',
-        filter      => $rules,
-        instance_id => $layout->instance_id,
-        layout      => $layout,
-        user        => $sheet->user,
-    );
-    $limit_extra1->write;
-
-    $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $layout->column('integer1')->id,
-                type     => 'string',
-                value    => '75',
-                operator => 'greater',
-            }],
-        },
-    );
-
-    my $limit_extra2 = GADS::View->new(
-        name        => 'Limit to view extra',
-        filter      => $rules,
-        instance_id => $layout->instance_id,
-        layout      => $layout,
-        user        => $sheet->user,
-    );
-    $limit_extra2->write;
-
-    $schema->resultset('Instance')->find($layout->instance_id)->update({
-        default_view_limit_extra_id => $limit_extra1->id,
     });
-    $layout->clear;
 
-    my $records = GADS::Records->new(
-        user    => $sheet->user,
-        layout  => $layout,
-    );
-    my $string1 = $layout->column('string1')->id;
-    is($records->count, 2, 'Correct number of results when limiting to a view limit extra');
-    is($records->single->fields->{$string1}->as_string, "FooBar", "Correct limited record");
+    my $limit_extra2 = $sheet->views->view_create({
+        name        => 'Limit to view extra',
+        filter      => {
+            rule     => {
+                column1  => 'integer1',
+                type     => 'string',     #XXX sure?
+                operator => 'greater',
+                value    => '75',
+            },
+        },
+    });
 
-    $records = GADS::Records->new(
-        layout              => $layout,
-        view_limit_extra_id => $limit_extra2->id,
-    );
-    is ($records->count, 3, 'Correct number of results when changing view limit extra');
-    is($records->single->fields->{$string1}->as_string, "Bar", "Correct limited record when changed");
+    $sites->document->sheet_update($sheet, { default_view_limit_extra => $limit_extra1 });
 
-    my $user = $sheet->user;
-    $user->set_view_limits([ $limit_extra1 ]);
-    $records = GADS::Records->new(
-        layout              => $layout,
-        view_limit_extra_id => $limit_extra2->id,
-    );
-    is ($records->count, 1, 'Correct number of results with both view limits and extra limits');
-    is($records->single->fields->{$string1}->as_string, "FooBar", "Correct limited record for both types of limit");
+    my $page0 = $sheet->content->search;
+    cmp_ok $page0->row_count, '==', 2, '... rows limited to a view limit extra';
+    $page0->row(1)->cell('string1')->as_string, 'FooBar', '... limited record';
+
+    my $page1 = $sheet->content->search({ view_limit_extra => $limit_extra2 });
+    ok $page1, 'Applied second view limit in search';
+
+    cmp_ok $page1->row_count, '==', 3,
+        '... number of results when changing view limit extra';
+
+    $page1->row(1)->cell($string1)->as_string, 'Bar',
+        '... limited record when changed';
+
+
+    $site->users->user_update($user, { view_limits => [ $limit_extra1 ]});
+
+    my $page2 = $sheet->content->search({ view_limit_extra => $limit_extra2 });
+    ok $page2, 'Applied second view limit in search, with default limit as well';
+
+    cmp_ok $page2->row_count, '==', 1, '... rows with both view limits and extra limits';
+    $page2->row(1)->cell('string1')->as_string, 'FooBar',
+       "... limited record for both types of limit";
 }
 
 # Check sorting functionality
@@ -1506,14 +1382,11 @@ my @sorts = (
         min_id       => 3,
         count        => 2,
         filter       => {
-            rules => [
-                {
-                    name     => 'tree1',
-                    type     => 'string',
-                    value    => 'tree1',
-                    operator => 'equal',
-                },
-            ],
+            rule => {
+                column   => 'tree1',
+                value    => 'tree1',
+                operator => 'equal',
+            },
         },
     },
     # Sometimes _value table numbers can get mixed up, so try the opposite way round as well
@@ -1528,14 +1401,11 @@ my @sorts = (
         min_id       => 3,
         count        => 3,
         filter       => {
-            rules => [
-                {
-                    name     => 'enum1',
-                    type     => 'string',
-                    value    => 'foo1',
-                    operator => 'equal',
-                },
-            ],
+            rule => {
+                column   => 'enum1',
+                operator => 'equal',
+                value    => 'foo1',
+            },
         },
     },
     {
@@ -1557,20 +1427,15 @@ my @sorts = (
         min_id       => 4,
         count        => 3,
         filter       => {
-            rules => [
-                {
-                    name     => 'curval1_'.$curval_layout->column('enum1')->id,
-                    type     => 'string',
-                    value    => 'foo2',
-                    operator => 'equal',
-                },
-                {
-                    name     => 'curval2_'.$curval_layout->column('enum1')->id,
-                    type     => 'string',
-                    value    => 'foo1',
-                    operator => 'equal',
-                },
-            ],
+            rules => [ {
+                column   => [ 'curval1', $curval_layout->column('enum1') ],
+                operator => 'equal',
+                value    => 'foo2',
+            }, {
+                column   => [ 'curval2', $curval_layout->column('enum1') ],
+                operator => 'equal',
+                value    => 'foo1',
+            } ],
             condition => 'OR',
         },
     },
@@ -1586,12 +1451,12 @@ my @sorts = (
         count        => 3,
         filter       => {
             rules => [ {
-                name     => 'curval1_'.$curval_layout->column('enum1')->id,
+                column   => [ 'curval1', $curval_layout->column('enum1') ],
                 type     => 'string',
                 value    => 'foo1',
                 operator => 'equal',
             }, {
-                name     => 'curval1_'.$curval_layout->column('enum1')->id,
+                column   => [ 'curval1', $curval_layout->column('enum1') ],
                 type     => 'string',
                 value    => 'foo2',
                 operator => 'equal',
@@ -1645,7 +1510,7 @@ foreach my $multivalue (0..1)
     foreach my $sort (@sorts)
     {   my @sort_types = @{$sort->{sort_type}};
         my $sort_by    = $sort->{sort_by};
-        my $filter     = $sheet->convert_filter($sort->{filter}) || {};
+        my $filter     = $sort->{filter};
 
         my @sort_by;
         if(my $parents = $sort->{sort_by_parent})

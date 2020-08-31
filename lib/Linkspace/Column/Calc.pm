@@ -73,7 +73,7 @@ sub string_storage { $_[0]->value_field eq 'value_text' }
 
 ### The "Calc" table
 
-sub calc()         { ($_[0]->calcs)[0] )     #XXX why a has_many relationship?
+sub calc           { ($_[0]->calcs)[0] )     #XXX why a has_many relationship?
 sub code           { $_[0]->calc->{code} }
 sub decimal_places { $_[0]->calc->{decimal_places} }
 sub return_type    { $_[0]->calc->{return_type} }
@@ -123,13 +123,13 @@ sub resultset_for_values
     $::db->(Calcval => { layout_id => $self->id }, { group_by  => 'me.value_text' });
 }
 
-sub is_valid_value
+sub _is_valid_value
 {   my ($self, $value) = @_;
     my $rt = $self->return_type;
-      $rt eq 'date'    ? $self->parse_date($value)
-    : $rt eq 'integer' ? $value =~ /^-?[0-9]+$/
-    : $rt eq 'numeric' ? looks_like_number($value)
-    :                    1;
+      $rt eq 'date'    ? ($self->parse_date($value) ? $value : undef)
+    : $rt eq 'integer' ? ($value =~ /^\s*([-+]?[0-9]+)\s*$/ ? $1 : undef)
+    : $rt eq 'numeric' ? (looks_like_number($value) ? $value : undef)
+    :                    $value;
 }
 
 sub export_hash

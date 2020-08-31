@@ -785,90 +785,65 @@ cmp_ok _in_alert_cache($view3), '==', 3,
     'Correct number of alerts after view updated (from json)';
 
 
+my $user1 = make_user '1';
+my $user4 = make_user '4';
+
+
 # Do some tests on CURUSER alerts. One for filter on person field, other on string
-foreach my $curuser_type (qw/person string/)
-{
+
     # Hard-coded user IDs. Ideally we would take these from the users that have
     # been created, but they need to be defined now to pass to the datasheet
     # creation
-    $data = $curuser_type eq 'person'
-        ? [
-            {
-                string1 => 'Foo',
-                person1 => 1,
-            },
-            {
-                string1 => 'Bar',
-                person1 => 1,
-            },
-            {
-                string1 => 'Foo',
-                person1 => 4,
-            },
-            {
-                string1 => 'Foo',
-                person1 => undef,
-            },
-            {
-                string1 => 'Bar',
-                person1 => undef,
-            },
-        ]
-        : [
-            {
-                integer1 => '100',
-                string1  => 'User1, User1',
-            },
-            {
-                integer1 => '200',
-                string1  => 'User1, User1',
-            },
-            {
-                integer1 => '100',
-                string1  => 'User4, User4',
-            },
-            {
-                integer1 => '100',
-                string1  => undef,
-            },
-            {
-                integer1 => '200',
-                string1  => undef,
-            },
-        ];
+my @curuser_person_data = (
+    { string1 => 'Foo', person1 => $user1 },
+    { string1 => 'Bar', person1 => $user1 },
+    { string1 => 'Foo', person1 => $user4 },
+    { string1 => 'Foo', person1 => undef  },
+    { string1 => 'Bar', person1 => undef  },
+);
+test_curuser 'person', \@person_data, 'person1';
 
-    $sheet = t::lib::DataSheet->new(data => $data, user_count => 2);
-    $columns = $sheet->columns;
-    $sheet->create_records;
+my @curuser_string_data = (
+   { integer1 => '100', string1 => 'User1, User1' },
+   { integer1 => '200', string1 => 'User1, User1' },
+   { integer1 => '100', string1 => 'User4, User4' },
+   { integer1 => '100', string1 => undef },
+   { integer1 => '200', string1 => undef },
+);
+test_curuser 'string', \@curuser_string_data, 'string1';
+
+
+sub test_curuser
+{   my ($curuser_type, $data, $filter_col ) = @_;
+}
+    $sheet = $site->document->sheet_create(data => $data);
 
     # First create a view with no filter
-
     my $col_ids = $curuser_type eq 'person'
-        ? [$columns->{string1}->id, $columns->{person1}->id]
-        : [$columns->{integer1}->id, $columns->{string1}->id];
-
-    my $view1 = $views->view_create({
-        name            => 'view1',
-        is_global   => 1,
-        columns     => $col_ids,
-    );
-    my $alert1 = $view1->alert_set(24);
-
-    cmp_ok _in_alert_cache($view1), '==', 10,
-        'Correct number of alerts inserted';
+      ? [ 'string1', 'person1' ]
+      : [ 'integer1', 'string1' ];
 
     # Add a person filter, check alert cache
-    my $filter_col = $curuser_type eq 'person' ? $columns->{person1} : $columns->{string1};
-
     my $filter1 = {
         rules  => [{
-            id       => $filter_col->id,
+            id       => $layout->column($filter_col)->id,
             type     => 'string',
             value    => '[CURUSER]',
             operator => 'equal',
         }],
     };
-    $views->view_update($view1, { filter => $filter1 });
+
+    my $view1 = $views->view_create({
+        name        => 'view1',
+        is_global   => 1,
+        columns     => $col_ids,
+        filter      => $filter1,
+    );
+
+    $view1->alert_set(24, $user2);  #XXX?
+
+    cmp_ok _in_alert_cache($view1), '==', 10,
+        'Correct number of alerts inserted';
 
     cmp_ok _in_alert_cache($view1, $user1), '==', 4,
        'Correct number of alerts for initial CURUSER filter addition (user1)';
@@ -876,7 +851,7 @@ foreach my $curuser_type (qw/person string/)
     cmp_ok _in_alert_cache($view1, $user2), '==', 0,
        'Correct number of alerts for initial CURUSER filter addition (user2)';
 
-    $view1->alert_set(24, $user2);
+    $view1->alert_set(24, $user2);  #XXX?
 
     cmp_ok _in_alert_cache($view1, $user1), '==', 4,
        'Still correct number of alerts for CURUSER filter addition (user1)';
@@ -893,7 +868,7 @@ foreach my $curuser_type (qw/person string/)
     {   $filter1 = {
             rules     => [
                 {
-                    id       => $columns->{person1}->id,
+                    id       => $layout->column('person1')->id,
                     type     => 'string',
                     value    => '[CURUSER]',
                     operator => 'equal',
@@ -937,10 +912,10 @@ foreach my $curuser_type (qw/person string/)
     # Update a record so as to cause a search_views with CURUSER
     my $row = $sheet->content->find_current_id(1);
     if ($curuser_type eq 'person')
-    {   $row->field('string1')->set_value('FooBar');
+    {   $row->cell_update(string1 => 'FooBar');
     }
     else {
-    {   $row->field('integer1')->set_value(150);
+    {   $row->cell_update(integer1 => 150);
     }
 
     # And remove curuser filter
@@ -983,10 +958,8 @@ $sheet->create_records;
 
 my $view = $sheet->view_create({
     name        => 'view1',
-    instance_id => 1,
-    user        => $sheet->user,
     is_global   => 1,
-    columns     => [ $columns->{calc1}->id ],
+    columns     => [ 'calc1' ],
 );
 
 my $alert = $view->alert_set(24, $sheet->user);
@@ -1054,10 +1027,9 @@ foreach my $viewtype (qw/normal group global/)
     # First create a view with no filter
     $view = $sheet->view_create({
         name        => 'view1',
-        user        => $sheet->user,
         is_global   => $viewtype eq 'group' || $viewtype eq 'global',
-        group_id    => $viewtype eq 'group' && $sheet->group->id,
-        columns     => [ $columns->{calc1}->id ],
+        group       => $viewtype eq 'group' && $sheet->group,
+        columns     => [ 'calc1' ],
         filter      => {
             rules     => [ {
                 id       => $columns->{calc1}->id,

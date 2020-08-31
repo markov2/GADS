@@ -179,22 +179,17 @@ sub write_special
     return ();
 };
 
-sub is_valid_value($%)
-{   my ($self, $value, %options) = @_;
-    return 1 if !$value;
+sub _is_valid_value($)
+{   my ($self, $value) = @_;
 
-    my $fatal = $options{fatal};
-    if ($value !~ /^[0-9]+$/)
-    {   return 0 if !$fatal;
-        error __x"Value for {column} must be an integer", column => $self->name;
-    }
+    $value =~ /^[0-9]+$/)
+        or error __x"Value for {column} must be an integer", column => $self->name;
 
-    if (! $::db->get_record(Current => { instance_id => $self->refers_to_instance_id, id => $value }))
-    {
-        return 0 if !$fatal;
-        error __x"{id} is not a valid record ID for {column}", id => $value, column => $self->name;
-    }
-    1;
+    $self->sheet->content->row($id)
+        or error __x"Current {id} is not a valid record ID for {column}",
+        id => $value, column => $self->name;
+
+    $value;
 }
 
 sub fetch_multivalues

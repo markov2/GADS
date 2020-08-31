@@ -2328,6 +2328,8 @@ sub rows_restore($)
     $_->row_restore($_) for $self->rows($current_ids, is_deleted => 1);
 }
 
+sub row_count() { ... }
+
 #--------------------------
 =head1 METHODS: Single rows
 

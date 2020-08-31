@@ -165,15 +165,11 @@ my @tests = (
 );
 
 foreach my $test (@tests)
-{
-    foreach my $status (qw/on off/)
-    {
-        my $sheet = t::lib::DataSheet->new(data => [], multivalue => 1);
+{   ok 1, "Running test $test->{name}";
+    my $to = $test->{option} // '';
 
-        my $schema  = $sheet->schema;
-        my $layout  = $sheet->layout;
-        my $columns = $sheet->columns;
-        $sheet->create_records;
+    foreach my $status (qw/on off/)
+    {   my $sheet = make_sheet $sheet_counter++, data => [], multivalue => 1;
 
         my $user = $schema->resultset('User')->create({
             username => 'test',
@@ -181,60 +177,31 @@ foreach my $test (@tests)
         });
 
         my %options;
-        $options{$test->{option}} = $status eq 'on' ? 1 : 0
-            if $test->{option};
+        $options{$to} = $status eq 'on' if $to;
 
-        my $import = GADS::Import->new(
-            schema   => $schema,
-            layout   => $layout,
-            user     => $user,
-            file     => \($test->{data}),
-            %options,
-        );
-
-        my $records = GADS::Records->new(
-            user   => $user,
-            layout => $layout,
-            schema => $schema,
-        );
-
-        if ($test->{option} && $test->{option} eq 'force_mandatory')
-        {
-            my $string1 = $records->layout->column_by_name('string1');
-            $string1->optional(0);
-            $string1->write;
+        if($to eq 'force_mandatory')
+        {   $layout->column_update(string1 => { is_optional => 0 });
+        }
+        elsif($to eq 'take_first_enum')
+        {   $layout->column_update(enum1 => { enumvals => [qw/foo1 duplicate duplicate/] };
         }
 
-        if ($test->{option} && $test->{option} eq 'take_first_enum')
-        {
-            my $enum1 = $records->layout->column_by_name('enum1');
-            $enum1->enumvals([
-                {
-                    value => 'foo1',
-                },
-                {
-                    value => 'duplicate',
-                },
-                {
-                    value => 'duplicate',
-                },
-            ]);
-            $enum1->write;
-        }
+        my $test_name = length $to ? "with option $to set to $status" : "with no options";
+        is $sheet->content->current->row_count, '==', 0, '... no records before import';
 
-        my $test_name = defined $test->{option} ? "with option $test->{option} set to $status" : "with no options";
-        is($records->count, 0, "No records before import for test $test_name");
-        $import->process;
-        $records->clear;
-        is($records->count, $test->{"count_$status"}, "Correct record count on import for test $test_name");
+        $sheet->import(file => \$test->{data}, %options)->process;
 
-        if (my $written = $test->{written})
-        {
-            foreach my $table (keys %$written)
-            {
-                my $string = _table_as_string($schema, $table);
-                my $expected = $written->{$table}->{$status};
-                is($string, $expected, "Correct written value for $test_name");
+        is $sheet->content->current->row_count, '==', $test->{"count_$status"},
+            '... record count after import';
+
+        if(my $written = $test->{written})
+        {   foreach my $table (keys %$written)
+            {   join '', grep defined,
+                    $::db->search($table, {}, { order_by => 'id' })
+                       ->get_column('value')->all;
+
+                my $expected = $written->{$table}{$status};
+                is $string, $expected, "Correct written value for $test_name";
             }
         }
     }
@@ -294,14 +261,8 @@ my @update_tests = (
         errors  => 0,
         skipped => 0,
         existing_data => [
-            {
-                string1    => 'Foo',
-                tree1      => 'tree1',
-            },
-            {
-                string1    => 'Bar',
-                tree1      => 'tree2',
-            },
+            { string1    => 'Foo', tree1      => 'tree1' },
+            { string1    => 'Bar', tree1      => 'tree2' },
         ],
     },
     {
@@ -317,12 +278,7 @@ my @update_tests = (
         written => 1,
         errors  => 0,
         skipped => 0,
-        existing_data => [
-            {
-                string1    => 'Foo',
-                person1    => 1,
-            },
-        ],
+        existing_data => [ { string1 => 'Foo', person1 => 1 } ],
     },
     {
         name    => 'Update unique field with serial',
@@ -336,11 +292,7 @@ my @update_tests = (
         written => 1,
         errors  => 0,
         skipped => 0,
-        existing_data => [
-            {
-                string1    => 'Foo',
-            },
-        ],
+        existing_data => [ { string1 => 'Foo' } ],
     },
     {
         name    => 'Skip when existing unique value exists',
@@ -371,16 +323,8 @@ my @update_tests = (
         errors  => 0,
         skipped => 0,
         existing_data => [
-            {
-                string1    => 'Foo',
-                integer1   => 50,
-                date1      => '',
-            },
-            {
-                string1    => 'Bar',
-                integer1   => '',
-                date1      => '',
-            },
+            { string1 => 'Foo', integer1 => 50, date1 => '' },
+            { string1 => 'Bar', integer1 => '', date1 => '' },
         ],
     },
     {
@@ -421,17 +365,11 @@ my @update_tests = (
         unique         => 'ID',
         count          => 1,
         count_versions => 1,
-        results => {
-            string1 => 'Foo',
-        },
+        results => { string1 => 'Foo' },
         written => 0,
         errors  => 0,
         skipped => 1,
-        existing_data => [
-            {
-                string1    => 'Foo',
-            },
-        ],
+        existing_data => [ { string1 => 'Foo' } ],
     },
     {
         name           => 'Update existing records only',
@@ -482,114 +420,85 @@ my @update_tests = (
     },
 );
 
+my $sheet_counter = 42;
 foreach my $test (@update_tests)
-{
+{   ok 1, "Running test $test->{name}";
+
     # Create initial records with this datetime
     set_fixed_time('10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
 
-    my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-    $curval_sheet->create_records;
-    my $schema = $curval_sheet->schema;
-    my %common = (
-        curval => 2,
-        schema => $schema,
-    );
-    if ($test->{calc_code})
-    {
-        $common{calc_code}        = $test->{calc_code};
-        $common{calc_return_type} = 'string';
+    my $curval_sheet = make_sheet $sheet_counter++;
+
+    my %extra;
+    if(my $t = $test->{calc_code})
+    {   $extra{calc_code}        = $t;
+        $extra{calc_return_type} = 'string';
     }
-    my $sheet  = $test->{existing_data}
-        ? t::lib::DataSheet->new(data => $test->{existing_data}, %common)
-        : t::lib::DataSheet->new(%common);
+
+    my $sheet  = make_sheet $sheet_counter++,
+        curval => $curval_sheet->id,
+        data   => $test->{existing_data} || undef,
+        %extra;
 
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
-    $sheet->create_records;
 
     # Then do upload with this datetime. With update_only, previous one
     # should be used
     set_fixed_time('05/05/2015 01:00:00', '%m/%d/%Y %H:%M:%S');
 
     my $unique_id;
-    if ($test->{unique})
-    {
-        if ($test->{unique} eq 'ID')
-        {
-            $unique_id = $layout->column_id->id;
+    if(my $u = $test->{unique})
+    {   if($u eq 'ID')
+        {   $unique_id = $layout->column('_id');
         }
-        else {
-            my $unique = $layout->column_by_name($test->{unique});
-            if (!$unique->internal)
-            {
-                $unique->isunique(1);
-                $unique->write;
-            }
+        else
+        {   my $unique = $layout->column_by_name($u);
+            $layout->column_update($unique, { is_unique => 1 })
+                unless $unique->is_internal;
             $unique_id = $unique->id;
         }
     }
 
     my %options;
-    if ($test->{option} eq 'update_unique')
-    {
-        $options{update_unique} = $unique_id;
+    if($test->{option} eq 'update_unique')
+    {   $options{update_unique} = $unique_id;
     }
-    if ($test->{option} eq 'skip_existing_unique')
-    {
-        $options{skip_existing_unique} = $unique_id;
+
+    if($test->{option} eq 'skip_existing_unique')
+    {   $options{skip_existing_unique} = $unique_id;
     }
-    if ($test->{option} eq 'no_change_unless_blank')
-    {
-        $options{update_unique} = $unique_id;
+
+    if($test->{option} eq 'no_change_unless_blank')
+    {   $options{update_unique} = $unique_id;
         $options{no_change_unless_blank} = 'skip_new';
     }
-    if ($test->{option} eq 'update_only')
-    {
-        $options{update_only} = 1;
+
+    if($test->{option} eq 'update_only')
+    {   $options{update_only} = 1;
         $options{update_unique} = $unique_id;
     }
 
-    my $import = GADS::Import->new(
-        schema        => $schema,
-        layout        => $layout,
-        user          => $sheet->user,
-        file          => \$test->{data},
-        %options,
-    );
+    $sheet->import(file => \$test->{data}, %options)->process;
 
-    $import->process;
+    my $page   = $sheet->content->current;
+    is($page->row_count, $test->{count}, "Correct record count after import test $test->{name}");
 
-    my $records = GADS::Records->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    );
+    if($test->{count_versions})
+    {   my $versions = Linkspace::Row::Revision->revision_count($sheet);
+        cmp_ok $versions, '==', $test->{count_versions},
+            "Correct version count after import test $test->{name}")
+    }
 
-    is($records->count, $test->{count}, "Correct record count after import test $test->{name}");
-    my $versions = $schema->resultset('Record')->search({
-        instance_id => $sheet->instance_id,
-    },{
-        join => 'current',
-    })->count;
-    is($versions, $test->{count_versions}, "Correct version count after import test $test->{name}")
-        if $test->{count_versions};
-
-    foreach my $field_name (keys %{$test->{results}})
-    {
-        my $field = $layout->column_by_name($field_name);
-        my @got = map { $_->fields->{$field->id}->as_string } @{$records->results};
-        is("@got", $test->{results}->{$field_name}, "Correct data written to $field_name table for test $test->{name}");
+    foreach my $col_name (keys %{$test->{results}})
+    {   my $column = $layout->column($col_name);
+        my @got    = map $_->cell($col_name)->as_string, @{$page->rows};
+        is "@got", $test->{results}{$col_name}, "Correct data written to $col_name";
     }
 
     my $imp = $schema->resultset('Import')->next;
-    is($imp->written_count, $test->{written}, "Correct count of written lines for test $test->{name}");
-    is($imp->error_count, $test->{errors}, "Correct count of error lines for test $test->{name}");
-    is($imp->skipped_count, $test->{skipped}, "Correct count of skipped lines for test $test->{name}");
+    cmp_ok $imp->written_count, '==', $test->{written}, '... check written lines';
+    cmp_ok $imp->error_count,   '==', $test->{errors},  '... check error lines';
+    cmp_ok $imp->skipped_count, '==', $test->{skipped}, '... check skipped lines';
 }
 
-done_testing();
-
-sub _table_as_string
-{   my ($schema, $table) = @_;
-    join '', map { defined $_ ? $_ : ''} $schema->resultset($table)->search({},{ order_by => 'id' })->get_column('value')->all;
-}
+done_testing;
