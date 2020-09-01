@@ -41,42 +41,40 @@ isa_ok $column1d, 'Linkspace::Column::Intgr', '...';
 # is_valid_value
 
 sub is_valid_value_test {
-    my ($column, $values) = @_;
-    try { $column->is_valid_value($values) };
+    my ($column, $values,$result_value) = @_;
+    my $result = try { $column->is_valid_value($values) };
+    my $done = $@ ? $@->wasFatal->message : $result;
+    $$result_value = $@ ? $@->wasFatal->message : $result;
     ! $@;
 }
 
-sub is_valid_value_value {
-    my ($column, $values) = @_;
-    my $result = try { $column->is_valid_value($values) };
-    $@ ? $@->wasFatal->message : $result;
+sub process_test_cases {
+    my ($column,@test_cases) = @_;
+    my $name=$column->name_short;
+    foreach my $test_case (@test_cases) {
+        my ($expected_valid,$case_description, $col_serial_value, $expected_value) = @$test_case;
+        my $col_serial_value_s = $col_serial_value // '<undef>';
+        my $result_value;
+        ok $expected_valid == is_valid_value_test($column, $col_serial_value,\$result_value), "... $name validate  $case_description";
+        is_deeply $result_value , $expected_value, "... $name value for $case_description";
+    }
 }
 
-my $test_multivalue_valid1 = [ 0, 1, 3 ];
 my @test_cases1 = (
-    [1, '18',    '18'],
-    [0, 'abc',   '\'abc\' is not a valid integer for \'column1 (long)\''],
-    [1,  '-123', '-123'],
-    [1,  '+234', '+234'],
-    [0, '',      '\'\' is not a valid integer for \'column1 (long)\''],
-    [1,  ' 5',   '5'],
-    [1,  '6 ',   '6'],
-    [0, undef,   'Column \'column1 (long)\' requires a value.'],
+    [1, 'normal id',                            '18',     '18'                                            ],
+    [0, 'invalid id',                           'abc',    '\'abc\' is not a valid integer for \'column1 (long)\''],
+    [1, 'negative number',                      '-123',   '-123'                                          ],
+    [1, 'postive number',                       '+234',   '+234'                                          ],
+    [0, 'empty string',                         '',       '\'\' is not a valid integer for \'column1 (long)\''],
+    [1, 'leading space',                        ' 5',     '5'                                             ],
+    [1, 'trailing space',                       '6 ',     '6'                                             ],
+    [1, 'multiple leading and trailing spaces', '  78  ', '78'                                            ],                      
+    [0, 'number containing a space',            '67 89',  '\'67 89\' is not a valid integer for \'column1 (long)\''],
+    [0, 'optional value',                       undef,    'Column \'column1 (long)\' requires a value.'   ],
+    [0, 'multivalue',                           [1,2],    'Column \'column1 (long)\' is not a multivalue.'],
     );
 
-foreach my $test_case1 (@test_cases1) {
-    my ($expected_valid, $col_int_value, $expected_value) = @$test_case1;
-    my $col_int_value_s = $col_int_value // "<undef>";
-
-    my $is_valid = is_valid_value_test($column1, $col_int_value);
-    ok $is_valid==$expected_valid, "... test: value=\"$col_int_value_s\", expected_valid=\"$expected_valid\", test_valid=\"$is_valid\"";
-
-    my $test_value = is_valid_value_value($column1, $col_int_value);
-    is $test_value, $expected_value, "... test value";
-}
-
-my $is_valid = ! is_valid_value_test($column1, $test_multivalue_valid1);
-ok $is_valid, "... attempt multivalue in single";
+process_test_cases($column1, @test_cases1);
 
 #
 # optional and multivalue
@@ -91,35 +89,26 @@ my $column2 = $sheet->layout->column_create({
 });
 logline;
 
-my $test_multivalue_valid2   = [ 0, 1, 3 ];
-my $test_multivalue_invalid2 = [ 0, 1, 'abc' ];
-my $test_multivalue_undef2   = [ 1, undef, 2 ];
 my @test_cases2 = (
-    [1, '18',    '18'],
-    [0, 'abc',   '\'abc\' is not a valid integer for \'column2 (long)\''],
-    [1,  '-123', '-123'],
-    [1,  '+234', '+234'],
-    [0, '',      '\'\' is not a valid integer for \'column2 (long)\''],
-    [1,  ' 5',   '5'],
-    [1,  '6 ',   '6'],
-    [1, undef,   []],
+    [1, 'normal number',                        '18',            '18'                                                     ],
+    [0, 'invalid number',                       'abc',           '\'abc\' is not a valid integer for \'column2 (long)\''  ],
+    [1, 'negative number',                      '-123',          '-123'                                                   ],
+    [1, 'postive number',                       '+234',          '+234'                                                   ],
+    [0, 'empty string',                         '',              '\'\' is not a valid integer for \'column2 (long)\''     ],
+    [1, 'leading space',                        ' 5',            '5'                                                      ],
+    [1, 'trailing space',                       '6 ',            '6'                                                      ],
+    [1, 'multiple leading and trailing spaces', '  78  ',        '78'                                                     ],
+    [0, 'number containing a space',            '67 89',         '\'67 89\' is not a valid integer for \'column2 (long)\''],
+    [1, 'optional value',                       undef,           []                                                       ],
+    [1, 'multivalue',                           [1, 2],          [1,2]                                                    ],
+    [0, 'invalid number in multivalue',         [12, 34, 'abc'], '\'abc\' is not a valid integer for \'column2 (long)\''  ],
+    [1, 'undefined number in multivalue',       [56, undef,79],  [56, 79]                                                 ],  
     );
 
-foreach my $test_case2 (@test_cases2) {
-    my ($expected_valid, $col_int_value, $expected_value) = @$test_case2;
-    my $col_int_value_s = $col_int_value // "<undef>";
+process_test_cases($column2, @test_cases2);
 
-    my $test_valid = is_valid_value_test($column2, $col_int_value);
-    ok $test_valid==$expected_valid, "... test: value=\"$col_int_value_s\", expected_valid=\"$expected_valid\", test_valid=\"$test_valid\"";
-
-    my $test_value = is_valid_value_value($column2, $col_int_value);
-    is_deeply $test_value ,$expected_value, "... test value";
-}
-
-ok  is_valid_value_test($column2, $test_multivalue_valid2), "... test_multivalue_valid";
-ok !is_valid_value_test($column2, $test_multivalue_invalid2),"... invalid value in multivalue";
-ok  is_valid_value_test($column2, $test_multivalue_undef2), "... undef in multi value";
-
-is_deeply $column1->export_hash, {},  "... undef in multi value";
+#is_deeply $column1->export_hash, {},  "... undef in multi value";
+#exclude undefs
+#renamed
 
 done_testing;
