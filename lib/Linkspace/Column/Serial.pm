@@ -31,6 +31,7 @@ use Log::Report 'linkspace';
 
 __PACKAGE__->register_type;
 
+sub can_multivalue { 1 }
 sub is_internal_type { 1 }
 sub is_addable   { 1 }
 sub return_type  { 'integer' }
@@ -46,6 +47,8 @@ sub value_field  { 'serial' }
 ###
 ### Instance
 ###
+
+sub is_valid_value { $_[1] =~ /^\s*([0-9]+)\s*$/ && $1 != 0 ? $1 : undef }
 
 sub sprefix     { 'current' }
 sub tjoin       {}

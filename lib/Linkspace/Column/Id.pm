@@ -30,6 +30,7 @@ extends 'Linkspace::Column::Intgr';
 
 __PACKAGE__->register_type;
 
+sub can_multivalue   { 0 }
 sub is_internal_type { 1 }
 sub is_userinput { 0 }
 sub value_table  { 'Current' }
@@ -39,6 +40,7 @@ sub value_field  { 'id' }
 ### Instance
 ###
 
+sub is_valid_value { $_[1] =~ /^\s*([0-9]+)\s*$/ && $1 != 0 ? $1 : undef }
 sub sprefix      { 'current' }
 sub tjoin        {}
 
