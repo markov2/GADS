@@ -212,7 +212,7 @@ sub reposition($)
 
     my $col_nr = 0;
     $self->column_update($_, {position => ++$col_nr})
-        for @$columns, grep !$seen{$_->id}, @{$self->all_columns};
+        for @$columns, grep !$seen->{$_->id}, @{$self->all_columns};
 
     $self;
 }
@@ -407,14 +407,15 @@ has _column_index => (
     },
 );
 
+has _document => (is => 'lazy', builder => sub { $::session->site->document });
+
 sub column($)
 {   my ($self, $which, %args) = @_;
+    defined $which or return;
 
     # Local names have preference
     my $column = blessed $which ? $which
-      : $self->_column_index->{$which}
-        || $self->site->document->column($which)
-        || return;
+      : $self->_column_index->{$which} || $self->_document->column($which) || return;
 
     if(my $p = $args{permission})
     {   $column->user_can($p) or return;

@@ -37,7 +37,7 @@ __PACKAGE__->register_type;
 sub value_table  { 'Intgr' }
 sub addable      { 1 }
 sub return_type  { 'integer' }
-sub option_names { shift->SUPER::option_names, @option_names }
+sub option_names { shift->SUPER::option_names(@_, @option_names) }
 
 ###
 ### Class

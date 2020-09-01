@@ -197,18 +197,17 @@ the site-wide column index.
 
 # Cache the looked-up function address which translates column ids/name into
 # column objects.  This will add some speed.
-has _get_column => (
+has _column_admin => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        ( $self->can('sheet_id') || $self->can('sheet')
-        ? $self->sheet->layout
-        : $::session->site->document
-        )->can('column');
+        $self->can('sheet_id') || $self->can('sheet')
+           ? $self->sheet->layout
+           : $::session->site->document;
     },
 );
 
-sub column($) { $_[0]->_get_column->($_[1]) }
+sub column($) { $_[0]->_column_admin->column($_[1]) }
 
 =head2 my $sheet = $obj->sheet;
 Returns the Sheet where the object belongs to, if defined.  Often this
