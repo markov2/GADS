@@ -201,7 +201,7 @@ has _get_column => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        ( $self->has_sheet || $self->can('sheet_id')
+        ( $self->can('sheet_id') || $self->can('sheet')
         ? $self->sheet->layout
         : $::session->site->document
         )->can('column');

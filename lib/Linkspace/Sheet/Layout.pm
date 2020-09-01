@@ -89,18 +89,6 @@ my @internal_columns = (
 );
 sub internal_columns_show_names { [ map $_->{name_short}, @internal_columns ] }
 
-#use Linkspace::Column ();
-
-has forget_history => (
-    is      => 'ro',
-    isa     => Bool,
-);
-
-has forward_record_after_create => (
-    is      => 'ro',
-    isa     => Bool,
-);
-
 has no_overnight_update => (
     is      => 'ro',
     isa     => Bool,
@@ -212,10 +200,20 @@ has max_width => (
     builder => sub { max map $_->width, @{$_[0]->all_columns} },
 );
 
-sub reposition
-{   my ($self, $column_ids) = @_;
+=head2 $layout->reposition(\@order);
+Put the columns in the specific order.  Columns which are not listed will
+be placed thereafter in their original order.
+=cut
+
+sub reposition($)
+{   my ($self, $ordered) = @_;
+    my $columns = $self->columns($ordered);
+    my $seen = index_by_id $columns;
+
     my $col_nr = 0;
-    $self->column($_)->update({position => ++$col_nr}) for @$column_ids;
+    $self->column_update($_, {position => ++$col_nr})
+        for @$columns, grep !$seen{$_->id}, @{$self->all_columns};
+
     $self;
 }
 
@@ -223,6 +221,9 @@ sub contains_column($)
 {   my ($self, $column) = @_;
     !! $self->columns_index->{$column->id};
 }
+
+#--------------------------------
+=head1 METHODS: Permissions
 
 # Returns what a user can do to the whole data set. Individual
 # permissions for columns are contained in the column class.

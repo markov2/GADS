@@ -1365,10 +1365,6 @@ sub order_by
     \@order_by;
 }
 
-# $ignore_perms means to ignore any permissions on the column being
-# processed. For example, if the current user is updating a record,
-# we want to process columns that the user doesn't have access to
-# for things like alerts, but not for their normal viewing.
 my %op_to_sql = (
     equal            => '=',
     greater          => '>',
@@ -1395,13 +1391,14 @@ sub _construct_filter($$%)
     if(my $rules = $filter->{rules})
     {   # Previous values for a group. This allows previous values to be
         # searched only for a whole group (e.g. to include previous values only
-        # between certain edit dates). Construct the whole group as a
-        # GADS::Records and return that as a query
+        # between certain edit dates). Construct the whole group as a Page
+        # return that as a query
+
         if(my $pv = $filter->{previous_values})
-        {   my $page  = $self->search({
+        {   my $page  = $self->search_query({
                 %$query,
-                filter => Linkspace::Filter->from_hash({%$filter, previous_values => 0}),
-                view_limits     => [], # Don't limit by view, otherwise recursive loop
+                filter => { %$filter, previous_values => 0} ),
+                view_limits     => [], # Don't limit by user's view
                 previous_values => 1,
             };
 
@@ -1414,10 +1411,10 @@ sub _construct_filter($$%)
         @final or return ();
 
         my $op    = ($filter->{condition} // 'AND') eq 'OR' ? '-or' : '-and';
-        return ($op => \@final);
+        return @final > 1 ? ($op => \@final) : @final;
     }
 
-    my $fid           = $filter->{id} or return; # Used to ignore filter  XXX
+    my $fid           = $filter->{id} or return; # Used to ignore filter  XXX???
 
     my @permission    = $ignore_perms ? () : (permission => 'read');
     my ($parent_id, $child_id) = $fid =~ /^([0-9]+)_([0-9]+)$/ ? ($1, $2) : (undef, $fid);
@@ -1468,7 +1465,7 @@ sub _construct_filter($$%)
         {   push @conditions, {
                 type     => $filter_operator,
                 operator => $operator,
-                s_field  => "value",
+                s_field  => 'value',
             };
         }
         elsif ($operator eq ">" || $operator eq "<=")
@@ -1487,21 +1484,36 @@ sub _construct_filter($$%)
                 s_field  => 'to',
             };
         }
-        elsif ($operator eq '-like' || $operator eq '-not_like')
+        elsif ($operator eq '-like')
         {   $transform_date = 1;
             # Requires 2 searches ANDed together
             push @conditions, {
                 type     => $filter_operator,
-                operator => $operator eq '-like' ? '<=' : '>=',
+                operator => '<=',
                 s_field  => 'from',
             };
             push @conditions, {
                 type     => $filter_operator,
-                operator => $operator eq '-like' ? '>=' : '<=',
+                operator => '>=',
                 s_field  => 'to',
             };
-            $operator = $operator eq '-like' ? 'equal' : 'not_equal';
-            $gate = 'or' if $operator eq 'not_equal';
+            $operator = 'equal';
+        }
+        elsif ($operator eq '-not_like')
+        {   $transform_date = 1;
+            # Requires 2 searches ANDed together
+            push @conditions, {
+                type     => $filter_operator,
+                operator => '>=',
+                s_field  => 'from',
+            };
+            push @conditions, {
+                type     => $filter_operator,
+                operator => '<=',
+                s_field  => 'to',
+            };
+            $operator = 'not_equal';
+            $gate = 'or';
         }
         else
         {   error __x"Invalid operator {operator} for date range", operator => $operator;

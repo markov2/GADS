@@ -55,14 +55,13 @@ my $data = [
     },
 ];
 
-my $curval_sheet = make_sheet 2;
-$curval_sheet->create_records;
+my $group   = test_group;
+my $curval_sheet = make_sheet 2, group => $group;
 
 my $sheet   = test_sheet
     data             => $data,
     curval           => 2,
     multivalue       => 1,
-    group            => $curval_sheet->group,
     column_count     => { enum  => 1, curval => 2 },
     calc_return_type => 'date',
     calc_code        => <<'__CALC';
@@ -83,10 +82,7 @@ my $layout  = $sheet->layout;
 
 # Position curval first, as its internal _value fields are more
 # likely to cause problems and therefore representative test failures
-my @position = map $layout->column($_)->id, 
-    qw/curval1 string1 integer1 date1 daterange1 enum1 tree1/;
-
-$layout->position(@position);
+$layout->reposition( [ qw/curval1 string1 integer1 date1 daterange1 enum1 tree1/ ]);
 
 my $colperms = [ $sheet->group => $sheet->default_permissions ];
 
@@ -103,17 +99,14 @@ $curval_layout->column_create(autocur => {
     related_column  => $layout->column($_),
 }) for 'curval1', 'curval2';
 
-my $curval_columns = $curval_layout->columns;
-my $user = $sheet->user_normal1;
-
-$sheet->content->row(6)->cell_update(enum1 => 8);
+$sheet->content->row(6)->cell_update(enum1 => 8);  #XXX 8?
 
 $data->[3]->{enum1} = 'foo2';  #XXX ???
 
 # Add another curval field to a new table
 my $curval_sheet2 = make_sheet 3,
     curval_offset    => 12,
-    curval_fields => [ 'integer1' ],
+    curval_fields    => [ 'integer1' ],
 );
 
 my $curval3 = $curval_layout->column_create(curval => {
@@ -123,22 +116,25 @@ my $curval3 = $curval_layout->column_create(curval => {
     permissions      => $colperms,
 );
 
-my $r = $curval_sheet->content->current->row(1);
-my ($curval3_value) = $curval_sheet2->content->current->column_ids;
-$r->set_value($curval3, $curval3_value);
-
+my $curval3_value = $curval_sheet2->content->row(1)->current_id;
+my $r = $curval_sheet->content->row(1)->cell_update($curval3, $curval3_value);
 
 # Manually force one string to be empty and one to be undef.
 # Both should be returned during a search on is_empty
 $schema->resultset('String')->find(3)->update({ value => undef });
 $schema->resultset('String')->find(4)->update({ value => '' });
 
+{ package Linkspace::Filter::Test;
+  use parent 'Linkspace::Filter';
+  sub extra { }
+}
+
 my @filters = (
     {   name => 'string is Foo',
         rule => {
             column   => 'string1',
-            value    => 'Foo',
             operator => 'equal',
+            value    => 'Foo',
         },
         count     => 1,
         aggregate => 7,
@@ -147,8 +143,8 @@ my @filters = (
         name  => 'check case-insensitive search',
         rule => {
             column   => 'string1',
-            value    => 'foo',
             operator => 'begins_with',
+            value    => 'foo',
         },
         count => 2,
         aggregate => 7,
@@ -157,8 +153,8 @@ my @filters = (
         name => 'string is long1',
         rule => {
             column   => 'string1',
-            value    => "${long}1",
             operator => 'equal',
+            value    => "${long}1",
         },
         count => 1,
         aggregate => 2,
@@ -167,8 +163,8 @@ my @filters = (
         name => 'string is long',
         rule => {
             column   => 'string1',
-            value    => $long,
             operator => 'begins_with',
+            value    => $long,
         },
         count => 2,
         aggregate => 5,
@@ -177,8 +173,8 @@ my @filters = (
         name => 'date is equal',
         rule => {
             column   => 'date1',
-            value    => '2014-10-10',
             operator => 'equal',
+            value    => '2014-10-10',
         },
         count => 2,
         aggregate => 13,
@@ -187,8 +183,8 @@ my @filters = (
         name  => 'date using CURDATE',
         rule => {
             column   => 'date1',
-            value    => 'CURDATE',
             operator => 'equal',
+            value    => 'CURDATE',
         },
         count => 2,
         aggregate => 13,
@@ -197,8 +193,8 @@ my @filters = (
         name => 'date using CURDATE plus 1 year',
         rule => {
             column   => 'date1',
-            value    => 'CURDATE + '.(86400 * 365), # Might be leap seconds etc, but close enough
             operator => 'equal',
+            value    => 'CURDATE + '.(86400 * 365), # close enough
         },
         count => 1,
         aggregate => '',
@@ -208,8 +204,8 @@ my @filters = (
         rule => {
             column   => 'calc1',
             type     => 'date',   # = return_type in filter
-            value    => 'CURDATE - '.(86400 * 365), # Might be leap seconds etc, but close enough
             operator => 'equal',
+            value    => 'CURDATE - '.(86400 * 365), # close enough
         },
         count => 1,
         aggregate => 7,
@@ -219,8 +215,8 @@ my @filters = (
         rule => {
             column   => $calc_int,
             type     => 'string',
-            value    => -1,
             operator => 'less',
+            value    => -1,
         },
         count => 1,
         aggregate => -4,
@@ -818,8 +814,7 @@ my @filters = (
 );
 
 foreach my $multivalue (0..1)
-{
-    $sheet->set_multivalue($multivalue);
+{   $sheet->set_multivalue($multivalue);
 
     # Set aggregate fields. Only needs to be done once, and after that the user
     # does not have permission to write the field settings
@@ -831,107 +826,87 @@ foreach my $multivalue (0..1)
         $integer1_curval->column_update(aggregate => 'sum');
     }
 
-    # Run 2 loops, one without the standard layout from the initial build, and a
-    # second with the layouts all built from scratch using GADS::Instances
-    foreach my $layout_from_instances (0..1)
-    {
-        my $instances;
-        if ($layout_from_instances)
-        {
-            $layout = $instances->layout($layout->instance_id);
-        }
+  FILTER:
+    foreach my $filter (@filters)
+    {   my $layout_filter = $filter->{layout};
+        my $sheet = ($layout_filter || $layout)->sheet;
 
-        foreach my $filter (@filters)
-        {   my $layout_filter = $filter->{layout};
-            my $sheet = ($layout_filter || $layout)->sheet;
-
-            my $rules = {
-                rules     => $filter->{rules},
+        my $view = try { $sheet->views->view_create({
+            name      => 'Test view',
+            filter    => {
+                rules     => $filter->{rules} || $filter->{rule},
                 condition => $filter->{condition},
-            };
+            },
+            columns   => $filter->{columns} || [ qw/string1 tree1/ ],
+        }) };
 
-            my $view = try { $sheet->views->view_create({
-                name        => 'Test view',
-                filter      => $rules,
-                columns     => $filter->{columns} || [ qw/string1 tree1/ ],
-                layout      => $layout_filter || $layout,
-            }) };
-
-            # If the filter is expected to bork, then check that it actually does first
-            if($filter->{no_errors})
-            {   ok $@, "Failed to write view with invalid value, test: $filter->{name}";
-                is $@->wasFatal->reason, 'ERROR',
-                     "Generated user error when writing view with invalid value";
-            }
-
-#XXX impossible
-            $view->write(no_errors => $filter->{no_errors});
-
-            my $page = $sheet->content->search(view => $view);
-
-            cmp_ok $records->count, '==', $filter->{count},
-                 "$filter->{name} for record count()";
-
-            cmp_ok scalar @{$records->results}, '==', $filter->{count},
-                 "$filter->{name} actual number records";
-
-            if(my $test_values = $filter->{values})
-            {   foreach my $field (keys %$test_values)
-                {   is $page->row(0)->cell($field)->as_string, $test_values->{$field},
-                       "Test value of $filter->{name} correct";
-                }
-            }
-
-            $sheet->views->view_update($view, { sortings => [ [$view_columns, ['asc']] ]});
-            my $page = $sheet->content->search(view => $view);
-
-            cmp_ok $records->count, '==', $filter->{count},
-                "$filter->{name} for record count()";
-
-            cmp_ok scalar @{$records->results}, '==', $filter->{count},
-                "$filter->{name} actual number records";
-
-            # Basic aggregate tests
-            {   my @column_ids = @{$view->columns};
-                my $int_id = $records->sheet_id == $curval_sheet->id
-                    ? $integer1_curval->id : $integer1->id;
-
-                push @column_ids, $int_id if ! grep $_ == $int_id, @column_ids;
-                $sheet->views->view_update({columns => \@column_ids});
-
-                my $aggregate = $page->aggregate_results;
-                is $aggregate->cell($int_id)->as_string, $filter->{aggregate},
-                    "Aggregate integer value correct";
-            }
-
-            # Basic graph test. Total of points on graph should match the number of results
-            my $axis = $filter->{columns}->[0] || $layout->column('string1')->id;
-            my $graph = $sheet->graphs->graph_create({
-                title => 'Test',
-                type => 'bar',
-                current_user => $sheet->user,
-                x_axis => $axis,
-                y_axis => $axis,
-                y_axis_stack => 'count',
-            );
-
-            my $records_group = GADS::RecordsGraph->new(
-                user              => $user,
-                layout            => $layout_filter || $layout,
-            );
-            my $graph_data = GADS::Graph::Data->new(
-                id      => $graph->id,
-                view    => $view,
-                records => $records_group,
-            );
-
-            # Count total number of records
-            my $graph_total = sum map scalar($_), @{$graph_data->points->[0]};
-            my $count = $filter->{count_graph} || $filter->{count};
-
-            cmp_ok $graph_total, '==', $count,
-                "Item total on graph matches table for $filter->{name}";
+        # If the filter is expected to bork, then check that it actually does first
+        if($filter->{no_errors})
+        {   ok $@, "Failed to write view with invalid value, test: $filter->{name}";
+            is $@->wasFatal->reason, 'ERROR',
+                 "Generated user error when writing view with invalid value";
+            next FILTER;
         }
+
+        my $page = $sheet->content->search(view => $view);
+
+        cmp_ok $records->count, '==', $filter->{count},
+             "$filter->{name} for record count()";
+
+        cmp_ok scalar @{$records->results}, '==', $filter->{count},
+             "$filter->{name} actual number records";
+
+        if(my $tv = $filter->{values})
+        {   my $row = $page->row(1);
+            foreach my $field (keys %$tc)
+            {   is $row->cell($field)->as_string, $tv->{$field}, ".. test value $field";
+            }
+        }
+
+        $sheet->views->view_update($view, { sortings => [ [$view_columns, ['asc']] ]});
+        my $page = $sheet->content->search(view => $view);
+
+        cmp_ok $records->count, '==', $filter->{count},
+            "$filter->{name} for record count()";
+
+        cmp_ok scalar @{$records->results}, '==', $filter->{count},
+            "$filter->{name} actual number records";
+
+        # Basic aggregate tests
+        {   my @column_ids = @{$view->columns};
+            my $int_id = $records->sheet_id == $curval_sheet->id
+                ? $integer1_curval->id : $integer1->id;
+
+            push @column_ids, $int_id if ! grep $_ == $int_id, @column_ids;
+            $sheet->views->view_update({columns => \@column_ids});
+
+            my $aggregate = $page->aggregate_results;
+            is $aggregate->cell($int_id)->as_string, $filter->{aggregate},
+                "Aggregate integer value correct";
+        }
+
+        # Basic graph test. Total of points on graph should match the number of results
+        my $axis = $filter->{columns}->[0] || $layout->column('string1')->id;
+        my $graph = $sheet->graphs->graph_create({
+            title => 'Test',
+            type => 'bar',
+            x_axis => $axis,
+            y_axis => $axis,
+            y_axis_stack => 'count',
+        });
+
+        my $graph_data = GADS::Graph::Data->new(
+            id      => $graph->id,
+            view    => $view,
+            records => $records_group,
+        );
+
+        # Count total number of records
+        my $graph_total = sum map scalar($_), @{$graph_data->points->[0]};
+        my $count = $filter->{count_graph} || $filter->{count};
+
+        cmp_ok $graph_total, '==', $count,
+            "Item total on graph matches table for $filter->{name}";
     }
 }
 
@@ -939,42 +914,31 @@ foreach my $multivalue (0..1)
 {
     $sheet->set_multivalue($multivalue);
 
-    $layout = $sheet->layout;
-    $columns = $sheet->columns;
-
-    my $rules1 = {
-        rules     => [{
-            id       => $layout->column('date1')->id,
+    my $view_limit = $sheet->views->view_create({
+        name        => 'Limit to view',
+        filter      => { rule  => {
+            column   => 'date1',
             type     => 'date',
             value    => '2014-10-10',
             operator => 'equal',
-        }],
-    };
-
-    my $view_limit = $sheet->views->view_create({
-        name        => 'Limit to view',
-        filter      => $rules1,
+        }},
         is_for_admins => 1,
     });
 
-    $user->set_view_limits([$view_limit]);
-
-    my $rules2 = {
-        rules     => [{
-            id       => $layout->column('string1')->id,
-            type     => 'string',
-            value    => 'Foo',
-            operator => 'begins_with',
-        }],
-    };
+    $user->set_view_limits( [$view_limit] );
 
     my $view = $sheet->views->view_create({
         name        => 'Foo',
-        filter      => $rules2,
+        filter      => { rule => {
+            column   => 'string1',
+            type     => 'string',
+            value    => 'Foo',
+            operator => 'begins_with',
+        }},
     });
 
-    my $data = $sheet->content;
-    my $page = $data->search(view => $view);
+    my $content = $sheet->content;
+    my $page = $content->search(view => $view);
 
     cmp_ok $page->count, '==', 1, 'Correct number of results when limiting to a view';
 
@@ -983,52 +947,48 @@ foreach my $multivalue (0..1)
     for (0..1)
     {
         my $cols_select = $_ ? [] : undef;
-        is $page->find_current_id(5, columns => $cols_select)->current_id, 5,
+        is $content->row(5, columns => $cols_select)->current_id, 5,
             "Retrieved viewable current ID 5 in limited view";
 
-        is $page->find_record_id(5, columns => $cols_select)->current_id, 5,
+        is $content->row(5, columns => $cols_select)->current_id, 5,
             "Retrieved viewable record ID 5 in limited view";
 
-        try { $page->find_current_id(4) };
+        try { $content->row(4) };
         ok( $@, "Failed to retrieve non-viewable current ID 4 in limited view" );
 
-        try { $page->find_record_id(4) };
+        try { $content->row(4) };
         ok( $@, "Failed to retrieve non-viewable record ID 4 in limited view" );
 
         # Temporarily flag record as deleted and check it can't be shown
         $schema->resultset('Current')->find(5)->update({ deleted => DateTime->now });
 
-        try { $page->find_current_id(5) };
+        try { $content->row(5) };
         like $@, qr/Requested record not found/, "Failed to find deleted current ID 5";
 
-        try { $page->find_record_id(5) };
+        try { $content->row(5) };
         like $@, qr/Requested record not found/, "Failed to find deleted record ID 5";
 
         # Draft record whilst view limit in force
-        my $draft = $data->draft_create({ cells => [ string1 => 'Draft' ] });
+        my $draft = $content->draft_create({ cells => [ string1 => 'Draft' ] });
         $draft->load_remembered_values;
+
         is $draft->field('string1')->as_string, "Draft", "Draft sub-record retrieved";
 
         # Reset
-        $schema->resultset('Current')->find(5)->update({ deleted => undef });
+        $content->cell_update(5, { is_deleted => 0 });
     }
-
-    # Add a second view limit
-    my $rules2 = {
-        rules     => [{
-            id       => $layout->column('date1')->id,
-            type     => 'date',
-            value    => '2015-10-10',
-            operator => 'equal',
-        }],
-    };
 
     my $view_limit2 = $sheet->views->create_view({
         name        => 'Limit to view2',
-        filter      => $rules2,
-    );
+        filter      => { rule => {
+            columns  => 'date1',
+            type     => 'date',
+            value    => '2015-10-10',
+            operator => 'equal',
+        }},
+    });
 
-    $user->set_view_limits([$view_limit, $view_limit2]);
+    $user->set_view_limits( [$view_limit, $view_limit2] );
 
     my $page = $sheet->search(view => $view);
     cmp_ok $records->count, '==', 2, 'Correct number of results when limiting to 2 views';
@@ -1037,37 +997,27 @@ foreach my $multivalue (0..1)
     # (this has caused recusion in the past)
     {
         # First define limit view
-        my $rules3 = {
-            rules     => [{
-                id       => $layout->column('enum1')->id,
-                type     => 'string',
-                value    => 'foo1',
-                operator => 'not_equal',
-            }],
-        };
-
         my $view_limit3 = $sheet->views->create_view({
             name        => 'limit to view',
-            filter      => $rules3,
+            filter      => { rule => {
+                column   => 'enum1',
+                type     => 'string',
+                operator => 'not_equal',
+                value    => 'foo1',
+            }},
         });
-
         $user->set_view_limits([ $view_limit3 ]);
 
         # Then add a normal view
-        my $rules4 = {
-            rules     => [{
-                id       => $layout->column('date1')->id,
-                type     => 'string',
-                value    => '2014-10-10',
-                operator => 'equal',
-            }],
-        };
-
         my $view = $sheet->views->create_view({
             name        => 'date1',
-            filter      => $rules4,
+            filter      => { rule => {
+                column   => 'date1',
+                type     => 'string',
+                operator => 'equal',
+                value    => '2014-10-10',
+            }},
         );
-
         my $page = $sheet->search(view => $view);
 
         cmp_ok $page->number_rows, '==', 1,
@@ -1079,55 +1029,61 @@ foreach my $multivalue (0..1)
 
     # Quick searches
     # Limited view still defined
-    $records->search('Foobar');
-    is (@{$records->results}, 0, 'Correct number of quick search results when limiting to a view');
+    my $page1 = $content->search('Foobar');
+    cmp_ok $page1->row_count, '==', 0,
+        'quick search results when limiting to a view';
+
     # And again with numerical search (also searches record IDs). Current ID in limited view
-    $records->clear;
-    $records->search(8);
-    is (@{$records->results}, 1, 'Correct number of quick search results for number when limiting to a view (match)');
+    my $page2 = $content->search(8);
+    cmp_ok $page2->row_count, '==', 1,
+        'quick search results for number when limiting to a view (match)';
+
     # This time a current ID that is not in limited view
-    $records->clear;
-    $records->search(5);
-    is (@{$records->results}, 0, 'Correct number of quick search results for number when limiting to a view (no match)');
+    my $page3 = $records->search(5);
+    cmp_ok $page3->row_count, '==', 0,
+        'quick search results for number when limiting to a view (no match)';
+
     # Reset and do again with non-negative view
-    $records->clear;
     $user->set_view_limits([$view_limit]);
-    $records->search('Foobar');
-    is (@{$records->results}, 0, 'Correct number of quick search results when limiting to a view');
+    my $page4 = $content->search('Foobar');
+    cmp_ok $page4->row_count, '==', 0,
+        'quick search results when limiting to a view';
+
     # Current ID in limited view
-    $records->clear;
-    $records->search(8);
-    is (@{$records->results}, 0, 'Correct number of quick search results for number when limiting to a view (match)');
+    my $page5 = $content->search(8);
+    cmp_ok $page5->row_count, '==', 0,
+        'quick search results for number when limiting to a view (match)';
+
     # Current ID that is not in limited view
-    $records->clear;
-    $records->search(5);
-    is (@{$records->results}, 1, 'Correct number of quick search results for number when limiting to a view (no match)');
+    my $page6 = $content->search(5);
+    cmp_ok $page6->row_count, '==', 1,
+        'quick search results for number when limiting to a view (no match)';
 
     # Same again but limited by enumval
-    $views->view_update($view_limit, { filter => {
-        rules     => {
-            id       => $layout->column('enum1')->id,
+    $views->view_update($view_limit, {
+        filter => { rule => {
+            columnn  => 'enum1',
             type     => 'string',
             value    => 'foo2',
             operator => 'equal',
-        },
-    }});
+        }},
+    });
 
 #XXX install $view_limit?
-    cmp_ok $sheet->content->current, '==', 2,
-          'Correct number of results when limiting to a view with enumval';
+    my $page7 = $content->search;
+    cmp_ok $page7->row_count, '==', 2, 'limiting to a view with enumval';
 
     $user->view_limit($view_limit);   # add?
-    is $sheet->content->current->row(...)->id, 7, "Retrieved record within limited view";
+    ok $page7->row_by_current_id(7), "Retrieved record within limited view";
 
     $views->view_delete($view_limit);
 
     my $page = $content->search('2014-10-10');
     cmp_ok $page->row_count, '==', 1,
-        'Correct number of quick search results when limiting to a view with enumval';
+        'quick search results when limiting to a view with enumval';
 
     # Check that record can be retrieved for edit
-    my $record = GADS::Record->new(
+    my $record = layout->edit(...,
         user                 => $user,
         layout               => $layout,
         curcommon_all_fields => 1, # Used for edits
@@ -1135,15 +1091,14 @@ foreach my $multivalue (0..1)
     $record->find_current_id($records->single->current_id);
 
     # Same again but limited by curval
-    $view_limit->filter({
-        rule     => {
+    $view_limit->filter({ rule     => {
             column   => 'curval1',
             type     => 'string',
             operator => 'equal',
             value    => '1',
         },
     });
-    $view_limit->write;
+
     $records = GADS::Records->new(
         view_limits => [ $view_limit ],
         user    => $user,
@@ -1153,26 +1108,16 @@ foreach my $multivalue (0..1)
     is (@{$records->results}, 1, 'Correct number of results when limiting to a view with curval');
 
     # Check that record can be retrieved for edit
-    $record = GADS::Record->new(
-        user                 => $user,
-        layout               => $layout,
+    my $page11 = $sheet->search({
         curcommon_all_fields => 1, # Used for edits
-    );
+    });
     $record->find_current_id($records->single->current_id);
 
-    {
-        my $limit = $schema->resultset('ViewLimit')->create({
-            user_id => $user->id,
-            view_id => $view_limit->id,
-        });
-        my $record = GADS::Record->new(
-            user   => $user,
-            layout => $layout,
-        );
-        is( $record->find_current_id(3)->current_id, 3, "Retrieved record within limited view" );
+    {   $user->add_viewlimit($view_limit);
+        ok $page11->row_by_current_id(3), "Retrieved record within limited view";
         $limit->delete;
     }
-    $records->clear;
+
     $records->search('foo1');
     is (@{$records->results}, 1, 'Correct number of quick search results when limiting to a view with curval');
 
@@ -1550,7 +1495,7 @@ foreach my $multivalue (0..1)
 
             my $page = $sheet->content->search(
                 view     => $view,
-                sortings => +{ type => 'desc', id => $layout->column('_id'),
+                sortings => +{ type => 'desc', id => $layout->column('_id')->id,
             );
 
             my $first = $sort->{max_id} || 9;
@@ -1559,13 +1504,12 @@ foreach my $multivalue (0..1)
             # 1 record per page to test sorting across multiple pages
             $page->window(rows_per_page => 1);
 
-            is $page->row(0)->current_id - $cid_adjust,
-               $first,
+            is $page->row(0)->current_id - $cid_adjust, $first,
                '... first record for sort override';
 
             if(my $fs = $sort->{first_string})
             {   foreach my $colname (keys %$fs)
-                {   is $page->row(0)->field($colname)->as_string,
+                {   is $page->row(0)->cell($colname)->as_string,
                        $sort->{first_string}->{$colname},
                        "... first record value for $colname";
                 }

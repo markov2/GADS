@@ -38,6 +38,10 @@ Used by Columns, Views, and DisplayFields. They behave slightly different.
 A column's display-field filter has it's rules in the 'DisplayField' table,
 which implies a flat rule-set.
 
+Filters require B<backwards compatibility> require to maintain compatibility
+with older storage format.  This is mainly solved by the parameter transform
+during filter object construction.
+
 =head1 METHODS: Constructors
 
 =head2 my $filter = $class->from_json($json, %options);
@@ -45,15 +49,6 @@ Create the filter object from a JSON string.  This is the common format
 to store the filter in the database, and (of course) as included in
 Ajax calls.
 =cut
-
-### Rules transforms:
-#       rules/'column' -> id & type (which is $class->return_type)
-#          column => [ $parent, $child ] -> $parent->id .'_'. $child->id
-#              ($type is return_type $child)
-#       rule HASH -> rules \HASH
-#       global @columns may use names, stored as ids
-#       global @values may have name as key,
-#       global layout overrules column-name lookup layout, defaults to sheet
 
 sub from_json($@)
 {   my $class = shift;
@@ -103,7 +98,7 @@ sub base64
 }
 
 #------------------------
-=head1 METHODS: Filter introspection
+=head1 METHODS: Introspection
 =cut
 
 has _ruleset => (
@@ -314,6 +309,64 @@ sub filter_validate($)
         $col->user_can('read')
              or error __x"Invalid field ID {id} in filter", id => $col->id;
     }
+}
+
+=head1 DETAILS
+
+As filter is based on a ruleset.  On the top level, there are some additional
+configuration paramers possible.
+
+When you construct a filter, you get some flexibility which in resolved during
+filter construction.  This is especially usefull for the zillions of tests which
+involve filter construction.
+
+   rule  => \%rule1,                     # one or multiple rules (external only)
+   rules => [ \%rule1, \%rule2, ... ],
+
+Each rule an indicator of the affected column: one of these:
+   id     => $column_id
+   column => $column_id or $column (object) or $name ($column_name)
+   column => ARRAY of 2 columns, becomes ${parent_id}_${child_id}
+
+Column names are resolved via the sheet which is required during the construction
+of the filter object.  Be careful: when you use references to other sheets, you need
+to pass those as objects, not as plain names.
+
+Each rule contains the C<type> of the data element, which is actually the
+B<return type> of the column, not the type of the column!  This can be determined
+automatically, but may be overruled (f.i. compare integers as strings)
+=cut
+
+sub _rules_transform($%)
+{   my ($self, $h, %args) = @_;
+
+    my $sheet   = $args{sheet} or panic;
+    my $layout  = $sheet->layout;
+
+    my $rules   = delete $h->{rule} || delete $h->{rules} or return undef;
+    $h->{rules} = [ map $self->_rules_transform($_, %args), flat $rules ];
+
+    if(my $which = delete $h->{column})
+    {   if(ref $which eq 'ARRAY')
+        {   my $parent   = $layout->column($which->[0]) or panic($which->[0]);
+            my $child    = $layout->column($which->[1]) or panic($which->[1]);
+            $h->{id}     = $parent->id . '_' . $child->id;
+            $h->{column} = [ $parent, $child ];
+            $h->{type} ||= $child->return_type;
+        }
+        else
+        {   $h->{column} = my $column = $layout->column($which) or panic $which; 
+            $h->{id}     = $column->id;
+            $h->{type} ||= $column->return_type;
+        }
+    }
+    else
+    {   my $id = $h->{id};
+        $h->{column}     = my $column = $layout->column($id) or panic $id;
+        $h->{type}     ||= $column->return_type;
+    }
+    $h->{condition}    ||= 'AND';
+    $h;
 }
 
 1;

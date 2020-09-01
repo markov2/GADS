@@ -151,6 +151,12 @@ sub _validate($)
 
     delete $update->{topic_id}
         unless $update->{topic_id};  # only 1+
+
+    if(exists $update->{ordering})    # enum
+    {   my $order = $update->{ordering} // '';
+        !$order || $order eq 'desc' || $order eq 'asc'
+            or error __x"Invalid enum order value: {ordering}", ordering => $order;
+    }
 }
 
 sub _column_create

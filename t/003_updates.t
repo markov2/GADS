@@ -217,74 +217,40 @@ foreach my $update (@update2)
 }
 
 # Test forget_history functionality
-{
-    $schema->resultset('Instance')->find($layout->instance_id)->update({
-        forget_history => 1,
-    });
-    $layout->clear;
-    my $versions_before = $schema->resultset('Record')->count;
-    my $record = GADS::Record->new(
-        user   => $user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record->find_current_id(3);
-    like($record->created, qr/2014/, "Record version is old date");
-    $record->fields->{$columns->{string1}->id}->set_value("Foobar");
+{   $site->document->sheet_update($sheet, { forget_history => 1 });
+
+    my $versions_before = $sheet->content->revision_count;
+    my $row1 = $sheet->content->row(3);
+
+    like $row1->created, qr/2014/, "Record version is old date";
+
     # Write with a new date that we can check
     set_fixed_time('10/10/2015 01:00:00', '%m/%d/%Y %H:%M:%S');
-    $record->write(no_alerts => 1);
-    my $versions_after = $schema->resultset('Record')->count;
-    is($versions_after, $versions_before, "No new versions written");
-    $record->clear;
-    $record->find_current_id(3);
-    like($record->created, qr/2015/, "Record version is new date");
+    $row1->cell_update(string1 => 'Foobar');
 
-    # Make sure version history still written for other sheet
-    my $record_curval = GADS::Record->new(
-        user   => $user,
-        layout => $curval_sheet->layout,
-        schema => $schema,
-    );
-    $record_curval->find_current_id(1);
-    $record_curval->fields->{$curval_sheet->columns->{string1}->id}->set_value("Foobar2");
-    $record_curval->write(no_alerts => 1);
-    $versions_after = $schema->resultset('Record')->count;
-    is($versions_after, $versions_before + 1, "One new version written");
+    my $versions_after = $sheet->content->revision_count;
+    is $versions_after, $versions_before, "No new versions written";
 
-    # Revert to normal functionality
-    $schema->resultset('Instance')->find($layout->instance_id)->update({
-        forget_history => 0,
-    });
-    $layout->clear;
-    $versions_before = $schema->resultset('Record')->count;
-    $record->clear;
-    $record->find_current_id(3);
-    $record->fields->{$columns->{string1}->id}->set_value("Foobar3");
-    $record->write(no_alerts => 1);
-    $versions_after = $schema->resultset('Record')->count;
-    is($versions_after, $versions_before + 1, "One new version written");
+    my $row2 = $sheet->content->row(3);
+    like $row2->created, qr/2015/, "Record version is new date";
+
+    $site->document->sheet_update($sheet, { forget_history => 0 });
+
+    $row2->cell_update(string1 => 'Foobar3');
+    $versions_after = $sheet->content->revision_count;
+    cmp_ok $versions_after, '==', $versions_before + 1, "One new version written";
 }
 
 # Test changes of curval edits
 {
-    my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-    $curval_sheet->create_records;
-    my $curval_columns = $curval_sheet->columns;
-    my $schema  = $curval_sheet->schema;
-    my $sheet   = t::lib::DataSheet->new(
-        data => [{
-            curval1 => [1, 2],
-        }],
-        schema           => $schema,
-        curval           => 2,
-        curval_field_ids => [ $curval_sheet->columns->{string1}->id ]
+    my $curval_sheet = make_sheet 2;
+
+    my $sheet   = make_sheet 1;
+        data => [ { curval1 => [1, 2] }],
+        curval_sheet   => $curval_sheet,
+        curval_columns => [ 'string1' ]
     );
-    my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
-    $sheet->create_records;
-    my $curval = $columns->{curval1};
-    my $string = $columns->{string1};
+
     $curval->show_add(1);
     $curval->value_selector('noshow');
     $curval->write(no_alerts => 1);

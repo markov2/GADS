@@ -135,19 +135,6 @@ has _enumvals_index => (
     builder => sub { index_by_id $_[0]->enumvals },
 );
 
-has ordering => (
-    is  => 'rw',
-    isa => sub {
-        !defined $_[0] || $_[0] eq "desc" || $_[0] eq "asc"
-            or error "Invalid enum order value: {ordering}", ordering => $_[0];
-    }
-);
-
-after build_values => sub {
-    my ($self, $original) = @_;
-    $self->ordering($original->{ordering});
-};
-
 sub write_special
 {   my ($self, %options) = @_;
 

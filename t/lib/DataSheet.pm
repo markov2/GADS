@@ -403,12 +403,7 @@ my $rag1 = $layout->column_create(
     optional      => $self->optional,
     permissions   => $permissions,
     code          => $args{rag_code} || _default_rag_code($sheet->id);
-
-    # At this point, layout will have been built with current columns (it will
-    # have been built as part of creating the RAG column). Therefore, clear it,
-    # but keep the same reference in this object for code that has already taken
-    # a reference to the old one.
-    $self->layout->clear;
+);
 
 my $calc1 = $layout->column_create(
     type        => 'calc',
@@ -493,51 +488,6 @@ sub set_multivalue
         }
     }
     $self->layout->clear;
-}
-
-# Convert a filter from column names to ids (as required to use)
-sub convert_filter
-{   my ($self, $filter) = @_;
-    $filter or return;
-    my %new_filter = %$filter; # Copy to prevent changing original
-    $new_filter{rules} = []; # Make sure not using original ref in new
-
-    foreach my $rule (@{$filter->{rules}})
-    {
-        next unless $rule->{name};
-        # Copy again
-        my %new_rule = %$rule;
-        my @colnames = split /\_/, delete $new_rule{name};
-        my @colids = map { /^[0-9]+/ ? $_ : $self->columns->{$_}->id } @colnames;
-        $new_rule{id} = join '_', @colids;
-        push @{$new_filter{rules}}, \%new_rule;
-    }
-    \%new_filter;
-}
-
-# Can be called during debugging to dump data table. Results to be expanded
-# when required.
-sub dump_data
-{   my $self = shift;
-    foreach my $current ($::db->search(Current => {
-        instance_id => $self->layout->instance_id,
-    })->all)
-    {
-        print $current->id.': ';
-        my $record_id = $::db->search(Record => { current_id => $current->id })
-            ->get_column('id')->max;
-
-        foreach my $ct (qw/tree1 enum1/)
-        {
-            my $v = $::db->search(Enum => {
-                record_id => $record_id,
-                layout_id => $self->columns->{$ct}->id,
-            })->next;
-            my $val = $v->value && $v->value->value || '';
-            print "$ct ($val) ";
-        }
-        print "\n";
-    }
 }
 
 1;
