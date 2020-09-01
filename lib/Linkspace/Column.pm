@@ -249,7 +249,7 @@ sub is_valid_value($)
     $self->is_multivalue
         or error __x"Column \'{name}\' is not a multivalue.", name => $self->name;
 
-    [ map $_->_is_valid_value($_), @v ];
+    [ map $self->_is_valid_value($_), @v ];
 }
 
 sub topic { $_[0]->sheet->topic($_[0]->topic_id) }
@@ -302,6 +302,7 @@ sub set_permissions($$)
 sub permissions_by_group_export()
 {   my $self = shift;
     my %permissions;
+return {};
 #XXX
     push @{$permissions{$_->group_id}}, $_->permission
         for $self->_access_groups;

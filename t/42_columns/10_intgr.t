@@ -2,6 +2,7 @@
 
 use Linkspace::Test;
 
+$::session = test_session;
 my $sheet = test_sheet;
 
 my $column1 = $sheet->layout->column_create({
@@ -40,30 +41,18 @@ isa_ok $column1d, 'Linkspace::Column::Intgr', '...';
 # is_valid_value
 
 sub is_valid_value_test {
-    my ($column,$values)=(shift,shift);
-    my $tested=1;
-    try { 
-        $column->is_valid_value($values);
-    };
-    if ($@) {
-        $tested=0;
-    }
-    $tested
+    my ($column, $values) = @_;
+    try { $column->is_valid_value($values) };
+    ! $@;
 }
 
 sub is_valid_value_value {
-    my ($column,$values)=(shift,shift);
-    my $result;
-    try { 
-        $result=$column->is_valid_value($values);
-    };
-    if ($@) {
-        $result=$@->wasFatal->message;
-    }
-    $result;
+    my ($column, $values) = @_;
+    my $result = try { $column->is_valid_value($values) };
+    $@ ? $@->wasFatal->message : $result;
 }
 
-my @test_multivalue_valid1 = [ 0, 1,3];
+my $test_multivalue_valid1 = [ 0, 1, 3 ];
 my @test_cases1 = (
     [1, '18',    '18'],
     [0, 'abc',   '\'abc\' is not a valid integer for \'column1 (long)\''],
@@ -75,17 +64,19 @@ my @test_cases1 = (
     [0, undef,   'Column \'column1 (long)\' requires a value.'],
     );
 
-foreach my $test_case1 ( @test_cases1) {
-    my ($expected_valid, $col_int_value,$expected_value)=@{$test_case1};
-    my $col_int_value_s=defined $col_int_value?$col_int_value:"<undef>";
-    my $test_valid=is_valid_value_test( $column1,$col_int_value);
-    ok $test_valid==$expected_valid, "... test: value=\"$col_int_value_s\", expected_valid=\"$expected_valid\", test_valid=\"$test_valid\"";
-    my $test_value=is_valid_value_value( $column1,$col_int_value);
-    is $test_value ,$expected_value, "... test value";
+foreach my $test_case1 (@test_cases1) {
+    my ($expected_valid, $col_int_value, $expected_value) = @$test_case1;
+    my $col_int_value_s = $col_int_value // "<undef>";
+
+    my $is_valid = is_valid_value_test($column1, $col_int_value);
+    ok $is_valid==$expected_valid, "... test: value=\"$col_int_value_s\", expected_valid=\"$expected_valid\", test_valid=\"$is_valid\"";
+
+    my $test_value = is_valid_value_value($column1, $col_int_value);
+    is $test_value, $expected_value, "... test value";
 }
 
-my $test_valid1=is_valid_value_test( $column1,@test_multivalue_valid1);
-ok ! $test_valid1, "... test_multivalue_valid";
+my $is_valid = ! is_valid_value_test($column1, $test_multivalue_valid1);
+ok $is_valid, "... attempt multivalue in single";
 
 #
 # optional and multivalue
@@ -100,9 +91,9 @@ my $column2 = $sheet->layout->column_create({
 });
 logline;
 
-my @test_multivalue_valid2 = [ 0, 1,3];
-my @test_multivalue_invalid2 = [ 0, 1,'abc'];
-my @test_multivalue_undef2 = [ 1, undef,2];
+my $test_multivalue_valid2   = [ 0, 1, 3 ];
+my $test_multivalue_invalid2 = [ 0, 1, 'abc' ];
+my $test_multivalue_undef2   = [ 1, undef, 2 ];
 my @test_cases2 = (
     [1, '18',    '18'],
     [0, 'abc',   '\'abc\' is not a valid integer for \'column2 (long)\''],
@@ -114,19 +105,21 @@ my @test_cases2 = (
     [1, undef,   []],
     );
 
-foreach my $test_case2 ( @test_cases2) {
-    my ($expected_valid, $col_int_value,$expected_value)=@{$test_case2};
-    my $col_int_value_s=defined $col_int_value?$col_int_value:"<undef>";
-    my $test_valid=is_valid_value_test( $column2,$col_int_value);
+foreach my $test_case2 (@test_cases2) {
+    my ($expected_valid, $col_int_value, $expected_value) = @$test_case2;
+    my $col_int_value_s = $col_int_value // "<undef>";
+
+    my $test_valid = is_valid_value_test($column2, $col_int_value);
     ok $test_valid==$expected_valid, "... test: value=\"$col_int_value_s\", expected_valid=\"$expected_valid\", test_valid=\"$test_valid\"";
-    my $test_value=is_valid_value_value( $column2,$col_int_value);
+
+    my $test_value = is_valid_value_value($column2, $col_int_value);
     is_deeply $test_value ,$expected_value, "... test value";
 }
 
-ok !is_valid_value_test( $column2,@test_multivalue_valid2), "... test_multivalue_valid";
-ok !is_valid_value_test( $column2,@test_multivalue_invalid2),"... invalid value in multivalue";
-ok !is_valid_value_test( $column2,@test_multivalue_undef2), "... undef in multi value";
+ok  is_valid_value_test($column2, $test_multivalue_valid2), "... test_multivalue_valid";
+ok !is_valid_value_test($column2, $test_multivalue_invalid2),"... invalid value in multivalue";
+ok  is_valid_value_test($column2, $test_multivalue_undef2), "... undef in multi value";
 
-is $column1->export_hash,"<not yet known>",  "... undef in multi value";
+is $column1->export_hash, {},  "... undef in multi value";
 
 done_testing;
