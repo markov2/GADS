@@ -133,7 +133,9 @@ before import_hash => sub {
 
 sub export_hash
 {   my $self = shift;
-    $self->SUPER::export_hash(@_, filesize => $self->filesize);
+    my $h = $self->SUPER::export_hash(@_);
+    $h->{filesize} = $self->filesize;
+    $h;
 }
 
 1;

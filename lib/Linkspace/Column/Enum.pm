@@ -37,7 +37,7 @@ sub has_fixedvals   { 1 }
 sub form_extras     { [ 'ordering' ], [ qw/enumvals enumval_ids/ ] }
 sub has_filter_typeahead { 1 }
 sub retrieve_fields { [ qw/id value deleted/] }
-
+sub db_field_extra_export { [ qw/ordering/ ] }
 
 ###
 ### Class
@@ -337,10 +337,9 @@ before import_hash => sub {
 
 sub export_hash
 {   my $self = shift;
-    $self->SUPER::export_hash(@_,
-       enumvals => $self->enumvals,
-       ordering => $self->ordering,
-    );
+    my $h = $self->SUPER::export_hash(@_);
+    $h->{enumvals} = $self->enumvals;
+    $h;
 }
 
 sub import_value

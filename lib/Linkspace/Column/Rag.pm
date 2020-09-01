@@ -99,7 +99,9 @@ before import_hash => sub {
 
 sub export_hash
 {   my $self = shift;
-    $self->SUPER::export_hash(@_, code => $self->code);
+    my $h = $self->SUPER::export_hash(@_);
+    $h->{code} = $self->code;
+    $h;
 }
 
 1;

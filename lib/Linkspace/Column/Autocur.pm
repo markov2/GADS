@@ -29,6 +29,7 @@ extends 'Linkspace::Column::Curcommon';
 
 INIT { __PACKAGE__->register_type }
 
+sub db_field_extra_export { [ qw/related_field/ ] }
 sub form_extras    { [ qw/related_field_id/ ], [ 'curval_field_ids' ] }
 sub option_names   { shift->SUPER::option_names(@_, qw/override_permissions/ ) }
 sub userinput      { 0 }

@@ -51,43 +51,16 @@ use Linkspace::Column::Tree        ();
 =cut
 
 my @internal_columns = (
-    {   name        => 'ID',
-        type        => 'id',
-        name_short  => '_id',
-        is_unique   => 1,
-    },
-    {   name        => 'Last edited time',
-        type        => 'createddate',
-        name_short  => '_version_datetime',
-        is_unique   => 0,
-    },
-    {   name        => 'Last edited by',
-        type        => 'createdby',
-        name_short  => '_version_user',
-        is_unique   => 0,
-    },
-    {   name        => 'Created by',
-        type        => 'createdby',
-        name_short  => '_created_user',
-        is_unique   => 0,
-    },
-    {   name        => 'Deleted by',
-        type        => 'deletedby',
-        name_short  => '_deleted_by',
-        is_unique   => 0,
-    },
-    {   name        => 'Created time',
-        type        => 'createddate',
-        name_short  => '_created',
-        is_unique   => 0,
-    },
-    {   name        => 'Serial',
-        type        => 'serial',
-        name_short  => '_serial',
-        is_unique   => 1,
-    },
+    [ _id               => id          => 1, 'ID' ],
+    [ _version_datetime => createddate => 0, 'Last edited time' ],
+    [ _version_user     => createdby   => 0, 'Last edited by' ],
+    [ _created_user     => createdby   => 0, 'Created by' ],
+    [ _deleted_by       => deletedby   => 0, 'Deleted by' ],
+    [ _created          => createddate => 0, 'Created time' ],
+    [ _serial           => serial      => 1, 'Serial' ],
 );
-sub internal_columns_show_names { [ map $_->{name_short}, @internal_columns ] }
+
+sub internal_columns_show_names { [ map $_->[0], @internal_columns ] }
 
 has no_overnight_update => (
     is      => 'ro',
@@ -123,8 +96,10 @@ has sheet => (
 sub insert_initial_columns()
 {    my ($self) = @_;
 return; #XXX
-     $self->column_create({ %$_, can_child => 0, is_internal => 1 })
-         for @internal_columns;
+     $self->column_create({
+          name_short => $_->[0], type => $_->[1], is_unique => $_->[2], name => $_->[3],
+          can_child => 0, is_internal => 1
+     }) for @internal_columns;
 }
 
 #-------------

@@ -49,14 +49,39 @@ sub db_field_rename { +{
     options       => 'options_json',
     related_field => 'related_field_id',
     textbox       => 'is_textbox',
-#   permission    => ''   XXX???
 } }
 
 sub db_fields_also_bool { [ qw/end_node_only/ ] }
 
 # The display_field is now in a separate table.
-sub db_fields_unused    { [ qw/display_matchtype display_regex/ ] }
-sub db_fields_no_export { [ qw/display_field/ ] }
+sub db_fields_unused    { [ qw/display_matchtype display_regex permission/ ] }
+
+my @fields_limited_use = (
+    'end_node_only',    # tree
+    'filter',           # curval
+    'force_regex',      # string
+    'is_textbox',       # string
+    'ordering',         # enum
+    'related_field',    # autocur
+);
+
+# Some of the generic fields are limited in use for certain types
+sub db_field_extra_export { [] }
+sub db_fields_no_export
+{   my $self = shift;
+    my %exclude = map +($_ => 1), qw/display_field/, @fields_limited_use;
+    delete $exclude{$_} for @{$self->db_field_extra_export};
+    [ keys %exclude ];
+}
+
+#XXX change these
+my @public_attributes = qw/description helptext is_unique link_parent_id
+    is_multivalue name name_short optional remember set_can_child topic_id
+    type width/;
+my @simple_import_attributes = 
+   qw/name name_short optional remember isunique can_child position description
+      aggregate width filter helptext multivalue group_display/;
+
 
 __PACKAGE__->db_accessors;
 
@@ -131,16 +156,6 @@ sub variable_join  { 0 }   # joins can be different on the config
 sub sort_parent   { undef }
 
 # Attributes which can be set by a user
-my @public_attributes = qw/description helptext is_unique link_parent_id
-    is_multivalue name name_short optional remember set_can_child topic_id
-    type width/;
-
-my @simple_import_attributes = 
-   qw/name name_short optional remember isunique can_child position description
-      aggregate width filter helptext multivalue group_display/;
-
-my @simple_export_attributes =
-   qw/id type topic_id display_condition/;
 
 ###
 ### Class
@@ -651,31 +666,18 @@ sub import_hash
 
 sub export_hash
 {   my ($self, %args) = @_;
+    my $h = $self->SUPER::export_hash(%args);
 
 =pod
-    my @dfs_filters = map +{
+    $h->{display_fields} = [ map +{
         id       => $_->{column_id},
         value    => $_->{value},
         operator => $_->{operator},
-    }, @{$self->display_fields->filters};
+    }, @{$self->display_fields} ];
 =cut
-    my @dfs_filters;
 
-    my ($extra_scalars, $extra_arrays) = $self->form_extras;
-
-    my %export = (
-        display_fields => \@dfs_filters,
-        link_parent    => $self->link_parent,
-        permissions    => $self->permissions_by_group_export,
-    );
-
-    $export{$_} = $self->$_ for
-        @simple_import_attributes,
-        @simple_export_attributes,
-        @$extra_scalars,
-        @{$self->option_names};
-
-    \%export;
+    $h->{permissions} = $self->permissions_by_group_export;
+    $h;
 }
 
 # Subroutine to run after a column write has taken place for an import
@@ -723,11 +725,6 @@ sub display_field_update($)
 {   my ($self, $rules) = @_;
     $self->display_field->filter_update($self, $rules);
 }
-
-has display_field => (
-    is      => 'lazy',
-    builder => sub { Linkspace::Filter::DisplayField->from_column($_[0]) },
-);
 
 sub dependencies_ids
 {   my $self = shift;

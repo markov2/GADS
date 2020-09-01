@@ -31,6 +31,7 @@ extends 'Linkspace::Column';
 __PACKAGE__->register_type;
 
 sub can_multivalue      { 1 }
+sub db_field_extra_export { [ qw/is_textbox force_regex/ ] }
 sub form_extras         { [ qw/is_textbox force_regex/ ], [] }
 sub has_multivalue_plus { 1 }
 
@@ -64,14 +65,6 @@ before import_hash => sub {
     notice __x"Update: force_regex from {old} to {new}", old => $self->force_regex, new => $force_regex
         if +($self->force_regex || '') ne $force_regex;
 };
-
-sub export_hash
-{   my $self = shift;
-    $self->SUPER::export_hash(@_,
-        is_textbox  => $self->is_textbox,
-        force_regex => $self->force_regex,
-    );
-}
 
 sub import_value
 {   my ($self, $value) = @_;

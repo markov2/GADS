@@ -31,7 +31,7 @@ use Log::Report 'linkspace';
 
 __PACKAGE__->register_type;
 
-sub can_multivalue { 1 }
+sub can_multivalue { 0 }
 sub is_internal_type { 1 }
 sub is_addable   { 1 }
 sub return_type  { 'integer' }

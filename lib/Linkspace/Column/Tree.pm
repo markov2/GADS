@@ -32,6 +32,7 @@ use Tree::DAG_Node;
 
 __PACKAGE__->register_type;
 
+sub db_field_extra_export { [ 'end_node_only' ] }
 sub can_multivalue  { 1 }
 sub has_fixedvals   { 1 }
 sub form_extras     { [ 'end_node_only' ], [] }
@@ -129,11 +130,6 @@ has _tree => (
     clearer   => 1,
     builder   => 1,
     predicate => 1,
-);
-
-# The original values hash
-has original => (
-    is => 'rw',
 );
 
 after build_values => sub {
@@ -572,11 +568,10 @@ before import_hash => sub {
 
 sub export_hash
 {   my $self = shift;
-    $self->SUPER::export_hash(@_,
-        end_node_only => $self->end_node_only,
-        tree          => $self->json, # Not actually JSON
-    );
-};
+    my $h = $self->SUPER::export_hash(@_);
+    $h->{tree} => $self->json; # Not actually JSON
+    $h;
+}
 
 sub import_value
 {   my ($self, $value) = @_;

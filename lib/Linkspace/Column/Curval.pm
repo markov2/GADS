@@ -35,8 +35,9 @@ my @option_names = qw/override_permissions value_selector show_add delete_not_us
 
 __PACKAGE__->register_type;
 
+sub db_field_extra_export { [ qw/filter/ ] }
 sub option_names { shift->SUPER::option_names(@_, @option_names) }
-sub form_extras { [ qw/refers_to_instance_id filter/ ], [ 'curval_field_ids' ] }
+sub form_extras { [ qw/refers_to_sheet_id filter/ ], [ 'curval_field_ids' ] }
 
 ###
 ### Class

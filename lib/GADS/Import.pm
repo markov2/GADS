@@ -239,7 +239,7 @@ sub _build_fields
     my $fields_in = $self->csv->getline($self->fh);
 
     my @fields;
-    my $column_id = $self->layout->column_id;
+    my $column_id = $self->layout->column('_id');
 
     foreach my $field (@$fields_in)
     {

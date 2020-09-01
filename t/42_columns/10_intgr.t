@@ -120,6 +120,6 @@ ok  is_valid_value_test($column2, $test_multivalue_valid2), "... test_multivalue
 ok !is_valid_value_test($column2, $test_multivalue_invalid2),"... invalid value in multivalue";
 ok  is_valid_value_test($column2, $test_multivalue_undef2), "... undef in multi value";
 
-is $column1->export_hash, {},  "... undef in multi value";
+is_deeply $column1->export_hash, {},  "... undef in multi value";
 
 done_testing;
