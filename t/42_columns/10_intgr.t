@@ -123,36 +123,10 @@ foreach my $test_case2 ( @test_cases2) {
     is_deeply $test_value ,$expected_value, "... test value";
 }
 
-my $test_valid2=is_valid_value_test( $column2,@test_multivalue_valid2);
-ok !$test_valid2, "... test_multivalue_valid";
+ok !is_valid_value_test( $column2,@test_multivalue_valid2), "... test_multivalue_valid";
+ok !is_valid_value_test( $column2,@test_multivalue_invalid2),"... invalid value in multivalue";
+ok !is_valid_value_test( $column2,@test_multivalue_undef2), "... undef in multi value";
 
-
-
-
-#my $test_value1=is_valid_value_value( $column1,$col_int_value);
-#is $test_value ,$expected_value, "... test value";
-
-#ok $column1->is_valid_value(@test_multivalue_valid),"... valid multivalue";
-
-#ok ! $column1->is_valid_value(@test_multivalue_invalid),"... invalid multivalue";
-#ok ! $column1->is_valid_value(@test_multivalue_undef),"... valid undef multivalue";
-#
-#
-#my $column2 = $sheet->layout->column_create({
-#    type       => 'intgr',
-#    name_short => 'column2',
-#    is_optional => 0,
-#});
-#
-#foreach my $test_case ( @test_cases) {
-#    my ($col_int_valid, $col_int_value)=@{$test_case};
-#    my $col_int_value_s=defined $col_int_value?$col_int_value:"<undef>";
-#    ok $column1->is_valid_value($col_int_value, fatal => 0)==$col_int_valid, 
-#        "... valid_value value=$col_int_value_s: valid=$col_int_valid";
-#}
-#
-
-
-# export_hash
+is $column1->export_hash,"<not yet known>",  "... undef in multi value";
 
 done_testing;

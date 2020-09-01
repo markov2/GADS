@@ -109,7 +109,7 @@ sub from_record($%)
 sub is_addable     { 0 }   # support sensible addition/subtraction
 sub can_multivalue { 0 }
 sub has_fixedvals  { 0 }
-sub form_extras($) { panic } # returns extra scalar and array parameter names 
+sub form_extras($) { [], [] } # returns extra scalar and array parameter names 
 sub has_cache      { 0 }   #XXX autodetect with $obj->can(write_cache)?
 sub has_filter_typeahead { 0 } # has typeahead when inputting filter values
 sub has_multivalue_plus  { 0 }
@@ -645,11 +645,14 @@ sub import_hash
 sub export_hash
 {   my ($self, %args) = @_;
 
+=pod
     my @dfs_filters = map +{
         id       => $_->{column_id},
         value    => $_->{value},
         operator => $_->{operator},
     }, @{$self->display_fields->filters};
+=cut
+    my @dfs_filters;
 
     my ($extra_scalars, $extra_arrays) = $self->form_extras;
 
