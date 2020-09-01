@@ -48,7 +48,7 @@ sub value_field  { 'serial' }
 ### Instance
 ###
 
-sub is_valid_value { $_[1] =~ /^\s*([0-9]+)\s*$/ && $1 != 0 ? $1 : undef }
+sub _is_valid_value { $_[1] =~ /^\s*([0-9]+)\s*$/ && $1 != 0 ? $1 : undef }
 
 sub sprefix     { 'current' }
 sub tjoin       {}
