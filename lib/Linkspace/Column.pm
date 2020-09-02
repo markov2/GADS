@@ -23,10 +23,7 @@ use JSON          qw/decode_json encode_json/;
 
 use Linkspace::Util  qw/flat/;
 
-=pod
 use Linkspace::Filter::DisplayField ();
-
-=cut
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -47,7 +44,7 @@ sub db_field_rename { +{
     multivalue    => 'is_multivalue',
     optional      => 'is_optional',
     options       => 'options_json',
-    related_field => 'related_field_id',
+    related_field => 'related_column_id',
     textbox       => 'is_textbox',
 } }
 
@@ -62,7 +59,7 @@ my @fields_limited_use = (
     'force_regex',      # string
     'is_textbox',       # string
     'ordering',         # enum
-    'related_field',    # autocur
+    'related_column',   # autocur
 );
 
 # Some of the generic fields are limited in use for certain types
@@ -131,25 +128,26 @@ sub from_record($%)
 ###
 
 #XXX some of these should have been named is_*()
-sub is_addable     { 0 }   # support sensible addition/subtraction
+sub is_addable     { 0 }       # support sensible addition/subtraction
 sub can_multivalue { 0 }
 sub has_fixedvals  { 0 }
-sub form_extras($) { [], [] } # returns extra scalar and array parameter names 
-sub has_cache      { 0 }   #XXX autodetect with $obj->can(write_cache)?
+sub form_extras($) { [], [] }  # returns extra scalar and array parameter names
+sub has_cache      { 0 }       #XXX autodetect with $obj->can(write_cache)?
 sub has_filter_typeahead { 0 } # has typeahead when inputting filter values
 sub has_multivalue_plus  { 0 }
-sub is_hidden      { 0 }   # column not shown by default (only deletedBy)
-sub is_internal_type { 0 }   # the type is internal, see is_internal() on objects
+sub is_hidden      { 0 }       # column not shown by default (only deletedBy)
+sub is_internal_type { 0 }     # the type is internal, see is_internal() on objects
 sub is_curcommon   { 0 }
 sub meta_tables    { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] }
-sub option_names   { shift; [ @_ ] };
+sub option_defaults{ shift;  +{ @_ } }
+sub option_names   { [ keys %{$_[0]->option_defaults} ] }
 sub retrieve_fields{ [ $_[0]->value_field ] }
 sub return_type    { 'string' }
 sub sort_field     { $_[0]->value_field }
 sub is_userinput   { 1 }
 sub value_field    { 'value' }
-sub value_to_write { 1 }   #XXX only in Autocur, may be removed
-sub variable_join  { 0 }   # joins can be different on the config
+sub value_to_write { 1 }      #XXX only in Autocur, may be removed
+sub variable_join  { 0 }      # joins can be different on the config
 
 # Whether the sort columns when added should be added with a parent, and
 # if so what is the parent.  Default no, undef in case used in arrays.
@@ -164,66 +162,79 @@ sub sort_parent   { undef }
 sub _validate($)
 {   my ($thing, $update) = @_;
 
-    delete $update->{topic_id}
-        unless $update->{topic_id};  # only 1+
-
     if(exists $update->{ordering})    # enum
     {   my $order = $update->{ordering} // '';
         !$order || $order eq 'desc' || $order eq 'asc'
             or error __x"Invalid enum order value: {ordering}", ordering => $order;
     }
+
+    unless($update->{extras})
+    {   # Separate out which parameters are specific for specific types.
+        my %extras;
+        my ($s, $a) = $thing->form_extras;
+        $extras{$_} = delete $update->{$_} for grep exists $update->{$_}, @$s, @$a;
+        $update->{extras} = \%extras;
+    }
+
+    if(my $dc = $update->{display_condition})
+    {   $dc eq 'AND' || $dc eq 'OR'
+            or error __"Unsupported display_condition operator '{dc}'", dc => $dc;
+    }
+
+    # In a number of cases, the Layout-record has columns which are specific for
+    # a single type.  But in other cases, specifics are stored in an 'options' HASH
+    # which is kept as JSON (hence not searchable)  Updates are tricky.
+    my $opts = $update->{options};
+    foreach my $name ($thing->option_names)
+    {   exists $update->{$name} or next;
+        $opts ||= ref $thing ? $thing->options : $thing->option_defaults;
+        $opts->{$name} = delete $update->{$name} // 0;  # some are bools
+    }
+    $update->{options} = $opts if $opts;
+
+    $update;
 }
 
 sub _column_create
 {   my ($class, $insert, %options) = @_;
+    $insert->{options} = $class->option_defaults;
+
     $class->_validate($insert);
 
     $insert->{is_internal} = $class->is_internal_type;
+    $insert->{display_condition} ||= 'AND';
 
-    my $extra         = delete $insert->{extra};
-    my $perms         = delete $insert->{permissions};
+    my $df    = delete $insert->{display_field};
+    my $perms = delete $insert->{permissions};
+    my $extra = delete $insert->{extras};
 
-    my $display_field = delete $insert->{display_field};
-    $insert->{display_condition} = $display_field->as_hash->{condition}
-        if $display_field;  #XXX weird.  Why here?
+    $insert->{is_textbox}    //= 0;
+    $insert->{end_node_only} //= 0;
+    my $self = $class->create($insert, sheet => $insert->{sheet});
 
-    $insert->{is_textbox} = 0;
-    $insert->{end_node_only} = 0;
-
-    my $column = $class->create($insert, sheet => $insert->{sheet});
-
-#XXX
-#   $column->_column_extra_update($extra);
-#   $column->_column_perms_update($perms);
-#   $column->_display_fields_update($display_field);
-#   #$self->_write_permissions(id => $col_id, %options);
-
-$column;
+    $self->_column_extra_update($extra);
+    $self->_column_perms_update($perms) if $perms;
+    $self->_display_field_update($df)   if $df;
+    $self;
 }
+
+# Process all arguments from the configuration which is column type specific.
+sub _column_extra_update($) {}
 
 sub _column_update($%)
 {   my ($self, $update, %args) = @_;
     $self->_validate($update);
 
-    my $new_id = $update->{related_field_id};
-    notice __x"Update: related_field_id from {old} to {new}", 
-        old => $self->related_field_id, new => $new_id
-        if $self->related_field_id != $new_id;
+    ! $self->is_internal
+         or error __"Internal fields cannot be edited";
 
-    $update->{is_multivalue} ||= 0 if exists $update->{is_multivalue};
+    $self->_column_extra_update(delete $update->{extras});
 
-    # XXX Move to curval class
-#   if($self->type eq 'curval')
-#   {   $self->set_filter($original->{filter});
-#       is_multivalue { $self->show_add && $self->value_selector eq 'noshow' {
-#   }
+    $self->_display_fields_update(delete $update->{display_field})
+        if exists $update->{display_field};
 
-
-#set_values => (
-#    $self->build_values(@_) },
-
-    $self->display_fields_update(delete $update->{display_fields});
     $self->update($update);
+    $self;
 }
 
 ###
@@ -439,25 +450,13 @@ sub collect_form($$$)
             short => $short, name => $exists->name;
     }
 
-    if($old)
-    {   ! $impl->internal
-            or error __"Internal fields cannot be edited";
-
-        $old->sheet_id == $sheet_id
-            or panic "Attempt to move column between sheets";
-    }
-    else
+    if(!$old)
     {   $changes{remember}  //= 0;
         $changes{is_unique} //= 0;
         $changes{is_optional} = exists $changes{is_optional} ? $changes{is_optional} : 1;
         $changes{position}  //= $layout->highest_position + 1;
         $changes{width}     //= 50;
         $changes{name} or error __"Please enter a name for item";
-    }
-
-    if(my $dc = $changes{display_condition} =~ s/\h+$//r)
-    {   $dc eq 'AND' || $dc eq 'OR'
-            or error __"Unknown display_condition '{dc}'", dc => $dc;
     }
 
     if(my $link_parent = $layout->column($params->{link_parent_id}))
@@ -468,9 +467,8 @@ sub collect_form($$$)
                 col => $link_parent->name;
     }
 
-    if(my $opt = $changes{options})
-    {   $changes{options} = encode_json $opt if ref $opt;
-    }
+    delete $changes{topic_id}
+        unless $changes{topic_id};  # only 1+
 
     my %extra;
     my ($extra_scalars, $extra_arrays) = $class->form_extras;
@@ -480,7 +478,7 @@ sub collect_form($$$)
     $extra{code}      = delete $extra{code_rag} || delete $extra{code_calc};
     $extra{no_cache_update}
        = delete $extra{no_cache_update_rag} || delete $extra{no_cache_update_calc};
-    $changes{extra} = \%extra;
+    $changes{extras} = \%extra;
 
     \%changes;
 }
@@ -638,30 +636,21 @@ sub code_regex
 
 sub additional_pdf_export {}
 
-sub import_hash
-{   my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->id;
-    my %update;
+=head2 my $column = $class->import_hash($data, $layout, %options);
+Consume data produced by C<export_hash()> into a new column in the sheet.
+=cut
 
-    $values->{filter_json} = delte $values->{filter};
-
-    my $take   = sub {
-        my $field = shift;
-        my $old   = $self->$field;
-        my $new   = $values->{field};
-        return if +($old // '') eq +($new // '');
-
-        notice __x"Update: {field} from '{old}' to '{new}' for {name}",
-            field => $field, old => $old, new => $new, name => $self->name
-            if $report;
-
-        $update{$field} = $new;
-    };
-
-    $take->($_) for
+sub import_hash($$%)
+{   my ($class, $layout, $values, %args) = @_;
+    my %insert = map +($_ => $values->{$_}),
         @simple_import_attributes,
-        ${$self->option_names};
+        @{$class->option_names};
+
+    my $column = $layout->column_create(\%insert); 
+    $column->_import_hash_extra($values, %args);
+    $column;
 }
+sub _import_hash_extra($%) { shift }
 
 
 sub export_hash
@@ -704,7 +693,6 @@ Fields C<child_unique> and C<layout_id> are added later.
 
 The C<$row> and C<%options> are only used for Curval.
 =cut
-
 #XXX %options are used by Curval.  For which purpose?
 #XXX For Curvals this has weird side effects
 sub field_values($$%)
@@ -716,14 +704,34 @@ sub field_values($$%)
     map +{ value => $_ }, @values;
 }
 
-sub display_field_create($)
-{   my ($self, $rules) = @_;
-    Linkspace::Filter::DisplayField->filter_create($self, $rules);
-}
+#---------------
+=head2 METHODS: DisplayField
+The Layout records contain a few DisplayField columns, which have been
+replaced by a DisplayField table.  The table contains rules, and ::Column
+weirdly carries the C<display_condition> to be used between those.
+=cut
 
-sub display_field_update($)
+has display_field => (
+    is      => 'rw',
+    lazy    => 1,
+    builder => sub { Linkspace::Filter::DisplayField->from_column($_[0]) },
+);
+
+# During creation or update of a column.  May be a HASH (create) or
+# undef (delete).
+sub _display_field_update($)
 {   my ($self, $rules) = @_;
-    $self->display_field->filter_update($self, $rules);
+    my $old = $self->display_field;
+
+    if(!$rules)
+    {   $old->_display_field_delete;
+        $self->display_field(undef);
+        return;
+    }
+
+    my $df = Linkspace::Filter::DisplayField->from_hash($rules, on_column => $self);
+    $self->display_field($df);
+    $df;
 }
 
 sub dependencies_ids

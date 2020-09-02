@@ -12,22 +12,12 @@ my $schema  = $curval_sheet->schema;
 
 my $sheet   = t::lib::DataSheet->new(schema => $schema, curval => 2, multivalue => 1);
 my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
 
 my $user    = $sheet->user_normal1;
 $sheet->create_records;
 
-$columns->{string1}->optional(0);
-$columns->{string1}->write;
-$columns->{integer1}->optional(0);
-$columns->{integer1}->write;
-$columns->{date1}->optional(0);
-$columns->{date1}->write;
-
-$curval_sheet->layout->user($user);
-$curval_sheet->layout->clear;
-$layout->user($user);
-$layout->clear;
+$layout->column_update($_, { is_optional => 0 })
+    for qw/string1 integer1 date1/;
 
 my $records = GADS::Records->new(
     user    => $user,
@@ -105,55 +95,38 @@ is($record_rs->count, 3, "Additional normal record written");
 # Test saving of draft with sub-record
 {
     # First create a standard draft in the subrecord table
-    my $record = GADS::Record->new(
-        user   => $user,
-        layout => $curval_sheet->layout,
-        schema => $schema,
-    );
-    $record->initialise;
-    my $string_curval = $curval_sheet->layout->column_by_name('string1');
-    $record->fields->{$string_curval->id}->set_value("Draft2");
-    $record->write(draft => 1); # Missing date1 should not matter
+    my $row1 = $curval_sheet->content->row_create(draft => 1);
 
-    # Count records as of now
-    my $main_count = $schema->resultset('Current')->search({
-        instance_id => 1,
-    })->count;
-    my $curval_count = $schema->resultset('Current')->search({
-        instance_id => 2,
-    })->count;
+    my $string_curval = $curval_sheet->layout->column('string1');
+    $row1->cell_update(string1 => 'Draft2');
+
+    my $main_count   = $sheet->content->row_count;
+    my $curval_count = $curval_sheet->content->row_count;
 
     # Set show_add option for curval field
-    my $curval_columns = $curval_sheet->columns;
-    my $curval = $columns->{curval1};
-    $curval->show_add(1);
-    $curval->curval_field_ids([$curval_columns->{string1}->id, $curval_columns->{integer1}->id, $curval_columns->{rag1}->id]);
-    $curval->write;
-    $layout->clear;
+    my $curval = $layout->column_update(curval1 => {
+         show_add => 1,
+         curval_columns => [ 'string1', 'integer1', 'rag1' ],
+         curval_sheet   => $curval_sheet,
+     });
 
     # Create draft for the main record, containing 2 draft subrecords
-    $record = GADS::Record->new(
-        user   => $user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record->initialise;
+    my $row2 = $sheet->content->row_create(draft => 1);
     my $string1 = $layout->column_by_name('string1');
-    $record->fields->{$string1->id}->set_value("Draft3");
-    my $val  = $curval_columns->{string1}->field.'=foo&'.$curval_columns->{integer1}->field.'=25';
-    my $val2 = $curval_columns->{string1}->field.'=bar&'.$curval_columns->{integer1}->field.'=50';
-    $record->fields->{$curval->id}->set_value([$val, $val2]);
-    $record->write(draft => 1);
+    $row2->cell_update(string1 => 'Draft3');
+
+    my $cv_f1 = $curval_layout->column('string1')->field_name;
+    my $cv_f2 = $curval_layout->column('integer1')->field_name;
+    my $val  = "$cv_f1=foo&$cv_f2=25";
+    my $val2 = "$cv_f1=bar&$cv_f2=50";
+    $row2->cell_update($curval => [$val, $val2]);
 
     # Check record counts
-    my $main_count_new = $schema->resultset('Current')->search({
-        instance_id => 1,
-    })->count;
-    my $curval_count_new = $schema->resultset('Current')->search({
-        instance_id => 2,
-    })->count;
-    is($main_count_new, $main_count + 1, "One main draft record");
-    is($curval_count_new, $curval_count + 2, "Two subrecord draft records");
+    my $main_count_new = $sheet->content->row_count;
+    my $curval_count_new = $curval_sheet->content->row_count;
+
+    cmp_ok $main_count_new,   '==', $main_count   + 1, "One main draft record";
+    cmp_ok $curval_count_new, '==', $curval_count + 2, "Two subrecord draft records";
 
     # Check that the previously created subrecord draft is retrieved (not drafts from main record)
     $record = GADS::Record->new(

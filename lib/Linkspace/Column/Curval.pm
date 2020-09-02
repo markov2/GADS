@@ -27,7 +27,12 @@ use MooX::Types::MooseLike::Base qw/:all/;
 
 extends 'Linkspace::Column::Curcommon';
 
-my @option_names = qw/override_permissions value_selector show_add delete_not_used/;
+my @options = (
+    override_permissions => 0,          #XXX still needed?
+    value_selector       => 'dropdown',
+    show_add             => 0,
+    delete_not_used      => 0
+);
 
 ###
 ### META
@@ -36,7 +41,7 @@ my @option_names = qw/override_permissions value_selector show_add delete_not_us
 __PACKAGE__->register_type;
 
 sub db_field_extra_export { [ qw/filter/ ] }
-sub option_names { shift->SUPER::option_names(@_, @option_names) }
+sub option_defaults { shift->SUPER::option_defaults(@_, @options) }
 sub form_extras { [ qw/refers_to_sheet_id filter/ ], [ 'curval_field_ids' ] }
 
 ###
@@ -50,37 +55,19 @@ sub form_extras { [ qw/refers_to_sheet_id filter/ ], [ 'curval_field_ids' ] }
 #XXX Create with refers_to_sheet and related_column.
 #XXX curval_field_ids defaults to all non-internal columns in refers_to_sheet
 
-sub value_selector { $_[0]->options->{value_selector} // 'dropdown' }
+sub _validate($)
+{   my ($thing, $update) = @_;
+    $self->SUPER::_validate($update);
 
-has show_add => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    builder => sub {
-        my $self = shift;
-        return 0 unless $self->has_options;
-        $self->options->{show_add};
-    },
-    trigger => sub {
-        my ($self, $value) = @_;
-        $self->multivalue(1) if $value && $self->value_selector eq 'noshow';
-        $self->reset_options;
-    },
-);
+    if(my $opt = $update->{options})
+    {   $self->{is_multivalue}
+          =  exists $opt->{show_add} && $opt->{value_selector} eq 'noshow';
+    }
+}
 
-has delete_not_used => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    builder => sub {
-        my $self = shift;
-        return 0 unless $self->has_options;
-        $self->options->{delete_not_used};
-    },
-    trigger => sub { $_[0]->reset_options },
-);
+sub value_selector  { $_[0]->options->{value_selector} // 'dropdown' }
+sub show_add        { $_[0]->options->{show_add} // 0 }
+sub delete_not_used { $_[0]->options->{delete_not_used} // 0 }
 
 # Whether this field has subbed in values from other parts of the record in its
 # filter

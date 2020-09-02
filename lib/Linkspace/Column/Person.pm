@@ -25,7 +25,9 @@ extends 'Linkspace::Column';
 
 use Log::Report 'linkspace';
 
-my @option_names      = qw/default_to_login/;
+my @options = (
+    default_to_login => 0,
+);
 
 my @person_properties = qw/
    id email username firstname surname freetext1 freetext2
@@ -39,7 +41,7 @@ __PACKAGE__->register_type;
 
 sub has_filter_typeahead { 1 }
 sub has_fixedvals        { 1 }
-sub option_names         { shift->SUPER::option_names(@_, @options_names) }
+sub option_defaults      { shift->SUPER::option_defaults(@_, @options) }
 sub retrieve_fields      { \@person_properties }
 
 ### Specific to Person
@@ -61,7 +63,7 @@ sub remove_column($)
 
 sub sprefix { 'value' }
 sub tjoin   { +{ $_[0]->field => 'value' } }
-sub default_to_login     { $_[0]->options->{default_to_login} }
+sub default_to_login { $_[0]->options->{default_to_login} }
 
 # Convert based on whether ID or full name provided
 sub value_field_as_index

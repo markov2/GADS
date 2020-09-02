@@ -1,6 +1,7 @@
 package Linkspace::Filter::DisplayField;
 
-use Scalar::Util  qw(blessed);
+use Log::Report   'linkspace';
+use Linkspace::Util qw(to_id);
 
 use Moo;
 extends 'Linkspace::Filter';
@@ -30,10 +31,8 @@ sub from_column($)
     );
 }
 
-sub on_column_id { $_[0]->on_column->id }
-
 has on_column => (     # method 'column' has global meaning
-    is       => 'ro'.
+    is       => 'ro',
     required => 1,
     weakref  => 1,
 );
@@ -47,24 +46,13 @@ has _rule_rows => (
     is      => 'lazy',
     builder => sub {
         my $col_id = shift->on_column->id;
-        [ $::db->search(DisplayField => { layout_id => $col_id})->all ];
-  , }
+        [ $::db->search(DisplayField => { layout_id => $col_id })->all ];
+    },
 );
-
-#XXX Maybe store layout?
-sub column($) { $_[0]->on_column->layout->column($_[1]) }
-
-sub _show_rule_row {
-    my ($self, $rule) = @_;
-    join ' ',
-        $self->column($rule->display_field_id)->name,
-        $rule->operator,
-        $rule->regex;
-}
 
 has as_hash => (
     is      => 'lazy',
-    builder => sub { +{
+    builder => sub {
         my $self  = shift;
         my @rules = map +{
             id       => $_->display_field_id,
@@ -78,15 +66,24 @@ has as_hash => (
     },
 );
 
+sub _show_rule_row {
+    my ($self, $rule) = @_;
+    join ' ',
+        $self->column($rule->display_field_id)->name,
+        $rule->operator,
+        $rule->regex;
+}
+
+
 sub summary
 {   my $self  = shift;
     my @rules = map $self->_show_rule_row($_), @{$self->_rule_rows};
-    my $cond  = $self->display_condition;
+    my $cond  = $self->condition;
 
     my $type
-      = @rules==1    ? 'Displayed when the following is true'
-      : $dc eq 'AND' ? 'Displayed when all the following are true'
-      :                'Displayed when any of the following are true';
+      = @rules==1      ? 'Displayed when the following is true'
+      : $cond eq 'AND' ? 'Displayed when all the following are true'
+      :                  'Displayed when any of the following are true';
 
     +[ $type, join('; ', @rules) ];
 }
@@ -98,7 +95,7 @@ sub as_text
 
 sub filter_create($$)
 {   my ($thing, $where, $rules) = @_;
-    my $col_id = blessed $where ? $where->id : $where;
+    my $col_id = to_id $where;
 
     foreach my $cond (@$rules)
     {
@@ -131,12 +128,12 @@ sub show_field($$)
         my @values = $field->value_regex_test;
 
         my $op     = $rule->operator;
-        my ($fixed, $negate) = @{$operator{$op} or panic};
+        my ($fixed, $negate) = @{$operators{$op} or panic};
 
         my $regex_string = $rule->regex;
         my $regex  = $fixed ? qr/^${regex_string}$/ : qr/$regex_string/;
 
-        my $this_matches = ! @$values ? 0 : (grep m/$regex/, @values);
+        my $this_matches = @values ? (grep m/$regex/, @values) : 0;
         my $want   = $negate ? ! $this_matches : $this_matches;
 
         if($condition eq 'AND')
@@ -150,3 +147,4 @@ sub show_field($$)
     0;
 }
 
+1;

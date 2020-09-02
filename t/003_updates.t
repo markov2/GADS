@@ -245,32 +245,30 @@ foreach my $update (@update2)
 {
     my $curval_sheet = make_sheet 2;
 
-    my $sheet   = make_sheet 1;
-        data => [ { curval1 => [1, 2] }],
+    my $sheet   = make_sheet 1,
+        data           => [ { curval1 => [1, 2] }],
         curval_sheet   => $curval_sheet,
-        curval_columns => [ 'string1' ]
-    );
+        curval_columns => [ 'string1' ];
 
-    $curval->show_add(1);
-    $curval->value_selector('noshow');
-    $curval->write(no_alerts => 1);
+    $sheet->layout->column_update($curval => {
+        show_add       => 1,
+        value_selector => 'noshow',
+    });
+    my $content = $sheet->content;
 
-    my $record = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record->find_current_id(3);
-    my $curval_datum = $record->fields->{$curval->id};
-    is($curval_datum->as_string, "Foo; Bar", "Initial value of curval correct");
+    my $row3 = $content->row(3);
+    my $curval_datum = $row3->cell($curval);
+    is $curval_datum->as_string, "Foo; Bar", "Initial value of curval correct";
 
-    $curval_datum->set_value([1, 2]);
-    ok(!$curval_datum->changed, "Curval not changed with same ID");
-    my $stringf = $curval_columns->{string1}->field;
-    $curval_datum->set_value([$stringf.'=Foo&current_id=1', $stringf.'=Bar&current_id=2']);
-    ok(!$curval_datum->changed, "Curval not changed with same content");
-    $curval_datum->set_value([$stringf.'=Foobar&current_id=1', $stringf.'=Bar&current_id=2']);
-    ok($curval_datum->changed, "Curval changed with HTML update");
+    $content->cell_update($curval => [1, 2]);
+    ok !$curval_datum->changed, "Curval not changed with same current IDs";
+
+    my $stringf = $curval_sheet->layout->column('string1')->field_name;
+    $content->cell_update($curval => [ "$stringf=Foo&current_id=1", "$stringf=Bar&current_id=2"]);
+    ok !$curval_datum->changed, "Curval not changed with same content";
+
+    $content->cell_update($curval => [ "$stringf=Foobar&current_id=1", "$stringf=Bar&current_id=2"]);
+    ok  $curval_datum->changed, "Curval changed with HTML update";
 }
 
-done_testing();
+done_testing;

@@ -19,11 +19,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::Enum;
 
 use Log::Report     'linkspace';
-use List::Util      qw(first);
+use List::Util      qw(first max);
+
 use Linkspace::Util qw(index_by_id);
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 extends 'Linkspace::Column';
 
 ###
@@ -57,180 +57,161 @@ sub remove_column($)
 
 #XXX enumvals configuration possible with array of words. map +{value => $_}
 
-sub sprefix        { 'value' }
-sub tjoin          { +{ $_[0]->field => 'value' } }
+sub sprefix  { 'value' }
+sub tjoin    { +{ $_[0]->field => 'value' } }
 sub value_field_as_index { 'id' }
 
-has enumvals => (
+#------------------
+=head2 METHODS: Enum
+
+Two tables: the C<Enumval> contains, per column, a set of options (strings
+in field C<value>).  The C<Enum> contains the enum datums (cell values).
+
+When an enum option is deleted, it does not get removed but flagged as 'deleted'.
+It may happen that (historical) cells still contain the value.  Sometimes, the
+<remove_unused_deleted()> will clean-up deleted enumvals which are not used in
+any cell anymore.
+
+=cut
+
+### 2020-09-01: columns in GADS::Schema::Result::Enum
+# id           value        child_unique layout_id    record_id
+
+### 2020-09-01: columns in GADS::Schema::Result::Enumval
+# id         value      deleted    layout_id  parent     position
+
+has _enumvals => (
     is      => 'lazy',
     builder => sub {
-        my $self = shift;
-        my $order = $self->ordering || '';
-        my $sort
-            = $order eq 'asc'  ? 'me.value'
-            : $order eq 'desc' ? { -desc => 'me.value' }
-            : ['me.position', 'me.id'];
-
-        my $enumvals = $::db->search(Enumval => {
-            layout_id    => $self->id,
-            deleted      => 0,
-        }, {
-            order_by     => $sort,
-            result_class => 'HASH',
-        });
-        [ $enumvals->all ];
+       index_by_id $::db->search(Enumval => { layout_id => $_[0]->id })->all;
     },
 );
 
-sub column_update_extra($)
+#! Returns HASHes
+sub enumvals(%)
+{   my ($self, %args) = @_;
+    my $order = $args{order} || $self->ordering || '';
+    my @vals  = values %{$self->_enumvals};
+    @vals     = grep ! $_->deleted, @vals unless $args{include_deleted};
+
+      $order eq 'asc'  ? [ sort { $a->value cmp $b->value } @vals ]
+    : $order eq 'desc' ? [ sort { $b->value cmp $a->value } @vals ]
+    :              [ sort { $a->position <=> $b->position } @vals ];
+}
+
+sub enumval($)
+{   my ($self, $id) = @_;
+    $id ? $self->_enumvals_index->{$id} : undef;
+}
+
+sub _column_extra_update($)
 {   my ($self, $extra) = @_;
+    $self->SUPER::_column_extra_update($extra);
 
     # Deal with submitted values straight from a HTML form. These will be
     # *all* submitted parameters, so we need to pull out only the relevant
     # ones.  We submit like this and not using a single array parameter to
     # ensure we keep the IDs intact.
-    my @enumvals_in = @{$values->{enumvals}};
-    my @enumval_ids = @{$values->{enumval_ids}};
+    my $names = delete $extra->{enumvals};
+    my $ids   = delete $extra->{enumval_ids} || delete $extra->{enumval_id} || [];
+    $names or return;
 
-    my @enumvals;
-    foreach my $v (@enumvals_in)
-    {   my $id = shift @enumval_ids;
-        push @enumvals, $id
-          ? +{ value => $v, id => $id }
-          : +{ value => $v };            # new
+    my $enumvals = $self->_enumvals;
+    my %missing  = map +($_ => 1), keys %$enumvals;
+    my $free_pos = max +(map $_->position, values %$enumvals), 0;
+
+    my @ids      = @$ids;
+    foreach my $name (@$names)
+    {   if(my $enum_id = shift @ids)
+        {   delete $missing{$enum_id};
+            my $rec = $enumvals->{$enum_id};
+            if($rec->value ne $name || $rec->deleted)
+            {   $::db->update(Enumval => $rec->id, { deleted => 0, value => $name });
+                info __x"column {col.path} rename enum option {from} to {to}",
+                    col => $self, from => $rec->value, to => $name;
+                $rec->deleted(0);
+                $rec->value($name);
+            }
+        }
+        else
+        {   my $r = $::db->create(Enumval => { value => $name, position => ++$free_pos});
+            info __x"column {col.path} add enum option {name}",
+               col => $self, name => $name;
+            $enumvals->{$r->id} = $::db->get_record(Enumval => $r->id);
+        }
     }
 
-    \@enumvals;
-)
+    foreach my $enum_id (keys %missing)
+    {   my $rec = $enumvals->{$enum_id};
+        $::db->update(Enumval => $rec->id, { deleted => 1 });
+        info __x"column {col.path} withdraw option {enum.value}",
+            col => $self, enum => $rec;
+        $rec->{deleted} = 1;
+    }
+
+#   $self->remove_unused_deleted;
+    $self;
+}
 
 sub id_as_string
 {   my ($self, $id) = @_;
-    $id or return '';
-    $self->enumval($id)->{value};
+    my $enum = $id ? $self->_enumvals->{$id} : undef;
+    $enum ? $enum->value : undef;
 }
-
-sub string_as_id
-{   my ($self, $value) = @_;
-    my @vals = $::db->search(Enumval => {
-        layout_id => $self->id,
-        deleted   => 0,
-        value     => $value,
-    })->all;
-
-    @vals < 2
-        or error __x"More than one value for {value} in field {name}",
-            value => $value, name => $self->name;
-
-    @vals
-        or error __x"Value {value} not found in field {name}",
-            value => $value, name => $self->name;
-
-    $vals[0];
-}
-
-# Indexed list of enumvals
-has _enumvals_index => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { index_by_id $_[0]->enumvals },
-);
-
-sub write_special
-{   my ($self, %options) = @_;
-
-    my $id           = $options{id};
-    my $rset         = $options{rset};
-    my $enum_mapping = $options{enum_mapping};
-
-    my $position;
-    foreach my $en (@{$self->enumvals})
-    {
-        my $value = $en->{value};
-        error __x"{value} is not a valid value for an item of a drop-down list",
-            value => ($value ? qq('$value') : 'A blank value')
-            unless $value =~ /^[ \S]+$/;
-        $position++;
-        if($en->{id})
-        {
-            my $enumval = $options{create_missing_id}
-              ? $::db->resultset('Enumval')->find_or_create({ id => $en->{id}, layout_id => $id })
-              : $::db->resultset('Enumval')->find($en->{id});
-            $enumval or error __x"Bad ID {id} for multiple select update", id => $en->{id};
-            $enumval->update({ value => $value, position => $en->{position} || $position });
-        }
-        else
-        {   my $new = $::db->create(Enumval => {
-                value     => $en->{value},
-                layout_id => $id,
-                position  => $en->{position} || $position,
-            });
-            $en->{id} = $new->id;
-        }
-
-        $enum_mapping->{$en->{source_id}} = $en->{id}
-            if $enum_mapping;
-    }
-
-    # Then delete any that no longer exist
-    $self->_delete_unused_nodes;
-    $rset->update({ ordering => $self->ordering });
-
-    return ();
-};
 
 sub _is_valid_value($)
 {   my ($self, $value) = @_;
-    defined $self->enumval($value)
-        or error __x"'{int}' is not a valid enum ID for '{col}'",
-             int => $value, col => $self->name;
-    $value;
+    if($value !~ /\D/)
+    {   $self->_enumvals->{$value}
+           or error __x"Enum ID {id} not a known for '{col.name}'", id => $value, col => $self;
+        return $value;
+    }
+
+    my $found = first { $_->value eq $value } values %{$self->_enumvals};
+    $found
+        or error __x"Enum name '{name}' not a known for '{col.name}'", name => $value, col => $self;
+
+    $found->id;
 }
 
-sub enumval
-{   my ($self, $id) = @_;
-    $id ? $self->_enumvals_index->{$id} : undef;
-}
-
+#XXX used?
 sub random
-{   my $self = shift;
-    my $hash = $self->_enumvals_index;
-    keys %$hash or return;
-    $hash->{(keys %$hash)[rand keys %$hash]}->{value};
+{   my $self  = shift;
+    my $vals  = $self->_enumvals;
+    my $count = keys %$vals or return;
+    $vals->{(keys %$vals)[rand $count]}->{value};
 }
 
-sub _enumvals_from_form
+=head2 $column->remove_unused_deleted;
+Deleted enums stay alive as long as they are still in use (in the history) of
+records.  Every once in a while, we recheck whether they are still needed.
+=cut
+
+sub remove_unused_deleted
 {   my $self = shift;
+    my $enumvals = $self->_enumvals;
 
-}
-
-sub _delete_unused_nodes
-{   my $self = shift;
-
-    my @all = $::db->search(Enumval => { layout_id => $self->id })->all;
-
-    foreach my $node (@all)
-    {
-        next if $node->deleted; # Already deleted
-        first { $node->id == $_->{id} } @{$self->enumvals})
-            or next;
-
-        my $count = $::db->search(Enum => {
+    foreach my $node (grep $_->deleted, values %$enumvals)
+    {   my $count = $::db->search(Enum => {
             layout_id => $self->id,
-            value     => $node->id
+            value     => $node->id,
         })->count; # In use somewhere
 
-        if($count)
-        {   $node->update({ deleted => 1 });
-        }
-        else
-        {   $node->delete;
-        }
+        next if $count;
+
+        info __x"column {col.path} removed unused option {enum.value}",
+            col => $self, enum => $node;
+
+        delete $enumvals->{$node->id};
+        $node->delete;
     }
 }
 
-sub resultset_for_values
+sub export_hash
 {   my $self = shift;
-    $::db->search(Enumval => { layout_id => $self->id, deleted => 0 });
+    my $h = $self->SUPER::export_hash(@_);
+    $h->{enumvals} = $self->enumvals;
+    $h;
 }
 
 sub additional_pdf_export
@@ -239,26 +220,24 @@ sub additional_pdf_export
     [ 'Select values', $enums ];
 }
 
-before import_hash => sub {
-    my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->id;
-    my @new = @{$values->{enumvals}};
-    my @to_write;
+
+sub _import_hash_extra($%)
+{   my ($class, $values, %options) = @_;
+    my $h = $class->SUPER::import_hash($values);
 
     # Sort by IDs so that the imported values have been created in the same
     # order as they were created in the source system. This means that if
     # further imports/exports are done, that it is possible to compare
     # better (as above) and work out what has been created and updated
-    @new = sort { $a->{id} <=> $b->{id} } @new;
+    my @new = sort { $a->{id} <=> $b->{id} } @{$values->{enumvals}};
 
     # We have no unqiue identifier with which to match, so we have to compare
     # the new and the old lists to try and work out what's changed. Simple
     # changes are handled automatically, more complicated ones will require
     # manual intervention
-    if (my @old = @{$self->enumvals})
+    my @to_write;
+    if(my @old = sort { $a->{id} <=> $b->{id} } @{$self->enumvals})
     {
-        @old = sort { $a->{id} <=> $b->{id} } @old;
-
         # First see if there are any changes at all
         my @old_sorted = sort map $_->{value}, @old;
         my @new_sorted = sort map $_->{value}, @new;
@@ -267,11 +246,10 @@ before import_hash => sub {
         # some older imports imported enumvals in a different order to the
         # source system (now fixed) so the import routines below don't function
         # as they expect enum values in a consistent order
-        if (@old_sorted eq @new_sorted)
+        if("@old_sorted" eq "@new_sorted")
         {
             foreach my $old (@old)
-            {
-                my $new = shift @new;
+            {   my $new = shift @new;
                 $old->{source_id} = $new->{id};
                 push @to_write, $old;
             }
@@ -302,7 +280,7 @@ before import_hash => sub {
                     $new->{id} = $old->{id};
                     push @to_write, $new;
                 }
-                elsif ($options{force})
+                elsif($options{force})
                 {
                     notice __x"Unknown enumval update {value}, forcing as requested", value => $new->{value};
                     $new->{source_id} = delete $new->{id};
@@ -310,18 +288,11 @@ before import_hash => sub {
                 }
                 else
                 {   # Different, don't know what to do, require manual intervention
-                    if ($report)
-                    {
-                        notice __x"Error: don't know how to handle enumval updates for {name}, manual intervention required. Old value: {old}, new value: {new}",
-                            name => $self->name, old => $old->{value}, new => $new->{value};
-                        return;
-                    }
-                    else
-                    {   error __x"Error: don't know how to handle enumval updates for {name}, manual intervention required",
-                            name => $self->name;
-                    }
+                    error __x"Error: don't know how to handle enumval updates for {name}, manual intervention required",
+                        name => $self->name;
                 }
             }
+
             # Add any remaining new ones
             $_->{source_id} = delete $_->{id} for @new;
             push @to_write, @new;
@@ -331,16 +302,12 @@ before import_hash => sub {
     {   $_->{source_id} = delete $_->{id} for @new;
         @to_write = @new;
     }
+
     $self->enumvals(\@to_write);
     $self->ordering($values->{ordering});
 };
 
-sub export_hash
-{   my $self = shift;
-    my $h = $self->SUPER::export_hash(@_);
-    $h->{enumvals} = $self->enumvals;
-    $h;
-}
+=cut
 
 sub import_value
 {   my ($self, $value) = @_;

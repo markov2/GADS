@@ -23,18 +23,25 @@ use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column::Curcommon';
 
+my @options = (
+    override_permissions => 0,
+);
+
 ###
 ### META
 ###
 
 INIT { __PACKAGE__->register_type }
 
-sub db_field_extra_export { [ qw/related_field/ ] }
+sub db_field_extra_export { [ qw/related_column_id/ ] }
 sub form_extras    { [ qw/related_field_id/ ], [ 'curval_field_ids' ] }
-sub option_names   { shift->SUPER::option_names(@_, qw/override_permissions/ ) }
-sub userinput      { 0 }
+sub option_defaults  { shift->SUPER::option_defaults(@_, @options) }
+sub is_userinput   { 0 }
 sub value_to_write { 0 }
 sub value_field    { 'id' }
+
+#XXX related_column names wrt refers_to_sheet
+#XXX curval_columns wrt curval_sheet
 
 ###
 ### Class

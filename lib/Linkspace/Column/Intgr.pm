@@ -26,7 +26,9 @@ use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column';
 
-my @option_names = qw/show_calculator/;
+my @options = (
+    show_calculator => 0,
+);
 
 ###
 ### META
@@ -37,7 +39,7 @@ __PACKAGE__->register_type;
 sub value_table  { 'Intgr' }
 sub addable      { 1 }
 sub return_type  { 'integer' }
-sub option_names { shift->SUPER::option_names(@_, @option_names) }
+sub option_defaults { shift->SUPER::option_defaults(@_, @options) }
 
 ###
 ### Class

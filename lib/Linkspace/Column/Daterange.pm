@@ -26,7 +26,9 @@ use DateTime;
 use Log::Report 'linkspace';
 use Linkspace::Util qw(iso2datetime);
 
-my @options_names = qw/show_datepicker/;
+my @options = (
+    show_datepicker => 0,
+);
 
 ###
 ### META
@@ -37,7 +39,7 @@ __PACKAGE__->register_type;
 sub addable        { 1 }
 sub can_multivalue { 1 }
 sub has_multivalue_plus { 1 }
-sub option_names   { shift->SUPER::option_names(@_, @option_names) }
+sub option_defaults  { shift->SUPER::option_defaults(@_, @options) }
 sub retrieve_fields{ [ qw/from to/ ] }
 sub return_type    { 'daterange' }
 sub sort_field     { 'from' }

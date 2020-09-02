@@ -29,6 +29,7 @@ use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
 use Linkspace::Column              ();
+use Linkspace::Column::Enum        ();
 use Linkspace::Column::Id          ();
 use Linkspace::Column::Intgr       ();
 
@@ -41,7 +42,6 @@ use Linkspace::Column::Curval      ();
 use Linkspace::Column::Date        ();
 use Linkspace::Column::Daterange   ();
 use Linkspace::Column::Deletedby   ();
-use Linkspace::Column::Enum        ();
 use Linkspace::Column::File        ();
 use Linkspace::Column::Person      ();
 use Linkspace::Column::Rag         ();
@@ -407,7 +407,7 @@ sub columns(@)
     [ map $self->column($_, @_), @$which ];
 }
 
-=head2 $layout->column_create(\%insert, %args)
+=head2 my $column = $layout->column_create(\%insert, %options)
 =cut
 
 sub column_create($%)
@@ -420,6 +420,22 @@ sub column_create($%)
     my $index = $self->_column_index;
     $index->{$column->id} = $column;
     $index->{$column->name_short} = $column;
+    $column;
+}
+
+=head2 my $column = $layout->column_update($column, \%update, %options);
+Change the content of a column.
+=cut
+
+sub column_update($%)
+{   my ($self, $column, $update, %args) = @_;
+    $column->_column_update($update, %args);
+
+    if(exists $update->{name_short})
+    {   $self->_column_index->{$column->name_short} = $column;
+        $self->sheet->document->publish_column($column);
+    }
+
     $column;
 }
 

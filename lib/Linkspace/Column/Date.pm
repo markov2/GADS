@@ -29,7 +29,10 @@ use MooX::Types::MooseLike::Base qw/:all/;
 
 extends 'Linkspace::Column';
 
-my @option_names = qw/show_datepicker default_today/;
+my @options = (
+   show_datepicker => 1,
+   default_today   => 0,
+);
 
 ###
 ### META
@@ -40,7 +43,7 @@ INIT { __PACKAGE__->register_type }
 sub addable        { 1 }
 sub can_multivalue { 1 }
 sub has_multivalue_plus { 0 }
-sub option_names   { shift->SUPER::option_names(@_, @option_names) }
+sub option_defaults { shift->SUPER::option_defaults(@_, @option) }
 sub return_type    { 'date' }
 
 ### only for dates
@@ -60,8 +63,8 @@ sub remove_column($)
 ### Instance
 ###
 
-has show_datepicker => ( is => 'ro', default => sub { 1 } );
-has default_today   => ( is => 'ro', default => sub { 0 } );
+sub show_datepicker { $_[0]->options->{show_datepicker} // 1 }
+sub default_today   { $_[0]->options->{default_today}   // 0 }
 
 sub _is_valid_value($%)
 {   my ($self, $date, %options) = @_;

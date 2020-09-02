@@ -36,13 +36,14 @@ foreach my $delete_not_used (0..1)
 
     # Add autocur and calc of autocur to curval sheet, to check that gets
     # updated on main sheet write
-    my $autocur = $curval_sheet->add_autocur(
-        refers_to_instance_id => 1,
-        related_field_id      => $columns->{curval1}->id,
-        curval_field_ids      => [$columns->{string1}->id],
+    my $autocur = $curval_sheet->add_autocur(  #XXX
+        refers_to_sheet   => $sheet,
+        related_column    => [ 'curval1 ' ],
+        curval_columns    => [ 'string1' ],
+        curval_sheet      => $sheet,
     );
-    my $calc = $curval_sheet->columns->{calc1};
-    $calc->code("
+
+    $curval_sheet->layout->column_update(calc1 => { code => <<'__CODE' });
         function evaluate (L2autocur1)
             return_value = ''
             for _, v in pairs(L2autocur1) do
@@ -50,19 +51,17 @@ foreach my $delete_not_used (0..1)
             end
             return return_value
         end
-    ");
-    $calc->write;
-    $layout->clear;
+__CODE
 
     # Calc from main sheet
     my $calcmain = $columns->{calc1};
 
     # Set up curval to be allow adding and removal
-    my $curval = $columns->{curval1};
-    $curval->delete_not_used($delete_not_used);
-    $curval->show_add(1);
-    $curval->value_selector('noshow');
-    $curval->write(no_alerts => 1);
+    $layout->column_update(curval1 => {
+        delete_not_used => $delete_not_used,
+        show_add        => 1,
+        value_selector  => 'noshow',
+    });
 
     my $record = GADS::Record->new(
         user   => $sheet->user_normal1,

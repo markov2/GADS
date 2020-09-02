@@ -3,19 +3,19 @@
 
 use Linkspace::Test;
 
+plan skip_all => "Needs make_sheet(fill_rows)";
+
 my $site1  = test_site;
 my $sheet1 = test_sheet
-    fill_rows        => 2,
-#   with_columns     => 1,
-    current_ids_from => 1;
+    fill_rows        => 2;
 
 is $sheet1->site, $site1, 'Sheet1 created in site1';
 
 my $site2  = make_site '2';
 
 my $sheet2 = make_sheet '2',
+    site             => $site2,
     fill_rows        => 2,
-    site             => $site2,  # with_columns => 1,
     current_ids_from => 3;
 
 is $sheet2->site, $site2, 'Sheet2 created in site2';
@@ -34,10 +34,10 @@ is "@current_ids", "1 2", "Current IDs correct for site 1";
 my $site2b  = Linkspace::Site->from_id($site2->id);
 cmp_ok @{$site2b->all_sheets}, '==', 1, 'no leak sheets';
 
-is $site1->content->find_current_id(1),
+is $sheet1->content->row(1),
    "Retrieved row from same site (1)";
 
-ok ! defined $site1->content->find_current_id(3),
+ok ! defined $sheet1->content->row(3),
    "Cannot retrieve to from other site (2)";
 
 is $site2->content->count, 2, "Correct number of records in site 2";
@@ -46,10 +46,10 @@ my @current_ids2 = map $_->current_id, @{$site2->content->rows};
 is "@current_ids2", "3 4", "Current IDs correct for site 2";
 
 # Try and access record from site 1
-ok defined $site2->content->find_current_id(3),
+ok defined $sheet2->content->row(3),
    "Retrieved tow from same site (2)";
 
-ok ! defined $site2->content->find_current_id(1),
+ok ! defined $sheet2->content->row(1),
    "Cannot retrieve row from other site (1)";
 
 ### Try and access columns between layouts

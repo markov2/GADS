@@ -22,7 +22,7 @@ my $sheet1 = $doc->sheet_create({
     name_short => 'first',
 });
 ok defined $sheet1, 'Create my first sheet, id='.$sheet1->id;
-my $sheet1_id = $sheet->id;
+my $sheet1_id = $sheet1->id;
 
 my $path = $site->path . '/first';
 isa_ok $sheet1, 'Linkspace::Sheet', '...';
