@@ -91,19 +91,19 @@ my $column2 = $sheet->layout->column_create({
 logline;
 
 my @test_cases2 = (
-    [1, 'normal number',                        '18',            '18'                                                     ],
-    [0, 'invalid number',                       'abc',           '\'abc\' is not a valid ID'],
-    [0, 'negative number',                      '-123',          '\'-123\' is not a valid ID'],
-    [0, 'postive number',                       '+234',          '\'+234\' is not a valid ID'],
-    [0, 'empty string',                         '',              '\'\' is not a valid ID'],
-    [1, 'leading space',                        ' 5',            '5'                                                      ],
-    [1, 'trailing space',                       '6 ',            '6'                                                      ],
-    [1, 'multiple leading and trailing spaces', '  78  ',        '78'                                                     ],
-    [0, 'number containing a space',            '67 89',         '\'67 89\' is not a valid ID'],
-    [1, 'optional value',                       undef,           []                                                       ],
-    [1, 'multivalue',                           [1, 2],          [1,2]                                                    ],
-    [0, 'invalid number in multivalue',         [12, 34, 'abc'], '\'abc\' is not a valid ID'],
-    [1, 'undefined number in multivalue',       [56, undef,79],  [56, 79]                                                 ],
+    [1, 'normal number',                        '18',            '18'                             ],
+    [0, 'invalid number',                       'abc',           '\'abc\' is not a valid SERIAL'  ],
+    [0, 'negative number',                      '-123',          '\'-123\' is not a valid SERIAL' ],
+    [0, 'postive number',                       '+234',          '\'+234\' is not a valid SERIAL' ],
+    [0, 'empty string',                         '',              '\'\' is not a valid SERIAL'     ],
+    [1, 'leading space',                        ' 5',            '5'                              ],
+    [1, 'trailing space',                       '6 ',            '6'                              ],
+    [1, 'multiple leading and trailing spaces', '  78  ',        '78'                             ],
+    [0, 'number containing a space',            '67 89',         '\'67 89\' is not a valid SERIAL'],
+    [1, 'optional value',                       undef,           []                               ],
+    [1, 'multivalue',                           [1, 2],          [1,2]                            ],
+    [0, 'invalid number in multivalue',         [12, 34, 'abc'], '\'abc\' is not a valid SERIAL'  ],
+    [1, 'undefined number in multivalue',       [56, undef,79],  [56, 79]                         ],
     );
 
 process_test_cases($column2, @test_cases2);
