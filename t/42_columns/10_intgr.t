@@ -1,4 +1,4 @@
-# Check the Integer column type
+# Check the Intgr column type
 
 use Linkspace::Test;
 
@@ -52,10 +52,11 @@ sub process_test_cases {
     my ($column,@test_cases) = @_;
     my $name=$column->name_short;
     foreach my $test_case (@test_cases) {
-        my ($expected_valid,$case_description, $col_serial_value, $expected_value) = @$test_case;
-        my $col_serial_value_s = $col_serial_value // '<undef>';
+        my ($expected_valid,$case_description, $col_intgr_value, $expected_value) = @$test_case;
+        my $col_intgr_value_s = $col_intgr_value // '<undef>';
         my $result_value;
-        ok $expected_valid == is_valid_value_test($column, $col_serial_value,\$result_value), "... $name validate  $case_description";
+        ok $expected_valid == is_valid_value_test($column, $col_intgr_value,\$result_value),
+            "... $name validate  $case_description";
         is_deeply $result_value , $expected_value, "... $name value for $case_description";
     }
 }
@@ -68,7 +69,7 @@ my @test_cases1 = (
     [0, 'empty string',                         '',       '\'\' is not a valid integer for \'column1 (long)\''],
     [1, 'leading space',                        ' 5',     '5'                                             ],
     [1, 'trailing space',                       '6 ',     '6'                                             ],
-    [1, 'multiple leading and trailing spaces', '  78  ', '78'                                            ],                      
+    [1, 'multiple leading and trailing spaces', '  78  ', '78'                                            ],
     [0, 'number containing a space',            '67 89',  '\'67 89\' is not a valid integer for \'column1 (long)\''],
     [0, 'optional value',                       undef,    'Column \'column1 (long)\' requires a value.'   ],
     [0, 'multivalue',                           [1,2],    'Column \'column1 (long)\' is not a multivalue.'],
@@ -102,7 +103,7 @@ my @test_cases2 = (
     [1, 'optional value',                       undef,           []                                                       ],
     [1, 'multivalue',                           [1, 2],          [1,2]                                                    ],
     [0, 'invalid number in multivalue',         [12, 34, 'abc'], '\'abc\' is not a valid integer for \'column2 (long)\''  ],
-    [1, 'undefined number in multivalue',       [56, undef,79],  [56, 79]                                                 ],  
+    [1, 'undefined number in multivalue',       [56, undef,79],  [56, 79]                                                 ],
     );
 
 process_test_cases($column2, @test_cases2);
