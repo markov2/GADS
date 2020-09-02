@@ -43,7 +43,7 @@ sub value_field  { 'id' }
 sub _is_valid_value
 {   my ($self, $value) = @_;
     return $1 if $value =~ /^\s*([0-9]+)\s*$/ && $1 != 0;
-    error __x"'{int}' is not a valid ID", id => $value;
+    error __x"'{id}' is not a valid ID", id => $value;
 }
 
 sub sprefix      { 'current' }
