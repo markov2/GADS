@@ -25,6 +25,17 @@ use MooX::Types::MooseLike::Base qw/:all/;
 
 extends 'Linkspace::Column';
 
+#-------------- Helper tables
+# This column type uses two tables: File and FileOption configure the
+# column type.
+# The Fileval table stores the datums.
+#
+### 2020-09-03: columns in GADS::Schema::Result::File
+# id           value        child_unique layout_id    record_id
+#
+### 2020-09-03: columns in GADS::Schema::Result::FileOption
+# id         filesize   layout_id
+
 ###
 ### META
 ###
@@ -34,6 +45,7 @@ INIT { __PACKAGE__->register_type }
 sub can_multivalue  { 1 }
 sub retrieve_fields { [ qw/name mimetype id/ ] }
 sub form_extras     { [ 'filesize' ], [] }
+sub value_field     { 'name' }
 
 ###
 ### Class
@@ -53,25 +65,19 @@ sub sprefix { 'value' }
 sub tjoin   { +{ $_[0]->field => 'value' } }
 sub string_storage { 1 }
 
+has _fileoption => (
+    is      => 'rw',
+    lazy    => 1,
+    builder => sub { $::db->get_record(FileOption => { layout_id => $_[0]->id } },
+);
+
+sub max_filesize { $_[0]->_fileoption->{filesize} }
+
 # Convert based on whether ID or name provided
 sub value_field_as_index
 {   my ($self, $value) = @_;
-    !$value || $value =~ /^[0-9]+$/ ? 'id' : $self->value_field
+    !$value || $value =~ /^[0-9]+$/ ? 'id' : $self->value_field;
 }
-
-has filesize => (
-    is      => 'rw',
-    isa     => Maybe[Int],
-);
-
-after build_values => sub {
-    my ($self, $original) = @_;
-
-    $self->value_field('name');
-    if(my $file_option = $original->{file_options}->[0])
-    {   $self->filesize($file_option->{filesize});
-    }
-};
 
 sub _is_valid_value($)
 {   my ($self, $value) = @_;
@@ -86,28 +92,24 @@ sub _is_valid_value($)
     $file_id;
 }
 
-sub _collect_form_extra
-{   my ($class, $params) = @_;
-    my $extra = $class->SUPER::_collect_form_extra($params);
-    $extra->{filesize} = $params->{filesize};
-    $extra;
+sub _column_extra_update($)
+{   my ($self, %update) = @_;
+    if(defined(my $filesize = $update->{filesize}))
+    {    my $data = { filesize => $filesize };
+         my $reload_id;
+         if(my $opt = $self->_fileoption)
+         {   $file_option->update($data);
+             $reload_id = $opt->id;
+         }
+         else
+         {   $data{layout_id} = $self->id;
+             my $result = $::db->create(FileOption => \%data);
+             $reload_id = $result->id;
+         }
+         $self->_fileoption($::db->get_record(FileOption => $reload_id));
+    }
+    $self;
 }
-
-sub write_special
-{   my ($self, %options) = @_;
-    my $id   = $options{id};
-    my %data = (filesize => $self->filesize);
-    
-    if(my $file_option = $::db->get_record(FileOption => { layout_id => $id }))
-    {   $file_option->update(\%data);
-    }
-    else
-    {   $data{layout_id} = $id;
-        $::db->create(FileOption => \%data);
-    }
-
-    return ();
-};
 
 sub resultset_for_values
 {   my $self = shift;
@@ -118,18 +120,6 @@ sub resultset_for_values
         group_by => 'me.name',
     });
 }
-
-before import_hash => sub {
-    my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->id;
-    my $old_size = $self->filesize;
-    my $new_size = $value->{filesize};
-
-    notice __x"Update: filesize from {old} to {new}", old => $old_size, new => $new_size
-        if $report && ($old_size // -1) != ($new_size // -1);
-
-    $self->filesize($new_size);
-};
 
 sub export_hash
 {   my $self = shift;

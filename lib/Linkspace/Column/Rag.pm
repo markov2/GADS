@@ -24,6 +24,16 @@ with 'Linkspace::Role::Presentation::Column::Rag';
 
 use Log::Report 'linkspace';
 
+#----------- Helper tables
+# The Rag table configures the column type.  The Ragval table contains
+# the datums.
+#
+### 2020-09-03: columns in GADS::Schema::Result::Rag
+# id         amber      code       green      layout_id  red
+#
+### 2020-09-03: columns in GADS::Schema::Result::Ragval
+# id         value      layout_id  record_id
+
 my @filter_values = (
     [ b_red    => 'Red'    ],
     [ c_amber  => 'Amber'  ],
@@ -63,45 +73,38 @@ sub remove_column($)
 ### Instance
 ###
 
-sub _build__rset_code
-{   my $self = shift;
-    $self->_rset or return;
-    my ($code) = $self->_rset->rags;
+has _rag => (
+    is      => 'rw',
+    lazy    => 1,
+    builder => sub { $::db->get_record(Rag => { layout_id => $_[0]->id }) },
+);
+sub amber { panic 'Legacy' }
+sub green { panic 'Legacy' }
+sub code  { $_[0]->_rag->code }
 
-    $code || $::db->resultset('Rag')->new({});
+sub _column_extra_update($)
+{   my ($self, $update) = @_;
+    my $code = delete $update->{code} || delete $update->{code_rag};
+    defined $code or return;
+
+    my %data = (code => $code);
+    my $reload_id;
+    if(my $old = $self->_rag)
+    {   $::db->update(Rag => $old->id, \%data);
+        $reload_id = $old->id;
+    }
+    else
+    {   $data->{layout_id} = $self->id
+        my $result = $::db->create(Rag => \%data);
+        $reload_id = $result->id;
+    }
+    $self->_rag($::db->get_record(Rag => $reload_id));
 }
 
 sub id_as_string
 {   my ($self, $id) = @_;
     $id or return '';
-    $rag_id2string{$id} or panic("Unknown RAG ID $id");
-}
-
-# Returns whether an update is needed
-sub write_code
-{   my ($self, $layout_id) = @_;
-    my $rset = $self->_rset_code;
-    my $need_update = !$rset->in_storage
-        || $self->_rset_code->code ne $self->code;
-    $rset->layout_id($layout_id);
-    $rset->code($self->code);
-    $rset->insert_or_update;
-    $need_update;
-}
-
-before import_hash => sub {
-    my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->id;
-    notice __x"Update: RAG code has changed for {name}", name => $self->name
-        if $report && $self->code ne $values->{code};
-    $self->code($values->{code});
-};
-
-sub export_hash
-{   my $self = shift;
-    my $h = $self->SUPER::export_hash(@_);
-    $h->{code} = $self->code;
-    $h;
+    $rag_id2string{$id} or panic "Unknown RAG ID $id";
 }
 
 1;

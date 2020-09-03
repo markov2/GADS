@@ -42,9 +42,27 @@ with 'GADS::RecordsJoin', 'GADS::Role::Presentation::Records';
 Linkspace::Sheet::Content - maintain the data, part of a sheet
 
 =head1 SYNOPSIS
+
+  my $content = $sheet->content;
+  my $content = $sheet->content(rewind => $date);
+
 =head1 DESCRIPTION
 =head1 METHODS: Constructors
+=cut
 
+#----------------
+=head1 METHODS: Attributes
+
+=head2 my $date = $content->rewind;
+When set, use the row revisions which where the latest at the indicated
+date.  It gives an idea about the sheet data at a certain moment in time,
+however it does not show the structural changes (like linked and parent
+rows) in the table.
+=cut
+
+has rewind => ( is => 'ro' );
+
+#----------------
 =head1 METHODS: Maintaining pages
 
 =head2 my $count = $content->nr_pages;
@@ -2340,7 +2358,12 @@ sub rows_restore($)
     $_->row_restore($_) for $self->rows($current_ids, is_deleted => 1);
 }
 
-sub row_count() { ... }
+sub row_count() { $_[0]->max_serial }
+
+sub max_serial
+{   $::db->search(Current => { instance_id => $self->sheet_id })
+        ->get_column('serial')->max;
+}
 
 #--------------------------
 =head1 METHODS: Single rows
@@ -2352,6 +2375,8 @@ sub row_create($%)
 {   my ($self, $insert, %args) = @_;
     $insert->{created}    ||= DateTime->now;
     $insert->{created_by} ||= $::session->user;
+    $insert->{serial}     ||= $self->max_serial +1;
+    my $row = Linkspace::Row->_row_create($insert, content => $self);
 
     #XXX cells = [ $name|$col_id|$col => $value ]
 }
@@ -2375,6 +2400,23 @@ sub draft_create($%)
     $insert->{is_draft} = 1;
 
     $self->row_create($insert, %args) = @_;
+}
+
+#--------------------------
+=head1 METHODS: Approval rows
+
+=head2 $content->wants_approval;
+Returns true when there is any row revision which waits for approval in this
+sheet.  This is a fast first check before deeper inspection.
+=cut
+
+sub wants_approval()
+{   my $self = shift;
+    $::db->search(Current => {
+        instance_id        => $self->sheet->id,
+        "records.approval" => 1,
+    }, { join => 'records',
+    })->count;
 }
 
 1;

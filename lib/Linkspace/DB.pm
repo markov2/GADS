@@ -117,6 +117,7 @@ sub get_record($$@)
     $self->resultset($table)->single($which);
 }
 
+
 =head2 my $result = $db->create($table, \%data);
 Create a record in the C<$table>, containing C<%data>.
 =cut

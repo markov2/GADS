@@ -242,7 +242,7 @@ sub _build__tree
       };
 }
 
-sub json
+sub to_hash
 {   my ($self, @selected) = @_;
 
     my %selected = map +($_ => 1), @selected;
@@ -558,18 +558,10 @@ sub import_after_write
     $self->update(\@to_write, %options);
 }
 
-before import_hash => sub {
-    my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->id;
-    notice __x"Update: end_node_only from {old} to {new}", old => $self->end_node_only, new => $values->{end_node_only}
-        if $report && $self->end_node_only != $values->{end_node_only};
-    $self->end_node_only($values->{end_node_only});
-};
-
 sub export_hash
 {   my $self = shift;
     my $h = $self->SUPER::export_hash(@_);
-    $h->{tree} => $self->json; # Not actually JSON
+    $h->{tree} = $self->to_hash;
     $h;
 }
 

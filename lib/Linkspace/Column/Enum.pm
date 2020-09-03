@@ -26,6 +26,16 @@ use Linkspace::Util qw(index_by_id);
 use Moo;
 extends 'Linkspace::Column';
 
+#------------- Helper tables
+# Enumval is used to define the enum options: the value is a name.  The Enum
+# table contains the Enum datums.
+#
+### 2020-09-01: columns in GADS::Schema::Result::Enum
+# id           value        child_unique layout_id    record_id
+#
+### 2020-09-01: columns in GADS::Schema::Result::Enumval
+# id         value      deleted    layout_id  parent     position
+
 ###
 ### META
 ###
@@ -53,10 +63,6 @@ sub remove_column($)
 ### Instance
 ###
 
-#XXX at assignment, /\D/ must translate names into numval ids
-
-#XXX enumvals configuration possible with array of words. map +{value => $_}
-
 sub sprefix  { 'value' }
 sub tjoin    { +{ $_[0]->field => 'value' } }
 sub value_field_as_index { 'id' }
@@ -73,12 +79,6 @@ It may happen that (historical) cells still contain the value.  Sometimes, the
 any cell anymore.
 
 =cut
-
-### 2020-09-01: columns in GADS::Schema::Result::Enum
-# id           value        child_unique layout_id    record_id
-
-### 2020-09-01: columns in GADS::Schema::Result::Enumval
-# id         value      deleted    layout_id  parent     position
 
 has _enumvals => (
     is      => 'lazy',
@@ -102,6 +102,11 @@ sub enumvals(%)
 sub enumval($)
 {   my ($self, $id) = @_;
     $id ? $self->_enumvals_index->{$id} : undef;
+}
+
+sub enumvals_string(%)
+{   my $self = shift;
+    join ', ', map $_->value, @{$self->enumvals(@_)};
 }
 
 sub _column_extra_update($)
@@ -144,8 +149,7 @@ sub _column_extra_update($)
     foreach my $enum_id (keys %missing)
     {   my $rec = $enumvals->{$enum_id};
         $::db->update(Enumval => $rec->id, { deleted => 1 });
-        info __x"column {col.path} withdraw option {enum.value}",
-            col => $self, enum => $rec;
+        info __x"column {col.path} withdraw option {enum.value}", col => $self, enum => $rec;
         $rec->{deleted} = 1;
     }
 
@@ -215,15 +219,12 @@ sub export_hash
 }
 
 sub additional_pdf_export
-{   my $self = shift;
-    my $enums = join ', ', map $_->{value}, @{$self->enumvals};
-    [ 'Select values', $enums ];
+{   [ 'Select values', $_[0]->enumvals_string(order => 'position') ];
 }
 
-
 sub _import_hash_extra($%)
-{   my ($class, $values, %options) = @_;
-    my $h = $class->SUPER::import_hash($values);
+{   my ($self, $values, %options) = @_;
+    my $h = $self->SUPER::_import_hash_extra($values, %options);
 
     # Sort by IDs so that the imported values have been created in the same
     # order as they were created in the source system. This means that if
@@ -262,8 +263,7 @@ sub _import_hash_extra($%)
                 # If it's the same, easy, onto the next one
                 if ($old->{value} eq $new->{value})
                 {
-                    trace __x"No change for enum value {value}", value => $old->{value}
-                        if $report;
+                    trace __x"No change for enum value {value}", value => $old->{value};
                     $new->{source_id} = $new->{id};
                     $new->{id} = $old->{id};
                     push @to_write, $new;
@@ -274,8 +274,7 @@ sub _import_hash_extra($%)
                 if ($old[0] && $new[0] && $old[0]->{value} eq $new[0]->{value})
                 {
                     # Yes, assume the previous is a value change
-                    notice __x"Changing enum value {old} to {new}", old => $old->{value}, new => $new->{value}
-                        if $report;
+                    notice __x"Changing enum value {old} to {new}", old => $old->{value}, new => $new->{value};
                     $new->{source_id} = $new->{id};
                     $new->{id} = $old->{id};
                     push @to_write, $new;
@@ -307,8 +306,6 @@ sub _import_hash_extra($%)
     $self->ordering($values->{ordering});
 };
 
-=cut
-
 sub import_value
 {   my ($self, $value) = @_;
 
@@ -321,4 +318,3 @@ sub import_value
 }
 
 1;
-

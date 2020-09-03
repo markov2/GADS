@@ -62,23 +62,6 @@ possible.  A db-search on records is preferred over processing all records.
 #---------------
 =head1 METHODS: Approval
 
-=head2 $page->wants_approval;
-Returns a true value when any row of the sheet needs approval.
-=cut
-
-has wants_approval => (
-    is      => 'lazy',
-    builder => sub
-    {   $::db->search(Current => {
-            instance_id        => $self->sheet->id,
-            "records.approval" => 1,
-        },{
-            join => 'records',
-            rows => 1,
-        })->next;
-    }
-);
-
 =head2 \%info = $page->requires_approval($user?);
 Returns a HASH which hash row_ids as key and some details as value, for each of
 the rows where the C<$user> can
@@ -186,51 +169,6 @@ sub _create_approval_info($)
     }
 
     \%records;
-}
-
-sub row_current($@)
-{   my ($self, $which) = (shift, shift);
-    blessed $which ? $which : $self->from_id($which, @_);
-}
-
-sub row_delete
-{   my ($self, $which) = @_;
-    my $current = $self->row_current($which);
-
-    $current->update({
-        deleted   => DateTime->now,
-        deletedby => $::session->user->id,
-    });
-}
-
-# returns current_ids
-sub child_ids($)
-{   my ($self, $row) = @_;
-    return [] if $row->has_parent;   # no multilevel parental relations
-
-    my $children = $self->search_records({
-        parent_id         => $row->current_id,
-        'me.deleted'      => undef,
-        'me.draftuser_id' => undef,
-    });
-
-    [ $children->get_column('id')->all ];
-}
-
-sub max_serial()
-{   $self->search(Current => { instance_id => $sheet->id })
-        ->get_column('serial')->max;
-}
-
-sub row_create($)
-{   my ($self, $insert) = @_;
-    $insert->{sheet} = $self->sheet;
-
-    my $guard  = $::db->begin_work;
-    $insert->{serial} = $self->max_serial + 1;
-    my $current_id = $self->create($insert, sheet => $self->sheet);
-
-    $guard->commit;
 }
 
 1;

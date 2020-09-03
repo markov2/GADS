@@ -24,8 +24,11 @@ use MooX::Types::MooseLike::Base qw/:all/;
 use namespace::clean;
 
 extends 'GADS::Datum';
-
 with 'GADS::Role::Presentation::Datum::File';
+
+### 2020-09-03: columns in GADS::Schema::Result::Fileval
+# id             content        is_independent
+# name           edit_user_id   mimetype
 
 after set_value => sub {
     my ($self, $value) = @_;

@@ -55,17 +55,6 @@ sub resultset_for_values
     $::db->search(String => { layout_id => $self->id }, { group_by => 'me.value' });
 }
 
-before import_hash => sub {
-    my ($self, $values, %options) = @_;
-    my $is_textbox = $values->{is_textbox};
-    notice __x"Update: textbox from {old} to {new}", old => $self->is_textbox, new => $is_textbox
-        if $self->is_textbox != $is_textbox;
-
-    my $force_regex = $values->{force_regex} // '';
-    notice __x"Update: force_regex from {old} to {new}", old => $self->force_regex, new => $force_regex
-        if +($self->force_regex || '') ne $force_regex;
-};
-
 sub import_value
 {   my ($self, $value) = @_;
 

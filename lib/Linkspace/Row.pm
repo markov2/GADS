@@ -40,15 +40,13 @@ of them.
 
 =cut
 
-#XXX no idea what 'serial' represents
-sub from_serial($%)
+sub row_by_serial($%)
 {   my ($class, $serial) = (shift, shift);
     defined $serial ? $self->from_search({serial => $serial}) : undef;
 }
 
 sub _row_create($%)
 {   my ($self, $insert, %args) = @_;
-    $insert->{created} = DateTime->now;
     $self->insert($insert, content => $args{content});
 }
 
@@ -62,7 +60,10 @@ sub _row_update()
 
 sub _row_delete()
 {   my ($self) = @_;
-    $self->update({ deleted => DateTime->now });
+    $self->update({
+        deleted    => DateTime->now,
+        deleted_by => $::session->user,
+    });
 }
 
 # Delete the record entirely from the database, plus its parent current (entire
@@ -113,21 +114,32 @@ sub purge
 =head1 METHODS: Accessors
 =cut
 
-sub content { $_[0]->sheet->content }
+has content => (
+    is       => 'ro'
+    required => 1,
+);
 
-#XXX MO: No idea yet what being "linking" means.
+sub sheet { $_[0]->content->sheet }
+
+#XXX MO: No idea yet what being "linked" means.
 
 sub linked_to_row
 {   my $self = shift;
     $self->{_linked_to} ||= $self->content->row($self->linked_row_id);
 }
 
-has deleted_by => (
-    is      => 'lazy',
-    builder => sub { $_[0]->site->users->user($_[0]->deleted_by_id) },
-);
+sub deleted_by
+{   my $self = shift;
+    my $user_id = $self->deleted_by_id or return;
+    $self->site->users->user($user_id);
+}
 
-sub deleted_when { $::db->parse_datetime($_[0])->deleted }
+sub deleted_when
+{   my $date = shift->deleted or return;
+    $::db->parse_datetime($date);
+}
+
+sub is_deleted   { !! $self->deleted }   # deleted is a date
 
 #-----------------
 =head1 METHODS: Manage row revisions
@@ -146,10 +158,32 @@ sub revision($%)
 =cut
 
 sub revision_create($%)
-{   my ($self, $insert) = @_;
+{   my ($self, $insert) = (shift, shift);
     $insert->{current} = $row;
     Linkspace::Row::Revision->_revision_create($insert, @_, row => $self);
 }
+
+=head2 my $revision = $row->current;
+Get the latest revision of the row: the non-draft with the highest id.
+=cut
+
+has current = (
+     is      => 'rw',
+     lazy    => 1,
+     builder => sub
+     {   my $self = shift;
+         Linkspace::Row::Revision->_revision_latest($self,
+             created_before => $self->content->rewind,
+         );
+     },
+);
+
+=head2 $row->set_current($revision);
+Make the C<$revision> the new latest version.
+=cut
+
+#XXX more work expected
+sub set_current($) { $_[0]->current($_[0]) }
 
 #-----------------
 =head1 METHODS: Parent/Child relation
@@ -164,11 +198,32 @@ sub parent_row
 
 sub has_parent_row { !! $_[0]->parent_row_id }
 
-sub childs()...;
+sub child_rows()
+{   my $self = shift;
+    return [] if $self->parent_row_id;  # no multilevel parental relations
 
+    $self->search_objects({
+        parent_row   => $self,
+        deleted      => undef,
+        draftuser_id => undef,
+    });
+}
+
+
+#---------------------
 =head1 METHODS: Draft row
 =cut
 
 sub is_draft { !! $_[0]->draftuser_id }
+
+#---------------------
+=head1 METHODS: Approvals
+
+=head2 
+=cut
+
+
+
+1;
 
 1;

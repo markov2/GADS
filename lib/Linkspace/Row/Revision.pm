@@ -55,6 +55,7 @@ sub db_fields_unused { [ qw/record_id/ ] }}}
 =head1 NAME
 
 Linkspace::Row::Revision - manage a row in the data of a sheet
+
 =head1 DESCRIPTION
 A row can be in C<draft>, which means that it does not yet belong to the sheet
 because it is incomplete.
@@ -70,6 +71,20 @@ sub _revision_create($%)
     $insert->{created_by} ||= $::session->user unless $insert->{created_by_id};
     $insert->{created}    ||= DateTime->new;
     $self->insert($insert, @_, row => $insert->{current});
+}
+
+sub _revision_latest($%)
+{   my ($class, $row, %args) = @_;
+
+    my %search = { current => $row, draftuser_id => undef };
+    if(my $before = $args{created_before})
+    {   $search{created} = { '<=', $rewind };
+    }
+
+    my $latest_id = $self->resultset({ current => $row, draftuser_id => undef })
+        ->get_column('created')->max;
+
+    $self->from_id($latest_id, row => $row, %args);
 }
 
 has row => (
@@ -154,10 +169,11 @@ has rewind => (
     is  => 'ro',
 );
 
-has is_historic => (
-    is      => 'lazy',
-    isa     => Bool,
-);
+=head2 $rev->is_historic;
+Returns true when this revision is not the current revision of the row.
+=cut
+
+sub is_historic { $_[0]->row->current->id != $_[0]->id }
 
 sub _build_approval_of_new
 {   my $self = shift;
