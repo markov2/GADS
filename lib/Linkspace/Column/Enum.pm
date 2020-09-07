@@ -21,7 +21,7 @@ package Linkspace::Column::Enum;
 use Log::Report     'linkspace';
 use List::Util      qw(first max);
 
-use Linkspace::Util qw(index_by_id);
+use Linkspace::Util qw(index_by_id normalize_string);
 
 use Moo;
 extends 'Linkspace::Column';
@@ -123,24 +123,27 @@ sub _column_extra_update($)
 
     my $enumvals = $self->_enumvals;
     my %missing  = map +($_ => 1), keys %$enumvals;
-    my $free_pos = max +(map $_->position, values %$enumvals), 0;
+    my $position = 0;
 
     my @ids      = @$ids;
-    foreach my $name (@$names)
-    {   if(my $enum_id = shift @ids)
+    foreach my $name (map normalize_string($_), @$names)
+    {   $position++;
+        if(my $enum_id = shift @ids)
         {   delete $missing{$enum_id};
             my $rec = $enumvals->{$enum_id};
-            if($rec->value ne $name || $rec->deleted)
-            {   $::db->update(Enumval => $rec->id, { deleted => 0, value => $name });
-                info __x"column {col.path} rename enum option {from} to {to}",
+            if($rec->value ne $name || $rec->position != $position || $rec->deleted)
+            {   $::db->update(Enumval => $rec->id, {
+                    deleted => 0, value => $name, position => $position });
+                info __x"column {col.path} rename enum option '{from}' to '{to}'",
                     col => $self, from => $rec->value, to => $name;
+                $rec->position($position);
                 $rec->deleted(0);
                 $rec->value($name);
             }
         }
         else
-        {   my $r = $::db->create(Enumval => { value => $name, position => ++$free_pos});
-            info __x"column {col.path} add enum option {name}",
+        {   my $r = $::db->create(Enumval => { value => $name, position => $position});
+            info __x"column {col.path} add enum option '{name}'",
                col => $self, name => $name;
             $enumvals->{$r->id} = $::db->get_record(Enumval => $r->id);
         }
@@ -149,7 +152,7 @@ sub _column_extra_update($)
     foreach my $enum_id (keys %missing)
     {   my $rec = $enumvals->{$enum_id};
         $::db->update(Enumval => $rec->id, { deleted => 1 });
-        info __x"column {col.path} withdraw option {enum.value}", col => $self, enum => $rec;
+        info __x"column {col.path} withdraw option '{enum.value}'", col => $self, enum => $rec;
         $rec->{deleted} = 1;
     }
 
