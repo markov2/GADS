@@ -51,7 +51,7 @@ sub value_field  { 'serial' }
 sub _is_valid_value
 {   my ($self, $value) = @_;
     return $1 if $value =~ /^\s*([0-9]+)\s*$/ && $1 != 0;
-    error __x"'{serial}' is not a valid ID", serial => $value;
+    error __x"'{serial}' is not a valid Serial", serial => $value;
 }
 
 sub sprefix     { 'current' }
