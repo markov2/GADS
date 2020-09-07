@@ -153,7 +153,7 @@ sub _column_extra_update($)
     {   my $rec = $enumvals->{$enum_id};
         $::db->update(Enumval => $rec->id, { deleted => 1 });
         info __x"column {col.path} withdraw option '{enum.value}'", col => $self, enum => $rec;
-        $rec->{deleted} = 1;
+        $rec->deleted(1);
     }
 
 #   $self->remove_unused_deleted;
