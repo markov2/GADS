@@ -30,6 +30,7 @@ our @EXPORT_OK = qw/
     is_valid_id
     list_diff
     make_wordlist
+    normalize_string
     parse_duration
     scan_for_plugins
     to_id
@@ -214,6 +215,15 @@ sub make_wordlist(@)
 
     my $final = pop @words;
     join(', ', @words) . " and $final";
+}
+
+=head2 my $string = normalize_string $input;
+Clean-up the C<$input> to become a clean string, like removing blanks from the
+beginning and the end.
+=cut
+
+sub normalize_string($)
+{   $_[0] =~ s/\xA0/ /gr =~ s/\s{2,}/ /gr =~ s/^\s+//r =~ s/\s+$//r;
 }
 
 1;
