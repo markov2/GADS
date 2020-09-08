@@ -136,8 +136,10 @@ sub _sheet_create($%)
 {   my ($class, $insert, %args) = @_;
     my $doc = $args{document} or panic;
 
-    my $permissions = delete $insert->{permissions};
-    $insert->{site} = $doc->site;
+    my $permissions   = delete $insert->{permissions};
+    $insert->{site}   = $doc->site;
+    $insert->{name} ||= $insert->{short_name};
+    $insert->{name_short} ||= $insert->{name};
 
     $class->_validate($insert);
     my $self = $class->create($insert, %args);

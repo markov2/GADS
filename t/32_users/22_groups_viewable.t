@@ -12,6 +12,7 @@ my $site   = test_site;
 my $groups = $site->groups;
 ok defined $groups, 'Load user group administrator';
 
+plan skip_all => 'needs filling in test_sheet';
 my $sheet  = test_sheet with_columns => 1;
 my $user1  = make_user '2';
 my $user2  = make_user '3';
