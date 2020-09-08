@@ -71,24 +71,22 @@ sub _revision_create($$%)
     $self->insert($insert, @_, row => $row);
 }
 
-sub _revision_latest($%)
-{   my ($class, $row, %args) = @_;
+sub _revision_latest(%)
+{   my ($class, %args) = @_;
 
-    my %search = { current => $row, needs_approval => 0 };
-    if(my $before = $args{created_before})
-    {   $search{created}  = { '<=', $rewind };
+    my %search = { current => $args{row}, needs_approval => 0 };
+    if(my $before = delete $args{created_before})
+    {   $search{created}   = { '<=', $rewind };
+        $args{is_historic} = 1;
     }
 
     my $latest_id = $self->resultset(\%search)->get_column('created')->max;
-    $self->from_id($latest_id, row => $row, %args);
+    $self->from_id($latest_id, %args);
 }
 
-sub _revision_first(%)
+sub _revision_first_id(%)
 {   my $self = shift;
-    my $id = $self->resultset({current_id => $self->current_id})
-       ->get_column('id')->min;
-
-    $self->id==$id ? $self : (ref $self)->from_id($id, @_);
+    $self->resultset({current_id => $self->current_id})->get_column('id')->min;
 }
 
 has curcommon_all_cells => (
@@ -310,11 +308,9 @@ sub _find
     $self->set_deletedby($record->{deletedby});
     $self->clear_is_draft;
 
-    # Find the user that created this record. XXX Ideally this would be done as
-    # part of the original query, as it is for GADS::Records. See comment above
-    # about this function
-    my $first = $self->_revision_first;
-    if(my $creator = $first->createdby)
+    # Find the user that created this record.
+    my $first = $row->revision('first');
+    if(my $creator = $first->created_by)
     {   $self->set_record_created_user({$creator->get_columns})
     }
 

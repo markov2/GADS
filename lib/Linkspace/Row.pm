@@ -160,20 +160,47 @@ sub deleted_when
 
 sub is_deleted   { !! $self->deleted }   # deleted is a date
 
-# Whether this row has been collected as historical record.
-has is_history => ( is => 'ro' );
-
 #-----------------
 =head1 METHODS: Manage row revisions
 A row has seen one or more revisions.
 
-=head2 my $revision = $row->revision($rev_id, %options);
-Collect a specific revision which related to this row.
+=head2 my $revision = $row->revision($search, %options);
+Collect a specific revision which related to this row.  The C<$search>
+may by a (revision record, table 'Record') id, a constant C<'latest'>
+(same as calling the C<current()> method), C<'first'> (the original
+revision) or a HASH.
+
+The HASH may contain <last_before> with a date ('rewind').
 =cut
 
 sub revision($%)
-{   my ($self, $rev_id) = (shift, shift);
-    Linkspace::Row::Revision->from_id($rev_id, @_, row => $self);
+{   my ($self, $search) = (shift, shift);
+    push @_, row => $self;
+
+    # Avoid returning duplicates of 'current'
+    my $current = $self->current;
+    my $found;
+
+    my $class = 'Linkspace::Row::Revision';
+    if(ref $search)
+    {   if(my $before = $search{last_before})
+        {   my $hist = $class->_revision_latest(created_before => $before);
+            return $hist->id==$current->id ? $current : $hist;
+        }
+        panic(join '#', %$search);
+    }
+    elsif(is_valid_id $search)
+    {   return $search==$current->id ? $current : $class->from_id($search, @_);
+    }
+    elsif($search eq 'first')
+    {   my $first_id = $class->_revisions_first_id($search, @_);
+        return $first_id==$current->id ? $current : $class->from_id($first_id, @_);
+    }
+    elsif($search eq 'latest')
+    {   return $current;
+    }
+
+    panic $search;
 }
 
 =head2 my $revision = $row->revision_create($insert, %options);
@@ -199,12 +226,7 @@ Get the latest revision of the row: the non-draft with the highest id.
 has current = (
      is      => 'rw',
      lazy    => 1,
-     builder => sub
-     {   my $self = shift;
-         Linkspace::Row::Revision->_revision_latest($self,
-             created_before => $self->content->rewind,
-         );
-     },
+     builder => sub { Linkspace::Row::Revision->_revision_latest(row => $self) },
 );
 
 =head2 $row->set_current($revision);

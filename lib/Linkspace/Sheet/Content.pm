@@ -19,18 +19,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Sheet::Content;
 
 use Log::Report 'linkspace';
-use Linkspace::Page::Current ();
 
-use Data::Dumper qw/Dumper/;
 use DateTime;
 use DBIx::Class::Helper::ResultSet::Util qw(correlate);
-use HTML::Entities;
 use POSIX qw(ceil);
 use Scalar::Util qw(looks_like_number);
 use Text::CSV::Encoded;
 
-use Linkspace::View;
-use Linkspace::Util qw(to_id);
+use Linkspace::Util    qw(to_id);
+use Linkspace::View    ();
+use Linkspace::Results ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -44,7 +42,6 @@ Linkspace::Sheet::Content - maintain the data, part of a sheet
 =head1 SYNOPSIS
 
   my $content = $sheet->content;
-  my $content = $sheet->content(rewind => $date);
 
 =head1 DESCRIPTION
 =head1 METHODS: Constructors
@@ -52,84 +49,66 @@ Linkspace::Sheet::Content - maintain the data, part of a sheet
 
 #----------------
 =head1 METHODS: Attributes
-
-=head2 my $date = $content->rewind;
-When set, use the row revisions which where the latest at the indicated
-date.  It gives an idea about the sheet data at a certain moment in time,
-however it does not show the structural changes (like linked and parent
-rows) in the table.
 =cut
-
-has rewind => ( is => 'ro' );
-
-#----------------
-=head1 METHODS: Maintaining pages
-
-=head2 my $count = $content->nr_pages;
-Returns the number of pages
-=cut
-
-has nr_pages => (
-    is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-        return 1 if $self->needs_column_grouping;
-        my $nr_rows = $self->search_limit_reached || $self->nr_rows;
-        my $max = $self->max_rows or return 1;
-        ? ceil($count / $self->rows) : 1;
-    },
-);
 
 #-----------------
-=head1 METHODS: Other
+=head1 METHODS: Search
 
-=head2 my $page = $content->search(%options);
+=head2 my $results = $content->search(%options);
 This expensive function will produce a L<Linkspace::Page> object which can be
 used to retrieve the results.
 =cut
 
-sub search(%)
-{   my ($self, %args) = @_;
+sub _build_query(%)
+{   my ($self, $args) = @_;
 
-    my $include_children = exists $args{include_children} ? $args{include_children}
-        : first { $_->can_child } @{$self->columns_retrieved_no};
+    my $include_children = exists $args{include_children}
+      ? delete $args{include_children}
+      : first { $_->can_child } @{$self->columns_retrieved_no};
 
-    my $view   = $args{view};
+    my $only_drafts = delete $args{only_drafts};
+    my $user        = exists $args{user} ? delete $args{user} : $::session->user;
+    my $view_limits = delete $args{view_limits};
+
+    my @view_limits
+       = $only_drafts ? ()
+       : $view_limits ? flat $view_limits
+       : $user        ? @{$user->view_limits}
+       :                ();
+
+    my $current_ids = delete $args{limit_current_ids};
+    $current_ids    = map +($_ => 1), @$current_ids if ref $current_ids eq 'ARRAY';
+
+    my $view        = delete $args{view};
+    my $filter      = $sheet->filter_prepare(delete $args{filter})
+     || ($view ? $view->filter : undef);
 
     my %query = (
-        search           => $args{search},       # text pattern
-        only_deleted     => $args{is_deleted},
-        only_drafts      => $args{is_draft},
-        include_previous => $args{previous_values},
-        include_approval => $args{include_approval},
-        include_childres => $include_children,
+        filter           => $filter,
+        include_approval => delete $args{include_approval},
+        include_children => $include_children,
+        include_previous => delete $args{include_previous},
+        limit_current_ids=> $current_ids,
+        only_deleted     => delete $args{only_deleted},
+        only_drafts      => $only_drafts,
+        search           => delete $args{search},       # text pattern
+        search_limit     => delete $args{search_limit} || 500,
+        sort             => delete $args{sort},
+        user             => $user,
+        view             => $view,
+        view_limit_extra => delete $args{view_limit_extra},
+        view_limits      => \@view_limits,
     );
-
-    my @view_limits      = @{$args{view_limits}};
-    my $extra_view_limits= $args{view_limit_extra};
-view_limit_extra_id
-
-    my $filter           = $args{filter} || $view->filter;
-    my $user             = exists $args{user} ? $args{user} : $::session->user;
-    my $rows = $args{max_rows};
 
         curcommon_all_fields => $self->curcommon_all_fields,
         columns              => $self->columns,
-        rewind               => $self->rewind,
-        no_view_limits       => $is_draft,
-        view_limit_extra_id  => undef, # Remove any default extra view
-                # No "to" - will take appropriate number from today
-                rewind              => session('rewind'),
-                limit_current_ids   => \@current_ids,
-        sort               => [ map +(id => $_), @{$self->curval_field_ids} ],
-        limit_current_ids  => $ids,
 
     ### Rewind
     # Whether to take results from some previous point in time.  During a search,
     # the formatted value is put in $GADS::Schema::Result::Record::REWIND, which
     # is part of a closure configuration for a filter rule.
 
-    if(my $rewind = $args{rewind})
+    if(my $rewind = delete $args{rewind})
     {   $query{rewind} = $rewind;
         $query{rewind_formatted} = $::db->format_datetime($rewind);
     }
@@ -137,12 +116,12 @@ view_limit_extra_id
     ### Date boundaries
 
     my ($from_dt, $to_dt);
-    if($from_dt = $args{from})
+    if($from_dt = delete $args{from})
     {   $from_dt->truncate(to => 'day');
         $query{from} = $from_dt;
     }
 
-    if($to_dt = $args{to})
+    if($to_dt = delete $args{to})
     {   $to_dt->truncate(to => 'day')->add(days => 1)
             if $to_dt->hms('') ne '000000';
         $query{to} = $to_dt;
@@ -153,33 +132,26 @@ view_limit_extra_id
       : $from_dt ? 'from'
       : $to_dt   ? 'to' : undef;
 
-    $query{exclusive} = $args{exclusive} || 'none';
+    $query{exclusive} = delete $args{exclusive} || 'none';
 
     ### Sort
 
-    if(my $sort = $args{sort})
-    {   # User-specified sort override
-        $query{sort_overrule} = ref $sort eq 'ARRAY' ? $sort : [ $sort ];
+    if(my $sort = delete $args{sort})    # User-specified sort override
+    {   $query{sort} = [ flat $sort ];
     }
 
-    Linkspace::Page->new(
-        query    => \%query,
-        nr       => $page_nr,
-        nr_pages => $nr_pages,
-        is_draft => $only_drafts,
-#       view     => $view,
-        rows     => \@rows,
-    );
+    (\%query, \%args);
 }
 
-has current => (
-    is      => 'lazy',
-    builder => sub { Linkspace::Page::Current->new(sheet => $_[0]->sheet) }
-);
+sub search(%)
+{   my $self = shift;
+    my ($query, $args) = $_->_build_query(@_);
 
-sub delete_current($)
-{   my ($self, $which) = @_;
-    $self->current->row_current_delete($which);
+
+    Linkspace::Results->new(
+        query => \%query,
+        hits  => \@hits,
+    );
 }
 
 # Whether to build all fields for any curvals. This is needed when producing a
@@ -194,13 +166,13 @@ has curcommon_all_fields => (
 # Get the user search criteria
 sub _view_limits_search
 {   my ($self, $query, %options) = @_;
-    my @search;
-    return [] if $self->no_view_limits;
+    my $view_limits = $query->{view_limits};
+    @$view_limits or return [];
 
-    my @search, map $self->_construct_filter($query, $_, %options),
-        @{$query->{view_limits}};
-    
-    my $limit = [ '-or' => \@search ];
+    my @limits;
+    my @limits, map $self->_construct_filter($query, $_, %options), @$view_limits;
+    my $limit = @limits==1 ? $limits : [ '-or' => \@limits ];
+
     my $extra = $self->_construct_filter($query, $query->{view_limit_extra}, %options);
     $extra ? [ -and => [ $limit, $extra ]] : $limit;
 }
@@ -249,29 +221,12 @@ has has_children => (
     isa     => Bool,
 );
 
-# rewind(date): Whether to take results from some previous point in time
-
-# Internal parameter to set the exact current IDs that will be retrieved,
-# without running any search queries. Used when downloading chunked data, when
-# all the current IDs have already been retrieved
-has _set_current_ids => (
-    is  => 'rw',
-    isa => Maybe[ArrayRef],
-);
-
 # A parameter that can be used externally to restrict to a set of current IDs.
 # This will also have the search parameters applied, which could include
 # limited views for the user (unlike the above internal parameter)
 has limit_current_ids => (
     is  => 'rw',
     isa => Maybe[ArrayRef],
-);
-
-# Current ID results, or limit to specific current IDs
-has current_ids => (
-    is        => 'lazy',
-    isa       => Maybe[ArrayRef], # If undef will be ignored
-    predicate => 1,
 );
 
 sub _build_current_ids
@@ -281,9 +236,9 @@ sub _build_current_ids
 }
 
 # Common search parameters used across different queries
-sub common_search
-{   my $self    = shift;
-    my $current = shift || 'me';
+sub common_search($)
+{   my ($self, $query, $current) = @_;
+    $current ||= 'me';
     my @search;
 
     push @search, { "$current.deleted" =>
@@ -327,7 +282,7 @@ sub search_query
 
     push @search,
         +{ "$current.instance_id" => $self->sheet->id },
-        $self->common_search($current),
+        $self->common_search($query, $current),
         $self->record_later_search(%options, is_linked => $is_linked);
 
     push @search, { "$record_single.created" => { '<' => $query{rewind_formatted} } }
@@ -489,7 +444,7 @@ sub _build__search_all_fields
         { type => 'string', plural => 'enums', sub => 1 },
         { type => 'string', plural => 'people', sub => 1 },
         { type => 'file'  , plural => 'files', sub => 1, value_field => 'name' },
-        { type => 'current_id', plural => '' }, # Empty string to avoid uninit warnings
+        { type => 'current_id' },
     );
 
     my @columns_can_view;
@@ -501,91 +456,87 @@ sub _build__search_all_fields
     }
 
     # Applies to all types of fields being searched
-    my @basic_search = $self->common_search;
+    my @basic_search = $self->common_search($query);
 
     # Only search limited view if configured for user
     push @basic_search, $self->_view_limits_search;
 
+    my $sheet_id = $self->sheet->id;
     my %found;
     foreach my $field (@fields)
-    {
+    {   my $type = $field->{type};
         my $search_local = $search;
 
-        next if $field->{type} eq 'number'
-            && !looks_like_number $search_local;
+        next if $type eq 'number' && !looks_like_number $search_local;
 
-        next if ($field->{type} eq 'int' || $field->{type} eq 'current_id')
-            && $search_local !~ /^-?\d+$/;
+        next if +($type eq 'int' || $type eq 'current_id')
+             && $search_local !~ /^-?\d+$/;
 
-        if($field->{type} eq 'date')
+        if($type eq 'date')
         {   my $dt = Linkspace::Column->parse_date($search_local);
             $search_local = $::db->format_date($dt);
         }
 
-        # These aren't really needed for current_id, but no harm
-        my $plural      = $field->{plural};
-        my $value_field = $field->{value_field} || 'value';
-        # Need to get correct "value" number for search, in case it's been incremented through view_limits
-        my $s           = $field->{sub} ? $self->value_next_join(search => 1).".$value_field" : "$plural.$value_field";
-
-        my @joins = ('record_later', $self->jpfetch(search => 1));
-        push @joins,
-             $field->{type} eq 'current_id' ? ()
-           : $field->{sub} ? +{ $plural => ['value', 'layout'] }
-           :                 +{ $plural => 'layout' };
-
         my @search = @basic_search;
-        push @search,
-            $field->{type} eq 'current_id'
-            ? { 'me.id' => $search_local }
-            : $field->{index_field} # string with additional index field
-            ? ( { $field->{index_field} => $search_index }
-              , { $s => $search_local }
-              )
-            : { $s => $search_local };
+        my @joins  = ('record_later', $self->jpfetch(search => 1));
+        my $value_field = $field->{value_field} || 'value';
 
-        if ($field->{type} eq 'current_id')
-        {   push @search, { 'me.instance_id' => $self->sheet_id };
+        if($type eq 'current_id')
+        {   push @search, { 'me.id' => $search_local },
+                     { 'me.instance_id' => $sheet_id };
         }
         else
-        {   push @search, { 'layout.id' => \@columns_can_view };
-            push @search, $self->record_later_search(search => 1);
+        {   if(my $si = $field->{index_field}) # string with index field
+            {   push @search, { $si => $search_index };
+            }
+
+            if($field->{sub})
+            {   # Need to get correct "value" number for search, in case it's
+                # been incremented through view_limits
+                my $s = $self->value_next_join(search => 1).".$value_field";
+                push @search, { $field->{plural} => $search_local };
+                push @joins,  { $field->{plural} => ['value', 'layout'] };
+            }
+            else
+            {   push @joins,  { "$field->{plural}.$value_field" => 'layout' };
+            }
+
+            push @search, { 'layout.id' => \@columns_can_view },
+                          $self->record_later_search(search => 1);
         }
+
         my @currents = $::db->search(Current => { -and => \@search }, {
             join => { record_single => \@joins },
         })->all;
 
         foreach my $current (@currents)
-        {
-            if ($current->instance_id != $self->layout->instance_id)
-            {
-                # instance ID different from current, therefore must be curval field result
-                my @search = @basic_search;
-                push @search, "curvals.value" => $current->id;
-                my $found = $::db->search(Current => { -and => \@search },{
-                    join => {
-                        record_single => [
-                            'record_later',
-                            'curvals',
-                            $self->jpfetch(search => 1),
-                        ]
-                    },
-                });
-                $found{$_} = 1
-                    for $found->get_column('id')->all;
+        {   if($current->instance_id == $sheet_id)
+            {   $found{$current->id} = 1;
+                 next;
             }
-            else {
-                $found{$current->id} = 1;
-            }
+
+            # On different sheet, therefore must be curval field result
+            my @search = @basic_search;
+            push @search, "curvals.value" => $current->id;
+            my $found = $::db->search(Current => { -and => \@search },{
+                join => {
+                    record_single => [
+                        'record_later',
+                        'curvals',
+                        $self->jpfetch(search => 1),
+                    ]
+                },
+            });
+            $found{$_} = 1 for $found->get_column('id')->all;
         }
     }
 
     # Limit to maximum of 500 results, otherwise the stack limit is exceeded
-    my @cids = keys %found;
+    my @cids  = keys %found;
     my $count = @cids;
     my $limit;
-    if ($count > 500)
-    {   @cids  = @cids[0 .. 499];
+    if($count > 500)
+    {   $#cids = 499;
         $limit = 500;
     }
 
@@ -593,7 +544,7 @@ sub _build__search_all_fields
         cids          => \@cids,
         count         => $count,
         limit_reached => $limit,
-    };
+     };
 }
 
 has search_limit_reached => (
@@ -603,11 +554,9 @@ has search_limit_reached => (
 
 sub _build_search_limit_reached
 {   my $self = shift;
-    return $self->_search_all_fields->{limit_reached}
-        if $self->_search_all_fields->{limit_reached};
-    return $self->max_results
-        if $self->max_results && $self->max_results < $self->count;
-    return undef;
+    if(my $lr = $self->_search_all_fields->{limit_reached}) { return $lr }
+
+    $max && $max < $self->count ? $max : undef;
 }
 
 has needs_column_grouping => (
@@ -839,6 +788,7 @@ sub fetch_multivalues
                     # duplicating some values. We therefore have to flag to make sure
                     # we don't do this.
                     my %colsd;
+
                     # Force all columns to be retrieved if it's a curcommon field and this
                     # record has the flag saying they need to be
                     $col->retrieve_all_columns(1)
@@ -847,7 +797,7 @@ sub fetch_multivalues
                     my @multivals = $col->fetch_multivalues(
                         \@retrieve_ids,
                         is_draft => $params{is_draft},
-                        curcommon_all_fields => $self->curcommon_all_fields
+                        curcommon_all_fields => $self->curcommon_all_fields,
                     );
 
                     foreach my $val (@multivals)
@@ -1089,80 +1039,62 @@ sub _build_columns_retrieved_no
 
 sub _build_columns_view
 {   my ($self, $query) = @_;
+    my $view = $query->{view}
+        or return $layout->columns_search(user_can_read => 1);
+
     my $layout = $self->layout;
+    my ($main_grouping, @grouping_columns) = @{$view->grouping_columns};
+    my $group_display = $main_grouping && !@{$query->{additional_filters}};
 
-    my @cols;
-    if(my $view = $query->{view})
-    {   my $group_col_ids = $view->grouping_column_ids;
+    my %view_columns = map +($_->id => $_),
+        @{$view->columns},
+        @$grouping_columns;
 
-        my %view_layouts = map +($_ => 1),
-            @{$view->column_ids},
-            @$group_col_ids;
+    my $cols = $layout->columns_search(
+        user_can_read      => 1,
+        group_display      => $group_display,  #XXX unused
+        include_column_ids => \%view_columns,  #XXX unused
+    );
 
-        my $current_group_id = shift @$group_col_ids;
-        delete $view_layouts{$current_group_id} if $current_group_id;
-
-        my $group_display = @$group_col_ids && !@{$self->additional_filters};
-        @cols = @{$layout->columns_search(
-            user_can_read      => 1,
-            group_display      => $group_display,  #XXX unused
-            include_column_ids => \%view_layouts,  #XXX unused
-        ));
-
-        unshift @cols, $layout->column($current_group_id)
-            if $current_group_id;
-    }
-    else
-    {   @cols = @{$layout->columns_search(user_can_read => 1)};
-    }
-
-    unshift @cols, $layout->column('_id')
-        unless $self->needs_column_grouping;
-
-    \@cols;
+      $main_grouping
+    ? [ $layout->column('_id'), $main_grouping, @$cols ]
+    : $cols;
 }
 
-has additional_filters => (
-    is      => 'ro',
-    isa     => ArrayRef,
-    # A default non-lazy value does not seem to work here
-    lazy    => 1,
-    builder => sub { [] },
-);
-
 sub _search_date
-{   my ($self, $c, $search_date, %options) = @_;
-    if($c->is_curcommon)
-    {   $self->_search_date($_, $search_date, parent_id => $c->id);
-            for @{$c->curval_fields};
+{   my ($self, $query, $column, %options) = @_;
+
+    if($column->is_curcommon)
+    {   return map $self->_search_date($query, $_, parent_id => $column->id),
+            @{$column->curval_fields};
     }
-    elsif($c->returns_date)
+
+    if($column->returns_date)
     {   # Apply any date filters if required
-        my @f;
-        my $sid = $options{parent_id} ? "$options{parent_id}_".$c->id : $c->id;
+        my $sid = $options{parent_id} ? "$options{parent_id}_".$column->id : $column->id;
         my $user = $::session->user;
 
-        if (my $to = $self->to)
+        my @f;
+        if(my $to = $query->{to})
         {   push @f, +{
                 id       => $sid,
-                operator => $self->exclusive eq 'to' ? 'less' : 'less_or_equal',
+                operator => $self->{exclusive} eq 'to' ? 'less' : 'less_or_equal',
                 value    => $user->dt2local($to),
             };
         }
 
-        if (my $from = $self->from)
+        if(my $from = $query->{from})
         {   push @f, +{
                 id       => $sid,
-                operator => $self->exclusive eq 'from' ? 'greater' : 'greater_or_equal',
+                operator => $query->{exclusive} eq 'from' ? 'greater' : 'greater_or_equal',
                 value    => $user->dt2local($from),
             };
         }
 
-        push @$search_date, {
-            condition => "AND",
-            rules     => \@f,
-        } if @f;
+        return +{ condition => "AND", rules => \@f } if @f;
     }
+
+    ();
 }
 
 # Construct various parameters used for the query. These are all
@@ -1173,9 +1105,8 @@ sub _query_params
     my $layout = $self->layout;
 
     # The search criteria to narrow-down by date range
-    my @search_dates;
-    $self->_search_date($_, \@search_dates)
-        for @{$self->columns_retrieved_no};
+    my @search_dates = map $self->_search_date($query, $_),
+        @{$self->columns_retrieved_no};
 
     my @limit;  # The overall limit, for example reduction by date range or approval field
     my @search; # The user search
@@ -1243,8 +1174,8 @@ sub _sort_by_date
 sub _sort_builder
 {   my ($self, $query, %args) = @_;
 
-    my $layout  = $self->layout;
-    my $row_id  = $layout->column('_id');
+    my $layout    = $self->layout;
+    my $id_column = $layout->column('_id');  # ==current_id
 
     if($args{limit_time} && $query->{time_bounded_by})
     {   # First, special test where we are retrieving from a date for a number of
@@ -1254,7 +1185,7 @@ sub _sort_builder
     }
 
     my @sorts;
-    if(my $sortsquery= $query{sort_overrule})
+    if(my $sort = $query{sort})
     {   foreach my $s (@$sorts)
         {   $layout->column($s->{id}) or next;
             push @sorts, {
@@ -1268,7 +1199,7 @@ sub _sort_builder
     my $view = $query->{view};
     foreach my $sort ($view ? @{$view->sorts} : ())
     {   push @sorts, {
-            id        => $sort->column_id || $row_id, # View column is undef for ID
+            id        => $sort->column_id || $id_column, # View column is undef for ID
             parent_id => $sort->parent_id,
             type      => $sort->type      || 'asc',
         };
@@ -1636,8 +1567,8 @@ sub _resolve
         $filter{operator} = 'equal';  # Switch
 
         my $records = $self->search({
-            filter       => Linkspace::Filter->from_hash(\%filter),
-            _view_limits => [], # Don't limit by view, otherwise recursive loop happens
+            filter      => \%filter,
+            view_limits => [], # Don't limit by view, otherwise recursive loop happens
         );
 
         return (
@@ -1653,9 +1584,9 @@ sub _resolve
         $filter{operator} =~ s/^not_// if $reverse; # Switch
 
         my $records = $self->search(
-            _view_limits => [], # Don't limit by view, otherwise recursive loop happens
+            view_limits     => [], # Don't limit by view, otherwise recursive loop happens
             previous_values => 1,
-            filter          => Linkspace::Filter->from_hash(\%filter),
+            filter          => \%filter,
         );
 
         return (
@@ -2033,9 +1964,8 @@ sub _build_group_results($%)
                         name => $column->name, id => $column->id;
                 }
             }
-            # Otherwise a standard subquery select for that type of field
-            else {
-                # Also need to add the main search query, otherwise if we take
+            else   # Otherwise a standard subquery select for that type of field
+            {   # Also need to add the main search query, otherwise if we take
                 # all the field's values for each record, then we won't be
                 # filtering the non-matched ones in the case of multivalue
                 # fields.
@@ -2131,7 +2061,7 @@ sub _build_group_results($%)
         # First find out earliest and latest date in this result set
         my $select = [
             { min => "$field.from", -as => 'start_date'},
-            { max => "$field.to", -as => 'end_date'},
+            { max => "$field.to",   -as => 'end_date'},
         ];
 
         my $search = $self->search_query(search => 1, prefetch => 1, linked => 0);

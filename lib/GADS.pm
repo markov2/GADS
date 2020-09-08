@@ -1595,7 +1595,7 @@ prefix '/:layout_name' => sub {
             $params->{columns_read} = $layout->columns_search(user_can_read => 1);
             $params->{page}         = 'data_timeline';
             $params->{viewtype}     = 'timeline';
-            $params->{search_limit_reached} = $records->search_limit_reached;
+            $params->{results}      = $results;
 
             if(param 'png')
             {   my $png = _page_as_mech('data_timeline', $params)->content_as_png;
@@ -1631,16 +1631,13 @@ prefix '/:layout_name' => sub {
                 },
             );
 
-            my $page = $globe->page;
-
             $params->{globe_data}    = $globe->data_ajax;
             $params->{colors}        = $globe->colors;
             $params->{globe_options} = $globe_options;
-            $params->{columns_read}  = [$layout->columns_for_filter];
+            $params->{columns_read}  = [ $layout->columns_for_filter ];
             $params->{viewtype}      = 'globe';
             $params->{page}          = 'data_globe';
-            $params->{count}         = $page->count;
-            $params->{search_limit_reached} = $page->search_limit_reached;
+            $params->{results}       = $globe->results;
         }
         else
         {   session rows => 50 unless session 'rows';
@@ -1771,9 +1768,8 @@ prefix '/:layout_name' => sub {
                 page     => $page,
                 pnumbers => \@pnumbers,
             };
-            $params->{records}              = $records->presentation;
-            $params->{aggregate}            = $records->aggregate_presentation;
-            $params->{count}                = $records->count;
+            $params->{records}              = $results->presentation;
+            $params->{aggregate}            = $results->aggregate_presentation;
             $params->{columns}              = [ map $_->presentation(
                 sort             => $records->sort_first,
                 filters          => \@additional,
@@ -1783,7 +1779,7 @@ prefix '/:layout_name' => sub {
             $params->{has_rag_column}       = $records->has_rag_column;
             $params->{viewtype}             = 'table';
             $params->{page}                 = 'data_table';
-            $params->{search_limit_reached} = $records->search_limit_reached;
+            $params->{results}              = $results;
 
             if (@additional)
             {

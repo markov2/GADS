@@ -68,8 +68,7 @@ sub _column_update($)
                      || delete $update{curval_field_ids};
 
     $self->SUPER::column_update($update);
-
-    defined $curval_field_ids or return $self;
+    defined $curval_fields or return $self;
 
 #XXX to be moved to Linkspace::Column::Curcommon::Reference
     # Skip fields not part of referred instance. This can happen when a
@@ -172,13 +171,14 @@ sub curval_field_ids_retrieve
 # Work out the columns we need to retrieve for the records that are a part of
 # this value. We try and retrieve the minimum possible. This may be just the
 # selected columns of the field, or it may need more: in the case of a curval
-# we need may need all columns for an edit, or if the value is being used
-# within a calc field then we will also need more. XXX This could be further
+# we may need all columns for an edit, or if the value is being used within
+# a calc field then we will also need more.   XXX This could be further
 # improved, so as only retrieving the code fields that are needed.
 sub curval_fields_retrieve
 {   my ($self, %options) = @_;
     return $self->curval_fields if !$options{all_fields};
     my $ret =  $self->curval_fields_all;
+
     # Prevent recursive loops of fields that refer to each other
     my @ret = grep !$options{already_seen}{$_->id}, @$ret;
     $options{already_seen}{$_->id} = 1 for @ret;
@@ -257,14 +257,13 @@ sub _records_from_db
     # Sort on all columns displayed as the Curval. Don't do all columns
     # retrieved, as this could include a whole load of multivalues which
     # are then fetched from the DB
-    my @sort = map +(id => $_), @{$self->curval_field_ids};
 
     my $records = $sheet->content->search(
-        view               => $view,
-        columns            => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
-        limit_current_ids  => $ids,
-        sort               => \@sort,
-        is_draft           => 1, # XXX Only set this when parent record is draft?
+        view              => $view,
+        columns           => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
+        limit_current_ids => $ids,
+        sort              => $self->curval_columns,
+        is_draft          => 1, # XXX Only set this when parent record is draft?
     );
 
     return $records;
