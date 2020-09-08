@@ -110,53 +110,59 @@ sub enumvals_string(%)
 }
 
 sub _column_extra_update($)
-{   my ($self, $extra) = @_;
+{   my ($self, $extra, %args) = @_;
     $self->SUPER::_column_extra_update($extra);
 
-    # Deal with submitted values straight from a HTML form. These will be
-    # *all* submitted parameters, so we need to pull out only the relevant
-    # ones.  We submit like this and not using a single array parameter to
-    # ensure we keep the IDs intact.
-    my $names = delete $extra->{enumvals};
-    my $ids   = delete $extra->{enumval_ids} || delete $extra->{enumval_id} || [];
+    # Deal with submitted values, also straight from a HTML form.
+    # Two arrays: names (which may contain new names) and ids (which show
+    # order).  The ids also tell us under which number an enum is already
+    # known: that may result in name changes.  Double names are 
+
+    my $names    = delete $extra->{enumvals};
+    my $ids      = delete $extra->{enumval_ids} || [];
     $names or return;
 
+    my @names    = map normalize_string($_), @$names;
     my $enumvals = $self->_enumvals;
     my %missing  = map +($_ => 1), keys %$enumvals;
     my $position = 0;
 
     my @ids      = @$ids;
-    foreach my $name (map normalize_string($_), @$names)
+    foreach my $name (@names)
     {   $position++;
         if(my $enum_id = shift @ids)
         {   delete $missing{$enum_id};
             my $rec = $enumvals->{$enum_id};
             if($rec->value ne $name || $rec->position != $position || $rec->deleted)
-            {   $::db->update(Enumval => $rec->id, {
-                    deleted => 0, value => $name, position => $position });
-                info __x"column {col.path} rename enum option '{from}' to '{to}'",
+            {   $rec->update({deleted => 0, value => $name, position => $position });
+                info __x"column {col.path} rename enum '{from}' to '{to}'",
                     col => $self, from => $rec->value, to => $name;
                 $rec->position($position);
                 $rec->deleted(0);
                 $rec->value($name);
             }
         }
+        elsif(grep { $name eq $_->value } values %$enumvals)
+        {   # Duplicate namess will cause horrors, but may exist in old servers.
+            info  __x"column {col.path} duplicate enum '{name}' ignored",
+                col => $self, name => $name;
+        }
         else
         {   my $r = $::db->create(Enumval => { value => $name, position => $position});
-            info __x"column {col.path} add enum option '{name}'",
-               col => $self, name => $name;
+            info __x"column {col.path} add enum '{name}'",
+                col => $self, name => $name;
             $enumvals->{$r->id} = $::db->get_record(Enumval => $r->id);
         }
     }
 
     foreach my $enum_id (keys %missing)
     {   my $rec = $enumvals->{$enum_id};
-        $::db->update(Enumval => $rec->id, { deleted => 1 });
+        $rec->update(deleted => 1);
         info __x"column {col.path} withdraw option '{enum.value}'", col => $self, enum => $rec;
-        $rec->{deleted} = 1;
+        $rec->deleted(1);
     }
 
-#   $self->remove_unused_deleted;
+    $self->remove_unused_deleted unless $args{keep_deleted};
     $self;
 }
 

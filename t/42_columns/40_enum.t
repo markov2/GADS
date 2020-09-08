@@ -28,7 +28,7 @@ isa_ok $column1, 'Linkspace::Column::Enum', '...';
 my @some_enums = qw/tic tac toe/;
 ok $sheet->layout->column_update($column1, { enumvals => \@some_enums }),
     'Insert some enums';
-like logline, qr/add enum option \Q$_/, "... log creation of $_"
+like logline, qr/add enum '\Q$_'/, "... log creation of $_"
     for @some_enums;
 
 my $retr_enums = $column1->enumvals;   # records!
