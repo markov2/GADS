@@ -692,7 +692,6 @@ sub _cid_search_query
 
 sub _build_standard_results($)
 {   my ($self, $query) = @_;
-    local $GADS::Schema::Result::Record::REWIND = $query->{rewind_formatted};
 
     # Need to call first to build joins
     my $search_query = $self->search_query(search => 1, sort => 1, linked => 1);
@@ -742,6 +741,9 @@ sub _build_standard_results($)
     my @retrieved = $::db->search(Current => $self->_cid_search_query, \%select)->all;
 
     my (@all_rows, @record_ids, @created_ids);
+
+    my $page = Linkspace->Page->new(query => $query);
+
     foreach my $rec (@retrieved)
     {   my @children = map $_->{id}, @{delete $rec->{currents}};
 
@@ -758,18 +760,17 @@ sub _build_standard_results($)
             push @record_ids, $linked->id;
         }
 
-        push @all_rows, Linkspace::Page::Row->_row_create({
-            serial                  => $rec->{serial},
-            parent_row              => $rec->{parent_id},
-            linked_row              => $rec->{linked_id},
-            draft_user                => $rec->{draftuser_id},
-            child_row_ids        => \@children,
-            linked_row              => $linked,
-            deleted                 => $rec->{deleted},
-            deleted_by               => $rec->{deletedby},
+        $page->add_result({
+            serial         => $rec->{serial},
+            parent_row     => $rec->{parent_id},
+            draft_user     => $rec->{draftuser_id},
+            deleted        => $rec->{deleted},
+            deleted_by     => $rec->{deletedby},
+            child_rows     => \@children,
+            linked_row     => $linked,
 
-            record_created          => $rec->{record_created},
-            record_created_user     => $rec->{record_created_user},
+            record_created      => $rec->{record_created},
+            record_created_user => $rec->{record_created_user},
         });
         push @created_ids, $rec->{record_created_user};
     }
@@ -780,22 +781,10 @@ sub _build_standard_results($)
         retrieved  => \@retrieved,
         records    => \@all,
     );
-
-    # Fetch and add created users (unable to retrieve during initial query)
-    my $created_column = $self->layout->column('_created_user');
-    my $created_users  = $created_column->fetch_multivalues(\@created_ids);
-    foreach my $rec (@all)
-    {   my $original = $rec->set_record_created_user or next;
-        my $user     = $created_users->{$original};
-        $rec->set_record_created_user($user);
-    }
-
-    \@all;
 }
 
 sub fetch_multivalues
 {   my ($self, %params) = @_;
-
     my $record_ids    = $params{record_ids};
     my $retrieved     = $params{retrieved};
     my $records       = $params{records};
@@ -811,13 +800,13 @@ sub fetch_multivalues
     my %cols_done;
 
     foreach my $column (@{$self->columns_retrieved_no})
-    {   my @cols = ($column);
+    {   my @cols = $column;
         if ($column->type eq 'curval')
         {   my @multivals = grep $_->is_multivalue, @{$column->curval_fields};
             push @cols, @multivals;
 
             # Flag any curval multivalue fields as also requiring fetching
-            push @{$curval_fields{$_->field}}, $column->field
+            push @{$curval_fields{$_->field_name}}, $column->field_name
                 for @multivals;
         }
 
@@ -885,25 +874,23 @@ sub fetch_multivalues
     }
 
     foreach my $row (@$records)
-    {
-        my $record    = $row->record;
-        my $record_id = $record->{id};
+    {   my $record = $row->record;
 
         # %multi is set with each record ID and then its multi-value
         # fields within it. Sub-fields that are multivalue within curval fields
         # are also fetched, but stored with the ID of the record of the
         # curval value rather than the record from this retrieval.
         # First normal values:
-        foreach my $field (keys %{$multi{$record_id}})
-        {   $record->{$field} = $multi{$record_id}->{$field};
-        }
+
+        my $multi  = $multi{$record->{id}};
+        @{$record}{ keys %$multi } = values %$multi;
 
         # Then the curval sub-fields
         foreach my $curval_subfield (keys %curval_fields)
         {
             foreach my $curval_field (@{$curval_fields{$curval_subfield}})
             {   my $subs = $record->{$curval_field}:
-                foreach my $subrecord (ref $subs eq 'ARRAY' ? @$subs : $subs)
+                foreach my $subrecord (flat $subs)
                 {   # Foreach whole curval value
                     my $v = $subrecord->{value} or next;
 
@@ -922,7 +909,7 @@ sub fetch_multivalues
         {   my $multi = $multi{$record_linked->{id}};
             @{$record_linked}{keys %$multi} = values %$multi;
         }
-        elsif(my $linked_id = $row->linked_id)
+        elsif(my $linked_id = $row->linked_row)
         {   my $multi = $multi{$linked_id};
             @{$record}{keys %$multi} = values %$multi; #XXX which not record_linked?
         }
@@ -1060,17 +1047,8 @@ sub _build_columns_retrieved_do
     my @columns;
     my $layout_columns = $layout->columns;
 
-    if(my $my_columns = $self->columns)
-    {
-        # The columns property can contain straight column IDs or hash refs
-        # containing the column ID as well as more information, such as the
-        # parent curval of a curval field. At the moment we don't use this here
-        # (only when we start grouping results) but we may want to use
-        # it in the future if retrieving individual curval fields
-        my %col_ids = map +($_ => 1), grep defined,
-            map { ref $_ eq 'HASH' ? $_->{id} : $_ } @$my_columns;
-
-        @columns = grep $col_ids{$_->id}, @$layout_columns;
+    if(my $my_columns = $query->{columns})
+    {   @columns = grep $col_ids{$_->id}, @$layout_columns;  # now ordered
     }
     elsif ($self->view)
     {
@@ -1081,8 +1059,8 @@ sub _build_columns_retrieved_do
                 for @$extra;
         }
     }
-    else {
-        # Otherwise assume all columns needed, even ones the user does not have
+    else
+    {   # Otherwise assume all columns needed, even ones the user does not have
         # access to. This is so that any writes still write all column values,
         # regardless of whether a user has access
         @columns = @$layout_columns;
@@ -2350,12 +2328,12 @@ __CASE_NO_LINK
 
 sub rows_purge($)
 {   my ($self, $current_ids) = @_;
-    $_->row_purge($_) for $self->rows($current_ids, is_deleted => 1);
+    $_->purge for $self->rows($current_ids, is_deleted => 1);
 }
 
 sub rows_restore($)
 {   my ($self, $current_ids) = @_;
-    $_->row_restore($_) for $self->rows($current_ids, is_deleted => 1);
+    $_->restore for $self->rows($current_ids, is_deleted => 1);
 }
 
 sub row_count() { $_[0]->max_serial }
@@ -2376,9 +2354,14 @@ sub row_create($%)
     $insert->{created}    ||= DateTime->now;
     $insert->{created_by} ||= $::session->user;
     $insert->{serial}     ||= $self->max_serial +1;
-    my $row = Linkspace::Row->_row_create($insert, content => $self);
 
-    #XXX cells = [ $name|$col_id|$col => $value ]
+    if(my $pid = $insert->{parent_id} || to_id $insert->{parent})
+    {   # Attempt to create a child of a child row?
+        ! $self->row($pid)->parent_id
+           or error __"Cannot create a nested child row";
+    }
+
+    Linkspace::Row->_row_create($insert, content => $self);
 }
 
 sub row_by_serial($%)
@@ -2391,32 +2374,98 @@ sub row($@)
     Linkspace::Row->from_id($current_id, @_);
 }
 
+sub row_update($$%)
+{   my ($self, $update) = (shift, shift);
+
+    ! $self->rewind
+        or error __"Unable to edit a row that has been retrieved with rewind";
+
+    $row->_row_update($update, @_);
+}
+
+sub row_delete($%)
+{   my ($self, $row) = (shift, shift);
+    $row->_row_delete($row, @_);
+}
+
+sub row_unique
+{   my ($self, $column, $value, $retrieve_columns) = @_;
+
+    return $self->find_current_id($value)
+        if $column->name eq '_id';
+
+    return $self->find_serial_id($value)
+        if $column->name eq '_serial';
+
+    # First create a view to search for this value in the column.
+    my $filter = { rule => {
+        column      => $column,
+        value       => $value,
+        value_field => $column->value_field_as_index($value),
+        operator    => 'equal',
+    } };
+
+    $retrieve_columns = [ $column ]
+        unless @$retrieve_columns;
+
+    my $page = $self->search(
+        user     => undef,   # Do not want to limit by user
+        filter   => $filter,
+        columns  => $retrieve_columns,
+        max_rows => 1,
+    );
+
+    $page->row(1);
+}
+
 #--------------------------
 =head1 METHODS: Draft rows
 =cut
 
 sub draft_create($%)
 {   my ($self, $insert, %args) = @_;
-    $insert->{is_draft} = 1;
+    $insert->{is_draft}    = 1;
+    $insert->{draftuser} ||= $::session->user;
 
     $self->row_create($insert, %args) = @_;
 }
 
 #--------------------------
 =head1 METHODS: Approval rows
+Expected is that the number of rows to be approved stays small, so no
+peephole performance optimization.
 
-=head2 $content->wants_approval;
-Returns true when there is any row revision which waits for approval in this
-sheet.  This is a fast first check before deeper inspection.
+=head2 \@hits = $content->need_approval(%options);
+Returns pairs of C<row> and C<revision> objects.
 =cut
 
-sub wants_approval()
-{   my $self = shift;
-    $::db->search(Current => {
+# We need to return the $rows as well, because the $rev->row is a weak
+# reference :-(
+
+sub need_approval(%)
+{   my ($self, %args) = @_;
+    my $sheet = $self->sheet;
+    my $user  = $args{user} || $::session->user;
+
+    my $can_create = $sheet->user_can('approve_new');  # new records
+    my $can_update = $sheet->user_can('approve_existing');  # new revs
+    $can_create || $can_update or return [];
+
+    my $need = $::db->search(Current => {
         instance_id        => $self->sheet->id,
         "records.approval" => 1,
-    }, { join => 'records',
-    })->count;
+    }, { join => 'records', sort => 'created' });
+
+    my @hits;
+    while(my $rec = $need->next)
+    {   my $row = $self->row($rec->current_id);
+        next unless $can_create || ($can_update && $row->current);
+
+        my $rev = Linkspace::Row::Revision->from_record($rec, row => $row);
+        push @hits, [ $row, $rev ];
+    }
+
+    \@hits;
 }
 
 1;

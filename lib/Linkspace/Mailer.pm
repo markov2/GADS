@@ -83,9 +83,8 @@ sub send
 
     my %done;
     foreach my $email (@$emails)
-    {
-        next if $done{$email}; # Stop duplicate emails
-        $done{$email} = 1;
+    {   next if $done{$email}++; # Stop duplicate emails
+
         $msg->head->set(to => $email);
         $mailer->send($msg);
     }

@@ -40,6 +40,16 @@ of them.
 
 =cut
 
+sub from_record(@)
+{   my $class = shift;
+    my $self = $class->SUPER::from_record(@_);
+
+    error __"You do not have access to this deleted record"
+        if $self->deleted && !$self->layout->user_can('purge');
+
+    $self;
+}
+
 sub row_by_serial($%)
 {   my ($class, $serial) = (shift, shift);
     defined $serial ? $self->from_search({serial => $serial}) : undef;
@@ -66,8 +76,17 @@ sub _row_delete()
     });
 }
 
-# Delete the record entirely from the database, plus its parent current (entire
-# row) along with all related records
+=head1 $row->restore;
+Undo row deletion.
+=cut
+
+sub restore() { $_[0]->update({ deleted => undef, deleted_by => undef }) }
+
+=head1 $row->purge;
+Delete the record entirely from the database, plus its parent current (entire
+row) along with all related revisions.
+=cut
+
 sub purge
 {   my $self = shift;
 
@@ -141,6 +160,9 @@ sub deleted_when
 
 sub is_deleted   { !! $self->deleted }   # deleted is a date
 
+# Whether this row has been collected as historical record.
+has is_history => ( is => 'ro' );
+
 #-----------------
 =head1 METHODS: Manage row revisions
 A row has seen one or more revisions.
@@ -159,8 +181,15 @@ sub revision($%)
 
 sub revision_create($%)
 {   my ($self, $insert) = (shift, shift);
-    $insert->{current} = $row;
-    Linkspace::Row::Revision->_revision_create($insert, @_, row => $self);
+    Linkspace::Row::Revision->_revision_create($insert, $self, @_);
+}
+
+=head2 my $revision = $row->revision_update($revision, $update, %options);
+=cut
+
+sub revision_update($$%)
+{   my ($self, $rev, $update) = (shift, shift, shift);
+    $rev->_revision_update($update, @_);
 }
 
 =head2 my $revision = $row->current;
@@ -215,6 +244,9 @@ sub child_rows()
 =cut
 
 sub is_draft { !! $_[0]->draftuser_id }
+
+#XXX must start a new row
+sub draft_create() {...}
 
 #---------------------
 =head1 METHODS: Approvals

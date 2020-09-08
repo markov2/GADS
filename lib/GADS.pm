@@ -46,7 +46,7 @@ use Dancer2; # Last to stop Moo generating conflicting namespace
 use Dancer2::Plugin::DBIC;
 use Dancer2::Plugin::Auth::Extensible;
 use Dancer2::Plugin::Auth::Extensible::Provider::DBIC 0.623;
-use Dancer2::Plugin::LogReport 'linkspace';
+use Dancer2::Plugin::LogReport 'linkspace';   # process()
 
 use GADS::API; # API routes
 
@@ -381,10 +381,10 @@ any ['get', 'post'] => '/login' => sub {
 
         if($victim)
         {
-            if(process( sub {
+            if(process sub {
                  my $resetpw = $user->password_reset;
                  $::linkspace->mailer->send_welcome(email => $email, code => $resetpw);
-            }))
+            })
             {
                 # Show same message as normal request
                 return forwardHome(
@@ -529,7 +529,7 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
             (map +($_ => param $_), $site->workspot_field_names),
         );
 
-        if(process( sub {
+        if(process sub {
             my $victim   = $users->user_by_name($email);
             my $old_name = $victim->username;
             $users->user_update($victim, \%update);
@@ -544,7 +544,7 @@ any ['get', 'post'] => '/myaccount/?' => require_login sub {
                    user => $victim;
             }
             $::session->audit($msg, type => 'login_change');
-        }))
+        })
         {   return forwardHome({ success => "The account details have been updated" },
                 'myaccount' );
         }
@@ -2985,18 +2985,18 @@ sub _process_edit
         }
         elsif (param 'draft')
         {
-            if (process sub { $record->write(draft => 1, submission_token => param('submission_token')) })
+            if(process sub { $record->write(draft => 1, submission_token => param('submission_token')) })
             {
                 return forwardHome(
                     { success => 'Draft has been saved successfully'}, $sheet->identifier.'/data' );
             }
 
             return forwardHome(undef, $sheet->identifier.'/data')
-                if $record->already_submitted_error;
+                if $@ =~ /already.*submitted/;
         }
         elsif (!$failed)
         {
-            if (process( sub { $record->write(submission_token => param('submission_token')) }))
+            if(process sub { $record->write(submission_token => param('submission_token')) })
             {   my $current_id = $record->current_id;
                 my $forward = !$id && $sheet->forward_record_after_create
                   ? "record/$current_id"
@@ -3007,7 +3007,7 @@ sub _process_edit
             }
 
             return forwardHome(undef, $sheet->identifier.'/data')
-                if $record->already_submitted_error;
+                if $@ =~ /already.*submitted/;
         }
     }
     elsif($id)

@@ -82,7 +82,6 @@ sub _add_children
 
 sub _add_jp
 {   my ($self, $column, %options) = @_;
-
     return if !$column->tjoin;
 
     my $key;
@@ -202,7 +201,7 @@ sub add_linked_join
 
 sub has_linked
 {   my ($self, %options) = @_;
-    return !!$self->jpfetch(%options, linked => 1);
+    !! $self->jpfetch(%options, linked => 1);
 }
 
 sub record_later_search
