@@ -95,11 +95,10 @@ sub enum_rename_by_id($$@) {
     @enumvals;
 }
 
-sub enum_split_array(@) {
-    my (@enumvals) = @_;
-    my @enumval_values =  map $_->{'value'} , @enumvals;
-    my @enumval_ids =  map $_->{'id'} , @enumvals;
-    \@enumval_values,\@enumval_ids;
+sub enum_to_vals_ids(@) {
+    +{ enumvals    => [ map  $_->{value} , @_ ],
+       enumval_ids => [ map $_->{id} , @_ ],
+    };
 }
 
 sub enum_combine_ids_values($$) {
@@ -114,13 +113,13 @@ sub enum_combine_ids_values($$) {
     @enumvals;
 }
 
-sub enum_rorder($$) {
-    my ($order, $enumvals) = @_;
+sub enum_reorder($@) {
+    my ($order, @enumvals) = @_;
     my @reordered = ();
     my $index = 0;
     while ( $index < scalar @{ $order } ) {
         my $org=$order->[$index];
-        push @reordered, $enumvals->[$org];
+        push @reordered, $enumvals[$org];
         $index += 1;
     }
     @reordered;
@@ -131,6 +130,40 @@ sub enum_from_records($) {
     map { 'id' => $_->id, 'value' => $_->value }, @$recs;
 }
 
+sub enum_from_column($) {
+    my ($column) = @_;
+    map { 'id' => $_->id, 'value' => $_->value }, @{$column->enumvals};
+}
+
+sub print_enum_from_column($$) {
+    my ($title,$column) = @_;
+    print "$title:\n";
+    for my $rec (@{$column->enumvals}) {
+        my $id=$rec->id // '<undef>';
+        my $value=$rec->value // '<undef>';
+        my $position=$rec->position // '<undef>';
+        print "    { id : $id, value : '$value', position : '$position' }\n";
+    }
+}
+
+sub initial_column($) {
+    my ($name) = @_;
+    my $column = $sheet->layout->column_create({
+        type          => 'enum',
+        name          => $name.' (long)',
+        name_short    => $name,
+        is_multivalue => 0,
+        is_optional   => 0,
+                                               });
+    logline;
+    
+    my @some_enums = qw/tic tac toe/;
+    ok $sheet->layout->column_update($column, { enumvals => \@some_enums } ),'Initial enums for '.$name;
+    logline for @some_enums;
+    $column;
+}
+
+
 ### Adding enums
 
 my @some_enums = qw/tic tac toe/;
@@ -139,262 +172,95 @@ ok $sheet->layout->column_update($column1, { enumvals => \@some_enums }),
 like logline, qr/add enum '\Q$_\E'/, "... log creation of $_"
     for @some_enums;
 
-
-#TODO: enums tac, toe, other   one delete, one create, other same id
-# id's as example, same number is same id.
-# test 2a:
-#     initial:
-#         [0] = { id : 623, value : 'tic'   }
-#         [1] = { id : 624, value : 'tac'   }
-#         [2] = { id : 625, value : 'toe'   }
-#     delete:
-#         [0] = { id : 624, value : 'tac'   }
-#         [1] = { id : 625, value : 'toe'   }
-# 
-# test 2b:
-#     initial:
-#         [0] = { id : 623, value : 'tic'   }
-#         [1] = { id : 624, value : 'tac'   }
-#         [2] = { id : 625, value : 'toe'   }
-#     create:
-#         [0] = { id : 623, value : 'tic'   }
-#         [1] = { id : 624, value : 'tac'   }
-#         [2] = { id : 625, value : 'toe'   }
-#         [3] = { id : 723, value : 'other' }
-# 
-# test 2c:
-#     initial:
-#         [0] = { id : 623, value : 'tic'   }
-#         [1] = { id : 624, value : 'tac'   }
-#         [2] = { id : 625, value : 'toe'   }
-#     other, same id:
-#         [0] = { id : 623, value : 'other' }
-#         [1] = { id : 624, value : 'tac'   }
-#         [2] = { id : 625, value : 'toe'   }
 #
- TODO: {
-     local $TODO = 'delete does not work';
-     
-     my $column2a = $sheet->layout->column_create({
-         type          => 'enum',
-         name          => 'column2a (long)',
-         name_short    => 'column2a',
-         is_multivalue => 0,
-         is_optional   => 0,
-                                                  });
-     logline;
+# enums tac, toe, other  one delete, one create, other same id (keep_unused)
+#
 
-     my @some_enums2a = qw/tic tac toe/;
-     ok $sheet->layout->column_update($column2a, { enumvals => \@some_enums2a }),
-         'Initial enums for test2a';
-     logline for @some_enums2a;
-     
-     my ($enumval_values2a,$enumval_ids2a) = 
-         enum_split_array enum_delete_by_value 'tic', enum_from_records $column2a->enumvals;
-     
-     ok $sheet->layout->column_update($column2a,
-                                      { enumvals => $enumval_values2a, 
-                                        enumval_ids => $enumval_ids2a }),
-         'Delete enum \'tic\'';
-     #
-     # need to inspect single logline
-     #
-};
+### delete 'tic'
 
- TODO: {
-     local $TODO = 'how to add enum is not defined';
-     
-     my $column2b = $sheet->layout->column_create({
-         type          => 'enum',
-         name          => 'column2b (long)',
-         name_short    => 'column2b',
-         is_multivalue => 0,
-         is_optional   => 0,
-                                                  });
-     logline;
+my $column2a = initial_column 'column2a';
+my @expected_value2a = enum_delete_by_value 'tic', enum_from_column $column2a;
+ok $sheet->layout->column_update($column2a,enum_to_vals_ids(@expected_value2a), keep_unused => 1),
+    'Withdraw enum \'tic\'';
+like logline, qr/withdraw option 'tic'/, '... log withdrawal of \'tic\'';
+my @result_value2a = enum_from_column $column2a;
+is_deeply \@result_value2a, \@expected_value2a, '... result of withdrawal \'tic\'';
 
-     my @some_enums2b = qw/tic tac toe/;
-     ok $sheet->layout->column_update($column2b, { enumvals => \@some_enums2b }),
-         'Initial enums for test2b';
-     logline for @some_enums2b;
-     
-     my @some_enums2b_add1 = qw/tic tac toe other/;
-     ok $sheet->layout->column_update($column2b, { enumvals => \@some_enums2b_add1 }),
-         'Adding other with original';
-     
-     my @some_enums2b_add2 = qw/tic tac toe other/;
-     ok $sheet->layout->column_update($column2b, { enumvals => \@some_enums2b_add2 }),
-         'Added other';
-     
-     #
-     # need to inspect single logline
-     #
-};
+### add 'other'
 
-my $column2c = $sheet->layout->column_create({
-    type          => 'enum',
-    name          => 'column2c (long)',
-    name_short    => 'column2c',
-    is_multivalue => 0,
-    is_optional   => 0,
-                                             });
-logline;
+my $column2b = initial_column 'column2b';
+my @expected_value2b = enum_reorder [0,3,1,2], enum_add undef,'other',enum_from_column $column2b;
+ok $sheet->layout->column_update($column2b,enum_to_vals_ids(@expected_value2b), keep_unused => 1),
+    'Add new enum \'other\'';
+like logline, qr/add enum 'other'/, '... log adding of \'other\'';
+my @result_value2b = enum_from_column $column2b;
+delete $result_value2b[1]->{id}; # cannot compare id of new enum
+is_deeply \@result_value2b, \@expected_value2b, '... result of add \'other\'';
 
-my @some_enums2c = qw/tic tac toe/;
-ok $sheet->layout->column_update($column2c, { enumvals => \@some_enums2c }),
-    'Initial enums for test2c';
-logline for @some_enums2c;
+### rename 'tic' to 'other'
 
-my ($enumval_values2c,$enumval_ids2c) = 
-    enum_split_array enum_rename_by_value 'tic', 'other', 
-    enum_from_records $column2c->enumvals;
-
-ok $sheet->layout->column_update($column2c,
-                                 { enumvals => $enumval_values2c, 
-                                   enumval_ids => $enumval_ids2c }),
+my $column2c = initial_column 'column2c';
+my @expected_value2c = enum_rename_by_value 'tic', 'other', enum_from_column $column2c;
+ok $sheet->layout->column_update($column2c,enum_to_vals_ids( @expected_value2c), keep_unused => 1),
     'Rename enum \'tic\' to \'other\'';
-like logline, qr/rename enum 'tic' to 'other'/, "... log rename of \'tic\'";
+like logline, qr/rename enum 'tic' to 'other'/, '... log rename of \'tic\'';
+my @result_value2c = enum_from_column $column2c;
+is_deeply \@result_value2c, \@expected_value2c, '... result of rename \'tic\' to \'other\'';
 
-#TODO: enum rename: the id is refers to a different name
-# id's as example, same number is same id.
-# test 3:
-#     initial:
-#         [0] = { id : 623, value : 'tic'     }
-#         [1] = { id : 624, value : 'tac'     }
-#         [2] = { id : 625, value : 'toe'     }
-#     rename:
-#         [0] = { id : 623, value : 'tic'     }
-#         [1] = { id : 624, value : 'tac-new' }
-#         [2] = { id : 625, value : 'toe'     }
-# 
-my $column3 = $sheet->layout->column_create({
-    type          => 'enum',
-    name          => 'column3 (long)',
-    name_short    => 'column3',
-    is_multivalue => 0,
-    is_optional   => 0,
-                                            });
-logline;
+### revive deleted enum 'tic'
 
-my @some_enums3 = qw/tic tac toe/;
-ok $sheet->layout->column_update($column3, { enumvals => \@some_enums3 }),
-    'Initial enums for test3';
-logline for @some_enums3;
+my $column2d = initial_column 'column2d';
+my @expected_value2d = enum_from_column $column2d;
+ok $sheet->layout->column_update($column2d,enum_to_vals_ids(enum_delete_by_value 'tic', @expected_value2d), keep_unused => 1),
+    'Withdraw enum \'tic\'';
+like logline, qr/withdraw option 'tic'/, '... log withdrawal of \'tic\'';
+ok $sheet->layout->column_update($column2d,enum_to_vals_ids(@expected_value2d), keep_unused => 1),
+    'Revive deleted \'tic\'';
+like logline, qr/deleted enum 'tic' revived/, '... log revivication of \'tic\'';
+my @result_value2d = enum_from_column $column2d;
+is_deeply \@result_value2a, \@expected_value2a, '... result of reuse of deleted \'tic\'';
 
-my @expected_value3 = enum_rename_by_value 'tac', 'tac-new', 
-    enum_from_records $column3->enumvals;
-my ($enumval_values3,$enumval_ids3) = enum_split_array @expected_value3;
-
-ok $sheet->layout->column_update($column3,
-                                 { enumvals => $enumval_values3, 
-                                   enumval_ids => $enumval_ids3 }),
-    'Rename enum \'tac\' to \'tac-new\'';
-like logline, qr/rename enum 'tac' to 'tac-new'/, "... log rename of \'tac\'";
-
-my @result_value3 = enum_from_records $column3->enumvals;
-
-is_deeply \@result_value3, \@expected_value3, 
-    '... result of rename enum \'tac\' to \'tac-new\'';
-
-#TODO: ->enumvals(include_deleted)   when Enum datun can be created
-# id's as example, same number is same id.
-# test 4:
-#     initial:
-#         [0] = { id : 623, value : 'tic'     }
-#         [1] = { id : 624, value : 'tac'     }
-#         [2] = { id : 625, value : 'toe'     }
-# 
-my $column4 = $sheet->layout->column_create({
-    type          => 'enum',
-    name          => 'column4 (long)',
-    name_short    => 'column4',
-    is_multivalue => 0,
-    is_optional   => 0,
-                                            });
-logline;
-my @some_enums4 = qw/tic tac toe/;
-ok $sheet->layout->column_update($column4, { enumvals => \@some_enums4 }),
-    'Initial enums for test4';
-logline for @some_enums4;
-
-my ($enumval_values4,$enumval_ids4) = 
-    enum_split_array enum_delete_by_value 'tic', enum_from_records $column4->enumvals;
-
-ok $sheet->layout->column_update($column4,
-                                 { enumvals => $enumval_values4, 
-                                   enumval_ids => $enumval_ids4 }),
-    'Delete enum \'tic\'';
-logline;
 #
-# try printing with deleted enumns to define test...
+# enumvals(include_deleted)   when Enum datun can be created
+# 
+
+my $column3 = initial_column 'column3';
+my @initial_value3 = enum_from_column $column3;
+ok $sheet->layout->column_update($column3,enum_to_vals_ids(enum_delete_by_value 'tac', @initial_value3), keep_unused => 1),
+    'Withdraw enum \'tac\'';
+like logline, qr/withdraw option 'tac'/, '... log withdrawal of \'tac\'';
+my @expected_value3 = enum_reorder [0,2,1],  @initial_value3;
+my @result_value3 = enum_from_records $column3->enumvals(include_deleted => 1);
+is_deeply \@result_value3, \@expected_value3, '... \'tac\' visible';
+
+__END__
+
 #
-enum_print 'include_deleted', enum_from_records $column4->enumvals(include_deleted => 1);
-
-#TODO: ->enumvals(order => 'asc')
-#TODO: ->enumvals(order => 'desc')
-#TODO: ->enumvals(order => 'error')
-# id's as example, same number is same id.
-# test 5:
-#     initial:
-#         [0] = { id : 623, value : 'tic'     }
-#         [1] = { id : 624, value : 'tac'     }
-#         [2] = { id : 625, value : 'toe'     }
+# sorting with enumvals: default, 'asc', 'desc', 'error'
 # 
-my $column5 = $sheet->layout->column_create({
-    type          => 'enum',
-    name          => 'column5 (long)',
-    name_short    => 'column5',
-    is_multivalue => 0,
-    is_optional   => 0,
-                                            });
-logline;
-my @some_enums5 = qw/tic tac toe/;
-ok $sheet->layout->column_update($column5, { enumvals => \@some_enums5 }),
-    'Initial enums for enumvals sorted';
-logline for @some_enums5;
 
-my @enumvals5 = enum_from_records $column5->enumvals;
+my $column4 = initial_column 'column4';
+my @enumvals4 = enum_from_column $column4;
 
-my @order5_asc = ( 1, 0, 2 );
-my @expected_value5_asc = enum_rorder \@order5_asc, \@enumvals5;
-my @result_value5_asc = enum_from_records $column5->enumvals(order => 'asc');
-is_deeply \@result_value5_asc, \@expected_value5_asc, '... result of enumvals sort asc';
+### order asc
 
-my @order5_desc = ( 2, 0, 1 );
-my @expected_value5_desc = enum_rorder \@order5_desc, \@enumvals5;
-my @result_value5_desc = enum_from_records $column5->enumvals(order => 'desc');
-is_deeply \@result_value5_desc, \@expected_value5_desc, '... result of enumvals sort desc';
+my @expected_value4_asc = enum_reorder [ 1, 0, 2 ], \@enumvals4;
+my @result_value4_asc = enum_from_records $column4->enumvals(order => 'asc');
+is_deeply \@result_value4_asc, \@expected_value4_asc, '... result of enumvals sort asc';
 
-my @order5_error = ( 0, 1, 2 );
-my @expected_value5_error = enum_rorder \@order5_error, \@enumvals5;
-my @result_value5_error = enum_from_records $column5->enumvals(order => 'error');
-is_deeply \@result_value5_error, \@expected_value5_error, 
-    '... identity result of enumvals sort error';
+### order desc
 
-#TODO: ->random
-# id's as example, same number is same id.
-# test 6:
-#     initial:
-#         [0] = { id : 623, value : 'tic'     }
-#         [1] = { id : 624, value : 'tac'     }
-#         [2] = { id : 625, value : 'toe'     }
-#     random:
-#         one of 'tic', 'tac', 'toe'?
-# 
-my $column6 = $sheet->layout->column_create({
-    type          => 'enum',
-    name          => 'column6 (long)',
-    name_short    => 'column6',
-    is_multivalue => 0,
-    is_optional   => 0,
-                                            });
-logline;
-my @some_enums6 = qw/tic tac toe/;
-ok $sheet->layout->column_update($column6, { enumvals => \@some_enums6 }),
-    'Initial enums for enumvals sorted';
-logline for @some_enums6;
+my @expected_value4_desc = enum_reorder [ 2, 0, 1 ], \@enumvals4;
+my @result_value4_desc = enum_from_records $column4->enumvals(order => 'desc');
+is_deeply \@result_value4_desc, \@expected_value4_desc, '... result of enumvals sort desc';
 
-ok $column6->random,'... random should return something, don\'t know what';
+### order desc
+
+eval {
+    my @result_value4_error = enum_from_records $column4->enumvals(order => 'error'); 
+};
+print @_;
+
 
 #TODO: ->_is_valid_value
 # id's as example, same number is same id.
@@ -445,7 +311,7 @@ ok $sheet->layout->column_update($column7, { enumvals => \@some_enums7 }),
     'Initial enums for is_valid_value';
 logline for @some_enums7;
 
-my @enumvals7 = enum_from_records $column7->enumvals;
+my @enumvals7 = enum_from_column $column7;
 $test_cases7[0][3]=$enumvals7[1]{'id'}; # just patch the correct id in the testcases
 
 process_test_cases($column7, @test_cases7);
@@ -471,7 +337,7 @@ ok $sheet->layout->column_update($column8, { enumvals => \@some_enums8 }),
     'Initial enums for enumvals sorted';
 logline for @some_enums8;
 
-my @enumvals8 = enum_from_records $column8->enumvals;
+my @enumvals8 = enum_from_column $column8;
 
 ok ! $column8->export_hash,'... export hash should return something, don\'t know what';
 
