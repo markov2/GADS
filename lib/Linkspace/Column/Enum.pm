@@ -112,7 +112,7 @@ sub enumvals_string(%)
 
 sub _column_extra_update($)
 {   my ($self, $extra, %args) = @_;
-    $self->SUPER::_column_extra_update($extra);
+    $self->SUPER::_column_extra_update($extra, %args);
 
     # Deal with submitted values, also straight from a HTML form.
     # Two arrays: names (which may contain new names) and ids (which show
@@ -136,7 +136,7 @@ sub _column_extra_update($)
 
         if(my $enum_id = shift @ids)
         {   delete $missing{$enum_id};
-            my $rec = $enumvals->{$enum_id};
+            my $rec = $enumvals->{$enum_id} or next;  # disappeared
             next if $rec->value eq $name && $rec->position==$position && !$rec->deleted;
     
             if($rec->value ne $name)
