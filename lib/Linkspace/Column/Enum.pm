@@ -55,8 +55,13 @@ sub db_field_extra_export { [ qw/ordering/ ] }
 
 sub remove_column($)
 {   my $col_id = $_[1]->id;
-    # Rely on tree cleanup instead. If we have our own here, then
-    # it may error for tree types if the rows reference parents.
+    my %col_ref = (layout_id => $_[0]->id);
+
+    # erase internal references when ::Tree
+    $::db->update(Enumval => \%col_ref, {parent => undef});
+
+    $::db->delete(Enum    => \%col_ref);   # external references
+    $::db->delete(Enumval => \%col_ref);
 }
 
 ###
@@ -102,7 +107,7 @@ sub enumvals(%)
 
 sub enumval($)
 {   my ($self, $id) = @_;
-    $id ? $self->_enumvals_index->{$id} : undef;
+    $id ? $self->_enumvals->{$id} : undef;
 }
 
 sub enumvals_string(%)

@@ -33,6 +33,7 @@ use Linkspace::Column::Enum        ();
 use Linkspace::Column::Id          ();
 use Linkspace::Column::Intgr       ();
 use Linkspace::Column::Serial      ();
+use Linkspace::Column::Tree        ();
 
 =pod
 use Linkspace::Column::Autocur     ();
@@ -47,7 +48,6 @@ use Linkspace::Column::File        ();
 use Linkspace::Column::Person      ();
 use Linkspace::Column::Rag         ();
 use Linkspace::Column::String      ();
-use Linkspace::Column::Tree        ();
 =cut
 
 my @internal_columns = (

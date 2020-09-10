@@ -58,7 +58,6 @@ our %prereq_pm = (
     'Text::Autoformat'                          => 0,
     'Text::CSV::Encoded'                        => 0,
     'Tie::Cache'                                => 0,
-    'Tree::DAG_Node'                            => 0,
     'WWW::Form::UrlEncoded::XS'                 => 0,
     'WWW::Mechanize::PhantomJS'                 => 0,
     'YAML'                                      => 0,

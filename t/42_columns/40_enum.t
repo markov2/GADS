@@ -90,16 +90,16 @@ sub enum_rename_by_id($$@) {
     my ($id, $newvalue, @orig) = @_;
     my @enumvals = @{ clone \@orig };
     for my $enum ( @enumvals ) {
-        $enum->{'value'} = $newvalue if $enum->{'id'} eq $id;
+        $enum->{value} = $newvalue if $enum->{id} eq $id;
     }
     @enumvals;
 }
 
 sub enum_split_array(@) {
     my (@enumvals) = @_;
-    my @enumval_values =  map $_->{'value'} , @enumvals;
-    my @enumval_ids =  map $_->{'id'} , @enumvals;
-    \@enumval_values,\@enumval_ids;
+    my @enumval_values = map $_->{value} , @enumvals;
+    my @enumval_ids    = map $_->{id} , @enumvals;
+    (\@enumval_values, \@enumval_ids);
 }
 
 sub enum_combine_ids_values($$) {
@@ -195,7 +195,8 @@ like logline, qr/add enum '\Q$_\E'/, "... log creation of $_"
      ok $sheet->layout->column_update($column2a,
                                       { enumvals => $enumval_values2a, 
                                         enumval_ids => $enumval_ids2a }),
-         'Delete enum \'tic\'';
+         "Delete enum 'tic'";
+
      #
      # need to inspect single logline
      #
