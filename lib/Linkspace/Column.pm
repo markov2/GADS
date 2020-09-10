@@ -196,7 +196,7 @@ sub _validate($)
 }
 
 sub _column_create
-{   my ($class, $insert, %options) = @_;
+{   my ($class, $insert, %args) = @_;
     $insert->{options} = $class->option_defaults;
 
     $class->_validate($insert);
@@ -212,7 +212,7 @@ sub _column_create
     $insert->{end_node_only} //= 0;
     my $self = $class->create($insert, sheet => $insert->{sheet});
 
-    $self->_column_extra_update($extra);
+    $self->_column_extra_update($extra, %args);
     $self->_column_perms_update($perms) if $perms;
     $self->_display_field_update($df)   if $df;
     $self;
@@ -228,7 +228,7 @@ sub _column_update($%)
     ! $self->is_internal
          or error __"Internal fields cannot be edited";
 
-    $self->_column_extra_update(delete $update->{extras});
+    $self->_column_extra_update(delete $update->{extras}, %args);
 
     $self->_display_fields_update(delete $update->{display_field})
         if exists $update->{display_field};
