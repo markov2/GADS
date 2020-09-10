@@ -129,24 +129,37 @@ sub _column_extra_update($)
     my $position = 0;
 
     my @ids      = @$ids;
+
+  ENUM:
     foreach my $name (@names)
     {   $position++;
+
         if(my $enum_id = shift @ids)
         {   delete $missing{$enum_id};
             my $rec = $enumvals->{$enum_id};
-            if($rec->value ne $name || $rec->position != $position || $rec->deleted)
-            {   $rec->update({deleted => 0, value => $name, position => $position });
+            next if $rec->value eq $name && $rec->position==$position && !$rec->deleted;
+    
+            if($rec->value ne $name)
+            {   if(!$enum_id && grep { $name eq $_->value } values %$enumvals)
+                {   # Duplicate names will cause horrors, but may exist in old servers.
+                     info  __x"column {col.path} duplicate enum '{name}' ignored",
+                         col => $self, name => $name;
+                     next ENUM;
+                }
+    
                 info __x"column {col.path} rename enum '{from}' to '{to}'",
-                    col => $self, from => $rec->value, to => $name;
-                $rec->position($position);
-                $rec->deleted(0);
+                   col => $self, from => $rec->value, to => $name;
                 $rec->value($name);
             }
-        }
-        elsif(grep { $name eq $_->value } values %$enumvals)
-        {   # Duplicate namess will cause horrors, but may exist in old servers.
-            info  __x"column {col.path} duplicate enum '{name}' ignored",
-                col => $self, name => $name;
+    
+            if($rec->deleted)
+            {   info __x"column {col.path} deleted enum '{name}' revived",
+                   col => $self, name => $name;
+                $rec->deleted(0);
+            }
+    
+            $rec->position($position);  # unreported
+            $rec->update({deleted => 0, value => $name, position => $position });
         }
         else
         {   my $r = $::db->create(Enumval => { value => $name, position => $position});
@@ -158,7 +171,7 @@ sub _column_extra_update($)
 
     foreach my $enum_id (keys %missing)
     {   my $rec = $enumvals->{$enum_id};
-        $rec->update({deleted => 1});
+        $rec->update({deleted => 1, position => ++$position});
         info __x"column {col.path} withdraw option '{enum.value}'", col => $self, enum => $rec;
         $rec->deleted(1);
     }
