@@ -75,7 +75,7 @@ in field C<value>).  The C<Enum> contains the enum datums (cell values).
 
 When an enum option is deleted, it does not get removed but flagged as 'deleted'.
 It may happen that (historical) cells still contain the value.  Sometimes, the
-<remove_unused_deleted()> will clean-up deleted enumvals which are not used in
+<delete_unused_enumvals()> will clean-up deleted enumvals which are not used in
 any cell anymore.
 
 =cut
@@ -90,13 +90,14 @@ has _enumvals => (
 #! Returns HASHes
 sub enumvals(%)
 {   my ($self, %args) = @_;
-    my $order = $args{order} || $self->ordering || '';
+    my $order = $args{order} || $self->ordering || 'position';
     my @vals  = values %{$self->_enumvals};
     @vals     = grep ! $_->deleted, @vals unless $args{include_deleted};
 
-      $order eq 'asc'  ? [ sort { $a->value cmp $b->value } @vals ]
-    : $order eq 'desc' ? [ sort { $b->value cmp $a->value } @vals ]
-    :              [ sort { $a->position <=> $b->position } @vals ];
+      $order eq 'asc'      ? [ sort { $a->value cmp $b->value } @vals ]
+    : $order eq 'desc'     ? [ sort { $b->value cmp $a->value } @vals ]
+    : $order eq 'position' ? [ sort { $a->position <=> $b->position } @vals ]
+    : panic $order;
 }
 
 sub enumval($)
@@ -157,19 +158,18 @@ sub _column_extra_update($)
 
     foreach my $enum_id (keys %missing)
     {   my $rec = $enumvals->{$enum_id};
-        $rec->update(deleted => 1);
+        $rec->update({deleted => 1});
         info __x"column {col.path} withdraw option '{enum.value}'", col => $self, enum => $rec;
         $rec->deleted(1);
     }
 
-    $self->remove_unused_deleted unless $args{keep_deleted};
+    $self->delete_unused_enumvals unless $args{keep_unused};
     $self;
 }
 
-sub id_as_string
+sub id_as_string($)
 {   my ($self, $id) = @_;
     my $enum = $id ? $self->_enumvals->{$id} : undef;
-    $enum ? $enum->value : undef;
 }
 
 sub _is_valid_value($)
@@ -195,22 +195,25 @@ sub random
     $vals->{(keys %$vals)[rand $count]}->{value};
 }
 
-=head2 $column->remove_unused_deleted;
+=head2 $column->enumval_in_use($enum_id);
+=cut
+
+sub enumval_in_use($)
+{   my ($self, $val) = @_;
+    $::db->search(Enum => {layout_id => $self->id, value => $val->id })->count;
+}
+
+=head2 $column->delete_unused_enumvals;
 Deleted enums stay alive as long as they are still in use (in the history) of
 records.  Every once in a while, we recheck whether they are still needed.
 =cut
 
-sub remove_unused_deleted
+sub delete_unused_enumvals
 {   my $self = shift;
     my $enumvals = $self->_enumvals;
 
-    foreach my $node (grep $_->deleted, values %$enumvals)
-    {   my $count = $::db->search(Enum => {
-            layout_id => $self->id,
-            value     => $node->id,
-        })->count; # In use somewhere
-
-        next if $count;
+    foreach my $node (values %$enumvals)
+    {   next if ! $node->deleted || $self->enumval_in_use($node);
 
         info __x"column {col.path} removed unused option {enum.value}",
             col => $self, enum => $node;
