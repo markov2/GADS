@@ -1,17 +1,20 @@
 # Check the Integer column type
 
 use Linkspace::Test;
+use Clone qw(clone);
 
 $::session = test_session;
-my $sheet = test_sheet;
 
-my $column1 = $sheet->layout->column_create({
+my $sheet = test_sheet;
+my $layout = $sheet->layout;
+
+my $column1 = $layout->column_create({
     type          => 'enum',
     name          => 'column1 (long)',
     name_short    => 'column1',
     is_multivalue => 0,
     is_optional   => 0,
-                                            });
+});
 
 ok defined $column1, 'Created column1';
 my $col1_id = $column1->id;
@@ -25,20 +28,17 @@ isa_ok $column1, 'Linkspace::Column::Enum', '...';
 
 ### Enum utils
 
-use Clone qw(clone);
-
 sub enum_dump($@) {
     my ($title, @enumvals) = @_;
-    my @lines=();
-    push @lines, "$title:\n";
+    my @lines;
     my $index = 0;
-    while ( $index < @enumvals ) {
-        my $id=$enumvals[$index]{id} // '<undef>';
-        my $value=$enumvals[$index]{value};
+    while($index < @enumvals) {
+        my $id    = $enumvals[$index]{id} // '<undef>';
+        my $value = $enumvals[$index]{value};
         push @lines, "    \[$index\] = { id : $id, value : '$value' }\n";
         $index += 1;
     }
-    @lines;
+    "$title:\n", @lines;
 }
 
 sub enum_print($@) {
@@ -48,32 +48,32 @@ sub enum_print($@) {
 
 sub enum_add($$@) {
     my ($id, $value, @enumvals) = @_;
-    my %enumval_new = ( 'value' => $value );
-    $enumval_new{'id'} = $id if $id;
+    my %enumval_new = (value => $value);
+    $enumval_new{id} = $id if $id;
     push @enumvals, \%enumval_new;
     @enumvals;
 }
 
 sub enum_delete_by_index($@) {
     my ($index, @enumvals) = @_;
-    splice(@enumvals, $index, 1);
+    splice @enumvals, $index, 1;
     @enumvals;
 }
 
 sub enum_delete_by_value($@) {
     my ($value, @enumvals) = @_;
-    grep { $value ne $_->{'value'} } @enumvals;
+    grep { $value ne $_->{value} } @enumvals;
 }
 
 sub enum_delete_by_id($@) {
     my ($id, @enumvals) = @_;
-    grep { $id != $_->{'id'} } @enumvals;
+    grep { $id != $_->{id} } @enumvals;
 }
 
 sub enum_rename_by_index($$@) {
     my ($index, $newvalue, @orig) = @_;
     my @enumvals = @{ clone \@orig };
-    $enumvals[$index]{'value'} = $newvalue;
+    $enumvals[$index]{value} = $newvalue;
     @enumvals;
 }
 
@@ -81,7 +81,7 @@ sub enum_rename_by_value($$@) {
     my ($oldvalue, $newvalue,  @orig) = @_;
     my @enumvals = @{ clone \@orig };
     for my $enum ( @enumvals ) {
-        $enum->{'value'} = $newvalue if $enum->{'value'} eq $oldvalue;
+        $enum->{value} = $newvalue if $enum->{value} eq $oldvalue;
     }
     @enumvals;
 }
@@ -96,18 +96,17 @@ sub enum_rename_by_id($$@) {
 }
 
 sub enum_to_vals_ids(@) {
-    +{ enumvals    => [ map  $_->{value} , @_ ],
-       enumval_ids => [ map $_->{id} , @_ ],
+    +{ enumvals    => [ map $_->{value}, @_ ],
+       enumval_ids => [ map $_->{id}, @_ ],
     };
 }
 
 sub enum_combine_ids_values($$) {
-    my ($ids,$values) = @_;
-    my @enumvals = ();
+    my ($ids, $values) = @_;
+    my @enumvals;
     my $index = 0;
-    while ( $index < scalar @{ $ids } ) {
-        my %enumval = ( 'id' => $ids->[$index], 'value' => $values->[$index] );
-        push @enumvals, \%enumval;
+    while($index < @$ids) {
+        push @enumvals, { id => $ids->[$index], value => $values->[$index] };
         $index += 1;
     }
     @enumvals;
@@ -115,10 +114,10 @@ sub enum_combine_ids_values($$) {
 
 sub enum_reorder($@) {
     my ($order, @enumvals) = @_;
-    my @reordered = ();
+    my @reordered;
     my $index = 0;
-    while ( $index < scalar @{ $order } ) {
-        my $org=$order->[$index];
+    while( $index < @$order) {
+        my $org = $order->[$index];
         push @reordered, $enumvals[$org];
         $index += 1;
     }
@@ -127,28 +126,28 @@ sub enum_reorder($@) {
 
 sub enum_from_records($) {
     my ($recs) = @_;
-    map { 'id' => $_->id, 'value' => $_->value }, @$recs;
+    map { id => $_->id, value => $_->value }, @$recs;
 }
 
 sub enum_from_column($) {
     my ($column) = @_;
-    map { 'id' => $_->id, 'value' => $_->value }, @{$column->enumvals};
+    map { id => $_->id, value => $_->value }, @{$column->enumvals};
 }
 
 sub print_enum_from_column($$) {
-    my ($title,$column) = @_;
+    my ($title, $column) = @_;
     print "$title:\n";
     for my $rec (@{$column->enumvals}) {
-        my $id=$rec->id // '<undef>';
-        my $value=$rec->value // '<undef>';
-        my $position=$rec->position // '<undef>';
+        my $id       = $rec->id       // '<undef>';
+        my $value    = $rec->value    // '<undef>';
+        my $position = $rec->position // '<undef>';
         print "    { id : $id, value : '$value', position : '$position' }\n";
     }
 }
 
 sub initial_column($) {
     my ($name) = @_;
-    my $column = $sheet->layout->column_create({
+    my $column = $layout->column_create({
         type          => 'enum',
         name          => $name.' (long)',
         name_short    => $name,
@@ -156,9 +155,9 @@ sub initial_column($) {
         is_optional   => 0,
                                                });
     logline;
-    
+
     my @some_enums = qw/tic tac toe/;
-    ok $sheet->layout->column_update($column, { enumvals => \@some_enums } ),'Initial enums for '.$name;
+    ok $layout->column_update($column, { enumvals => \@some_enums } ), 'Initial enums for '.$name;
     logline for @some_enums;
     $column;
 }
@@ -167,8 +166,7 @@ sub initial_column($) {
 ### Adding enums
 
 my @some_enums = qw/tic tac toe/;
-ok $sheet->layout->column_update($column1, { enumvals => \@some_enums }),
-    'Insert some enums';
+ok $layout->column_update($column1, { enumvals => \@some_enums }), 'Insert some enums';
 like logline, qr/add enum '\Q$_\E'/, "... log creation of $_"
     for @some_enums;
 
@@ -180,7 +178,7 @@ like logline, qr/add enum '\Q$_\E'/, "... log creation of $_"
 
 my $column2a = initial_column 'column2a';
 my @expected_value2a = enum_delete_by_value 'tic', enum_from_column $column2a;
-ok $sheet->layout->column_update($column2a,enum_to_vals_ids(@expected_value2a), keep_unused => 1),
+ok $layout->column_update($column2a, enum_to_vals_ids(@expected_value2a), keep_unused => 1),
     'Withdraw enum \'tic\'';
 like logline, qr/withdraw option 'tic'/, '... log withdrawal of \'tic\'';
 my @result_value2a = enum_from_column $column2a;
@@ -189,8 +187,8 @@ is_deeply \@result_value2a, \@expected_value2a, '... result of withdrawal \'tic\
 ### add 'other'
 
 my $column2b = initial_column 'column2b';
-my @expected_value2b = enum_reorder [0,3,1,2], enum_add undef,'other',enum_from_column $column2b;
-ok $sheet->layout->column_update($column2b,enum_to_vals_ids(@expected_value2b), keep_unused => 1),
+my @expected_value2b = enum_reorder [0,3,1,2], enum_add undef, 'other', enum_from_column $column2b;
+ok $layout->column_update($column2b, enum_to_vals_ids(@expected_value2b), keep_unused => 1),
     'Add new enum \'other\'';
 like logline, qr/add enum 'other'/, '... log adding of \'other\'';
 my @result_value2b = enum_from_column $column2b;
@@ -201,7 +199,7 @@ is_deeply \@result_value2b, \@expected_value2b, '... result of add \'other\'';
 
 my $column2c = initial_column 'column2c';
 my @expected_value2c = enum_rename_by_value 'tic', 'other', enum_from_column $column2c;
-ok $sheet->layout->column_update($column2c,enum_to_vals_ids( @expected_value2c), keep_unused => 1),
+ok $layout->column_update($column2c, enum_to_vals_ids( @expected_value2c), keep_unused => 1),
     'Rename enum \'tic\' to \'other\'';
 like logline, qr/rename enum 'tic' to 'other'/, '... log rename of \'tic\'';
 my @result_value2c = enum_from_column $column2c;
@@ -211,10 +209,10 @@ is_deeply \@result_value2c, \@expected_value2c, '... result of rename \'tic\' to
 
 my $column2d = initial_column 'column2d';
 my @expected_value2d = enum_from_column $column2d;
-ok $sheet->layout->column_update($column2d,enum_to_vals_ids(enum_delete_by_value 'tic', @expected_value2d), keep_unused => 1),
+ok $layout->column_update($column2d, enum_to_vals_ids(enum_delete_by_value 'tic', @expected_value2d), keep_unused => 1),
     'Withdraw enum \'tic\'';
 like logline, qr/withdraw option 'tic'/, '... log withdrawal of \'tic\'';
-ok $sheet->layout->column_update($column2d,enum_to_vals_ids(@expected_value2d), keep_unused => 1),
+ok $layout->column_update($column2d, enum_to_vals_ids(@expected_value2d), keep_unused => 1),
     'Revive deleted \'tic\'';
 like logline, qr/deleted enum 'tic' revived/, '... log revivication of \'tic\'';
 my @result_value2d = enum_from_column $column2d;
@@ -222,12 +220,13 @@ is_deeply \@result_value2a, \@expected_value2a, '... result of reuse of deleted 
 
 #
 # enumvals(include_deleted)   when Enum datun can be created
-# 
+#
 
 my $column3 = initial_column 'column3';
 my @initial_value3 = enum_from_column $column3;
-ok $sheet->layout->column_update($column3,enum_to_vals_ids(enum_delete_by_value 'tac', @initial_value3), keep_unused => 1),
-    'Withdraw enum \'tac\'';
+ok $layout->column_update($column3,
+   enum_to_vals_ids(enum_delete_by_value 'tac', @initial_value3), keep_unused => 1),
+   'Withdraw enum \'tac\'';
 like logline, qr/withdraw option 'tac'/, '... log withdrawal of \'tac\'';
 my @expected_value3 = enum_reorder [0,2,1],  @initial_value3;
 my @result_value3 = enum_from_records $column3->enumvals(include_deleted => 1);
@@ -235,7 +234,7 @@ is_deeply \@result_value3, \@expected_value3, '... \'tac\' visible';
 
 #
 # sorting with enumvals: default, 'asc', 'desc', 'error'
-# 
+#
 
 my $column4 = initial_column 'column4';
 my @enumvals4 = enum_from_column $column4;
@@ -255,29 +254,27 @@ is_deeply \@result_value4_desc, \@expected_value4_desc, '... result of enumvals 
 ### incorrect order specification
 
 eval {
-    my @result_value4_error = $column4->enumvals(order => 'error'); 
+    my @result_value4_error = $column4->enumvals(order => 'error');
 };
 like $@, qr/"order", "error"/, "... is incorrect order specification";
 
-#
-# _is_valid_value
-#
+### _is_valid_value()
+
 sub is_valid_value_test {
-    my ($column, $values,$result_value) = @_;
+    my ($column, $values, $result_value) = @_;
     my $result = try { $column->is_valid_value($values) };
-    my $done = $@ ? $@->wasFatal->message : $result;
     $$result_value = $@ ? $@->wasFatal->message : $result;
     ! $@;
 }
 
 sub process_test_cases {
-    my ($column,@test_cases) = @_;
+    my ($column, @test_cases) = @_;
     my $name=$column->name_short;
     foreach my $test_case (@test_cases) {
-        my ($expected_valid,$case_description, $col_id_value, $expected_value) = @$test_case;
+        my ($expected_valid, $case_description, $col_id_value, $expected_value) = @$test_case;
         my $col_id_value_s = $col_id_value // '<undef>';
         my $result_value;
-        ok $expected_valid == is_valid_value_test($column, $col_id_value,\$result_value),
+        ok $expected_valid == is_valid_value_test($column, $col_id_value, \$result_value),
             "... $name validate  $case_description";
         is_deeply $result_value , $expected_value, "... $name value for $case_description";
     }
@@ -289,32 +286,28 @@ use List::Util qw(min max);
 my $invalid_value = max(map { $_->{id} } @enumvals5) + 1;
 
 my @test_cases5 = (
-    [1, 'valid enum',                'tac',           "$enumvals5[1]{'id'}"                                       ],
-    [0, 'valid id, but invalid enum',"$invalid_value","Enum ID '$invalid_value' is not known for 'column5 (long)'"],
-    [0, 'invalid enum',              'invalid',       'Enum name \'invalid\' is not known for \'column5 (long)\'' ],
-    [0, 'empty enum',                '',              'Enum ID \'\' is not known for \'column5 (long)\''          ],
-    [0, 'undef enum',                undef,           'Column \'column5 (long)\' requires a value.'               ],
-    [0, 'multivalue',                ['tac','toe'],   'Column \'column5 (long)\' is not a multivalue.'            ],
+    [1, 'valid enum',   'tac',           "$enumvals5[1]{id}"                                     ],
+    [0, 'valid id, but invalid enum', $invalid_value,
+                                     "Enum ID '$invalid_value' is not known for 'column5 (long)'"],
+    [0, 'invalid enum', 'invalid',       "Enum name 'invalid' is not known for 'column5 (long)'" ],
+    [0, 'empty enum',   '',              "Enum ID '' is not known for 'column5 (long)'"          ],
+    [0, 'undef enum',   undef,           "Column 'column5 (long)' requires a value."             ],
+    [0, 'multivalue',   ['tac','toe'],   "Column 'column5 (long)' is not a multivalue."          ],
     );
 
 process_test_cases($column5, @test_cases5);
 
 #
 # export_hash
-# 
+#
 
 my $column6 = initial_column 'column6';
-my $result_value6 = $column6->export_hash;
 my %expected_value6 = (
   'aggregate' => undef,
   'can_child' => 0,
   'description' => undef,
   'display_condition' => 'AND',
-  'enumvals' => [
-    'tic',
-    'tac',
-    'toe'
-  ],
+  'enumvals' => [ 'tic', 'tac', 'toe' ],
   'group_display' => undef,
   'helptext' => undef,
   'id' => $column6->id,
@@ -338,37 +331,15 @@ my %expected_value6 = (
   'typeahead' => 0,
   'width' => 50
 );
-is_deeply $result_value6, \%expected_value6, '... result of export_hash';
+is_deeply $column6->export_hash, \%expected_value6, '... result of export_hash';
 
 #
 # additional_pdf_export
 #
 my $column7 = initial_column 'column7';
-my $expected_value7 = [
-    'Select values',
-    'tic, tac, toe',
-    ];
-my $result_value7 = $column7->additional_pdf_export;
-is_deeply $result_value7, $expected_value7, '... result of additional_pdf_export';
-
-#
-# import_hash
-#
-my $column8 = $sheet->layout->column_create({
-    type          => 'enum',
-    name          => 'column8 (long)',
-    name_short    => 'column 8',
-    is_multivalue => 0,
-    is_optional   => 0,
-                                            });
-logline;
-    
- TODO: {
-     local $TODO = 'import_hash not yet finished';
-         is_deeply $column8->import_hash($sheet->layout,\%expected_value6), 
-             [], '... result of import_hash';
-     like $@, qr//, "... import_hash not yet finished";
-};
+is_deeply $column7->additional_pdf_export,
+          [ 'Select values' => 'tic, tac, toe' ],
+          '... result of additional_pdf_export';
 
 done_testing;
 
