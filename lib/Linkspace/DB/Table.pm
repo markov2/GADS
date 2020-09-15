@@ -253,6 +253,8 @@ use C<exclude_undefs>.
 
 sub export_hash($)
 {   my ($self, %args) = @_;
+
+    # Very blunt approach: take all columns from the table row.
     my %h       = %{$self->{_coldata}};
 
     my $exclude = $self->db_fields_no_export;

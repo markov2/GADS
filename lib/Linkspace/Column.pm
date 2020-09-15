@@ -37,7 +37,6 @@ sub db_table() { 'Layout' }
 sub db_field_rename { +{
     display_field => 'display_field_old',  #XXX to be removed
     filter        => 'filter_json',
-    force_regex   => 'force_regex_string',
     internal      => 'is_internal',
     isunique      => 'is_unique',
     link_parent   => 'link_parent_id',
@@ -746,9 +745,6 @@ has related_field => (
     is      => 'lazy',
     builder => sub { $_[0]->column($_[0]->related_field_id) },
 );
-
-### Only used for String
-sub force_regex { my $re = $_[0]->force_regex_string; qr/^${re}$/ }
 
 ### Only used for Code
 sub depends_on_columns { [] }

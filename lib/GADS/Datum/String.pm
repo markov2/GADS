@@ -43,13 +43,6 @@ after set_value => sub {
     {   s/\h+$// for @values;
     }
 
-    if(my $regex = $self->column->force_regex)
-    {   foreach my $val (grep length && !m/$regex/, @values)
-        {   my $msg = __x"Invalid value '{value}' for {field}", value => $val, field => $self->column->name;
-            $changed ? error($msg) : warning($msg);
-        }
-    }
-
     if($changed)
     {   $self->changed(1);
         $self->_set_values(\@values);

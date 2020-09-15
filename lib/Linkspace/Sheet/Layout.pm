@@ -264,59 +264,6 @@ sub export
      };
 }
 
-#XXX must disappear: Layout object immutable
-sub import_hash
-{   my ($self, $values, %options) = @_;
-    my $report = $options{report_only} && $self->instance_id;
-
-    notice __x"Update: name from {old} to {new} for layout {name}",
-        old => $self->name, new => $values->{name}, name => $self->name
-        if $report && $self->name ne $values->{name};
-    $self->name($values->{name});
-
-    notice __x"Update: name_short from {old} to {new} for layout {name}",
-        old => $self->name_short, new => $values->{name_short}, name => $self->name
-        if $report && ($self->name_short || '') ne ($values->{name_short} || '');
-    $self->name_short($values->{name_short});
-
-    notice __x"Update homepage_text for layout {name}", name => $self->name
-        if $report && ($self->homepage_text || '') ne ($values->{homepage_text} || '');
-    $self->homepage_text($values->{homepage_text});
-
-    notice __x"Update homepage_text2 for layout {name}", name => $self->name
-        if $report && ($self->homepage_text2 || '') ne ($values->{homepage_text2} || '');
-    $self->homepage_text2($values->{homepage_text2});
-
-    notice __x"Update: sort_type from {old} to {new} for layout {name}",
-        old => $self->sort_type, new => $values->{sort_type}, name => $self->name
-        if $report && ($self->sort_type || '') ne ($values->{sort_type} || '');
-
-    $self->sort_type($values->{sort_type});
-
-    if ($report)
-    {
-        my $existing = $self->_group_permissions_hash;
-        my $new_hash = {};
-        foreach my $new (@{$values->{permissions}})
-        {
-            $new_hash->{$new->{group_id}}->{$new->{permission}} = 1;
-            notice __x"Adding permission {perm} for group ID {group_id}",
-                perm => $new->{permission}, group_id => $new->{group_id}
-                    if !$existing->{$new->{group_id}}->{$new->{permission}};
-        }
-        foreach my $old (@{$self->_group_permissions})
-        {
-            notice __x"Removing permission {perm} from group ID {group_id}",
-                perm => $old->permission, group_id => $old->group_id
-                    if !$new_hash->{$old->group_id}->{$old->permission};
-        }
-    }
-
-    $self->set_groups([
-        map "$_->{group_id} .'_'. $_->{permission}", @{$values->{permissions}}
-    ]);
-}
-
 sub purge
 {   my $self = shift;
 

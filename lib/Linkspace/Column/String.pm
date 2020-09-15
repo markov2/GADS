@@ -47,13 +47,22 @@ sub remove_column($)
 ### Instance
 ###
 
+sub must_match { my $re = $_[0]->force_regex; $re ? qr/^${re}$/ : undef }
+
 sub _is_valid_value($)
 {   my ($self, $value) = @_;
 
-    return $value =~ s/\xA0/ /gr =~ s/\A\s*$//mrs =~ s/\s*\z/\n/mrs =~ s/\s+$//gmr
-        if $self->is_textbox;
+    my $clean = $self->is_textbox
+      ? $value =~ s/\xA0/ /gr =~ s/\A\s*$//mrs =~ s/\s*\z/\n/mrs =~ s/\s+$//gmr
+      : $value =~ s/[\xA0\s]+/ /gr =~ s/^ //r =~ s/ $//r;
 
-    $value =~ s/[\xA0\s]+/ /gr =~ s/^ //r =~ s/ $//r;
+    if(my $m = $self->must_match)
+    {   $clean =~ $m
+            or error __x"Invalid value '{value}' for required pattern of {col.name}",
+                 value => $clean, col => $self;
+    }
+
+    $clean;
 }
 
 sub string_storage { 1 }

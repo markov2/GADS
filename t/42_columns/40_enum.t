@@ -336,6 +336,7 @@ is_deeply $column6->export_hash, \%expected_value6, '... result of export_hash';
 #
 # additional_pdf_export
 #
+
 my $column7 = initial_column 'column7';
 is_deeply $column7->additional_pdf_export,
           [ 'Select values' => 'tic, tac, toe' ],
