@@ -233,8 +233,6 @@ my @expected_value3 = enum_reorder [0,2,1],  @initial_value3;
 my @result_value3 = enum_from_records $column3->enumvals(include_deleted => 1);
 is_deeply \@result_value3, \@expected_value3, '... \'tac\' visible';
 
-__END__
-
 #
 # sorting with enumvals: default, 'asc', 'desc', 'error'
 # 
@@ -244,32 +242,26 @@ my @enumvals4 = enum_from_column $column4;
 
 ### order asc
 
-my @expected_value4_asc = enum_reorder [ 1, 0, 2 ], \@enumvals4;
+my @expected_value4_asc = enum_reorder [ 1, 0, 2 ], @enumvals4;
 my @result_value4_asc = enum_from_records $column4->enumvals(order => 'asc');
 is_deeply \@result_value4_asc, \@expected_value4_asc, '... result of enumvals sort asc';
 
 ### order desc
 
-my @expected_value4_desc = enum_reorder [ 2, 0, 1 ], \@enumvals4;
+my @expected_value4_desc = enum_reorder [ 2, 0, 1 ], @enumvals4;
 my @result_value4_desc = enum_from_records $column4->enumvals(order => 'desc');
 is_deeply \@result_value4_desc, \@expected_value4_desc, '... result of enumvals sort desc';
 
-### order desc
+### incorrect order specification
 
 eval {
-    my @result_value4_error = enum_from_records $column4->enumvals(order => 'error'); 
+    my @result_value4_error = $column4->enumvals(order => 'error'); 
 };
-print @_;
+like $@, qr/"order", "error"/, "... is incorrect order specification";
 
-
-#TODO: ->_is_valid_value
-# id's as example, same number is same id.
-# test 7:
-#     initial:
-#         [0] = { id : 623, value : 'tic'     }
-#         [1] = { id : 624, value : 'tac'     }
-#         [2] = { id : 625, value : 'toe'     }
-# 
+#
+# _is_valid_value
+#
 sub is_valid_value_test {
     my ($column, $values,$result_value) = @_;
     my $result = try { $column->is_valid_value($values) };
@@ -290,60 +282,93 @@ sub process_test_cases {
         is_deeply $result_value , $expected_value, "... $name value for $case_description";
     }
 }
-my @test_cases7 = (
-    [1, 'valid enum',   'tac',     '<will be patched>'                                       ],
-    [0, 'invalid enum', 'invalid', 'Enum name \'invalid\' not a known for \'column7 (long)\''],
-    [0, 'empty enum',   '',        'Enum name \'\' not a known for \'column7 (long)\''       ],
-    [0, 'undef enum',   undef,     'Column \'column7 (long)\' requires a value.'             ],
-    [0, 'multivalue',   ['tac','toe'], 'Column \'column7 (long)\' is not a multivalue.'      ],
+my $column5 = initial_column 'column5';
+
+my @enumvals5 = enum_from_column $column5;
+use List::Util qw(min max);
+my $invalid_value = max(map { $_->{id} } @enumvals5) + 1;
+
+my @test_cases5 = (
+    [1, 'valid enum',                'tac',           "$enumvals5[1]{'id'}"                                       ],
+    [0, 'valid id, but invalid enum',"$invalid_value","Enum ID '$invalid_value' is not known for 'column5 (long)'"],
+    [0, 'invalid enum',              'invalid',       'Enum name \'invalid\' is not known for \'column5 (long)\'' ],
+    [0, 'empty enum',                '',              'Enum ID \'\' is not known for \'column5 (long)\''          ],
+    [0, 'undef enum',                undef,           'Column \'column5 (long)\' requires a value.'               ],
+    [0, 'multivalue',                ['tac','toe'],   'Column \'column5 (long)\' is not a multivalue.'            ],
     );
 
-my $column7 = $sheet->layout->column_create({
-    type          => 'enum',
-    name          => 'column7 (long)',
-    name_short    => 'column7',
-    is_multivalue => 0,
-    is_optional   => 0,
-                                            });
-logline;
-my @some_enums7 = qw/tic tac toe/;
-ok $sheet->layout->column_update($column7, { enumvals => \@some_enums7 }),
-    'Initial enums for is_valid_value';
-logline for @some_enums7;
+process_test_cases($column5, @test_cases5);
 
-my @enumvals7 = enum_from_column $column7;
-$test_cases7[0][3]=$enumvals7[1]{'id'}; # just patch the correct id in the testcases
-
-process_test_cases($column7, @test_cases7);
-
-#TODO: ->export_hash
-# id's as example, same number is same id.
-# test 8:
-#     initial:
-#         [0] = { id : 623, value : 'tic'     }
-#         [1] = { id : 624, value : 'tac'     }
-#         [2] = { id : 625, value : 'toe'     }
+#
+# export_hash
 # 
+
+my $column6 = initial_column 'column6';
+my $result_value6 = $column6->export_hash;
+my %expected_value6 = (
+  'aggregate' => undef,
+  'can_child' => 0,
+  'description' => undef,
+  'display_condition' => 'AND',
+  'enumvals' => [
+    'tic',
+    'tac',
+    'toe'
+  ],
+  'group_display' => undef,
+  'helptext' => undef,
+  'id' => $column6->id,
+  'instance_id' => $sheet->id,
+  'internal' => 0,
+  'isunique' => 0,
+  'link_parent' => undef,
+  'multivalue' => 0,
+  'name' => 'column6 (long)',
+  'name_short' => 'column6',
+  'optional' => 0,
+  'options' => '{}',
+  'ordering' => undef,
+  'permissions' => {},
+  'position' => undef,
+  'related_field' => undef,
+  'remember' => 0,
+  'textbox' => 0,
+  'topic_id' => undef,
+  'type' => 'enum',
+  'typeahead' => 0,
+  'width' => 50
+);
+is_deeply $result_value6, \%expected_value6, '... result of export_hash';
+
+#
+# additional_pdf_export
+#
+my $column7 = initial_column 'column7';
+my $expected_value7 = [
+    'Select values',
+    'tic, tac, toe',
+    ];
+my $result_value7 = $column7->additional_pdf_export;
+is_deeply $result_value7, $expected_value7, '... result of additional_pdf_export';
+
+#
+# import_hash
+#
 my $column8 = $sheet->layout->column_create({
     type          => 'enum',
     name          => 'column8 (long)',
-    name_short    => 'column8',
+    name_short    => 'column 8',
     is_multivalue => 0,
     is_optional   => 0,
                                             });
 logline;
-my @some_enums8 = qw/tic tac toe/;
-ok $sheet->layout->column_update($column8, { enumvals => \@some_enums8 }),
-    'Initial enums for enumvals sorted';
-logline for @some_enums8;
-
-my @enumvals8 = enum_from_column $column8;
-
-ok ! $column8->export_hash,'... export hash should return something, don\'t know what';
-
-#TODO: ->additional_pdf_export
-#TODO: ->export_hash
-#TODO: ->import_hash
+    
+ TODO: {
+     local $TODO = 'import_hash not yet finished';
+         is_deeply $column8->import_hash($sheet->layout,\%expected_value6), 
+             [], '... result of import_hash';
+     like $@, qr//, "... import_hash not yet finished";
+};
 
 done_testing;
 

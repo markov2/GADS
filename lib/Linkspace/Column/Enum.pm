@@ -194,13 +194,13 @@ sub _is_valid_value($)
 {   my ($self, $value) = @_;
     if($value !~ /\D/)
     {   $self->_enumvals->{$value}
-           or error __x"Enum ID {id} not a known for '{col.name}'", id => $value, col => $self;
+           or error __x"Enum ID '{id}' is not known for '{col.name}'", id => $value, col => $self;
         return $value;
     }
 
     my $found = first { $_->value eq $value } values %{$self->_enumvals};
     $found
-        or error __x"Enum name '{name}' not a known for '{col.name}'", name => $value, col => $self;
+        or error __x"Enum name '{name}' is not known for '{col.name}'", name => $value, col => $self;
 
     $found->id;
 }
@@ -244,7 +244,7 @@ sub delete_unused_enumvals
 sub export_hash
 {   my $self = shift;
     my $h = $self->SUPER::export_hash(@_);
-    $h->{enumvals} = $self->enumvals;
+    $h->{enumvals} = [ map $_->value, @{$self->enumvals} ];
     $h;
 }
 
