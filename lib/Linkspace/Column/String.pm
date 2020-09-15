@@ -20,7 +20,6 @@ package Linkspace::Column::String;
 
 use Log::Report 'linkspace';
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 
 extends 'Linkspace::Column';
 
@@ -48,6 +47,15 @@ sub remove_column($)
 ### Instance
 ###
 
+sub _is_valid_value($)
+{   my ($self, $value) = @_;
+
+    return $value =~ s/\xA0/ /gr =~ s/\A\s*$//mrs =~ s/\s*\z/\n/mrs =~ s/\s+$//gmr
+        if $self->is_textbox;
+
+    $value =~ s/[\xA0\s]+/ /gr =~ s/^ //r =~ s/ $//r;
+}
+
 sub string_storage { 1 }
 
 sub resultset_for_values
@@ -73,7 +81,7 @@ sub field_values($;$%)
 
     # No values, but still need to write null value
     map +{ value => $_, 
-           value_index => defined ? (lc substr $_, 0, 128) : '',
+           value_index => defined $_ ? (lc substr $_, 0, 128) : '',
          }, @$values ? @$values : (undef);
 }
 
