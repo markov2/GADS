@@ -323,54 +323,61 @@ sub import_value
 }
 
 #======================
-package Linkspace::Column::Tree::Node;
 # A simple, dedicated, tree implementation.
+
+package Linkspace::Column::Tree::Node;
+use Scalar::Util qw(weaken);
 
 sub new(%)
 {   my ($class, %node) = @_;
-    $node{name}     ||= $node{enumval}{value};
-    $node{children} ||= [];
-    weaken($node{parent}) if $node{parent};
-    bless \%node, $class;
+    my $childs  = delete $node{children} || [];
+    my $parent  = delete $node{parent};
+    $node{_kids} = [];
+    $node{name} ||= $node{enumval}->value;
+    my $self = bless \%node, $class;
+    $self->add_child($_) for @$childs;
+    $parent->add_child($self) if $parent;
+    $self;
 }
 
-sub id      { $_[0]->enumval->{id} }
+sub id      { $_[0]->enumval->id }
 sub name    { $_[0]->{name} }
 sub enumval { $_[0]->{enumval} }
 
 sub add_child($)
 {   my ($self, $child) = @_;
-    push @{$self->{children}}, $child;
+    push @{$self->{_kids}}, $child;
     $child->set_parent($self);
     $child;
 }
 
 sub set_parent($)
 {   my ($self, $parent) = @_;
-    $self->{parent} = $parent;
-    weaken($self->{parent});
+    $self->{_parent} = $parent;
+    weaken($self->{_parent}) if $parent;
     $parent;
 }
 
-sub children() { @{$_[0]->{children}} }
-sub parent()   { $_[0]->{parent} }
-sub is_top()   { ! $_[0]->{parent} }
-sub is_leaf()  { ! @{$_[0]->{children}} }
+sub children() { @{$_[0]->{_kids}} }
+sub parent()   { $_[0]->{_parent} }
+sub is_top()   { ! $_[0]->{_parent} }
+sub is_leaf()  { ! @{$_[0]->{_kids}} }
 
 sub remove()
 {   my $self = shift;
-    my $parent = $self->parent;
-    $parent->{children} = [ grep $_->id != $self->id, $parent->children ];
+    my $parent = $self->parent or return;
+    $parent->{_kids} = [ grep $_->id != $self->id, $parent->children ];
 }
 
 sub walk($$)
 {   my ($self, $cb, $level) = @_;
+    $level //= 1;
     $cb->($self, $level), (map $_->walk($cb, $level+1), $self->children);
 }
 
 sub walk_depth_first($$)
 {   my ($self, $cb, $level) = @_;
-    $level //= 0;
+    $level //= 1;
     (map $_->walk_depth_first($cb, $level+1), $self->children), $cb->($self, $level);
 }
 
