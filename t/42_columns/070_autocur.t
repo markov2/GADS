@@ -2,6 +2,8 @@
 
 use Linkspace::Test;
 
+plan skip_all => 'to be implemented';
+
 $::session = test_session;
 my $sheet = test_sheet;
 
