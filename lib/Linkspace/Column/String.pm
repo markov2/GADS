@@ -62,7 +62,7 @@ sub _is_valid_value($)
 {   my ($self, $value) = @_;
 
     my $clean = $self->is_textbox
-      ? $value =~ s/\xA0/ /gr =~ s/\A\s*$//mrs =~ s/\s*\Z/\n/mrs =~ s/\s+$//gmr =~ s/^\n$//
+      ? $value =~ s/\xA0/ /gr =~ s/\A\s*\n//mrs =~ s/\s*\Z/\n/mrs =~ s/\s+$//gmr =~ s/^\n$//r
       : $value =~ s/[\xA0\s]+/ /gr =~ s/^ //r =~ s/ $//r;
 
     if(my $m = $self->must_match)
