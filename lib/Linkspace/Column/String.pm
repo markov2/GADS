@@ -23,6 +23,14 @@ use Moo;
 
 extends 'Linkspace::Column';
 
+#------------------------
+=head1 NAME
+
+Linkspace::Column::String - single line or text blocks
+
+=head1 DESCRIPTION
+=cut
+
 ###
 ### META
 ###
@@ -43,17 +51,18 @@ sub remove_column($)
     $::db->delete(String => { layout_id => $col_id });
 }
 
+
 ###
 ### Instance
 ###
 
-sub must_match { my $re = $_[0]->force_regex; $re ? qr/^${re}$/ : undef }
+sub must_match { my $re = $_[0]->force_regex; $re ? qr/\A${re}\Z/ms : undef }
 
 sub _is_valid_value($)
 {   my ($self, $value) = @_;
 
     my $clean = $self->is_textbox
-      ? $value =~ s/\xA0/ /gr =~ s/\A\s*$//mrs =~ s/\s*\z/\n/mrs =~ s/\s+$//gmr
+      ? $value =~ s/\xA0/ /gr =~ s/\A\s*$//mrs =~ s/\s*\Z/\n/mrs =~ s/\s+$//gmr =~ s/^\n$//
       : $value =~ s/[\xA0\s]+/ /gr =~ s/^ //r =~ s/ $//r;
 
     if(my $m = $self->must_match)
