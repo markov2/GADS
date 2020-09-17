@@ -39,48 +39,55 @@ sub form_extras     { [ 'end_node_only' ], [] }
 sub retrieve_fields { [ qw/id value/ ] }
 sub value_table     { 'Enum' }
 
-###
-### Class
-###
+sub sprefix { 'value' }
+sub tjoin   { +{ $_[0]->field => 'value' } }
+sub value_field_as_index { 'id' }
 
 ###
 ### Instance
 ###
 
-#XXX at assignment, /\D/ must translate names into numval ids
+sub _column_extra_update($%)
+{   my ($self, $extra, %args) = @_;
+    $self->SUPER::_column_extra_update($extra, %args);
 
-sub sprefix { 'value' }
-sub tjoin   { +{ $_[0]->field => 'value' } }
-sub value_field_as_index { 'id' }
+    if(my $other = delete $extra->{tree})
+    {   $self->_update_tree($self->tree, $other, %args);
+    }
+
+    $self->delete_unused_enumvals unless $args{keep_deleted};
+    $self;
+}
 
 sub _is_valid_value($)
 {   my ($self, $value) = @_;
 
     my $node = $self->node($value)
-        or error __x"Node '{int}' is not a valid tree node ID for '{col.name}'",
-            int => $value, col => $self;
+        or error __x"Node '{value}' is not a valid tree node for '{col.name}'",
+            value => $value, col => $self;
 
-    if($node->is_deleted)
-    {   error __x"Node '{node.name}' has been deleted and can therefore not be used",
+    ! $node->is_deleted
+        or error __x"Node '{node.name}' has been deleted and can therefore not be used",
             node => $node;
-    }
 
-    1;
+    $self->end_node_only || $node->is_leaf
+        or error __x"Node '{node.name}' cannot be used: not a leaf node", node => $node;
+
+    $value;
 }
 
 =head2 my $tree = $column->tree;
 The selection tree as structured nodes, which are C<::Column::Tree::Node> instances
-(implemented in the same source file)
+(implemented in the same source file)  The root element on top is used to group
+the possible existence of multiple trees.
 =cut
 
-has tree => (is => 'rw', lazy => 1);
+has tree => (is => 'rw', lazy => 1, builder => '_build_tree');
 
 sub _build_tree
-{   my ($self, %args) = @_;
-
-    my @nodes = map Linkspace::Column::Tree::Node->new(enumval => $_),
-        $self->enumvals(include_deleted => 1, order => 'position');
-
+{   my $self  = shift;
+    my $enumvals = $self->enumvals(include_deleted => 1, order => 'position');
+    my @nodes = map Linkspace::Column::Tree::Node->new(enumval => $_), @$enumvals;
     my $nodes = index_by_id @nodes;
 
     my ($tops, $leafs) = part { $_->parent ? 1 : 0 } @nodes;
@@ -89,14 +96,19 @@ sub _build_tree
     Linkspace::Column::Tree::Node->new(name => 'Root', children => $tops);
 }
 
+sub _tops() { $_[0]->tree->children }
+
 =head2 my $node = $column->node($node_id);
-Returns a single node from the tree: returns a ::Node object.
+Returns a single node from the tree: returns a ::Node object.  Use C<$node->enumval>
+to get to its database record.  Node names are only unique per parent, so names cannot
+be used globally.
 =cut
 
-sub node($) {
-    my ($self, $node_id) = @_;
-    my $enumval = $self->enumval($node_id);
-    $enumval ? Linkspace::Column::Tree::Node->new(enumval => $enumval) : undef;
+sub node($)
+{   my ($self, $node_id) = @_;
+    my $result;
+    $self->tree->walk(sub { $_[0]->id==$node_id or return 1; $result = $_[0]; 0 });
+    $result;
 }
 
 =head2 \@nodes = $column->nodes;
@@ -105,7 +117,7 @@ Returns all non-deleted nodes for the tree.
 
 sub nodes
 {   my @nodes;
-    $_[0]->tree->walk( sub { push @nodes, $_[0] unless $_[0]->is_deleted } );
+    $_[0]->tree->walk( sub { push @nodes, $_[0] unless $_[0]->is_deleted; 1 } );
     \@nodes;
 }
 
@@ -115,7 +127,7 @@ Return all nodes which do not have childs.
 
 sub leafs { [ grep $_->is_leaf, @{$_[0]->nodes} ] }
 
-=head2 \%h = $tree->to_hash(\@selected_ids);
+=head2 \%h = $column->to_hash(\@selected_ids);
 Returns the structure the tree as nested HASHes.  Selections are
 based on enumval ids.
 =cut
@@ -125,6 +137,10 @@ sub to_hash
 
     #XXX Used??
     my %is_selected = map +($_ => 1), @{$selected_ids || []};
+
+    # Children are passed one level up via this array of "returned per level"
+    # hashes.  So, $level_childs[3] contains the children to of the currently
+    # being constructed parent on level 3.
     my @level_childs;
 
     $self->tree->walk_depth_first(sub
@@ -140,50 +156,90 @@ sub to_hash
         } if @$childs || ! $enumval->deleted;
 
         undef $level_childs[$level];   # reset for sibling node
+        1;
       });
 
     $level_childs[0];
 }
 
-### 2020-09-09: columns in GADS::Schema::Result::Enumval
-# id         value      deleted    layout_id  parent     position
-### 2020-09-09: columns in GADS::Schema::Result::Enum
-# id           value        child_unique layout_id    record_id
+=head2 $column->delete_unused_enumvals;
+Remove all enumvals from the database which are flagged 'deleted' and also
+not in use by any (historic) row revision.
+=cut
 
 sub delete_unused_enumvals(%)
-{   my ($self, %options) = @_;
-
-    my $tree = $self->_build_tree(include_deleted => 1);
-
-    $tree->walk_depth_first( sub {
+{   my ($self, %args) = @_;
+    $_->walk_depth_first( sub {
         my ($node, $level) = @_;
-        next if $node->has_children || $self->enumval_in_use($node);
+        next if !$node->is_leaf || $self->enumval_in_use($node);
 
         $node->remove;
         $::db->delete(Enumval => $node->id);
-    });
+        1;
+    }) for $self->_tops;
 }
 
-sub _update_trees
-{   my ($self, $trees, %args) = @_;
-
-    # Create a new hash ref with our new tree structure in. We'll copy
-    # the new nodes into it as we go, and then compare it to the old
-    # one after to know which ones to delete from the database
-    my %root;
-    my $enum_mapping = $args{enum_mapping} || {};
-    $self->_update($_, undef, $enum_mapping) for @$trees;
-    $self->tree($self->_build_tree);
-
-    $self->delete_unused_enumvals unless $args{keep_deleted};
+sub resultset_for_values
+{   my $self = shift;
+    $self->end_node_only ? $self->leafs : $self->nodes;
 }
 
-sub _update($$$)
-{   my ($self, $t, $parent_id, $enum_mapping) = @_;
-    my $enumvals  = $self->_enumvals;
+=head2 $column->_update_tree($tree, $other, %options);
+Merge a structure of nested HASHes which resembles a tree into the
+existing tree.  When a node in the 'other' tree has an id, it matches
+ids in the database.
+=cut
 
-    my $source_id = delete $t->{source_id};
-    my $tid       = is_valid_id $t->{id};
+### 2020-09-17: columns in GADS::Schema::Result::Enumval
+# id         value      deleted    layout_id  parent     position
+
+sub _update_tree($$%)
+{   my ($self, $parent, $other, %args) = @_;
+
+    my $old_childs = index_by_id $parent->children;
+    my $new_childs = $other->{children} || [];
+    my $position   = 0;
+
+    foreach my $new_child (@$new_childs)
+    {   my $text = $new_child->{text} =~ s/\s{2,}/ /gr =~ s/^\s+//r =~ s/\s+$//r;
+        $position++;
+
+        # Newly created elements have id like 'j1_12': invalid
+        my $new_id = is_valid_id $new_child->{id};
+
+        if(my $current = delete $old_childs->{$new_id // ''})
+        {   # Node reusable
+            my $curval = $current->enumval;
+            $curval->update({value => $text, position => $position, deleted => 0})
+                if $curval->value ne $text
+                || $curval->position != $position
+                || $curval->deleted;
+        }
+        else
+        {   # New node
+            my $r = $::db->create(Enumval => { value => $text, position => $position });
+            my $enumval = $::db->get_record(Enumval => $r->id);
+        }
+    }
+
+    # All remaining old childs set to deleted, at the end of the order
+    # Children of missing children are deleted as well.
+
+    $_->walk(sub { $_[0]->enumval->update({deleted => 1}) })
+        for values %$old_childs;
+
+    # Bluntly rebuild all: no peephole minor changes to the tree
+
+    $self->_enumvals($self->_build_enumvals);
+    $self->_tree($self->_build_tree);
+}
+
+=pod
+
+        }
+    }
+
+    my $tid       = 
     my $rec       = $tid ? $enumvals->{$tid} : undef;
     my $name      = $t->{text};
 
@@ -221,10 +277,11 @@ sub _update($$$)
          for @{$t->{children}};
 }
 
-sub resultset_for_values
-{   my $self = shift;
-    $self->end_node_only ? $self->leafs : $self->nodes;
-}
+=head2 $column->_import_tree($other, \%enum_mapping, %options);
+Import tree information from an external source.  C<enum_mapping> will
+be filled with the externally used ids mapped to the current ids in the
+database.
+#=cut
 
 sub _import_branch
 {   my ($self, $old_in, $new_in, %options) = @_;
@@ -287,22 +344,7 @@ sub _import_branch
     (@to_write, @new);
 }
 
-sub _column_extra_update($%)
-{   my ($self, $extra, %args) = @_;
-    $self->SUPER::_column_extra_update($extra, %args);
-
-    my $new_root = delete $extra->{tree} or return;
-
-    my $to_source;
-    $to_source = sub {
-        $_[0]->{source_id} = delete $_->{id};
-        $to_source->($_) for @{$_[0]->{children} || []};
-    };
-    $to_source->($_) for @$new_root;
-
-#XXX
-#   $self->update(\@to_write, %args);
-}
+=cut
 
 sub export_hash
 {   my $self = shift;
@@ -327,6 +369,7 @@ sub import_value
 
 package Linkspace::Column::Tree::Node;
 use Scalar::Util qw(weaken);
+use Log::Report  'linkspace';
 
 sub new(%)
 {   my ($class, %node) = @_;
@@ -360,7 +403,8 @@ sub set_parent($)
 
 sub children() { @{$_[0]->{_kids}} }
 sub parent()   { $_[0]->{_parent} }
-sub is_top()   { ! $_[0]->{_parent} }
+sub is_root()  { ! $_[0]->{_parent} }
+sub is_top()   { my $p = $_[0]->{_parent}; $p && $_[0]->is_root($p) }
 sub is_leaf()  { ! @{$_[0]->{_kids}} }
 
 sub remove()
@@ -382,4 +426,3 @@ sub walk_depth_first($$)
 }
 
 1;
-

@@ -85,12 +85,9 @@ any cell anymore.
 
 =cut
 
-has _enumvals => (
-    is      => 'lazy',
-    builder => sub {
-       index_by_id $::db->search(Enumval => { layout_id => $_[0]->id })->all;
-    },
-);
+has _enumvals => ( is => 'rw', lazy => 1, builder => '_build_enumvals');
+
+sub _build_enumvals { index_by_id $::db->search(Enumval => { layout_id => $_[0]->id })->all }
 
 #! Returns HASHes
 sub enumvals(%)
@@ -194,7 +191,7 @@ sub _is_valid_value($)
 {   my ($self, $value) = @_;
     if($value !~ /\D/)
     {   $self->_enumvals->{$value}
-           or error __x"Enum ID '{id}' is not known for '{col.name}'", id => $value, col => $self;
+            or error __x"Enum ID '{id}' is not known for '{col.name}'", id => $value, col => $self;
         return $value;
     }
 
