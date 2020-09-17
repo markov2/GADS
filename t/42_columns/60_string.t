@@ -10,6 +10,7 @@ my $column1 = $sheet->layout->column_create({
     name          => 'column1 (long)',
     name_short    => 'column1',
     is_textbox    => 0,
+    force_regex   => '',
     is_multivalue => 0,
     is_optional   => 0,
 });
@@ -41,56 +42,19 @@ isa_ok $column1d, 'Linkspace::Column::String', '...';
 
 # is_valid_value
 
-sub is_valid_value_test {
-    my ($column, $values,$result_value) = @_;
-    my $result = try { $column->is_valid_value($values) };
-    my $done = $@ ? $@->wasFatal->message : $result;
-    $$result_value = $@ ? $@->wasFatal->message : $result;
-    ! $@;
-}
-
-sub process_test_cases {
-    my ($column,@test_cases) = @_;
-    my $name=$column->name_short;
-    foreach my $test_case (@test_cases) {
-        my ($expected_valid,$case_description, $col_string_value, $expected_value) = @$test_case;
-        my $col_string_value_s = $col_string_value // '<undef>';
-        my $result_value;
-        ok $expected_valid == is_valid_value_test($column, $col_string_value,\$result_value),
-            "... $name validate  $case_description";
-        is_deeply $result_value , $expected_value, "... $name value for $case_description";
-    }
-}
-
 #
-#     Replace non-breakable space by space
-#     Remove leading empty lines in text box
-#     Remove trailing lines containing space only in textbox
-#     Remove trailing space in lines in textbox
-#     
-#     Replace multiple spaces (white space, non-breakable space) by single space
-#     Remove leading spaces
-#     Remove trailing spaces
-#
-#     is_textbox: =~ s/\xA0/ /gr =~ s/\A\s*$//mrs =~ s/\s*\z/\n/mrs =~ s/\s+$//gmr
-#
-#     =~ s/[\xA0\s]+/ /gr =~ s/^ //r =~ s/ $//r;
+# line
 #
 
-my @test_cases1 = (
-    [1, 'normal string',            "from here to there",  "from here to there"                    ],
-    [1, 'multiple spaces',          " multiple \t\xA0 \t\xA0spaces   ",  "multiple spaces"         ],
-    [1, 'leading space',            " \tleading space",  "leading space"                           ],
-    [1, 'leading spaces',           " \tleading spaces",  "leading spaces"                         ],
-    [1, 'trailing space',           "multiple trailing spaces \t\xA0",  "multiple trailing spaces" ],
-    [1, 'trailing spaces',          "multiple trailing spaces ",  "multiple trailing spaces"       ],
-    [1, 'multiple multiple spaces', "multiple  spaces  between",  "multiple spaces between"        ],
-    );
-
-process_test_cases($column1, @test_cases1);
+is $column1->is_valid_value('from here to there'),                       'from here to there' ,    '... normal string';
+is $column1->is_valid_value("start:\tx\xA0x\nx :end"),                   'start: x x x :end',      '... mapping of spaces';
+is $column1->is_valid_value('multiple: 1, 2  ,3   ,etc'),                'multiple: 1, 2 ,3 ,etc', '... multiple spaces to single space';
+is $column1->is_valid_value(' leading space'),                           'leading space',          '... removal of leading space';
+is $column1->is_valid_value('trailing space '),                          'trailing space',         '... removal of trailing space';
+is $column1->is_valid_value("\t\n\xA0 part1 \n\t\xA0 part2 \t\xA0\n  "), 'part1 part2',            '... a combination of the above';
 
 #
-# textbox, multivalue and optional
+# box, multivalue and optional
 #
 
 my $column2 = $sheet->layout->column_create({
@@ -98,18 +62,42 @@ my $column2 = $sheet->layout->column_create({
     name          => 'column2 (long)',
     name_short    => 'column2',
     is_textbox    => 1,
+    force_regex   => '',
     is_multivalue => 1,
     is_optional   => 1,
 });
 logline;
 
-my @test_cases2 = (
-    [1, "double normal line", "line1\nline2",  "line1\nline2"                    ],
-    [1, "empty lines",  "\n\n\n",          ""         ],
-    [1, "leading multiple empty lines",  "\n\n\nline1\nline2",          "line1\nline2"         ],
-    [1, "trailing multiple empty lines",  "line1\nline2\n\n\n",         "line1\nline2"         ],
-    );
+is $column2->is_valid_value("\n"),                            '' ,                            '... empty line';
+is $column2->is_valid_value("\n\n\n"),                        '' ,                            '... empty lines';
+is $column2->is_valid_value("line1\n\n\nline2"),              "line1\nline2" ,                '... empty lines replaced';
+is $column2->is_valid_value('single line'),                   'single line' ,                 '... single line';
+is $column2->is_valid_value("line1\nline2\nline3"),           "line1\nline2\nline3" ,         '... multiple lines';
+is $column2->is_valid_value("start: x\tx\xA0x\nx :end"),      "start: x\tx x\nx :end",        '... mapping of spaces';
+is $column2->is_valid_value("   leading\n\ spaces\n lines"),  "   leading\n spaces\n lines" , '... leading spaces intact';
+is $column2->is_valid_value("trailing\n\ spaces\n lines   "), "trailing\n spaces\n lines",    '... trailing spaces removed';
+is $column2->is_valid_value("space1 space2  space0"),         "space1 space2  space0" ,       '... multiple spaces intact';
+is $column2->is_valid_value("sp1 sp2  sp0\nsp1 sp2  sp0"),    "sp1 sp2  sp0\nsp1 sp2  sp0" ,  '... multiple spaces, lines intact';
+is $column2->is_valid_value("\n\nleading\n\ empty\n lines"),  "leading\n empty\n lines" ,     '... leading lines removed';
+is $column2->is_valid_value("trailing\n\empty\nlines\n\n\n"), "trailing\n\empty\nlines" ,     '... trailing lines removed';
+is_deeply $column2->is_valid_value(undef),                    [],                             '... undef optional';
+is_deeply $column2->is_valid_value([]),                       [],                             '... array optional';
+is_deeply $column2->is_valid_value(["line1\n\n\nline2",""]),  ["line1\nline2",""],            '... multivaltue';
 
-process_test_cases($column2, @test_cases2);
+my $column3 = $sheet->layout->column_create({
+    type          => 'string',
+    name          => 'column3 (long)',
+    name_short    => 'column3',
+    is_textbox    => 1,
+    force_regex   => '[0-9a-m\s:]*',
+    is_multivalue => 1,
+    is_optional   => 1,
+});
+logline;
+
+is $column3->is_valid_value("abc 0123"),                      "abc 0123" ,                    '... match regex';
+try { $column3->is_valid_value('invalid pattern'); };
+is $@->wasFatal->message, "Invalid value 'invalid pattern' for required pattern of column3 (long)", '... match regex failed';
+is $column3->is_valid_value("  abc: d\te\xA0f\ng :hij\n\nklm\n\n"), "  abc: d\te f\ng :hij\nklm",   '... combination of previous';
 
 done_testing;
