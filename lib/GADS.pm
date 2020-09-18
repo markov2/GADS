@@ -1820,19 +1820,22 @@ prefix '/:layout_name' => sub {
         template 'data' => $params;
     };
 
-    any ['get', 'post'] => '/tree:any?/:layout_id/?' => require_login sub {
+    any ['get', 'post'] => '/tree:any?/:column_id/?' => require_login sub {
         # Random number can be used after "tree" to prevent caching
 
-        my $tree = $layout->column(param 'layout_id')
-            or error __x"Invalid tree";
+        my $tree = $layout->column(param 'column_id')
+            or error __x"Cannot find tree column (anymore)";
 
-#XXX check that column is a tree?
+        $tree->type eq 'tree'
+            or panic 'Tree data for non-tree column '.$tree->name_short;
+
         if(my $data = param 'data')
         {   $sheet->user_can('layout')
                or return forwardHome({ danger => 'You do not have permission to edit trees' });
 
-            my $newtree = JSON->new->utf8(0)->decode($data);  #XXX not utf8?
-            $tree->update($newtree);
+            # JSON field 'data' contains url-encoded json :-( not utf8 to avoid double decoding.
+            my $newtree = JSON->new->utf8(0)->decode($data);
+            $tree->update_tree($newtree) if $newtree;
             return;
         }
 
@@ -2717,7 +2720,7 @@ prefix '/:layout_name' => sub {
         my $column = $layout->column($layout_id, permission => 'read');
 
         content_type 'application/json';
-        to_json [ $column->values_beginning_with($query, with_id => $with_id) ];
+        to_json($column->values_beginning_with($query, with_id => $with_id));
     };
 
 };

@@ -24,7 +24,24 @@ isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::Enum', '...';
 isa_ok $column1, 'Linkspace::Column::Tree', '...';
 
-is $column1->as_string, '', '... show empty tree';
+is $column1->as_string, <<'__STRING', '... show empty tree';
+tree             column1
+__STRING
+
+# The web-interface produces a very cluttered nested HASH structure, with
+# only 'id' as additional useful value (to detect renames)
+my @tops1 = (
+   { text => 'a' },
+   { text => 'b', children => [ { text => 'b1' }, { text => 'b2' } ] },
+   { text => 'c', children => [ { text => 'c1', children => [ { text => 'c12' } ] }] },
+);
+
+###
+$sheet->layout->column_update($column1, { tree => \@tops1 });
+
+is $column1->as_string, <<'__STRING', '... show tree with 3 tops';
+tree             column1
+__STRING
 
 #TODO: empty tree() must return Node without children, named Root
 #TODO: add top to empty tree, is_top(), ! is_leaf()
@@ -33,8 +50,7 @@ is $column1->as_string, '', '... show empty tree';
 #TODO: ->node($id) and ->node($name)
 #TODO: add second child to top
 #TODO: check return of ->nodes() and leafs()
-#TODO: $tree->walk()
-#TODO: $tree->walk_depth_first()
+#TODO: $column->values_beginning_with
 #TODO: delete first child: still in there but flagged 'deleted'
 #TODO: delete_unused_enumvals()  Reload tree (by reloading column from_id) from
 #       DB must not show it anymore

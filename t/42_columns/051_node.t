@@ -50,9 +50,10 @@ ok defined $na->parent, '... child got parent';
 is $na->parent, $nb, '... expected parent';
 ok ! defined $nb->parent, '... parent did not get parent';
 
-ok   $nb->is_top, '... parent is top';
+ok   $nb->is_root, '... parent is root';
+ok ! $nb->is_top, '... parent is top';    # top is not root
 ok ! $nb->is_leaf, '... parent is not leaf';
-ok ! $na->is_top, '... child is not top';
+ok   $na->is_top, '... child is top';
 ok   $na->is_leaf, '... child is leaf';
 
 ### Walk
@@ -66,7 +67,7 @@ ok defined $nb->add_child($nd), 'Added third child';
 is_deeply [ $nb->children ], [ $na, $nc, $nd ], '... all found';
 
 my @path;
-sub node_def { push @path, [ $_[0]->name, $_[1] ] }
+sub node_def { push @path, [ $_[0]->name, $_[1] ]; 1 }
 
 @path = ();
 $na->walk(\&node_def);
@@ -83,8 +84,23 @@ is_deeply \@path, [ [ a => 1 ] ], 'Walk depth first, Leaf';
 
 @path = ();
 $nb->walk_depth_first(\&node_def);
-is_deeply \@path, [ [ a => 2 ], [ c => 2 ], [ d => 2 ], [ b => 1] ],
+is_deeply \@path, [ [ a => 2 ], [ c => 2 ], [ d => 2 ], [ b => 1 ] ],
     'Walk depth first, Top';
+
+### Stringification of nodes
+
+my $r = new_node new_enum('r');   # need real root element for test
+$r->add_child($nb);
+
+my @strings;
+$r->walk(sub { push @strings, $_[0]->path; 1 });
+is_deeply \@strings, [ '', qw# b/ b/a b/c b/d # ], 'Path of nodes';
+
+ok $r->find('b'), 'Find top';
+ok $r->find('b', 'a'), '... leaf';
+ok $r->find('b', 'd'), '... leaf';
+ok !$r->find('c'), '... missing top';
+ok !$r->find('b', 'x'), '... missing leaf';
 
 ### Params at construction
 

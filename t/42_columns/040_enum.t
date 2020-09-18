@@ -25,6 +25,7 @@ is logline, "info: Layout created $col1_id: $path1", '... creation logged';
 
 is $column1->as_string, <<'__STRING', '... as string';
 enum             column1
+    default ordering: position
 __STRING
 
 isa_ok $column1, 'Linkspace::Column', '...';
@@ -212,12 +213,29 @@ like logline, qr/rename enum 'tic' to 'other'/, '... log rename of \'tic\'';
 my @result_value2c = enum_from_column $column2c;
 is_deeply \@result_value2c, \@expected_value2c, '... result of rename \'tic\' to \'other\'';
 
+is $column2c->as_string, <<'__STRING', '... show';
+enum             column2c
+    default ordering: position
+      1   other
+      2   tac
+      3   toe
+__STRING
+
 ### revive deleted enum 'tic'
 
 my $column2d = initial_column 'column2d';
 my @expected_value2d = enum_from_column $column2d;
 ok $layout->column_update($column2d, enum_to_vals_ids(enum_delete_by_value 'tic', @expected_value2d), keep_unused => 1),
     'Withdraw enum \'tic\'';
+
+is $column2d->as_string, <<'__STRING', '... show';
+enum             column2d
+    default ordering: position
+      1   tac
+      2   toe
+      3 D tic
+__STRING
+
 like logline, qr/withdraw option 'tic'/, '... log withdrawal of \'tic\'';
 ok $layout->column_update($column2d, enum_to_vals_ids(@expected_value2d), keep_unused => 1),
     'Revive deleted \'tic\'';

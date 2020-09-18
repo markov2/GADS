@@ -35,7 +35,7 @@ extends 'Linkspace::Column::Enum';
 __PACKAGE__->register_type;
 
 sub db_field_extra_export { [ 'end_node_only' ] }
-sub form_extras     { [ 'end_node_only' ], [] }
+sub form_extras     { [ qw/end_node_only tree/ ], [] }
 sub retrieve_fields { [ qw/id value/ ] }
 sub value_table     { 'Enum' }
 
@@ -76,6 +76,32 @@ sub _is_valid_value($)
     $value;
 }
 
+sub _as_string(%)
+{   my ($self, %args) = @_;
+    my $mark_leafs = $self->end_node_only;
+    my @lines;
+    $_->walk(sub {
+       my ($node, $level) = @_;
+       push @lines, sprintf "%s%8d %s%s %s\n", '  ' x $level,
+           $node->id,
+           ($node->deleted ? 'D' : ' '),
+           ($mark_leafs && $node->is_leaf ? '*' : ' '),
+           $node->name;
+    }) for $self->_tops;
+    join '', @lines;
+}
+
+sub _values_beginning_with($%)
+{   my ($self, $start, %args) = @_;
+    my @path    = split m!\s*/\s*!, $start;
+    pop @path if @path && ! length $path[-1];
+    my $partial = @path ? pop @path : undef;
+    my $parent  = $self->tree->find(@path) or return [];
+
+    my @hits    = grep $_->name =~ /^\Q$partial/, $parent->children;
+    [ map +{ id => $_->id, name => $_->path }, @hits ];
+}
+
 =head2 my $tree = $column->tree;
 The selection tree as structured nodes, which are C<::Column::Tree::Node> instances
 (implemented in the same source file)  The root element on top is used to group
@@ -109,33 +135,6 @@ sub node($)
     my $result;
     $self->tree->walk(sub { $_[0]->id==$node_id or return 1; $result = $_[0]; 0 });
     $result;
-}
-
-=head2 \@nodes = $column->nodes;
-Returns all non-deleted nodes for the tree.
-=cut
-
-sub nodes
-{   my @nodes;
-    $_[0]->tree->walk( sub { push @nodes, $_[0] unless $_[0]->is_deleted; 1 } );
-    \@nodes;
-}
-
-=head2 \@leafs = $column->leafs;
-Return all nodes which do not have childs.
-=cut
-
-sub leafs { [ grep $_->is_leaf, @{$_[0]->nodes} ] }
-
-sub _as_string(%)
-{   my ($self, %args) = @_;
-    my @lines;
-    $_->walk(sub {
-       my ($node, $level) = @_;
-       push @lines, sprintf '%s%8d %s %s', '  ' x $level,
-           $node->id, ($node->deleted ? 'D' : ' '), $node->name;
-    }) for $self->_tops;
-    join "\n", '', @lines, '';
 }
 
 =head2 \%h = $column->to_hash(\@selected_ids);
@@ -190,22 +189,13 @@ sub delete_unused_enumvals(%)
     }) for $self->_tops;
 }
 
-sub resultset_for_values
-{   my $self = shift;
-    $self->end_node_only ? $self->leafs : $self->nodes;
-}
-
-=head2 $column->_update_tree($tree, $other, %options);
-Merge a structure of nested HASHes which resembles a tree into the
-existing tree.  When a node in the 'other' tree has an id, it matches
-ids in the database.
-=cut
-
-### 2020-09-17: columns in GADS::Schema::Result::Enumval
-# id         value      deleted    layout_id  parent     position
+# Merge a structure of nested HASHes which resembles a tree into the
+# existing tree.  When a node in the 'other' tree has an id, it matches
+# ids in the database.
 
 sub _update_tree($$%)
 {   my ($self, $parent, $other, %args) = @_;
+    $other = { children => $other } if ref $other eq 'ARRAY';
 
     my $old_childs = index_by_id $parent->children;
     my $new_childs = $other->{children} || [];
@@ -242,14 +232,12 @@ sub _update_tree($$%)
     # Bluntly rebuild all: no peephole minor changes to the tree
 
     $self->_enumvals($self->_build_enumvals);
-    $self->_tree($self->_build_tree);
+    $self->tree($self->_build_tree);
 }
 
 =pod
-
-        }
-    }
-
+sub _merge_tree($$%)
+{   my ($self, $parent, $other, %args) = @_;
     my $tid       = 
     my $rec       = $tid ? $enumvals->{$tid} : undef;
     my $name      = $t->{text};
@@ -379,8 +367,10 @@ sub import_value
 # A simple, dedicated, tree implementation.
 
 package Linkspace::Column::Tree::Node;
-use Scalar::Util qw(weaken);
+
 use Log::Report  'linkspace';
+use Scalar::Util qw(weaken);
+use List::Util   qw(first);
 
 sub new(%)
 {   my ($class, %node) = @_;
@@ -416,7 +406,7 @@ sub set_parent($)
 sub children() { @{$_[0]->{_kids}} }
 sub parent()   { $_[0]->{_parent} }
 sub is_root()  { ! $_[0]->{_parent} }
-sub is_top()   { my $p = $_[0]->{_parent}; $p && $_[0]->is_root($p) }
+sub is_top()   { my $p = $_[0]->{_parent}; $p && $p->is_root }
 sub is_leaf()  { ! @{$_[0]->{_kids}} }
 
 sub remove()
@@ -435,6 +425,24 @@ sub walk_depth_first($$)
 {   my ($self, $cb, $level) = @_;
     $level //= 1;
     (map $_->walk_depth_first($cb, $level+1), $self->children), $cb->($self, $level);
+}
+
+# Return all nodes which do not have childs.
+sub leafs { [ grep $_->is_leaf, @{$_[0]->nodes} ] }
+
+# Find an element by name
+sub find(@)
+{   my $self  = shift;
+    return $self if ! @_;
+    my $next  = shift;
+    my $found = first { $_->name eq $next } $self->children;
+    $found && @_ ? $found->find(@_) : $found;
+}
+
+sub path()
+{   my $self = shift;
+    return '' if $self->is_root;
+    $self->parent->path . $self->name . ($self->is_leaf ? '' : '/');
 }
 
 1;

@@ -79,6 +79,14 @@ sub _validate($$)
     $update;
 }
 
+sub _as_string(%)
+{   my ($self, %args) = @_;
+    my @rows = map sprintf("%3d %s %s",
+        $_->position, ($_->deleted ? 'D' : ' '), $_->value),
+        @{$self->enumvals(include_deleted => 1)};
+    join "\n", 'default ordering: '. ($self->ordering // 'position'), @rows;
+}
+
 ###
 ### Instance
 ###
