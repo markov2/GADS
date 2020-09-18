@@ -19,6 +19,10 @@ my $path1   = $column1->path;
 is $path1, $sheet->path.'/intgr=column1', '... check path';
 is logline, "info: Layout created $col1_id: $path1", '... creation logged';
 
+is $column1->as_string, <<'__STRING', '... as string';
+intgr            column1
+__STRING
+
 isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::Intgr', '...';
 
@@ -87,8 +91,14 @@ my $column2 = $sheet->layout->column_create({
     name_short    => 'column2',
     is_multivalue => 1,
     is_optional   => 1,
+    is_unique     => 1,
 });
+ok defined $column2, 'Created multivalue column';
 logline;
+
+is $column2->as_string, <<'__STRING', '... as string';
+intgr        MOU column2
+__STRING
 
 my @test_cases2 = (
     [1, 'normal number',                        '18',            '18'                                                     ],

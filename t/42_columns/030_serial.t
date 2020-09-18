@@ -9,8 +9,6 @@ my $column1 = $sheet->layout->column_create({
     type          => 'serial',
     name          => 'column1 (long)',
     name_short    => 'column1',
-    is_multivalue => 0,
-    is_optional   => 0,
 });
 ok defined $column1, 'Created column1';
 my $col1_id = $column1->id;
@@ -19,8 +17,15 @@ my $path1   = $column1->path;
 is $path1, $sheet->path.'/serial=column1', '... check path';
 is logline, "info: Layout created $col1_id: $path1", '... creation logged';
 
+is $column1->as_string, <<'__STRING', '... as string';
+serial      I    column1
+__STRING
+
 isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::Serial', '...';
+
+ok ! $column1->can_multivalue, '... cannot multivalue';
+ok   $column1->is_internal, '... always internal';
 
 ### by short_name from cache
 my $column1b = $sheet->layout->column('column1');
@@ -76,37 +81,6 @@ my @test_cases1 = (
     );
 
 process_test_cases($column1, @test_cases1);
-
-#
-# optional and multivalue
-#
-
-my $column2 = $sheet->layout->column_create({
-    type          => 'serial',
-    name          => 'column2 (long)',
-    name_short    => 'column2',
-    is_multivalue => 1,
-    is_optional   => 1,
-});
-logline;
-
-my @test_cases2 = (
-    [1, 'normal number',                        '18',            '18'                             ],
-    [0, 'invalid number',                       'abc',           '\'abc\' is not a valid Serial'  ],
-    [0, 'negative number',                      '-123',          '\'-123\' is not a valid Serial' ],
-    [0, 'postive number',                       '+234',          '\'+234\' is not a valid Serial' ],
-    [0, 'empty string',                         '',              '\'\' is not a valid Serial'     ],
-    [1, 'leading space',                        ' 5',            '5'                              ],
-    [1, 'trailing space',                       '6 ',            '6'                              ],
-    [1, 'multiple leading and trailing spaces', '  78  ',        '78'                             ],
-    [0, 'number containing a space',            '67 89',         '\'67 89\' is not a valid Serial'],
-    [1, 'optional value',                       undef,           []                               ],
-    [1, 'multivalue',                           [1, 2],          [1,2]                            ],
-    [0, 'invalid number in multivalue',         [12, 34, 'abc'], '\'abc\' is not a valid Serial'  ],
-    [1, 'undefined number in multivalue',       [56, undef,79],  [56, 79]                         ],
-    );
-
-process_test_cases($column2, @test_cases2);
 
 #is_deeply $column1->export_hash, {},  "... undef in multi value";
 #exclude undefs

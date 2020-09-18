@@ -160,12 +160,7 @@ sub sort_parent   { undef }
 
 sub _validate($)
 {   my ($thing, $update) = @_;
-
-    if(exists $update->{ordering})    # enum
-    {   my $order = $update->{ordering} // '';
-        !$order || $order eq 'desc' || $order eq 'asc'
-            or error __x"Invalid enum order value: {ordering}", ordering => $order;
-    }
+    my $name = blessed $thing ? $thing->name_short : $update->{name_short};
 
     unless($update->{extras})
     {   # Separate out which parameters are specific for specific types.
@@ -177,7 +172,8 @@ sub _validate($)
 
     if(my $dc = $update->{display_condition})
     {   $dc eq 'AND' || $dc eq 'OR'
-            or error __"Unsupported display_condition operator '{dc}'", dc => $dc;
+            or error __x"Column {name} with unsupported display_condition operator '{dc}'",
+                name => $name, dc => $dc;
     }
 
     # In a number of cases, the Layout-record has columns which are specific for
@@ -191,13 +187,17 @@ sub _validate($)
     }
     $update->{options} = $opts if $opts;
 
+    ! $update->{is_multivalue} || $thing->can_multivalue
+        or error __x"Column {name} cannot multivalue", name => $name;
+
     $update;
 }
 
 sub _column_create
-{   my ($class, $insert, %args) = @_;
-    $insert->{options} = $class->option_defaults;
+{   my ($base_class, $insert, %args) = @_;
+    my $class = $type2class{$insert->{type}} or panic;
 
+    $insert->{options} = $class->option_defaults;  # modified in validate()
     $class->_validate($insert);
 
     $insert->{is_internal} = $class->is_internal_type;
@@ -239,6 +239,22 @@ sub _column_update($%)
 ###
 ### Instance
 ###
+
+=head2 my $s = $column->as_string(%options);
+Present the column as a text block.  Primarily used for debugging.
+=cut
+
+sub as_string(%)
+{   my ($self, %args) = @_;
+    sprintf "%-11s %s%s%s%s %s%s\n", $self->type,
+        ($self->is_internal   ? 'I' : ' '),
+        ($self->is_multivalue ? 'M' : ' '),
+        ($self->is_optional   ? 'O' : ' '),
+        ($self->is_unique     ? 'U' : ' '),
+        $self->name_short,
+        $self->_as_string(%args);
+}
+sub _as_string { '' }
 
 sub path { $_[0]->sheet->path .'/'. $_[0]->type .'='. $_[0]->name_short }
 

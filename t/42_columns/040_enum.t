@@ -23,8 +23,15 @@ my $path1   = $column1->path;
 is $path1, $sheet->path.'/enum=column1', '... check path';
 is logline, "info: Layout created $col1_id: $path1", '... creation logged';
 
+is $column1->as_string, <<'__STRING', '... as string';
+enum             column1
+__STRING
+
 isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::Enum', '...';
+
+ok   $column1->can_multivalue, '... can multivalue';
+ok ! $column1->is_internal, '... not internal';
 
 ### Enum utils
 
@@ -153,7 +160,7 @@ sub initial_column($) {
         name_short    => $name,
         is_multivalue => 0,
         is_optional   => 0,
-                                               });
+    });
     logline;
 
     my @some_enums = qw/tic tac toe/;

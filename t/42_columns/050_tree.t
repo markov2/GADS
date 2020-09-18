@@ -24,6 +24,8 @@ isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::Enum', '...';
 isa_ok $column1, 'Linkspace::Column::Tree', '...';
 
+is $column1->as_string, '', '... show empty tree';
+
 #TODO: empty tree() must return Node without children, named Root
 #TODO: add top to empty tree, is_top(), ! is_leaf()
 #TODO: nodes() report top

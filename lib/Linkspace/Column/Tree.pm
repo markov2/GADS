@@ -127,6 +127,17 @@ Return all nodes which do not have childs.
 
 sub leafs { [ grep $_->is_leaf, @{$_[0]->nodes} ] }
 
+sub _as_string(%)
+{   my ($self, %args) = @_;
+    my @lines;
+    $_->walk(sub {
+       my ($node, $level) = @_;
+       push @lines, sprintf '%s%8d %s %s', '  ' x $level,
+           $node->id, ($node->deleted ? 'D' : ' '), $node->name;
+    }) for $self->_tops;
+    join "\n", '', @lines, '';
+}
+
 =head2 \%h = $column->to_hash(\@selected_ids);
 Returns the structure the tree as nested HASHes.  Selections are
 based on enumval ids.
@@ -385,6 +396,7 @@ sub new(%)
 
 sub id      { $_[0]->enumval->id }
 sub name    { $_[0]->{name} }
+sub deleted { $_[0]->enumval->deleted }
 sub enumval { $_[0]->{enumval} }
 
 sub add_child($)

@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::Enum;
 
 use Log::Report     'linkspace';
+use Scalar::Util    qw(blessed);
 use List::Util      qw(first max);
 
 use Linkspace::Util qw(index_by_id normalize_string);
@@ -62,6 +63,20 @@ sub remove_column($)
 
     $::db->delete(Enum    => \%col_ref);   # external references
     $::db->delete(Enumval => \%col_ref);
+}
+
+sub _validate($$)
+{   my ($thing, $update) = @_;
+    $thing->SUPER::_validate($update);
+    return $update unless exists $update->{ordering};
+
+    my $order = $update->{ordering} // 'position';
+    !$order || $order eq 'desc' || $order eq 'asc' || $order eq 'position'
+        or error __x"Column {name} with invalid enum order value '{ordering}'",
+            name     => blessed $thing ? $thing->name_short : $update->{name_short},
+            ordering => $order;
+
+    $update;
 }
 
 ###
