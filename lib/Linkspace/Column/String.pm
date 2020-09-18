@@ -62,16 +62,25 @@ sub _is_valid_value($)
 {   my ($self, $value) = @_;
 
     my $clean = $self->is_textbox
-      ? $value =~ s/\xA0/ /gr =~ s/\A\s*\n//mrs =~ s/\s*\Z/\n/mrs =~ s/\s+$//gmr =~ s/^\n$//r
+      ? $value =~ s/\xA0/ /gr =~ s/\A\s*\n//mrs =~ s/\s*\Z/\n/mrs =~ s/\h+$//gmr =~ s/^\n$//r
       : $value =~ s/[\xA0\s]+/ /gr =~ s/^ //r =~ s/ $//r;
 
     if(my $m = $self->must_match)
-    {   $clean =~ $m
+    {   # Ugly output when the value is a multiline
+        $clean =~ $m
             or error __x"Invalid value '{value}' for required pattern of {col.name}",
                  value => $clean, col => $self;
     }
 
     $clean;
+}
+
+sub _as_string()
+{   my $self = shift;
+    my @lines; 
+    push @lines, 'is textbox' if $self->is_textbox;
+    push @lines, 'match: '. $self->force_regex if $self->force_regex;
+    @lines ? (join ', ', @lines) : '';
 }
 
 sub string_storage { 1 }

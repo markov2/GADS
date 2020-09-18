@@ -166,7 +166,8 @@ sub _validate($)
     {   # Separate out which parameters are specific for specific types.
         my %extras;
         my ($s, $a) = $thing->form_extras;
-        $extras{$_} = delete $update->{$_} for grep exists $update->{$_}, @$s, @$a;
+        $extras{$_} = delete $update->{$_}
+            for grep exists $update->{$_} && ! __PACKAGE__->can($_), @$s, @$a;
         $update->{extras} = \%extras;
     }
 
@@ -200,7 +201,7 @@ sub _column_create
     $insert->{options} = $class->option_defaults;  # modified in validate()
     $class->_validate($insert);
 
-    $insert->{is_internal} = $class->is_internal_type;
+    $insert->{is_internal} //= $class->is_internal_type;
     $insert->{display_condition} ||= 'AND';
 
     my $df    = delete $insert->{display_field};
@@ -246,13 +247,18 @@ Present the column as a text block.  Primarily used for debugging.
 
 sub as_string(%)
 {   my ($self, %args) = @_;
+    my $special = $self->_as_string(%args) // '';
+    if(length $special)
+    {   $special =~ s/^/    /gm;
+        $special =~ s/^/\n/;
+    }
+
     sprintf "%-11s %s%s%s%s %s%s\n", $self->type,
         ($self->is_internal   ? 'I' : ' '),
         ($self->is_multivalue ? 'M' : ' '),
         ($self->is_optional   ? 'O' : ' '),
         ($self->is_unique     ? 'U' : ' '),
-        $self->name_short,
-        $self->_as_string(%args);
+        $self->name_short, $special;
 }
 sub _as_string { '' }
 

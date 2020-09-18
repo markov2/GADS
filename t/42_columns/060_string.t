@@ -21,8 +21,14 @@ my $path1   = $column1->path;
 is $path1, $sheet->path.'/string=column1', '... check path';
 is logline, "info: Layout created $col1_id: $path1", '... creation logged';
 
+is $column1->as_string, <<'__STRING', '... as_string';
+string           column1
+__STRING
+
 isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::String', '...';
+
+ok $column1->can_multivalue, '... can multivalue';
 
 ### by short_name from cache
 my $column1b = $sheet->layout->column('column1');
@@ -68,21 +74,28 @@ my $column2 = $sheet->layout->column_create({
 });
 logline;
 
+ok defined $column2, "Created column as textbox, no regex, multivalue, optional";
+
+is $column2->as_string, <<'__STRING', '... as_string';
+string       MO  column2
+    is textbox
+__STRING
+
 is $column2->is_valid_value("\n"),                            '' ,                            '... empty line';
 is $column2->is_valid_value("\n\n\n"),                        '' ,                            '... empty lines';
-is $column2->is_valid_value("line1\n\n\nline2"),              "line1\nline2" ,                '... empty lines replaced';
-is $column2->is_valid_value('single line'),                   'single line' ,                 '... single line';
-is $column2->is_valid_value("line1\nline2\nline3"),           "line1\nline2\nline3" ,         '... multiple lines';
-is $column2->is_valid_value("start: x\tx\xA0x\nx :end"),      "start: x\tx x\nx :end",        '... mapping of spaces';
-is $column2->is_valid_value("   leading\n\ spaces\n lines"),  "   leading\n spaces\n lines" , '... leading spaces intact';
-is $column2->is_valid_value("trailing\n\ spaces\n lines   "), "trailing\n spaces\n lines",    '... trailing spaces removed';
-is $column2->is_valid_value("space1 space2  space0"),         "space1 space2  space0" ,       '... multiple spaces intact';
-is $column2->is_valid_value("sp1 sp2  sp0\nsp1 sp2  sp0"),    "sp1 sp2  sp0\nsp1 sp2  sp0" ,  '... multiple spaces, lines intact';
-is $column2->is_valid_value("\n\nleading\n\ empty\n lines"),  "leading\n empty\n lines" ,     '... leading lines removed';
-is $column2->is_valid_value("trailing\n\empty\nlines\n\n\n"), "trailing\n\empty\nlines" ,     '... trailing lines removed';
+is $column2->is_valid_value("line1\n\n\nline2"),              "line1\n\n\nline2\n" ,          '... empty lines replaced';
+is $column2->is_valid_value('single line'),                   "single line\n" ,               '... single line';
+is $column2->is_valid_value("line1\nline2\nline3"),           "line1\nline2\nline3\n" ,       '... multiple lines';
+is $column2->is_valid_value("start: x\tx\xA0x\nx :end"),      "start: x\tx x\nx :end\n",      '... mapping of spaces';
+is $column2->is_valid_value("   leading\n\ spaces\n lines"),  "   leading\n spaces\n lines\n" , '... leading spaces intact';
+is $column2->is_valid_value("trailing\n\ spaces\n lines   "), "trailing\n spaces\n lines\n",  '... trailing spaces removed';
+is $column2->is_valid_value("space1 space2  space0"),         "space1 space2  space0\n" ,     '... multiple spaces intact';
+is $column2->is_valid_value("sp1 sp2  sp0\nsp1 sp2  sp0"),    "sp1 sp2  sp0\nsp1 sp2  sp0\n" ,'... multiple spaces, lines intact';
+is $column2->is_valid_value("\n\nleading\n\ empty\n lines"),  "leading\n empty\n lines\n" ,   '... leading lines removed';
+is $column2->is_valid_value("trailing\n\empty\nlines\n\n\n"), "trailing\n\empty\nlines\n" ,   '... trailing lines removed';
 is_deeply $column2->is_valid_value(undef),                    [],                             '... undef optional';
 is_deeply $column2->is_valid_value([]),                       [],                             '... array optional';
-is_deeply $column2->is_valid_value(["line1\n\n\nline2",""]),  ["line1\nline2",""],            '... multivaltue';
+is_deeply $column2->is_valid_value(["line1\n\nline2",""]),  ["line1\n\nline2\n",""],          '... multivalue';
 
 my $column3 = $sheet->layout->column_create({
     type          => 'string',
@@ -95,9 +108,18 @@ my $column3 = $sheet->layout->column_create({
 });
 logline;
 
-is $column3->is_valid_value("abc 0123"),                      "abc 0123" ,                    '... match regex';
+ok defined $column3, "Created column as textbox, regex, multivalue, optional";
+
+is $column3->as_string, <<'__STRING', '... as_string';
+string       MO  column3
+    is textbox, match: [0-9a-m\s:]*
+__STRING
+
+is $column3->is_valid_value("abc 0123"),                      "abc 0123\n" ,                  '... match regex';
+
 try { $column3->is_valid_value('invalid pattern'); };
-is $@->wasFatal->message, "Invalid value 'invalid pattern' for required pattern of column3 (long)", '... match regex failed';
-is $column3->is_valid_value("  abc: d\te\xA0f\ng :hij\n\nklm\n\n"), "  abc: d\te f\ng :hij\nklm",   '... combination of previous';
+is $@->wasFatal->message, "Invalid value 'invalid pattern\n' for required pattern of column3 (long)", '... match regex failed';
+
+is $column3->is_valid_value("  abc: d\te\xA0f\ng :hij\n\nklm\n\n"), "  abc: d\te f\ng :hij\n\nklm\n",   '... combination of previous';
 
 done_testing;

@@ -37,8 +37,8 @@ extends 'Linkspace::Column';
 
 __PACKAGE__->register_type;
 
-sub has_cache    { 1 }
-sub is_userinput { 0 }
+sub has_cache      { 1 }
+sub is_userinput   { 0 }
 
 ###
 ### Class
