@@ -28,6 +28,8 @@ is $column1->as_string, <<'__STRING', '... show empty tree';
 tree             column1
 __STRING
 
+#TODO: empty tree() must return Node without children, named Root
+
 # The web-interface produces a very cluttered nested HASH structure, with
 # only 'id' as additional useful value (to detect renames)
 my @tops1 = (
@@ -37,28 +39,34 @@ my @tops1 = (
 );
 
 ###
-$sheet->layout->column_update($column1, { tree => \@tops1 });
-
+TODO: $layout->column_update($column1, { tree => \@tops1 });
 is $column1->as_string, <<'__STRING', '... show tree with 3 tops';
 tree             column1
 __STRING
 
-#TODO: empty tree() must return Node without children, named Root
-#TODO: add top to empty tree, is_top(), ! is_leaf()
-#TODO: nodes() report top
-#TODO: $top->add_child($child).  Child is leaf, not top.  Top is not leaf
-#TODO: ->node($id) and ->node($name)
-#TODO: add second child to top
-#TODO: check return of ->nodes() and leafs()
-#TODO: $column->values_beginning_with
-#TODO: delete first child: still in there but flagged 'deleted'
-#TODO: delete_unused_enumvals()  Reload tree (by reloading column from_id) from
-#       DB must not show it anymore
+#TODO: $column1->to_hash(selected_ids => \@ids)
 #TODO: _is_valid_value($node_id) existing node
 #TODO: _is_valid_value($node_id) non-existing node
 #TODO: _is_valid_value($node_id) for deleted node
 #TODO: _is_valid_value($node_id) with leaf where end_node_only
 #TODO: _is_valid_value($node_id) error with parent where end_node_only
+#TODO: Linkspace::Column->from_id($column1->id)  check tree was saved
+
+#TODO: add top to empty tree, is_top(), ! is_leaf()
+#TODO: $top->add_child($child).
+#TODO: ->node($id)
+#TODO: $node->path  b/b1
+#TODO: ->find('b')     is top
+#TODO: ->find('b/b1')
+#TODO: ->find('b/c')   does not exist
+#TODO: $column->values_beginning_with (separate testscript typeahead?)
+
+#### test column_update($c, { tree => \@t })    update
+#### test column_update($c, { tree => \@t }, import_tree => \%map)  import
+#TODO: delete first child: still in there but flagged 'deleted'
+#TODO: $column1->to_hash(include_deleted => 0);
+#TODO: $column1->to_hash(include_deleted => 1);
+#TODO: delete_unused_enumvals()
 #TODO: to_hash()
 
 done_testing;
