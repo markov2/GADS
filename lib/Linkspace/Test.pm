@@ -37,8 +37,9 @@ sub import(%)
     Test::More->import::into($caller);
     Test::MockTime->import::into($caller, ':all');
 
-    $Data::Dumper::Indent   = 1;
-    $Data::Dumper::Sortkeys = 1;
+    $Data::Dumper::Indent    = 1;
+    $Data::Dumper::Sortkeys  = 1;
+    $Data::Dumper::Quotekeys = 0;
     Data::Dumper->import::into($caller, 'Dumper');
 
     Importer->import_into(__PACKAGE__, $caller, @EXPORT);

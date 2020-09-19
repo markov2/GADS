@@ -28,6 +28,16 @@ use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column::Enum';
 
+#XXX Enumval is not cleanly wrapped as Linkspace::DB::Table, but has a serious
+#XXX problem with column 'parent' (which should have been named 'parent_id') and
+#XXX the relation 'parent' which it defined.  Hence $ev->parent returns an object,
+#XXX not the id.  Fix this dirty:
+{   no strict 'refs';
+    use GADS::Schema::Result::Enumval;
+    *GADS::Schema::Result::Enumval::parent_id
+       = sub { $_[0]->{_column_data}{parent} };
+}
+
 ###
 ### META
 ###
@@ -54,9 +64,7 @@ sub _column_extra_update($%)
     if(my $other = delete $extra->{tree})
     {   if(my $map = delete $args{import_tree})
              { $self->_import_tree($other, $map, %args) }
-        else { $self->_update_tree($self->tree, $other, %args) }
-
-        $self->delete_unused_enumvals unless $args{keep_deleted};
+        else { $self->_update_tree($other, %args) }
     }
 
     $self;
@@ -85,13 +93,13 @@ sub _as_string(%)
     my @lines;
     $_->walk(sub {
        my ($node, $level) = @_;
-       push @lines, sprintf "%s%8d %s%s %s\n", '  ' x $level,
-           $node->id,
+       push @lines, sprintf "%s%s%s %s",
            ($node->deleted ? 'D' : ' '),
-           ($mark_leafs && $node->is_leaf ? '*' : ' '),
+           '    ' x ($level-1),
+           ($mark_leafs && $node->is_leaf ? '*' : '*'),
            $node->name;
     }) for $self->_tops;
-    join '', @lines;
+    join "\n", @lines;
 }
 
 sub _values_beginning_with($%)
@@ -116,11 +124,17 @@ has tree => (is => 'rw', lazy => 1, builder => '_build_tree');
 sub _build_tree
 {   my $self  = shift;
     my $enumvals = $self->enumvals(include_deleted => 1, order => 'position');
+#warn "BUILD TREE";
     my @nodes = map Linkspace::Column::Tree::Node->new(enumval => $_), @$enumvals;
     my $nodes = index_by_id @nodes;
 
-    my ($tops, $leafs) = part { $_->parent ? 1 : 0 } @nodes;
-    $nodes->{$_->parent}->add_child($_) for @$leafs;
+#warn "ID=", $_->id, " NAME=", $_->value, " PARENT=", $_->parent_id, "\n"
+#   for map $_->enumval, @nodes;
+
+    my ($tops, $leafs) = part { $_->enumval->parent_id ? 1 : 0 } @nodes;
+#warn @{$tops || []}.' tops, leafs='.@{$leafs || []};
+    $nodes->{$_->enumval->parent_id}->add_child($_) for @$leafs;
+#warn $_->id, ": ", join ',', $_->children, "\n" for @nodes;
 
     Linkspace::Column::Tree::Node->new(name => 'Root', children => $tops);
 }
@@ -136,7 +150,8 @@ be used globally.
 sub node($)
 {   my ($self, $node_id) = @_;
     my $result;
-    $self->tree->walk(sub { $_[0]->id==$node_id or return 1; $result = $_[0]; 0 });
+    $self->tree->walk(
+       sub { !$_[0]->is_root && $_[0]->id==$node_id or return 1; $result = $_[0]; 0 });
     $result;
 }
 
@@ -144,6 +159,7 @@ sub node($)
 Returns the structure the tree as nested HASHes.
 =cut
 
+#XXX this is an ARRAY of the tops.  Do we need the root element.
 sub to_hash
 {   my ($self, %args) = @_;
 
@@ -155,19 +171,20 @@ sub to_hash
     # being constructed parent on level 3.
     my @level_childs;
 
-    $self->tree->walk_depth_first(sub
+    $_->walk_depth_first(sub
       { my ($node, $level) = @_;
         my $enumval = $node->enumval;
         my $childs  = delete $level_childs[$level] || [];
 
-        push @{$level_childs[$level-1]}, +{
+        my %def = (
             id       => $enumval->id,
             text     => $enumval->value, 
-            children => $childs,
-            state    => ($is_selected{$enumval->id} ? { selected => \1 } : undef),
-        } if ! $enumval->deleted || $args{include_deleted};
-        1;
-      });
+        );
+        $def{children} = $childs if @$childs;
+        $def{state}    = { selected => \1 } if $is_selected{$enumval->id};
+        push @{$level_childs[$level-1]}, \%def;
+
+      }) for $self->_tops;
 
     $level_childs[0];
 }
@@ -193,11 +210,11 @@ sub delete_unused_enumvals(%)
 # existing tree.  When a node in the 'other' tree has an id, it matches
 # ids in the database.
 
-sub _update_tree($$%)
-{   my ($self, $parent, $other, %args) = @_;
-    $other = { children => $other } if ref $other eq 'ARRAY';
+sub _update_node($$)
+{   my ($self, $node, $other) = @_;
 
-    my $old_childs = index_by_id $parent->children;
+    my $old_childs = index_by_id $node->children;
+use Data::Dumper;
     my $new_childs = $other->{children} || [];
     my $position   = 0;
     my %new_names;   # child names to detect duplicates
@@ -232,13 +249,15 @@ sub _update_tree($$%)
         }
         else
         {   # New node
-            my $r = $::db->create(Enumval => { value => $text, position => $position });
+            my $parent_id = $node->name eq 'Root' ? undef : $node->id;
+            my $r = $::db->create(Enumval => { layout_id => $self->id,
+                 parent => $parent_id, value => $text, position => $position });
             my $enumval  = $::db->get_record(Enumval => $r->id);
             $current = Linkspace::Column::Tree::Node->new(enumval => $enumval);
         }
 
         $new_names{$text} = $current;
-        $self->_update_tree($current, $new_child, %args);
+        $self->_update_node($current, $new_child);
     }
 
     # All remaining old childs set to deleted, at the end of the order
@@ -246,13 +265,18 @@ sub _update_tree($$%)
 
     $_->walk(sub { $_[0]->enumval->update({deleted => 1}) })
         for values %$old_childs;
-
-    # Bluntly rebuild all: no peephole minor changes to the tree
-
-    $self->_enumvals($self->_build_enumvals);
-    $self->tree($self->_build_tree);
 }
 
+sub _update_tree($%)
+{   my ($self, $other, %args) = @_;
+    $other = { children => $other } if ref $other eq 'ARRAY';
+    $self->_update_node($self->tree, $other);
+
+    # Bluntly rebuild all: no peephole minor changes to the tree
+    $self->_enumvals($self->_build_enumvals);
+    $self->tree($self->_build_tree);
+    $self;
+}
 
 # Merge a foreign tree into the existing one: it will not cause deletions and
 # avoid duplicated names.  A map will be created from ids found in imported tree
