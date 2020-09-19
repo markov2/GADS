@@ -52,10 +52,13 @@ sub _column_extra_update($%)
     $self->SUPER::_column_extra_update($extra, %args);
 
     if(my $other = delete $extra->{tree})
-    {   $self->_update_tree($self->tree, $other, %args);
+    {   if(my $map = delete $args{import_tree})
+             { $self->_import_tree($other, $map, %args) }
+        else { $self->_update_tree($self->tree, $other, %args) }
+
+        $self->delete_unused_enumvals unless $args{keep_deleted};
     }
 
-    $self->delete_unused_enumvals unless $args{keep_deleted};
     $self;
 }
 
@@ -137,16 +140,15 @@ sub node($)
     $result;
 }
 
-=head2 \%h = $column->to_hash(\@selected_ids);
-Returns the structure the tree as nested HASHes.  Selections are
-based on enumval ids.
+=head2 \%h = $column->to_hash(%options);
+Returns the structure the tree as nested HASHes.
 =cut
 
 sub to_hash
-{   my ($self, $selected_ids) = @_;
+{   my ($self, %args) = @_;
 
-    #XXX Used??
-    my %is_selected = map +($_ => 1), @{$selected_ids || []};
+    my $selected_ids = $args{selected_ids} || [];
+    my %is_selected  = map +($_ => 1), @$selected_ids;
 
     # Children are passed one level up via this array of "returned per level"
     # hashes.  So, $level_childs[3] contains the children to of the currently
@@ -156,16 +158,14 @@ sub to_hash
     $self->tree->walk_depth_first(sub
       { my ($node, $level) = @_;
         my $enumval = $node->enumval;
-        my $childs  = $level_childs[$level] || [];
+        my $childs  = delete $level_childs[$level] || [];
 
         push @{$level_childs[$level-1]}, +{
             id       => $enumval->id,
             text     => $enumval->value, 
             children => $childs,
             state    => ($is_selected{$enumval->id} ? { selected => \1 } : undef),
-        } if @$childs || ! $enumval->deleted;
-
-        undef $level_childs[$level];   # reset for sibling node
+        } if ! $enumval->deleted || $args{include_deleted};
         1;
       });
 
@@ -200,27 +200,45 @@ sub _update_tree($$%)
     my $old_childs = index_by_id $parent->children;
     my $new_childs = $other->{children} || [];
     my $position   = 0;
+    my %new_names;   # child names to detect duplicates
 
+  CHILD:
     foreach my $new_child (@$new_childs)
     {   my $text = $new_child->{text} =~ s/\s{2,}/ /gr =~ s/^\s+//r =~ s/\s+$//r;
-        $position++;
 
         # Newly created elements have id like 'j1_12': invalid
         my $new_id = is_valid_id $new_child->{id};
 
-        if(my $current = delete $old_childs->{$new_id // ''})
+        if(my $already = $new_names{$text})
+        {   # Name already seen on this level: merge!
+            $new_id or next CHILD;    # simplest case: attempt to add duplicate
+
+            # Reassign enum datums to first enumval
+            $::db->update(Enum => { layout_id => $new_id }, { layout_id => $already->id });
+            $already->enumval->update({deleted => 0});
+            next CHILD;  # stays in $old_childs for deletion
+        }
+
+        my $current;
+        $position++;
+
+        if($current = delete $old_childs->{$new_id // ''})
         {   # Node reusable
             my $curval = $current->enumval;
             $curval->update({value => $text, position => $position, deleted => 0})
-                if $curval->value ne $text
+                if $curval->value    ne $text
                 || $curval->position != $position
                 || $curval->deleted;
         }
         else
         {   # New node
             my $r = $::db->create(Enumval => { value => $text, position => $position });
-            my $enumval = $::db->get_record(Enumval => $r->id);
+            my $enumval  = $::db->get_record(Enumval => $r->id);
+            $current = Linkspace::Column::Tree::Node->new(enumval => $enumval);
         }
+
+        $new_names{$text} = $current;
+        $self->_update_tree($current, $new_child, %args);
     }
 
     # All remaining old childs set to deleted, at the end of the order
@@ -235,115 +253,49 @@ sub _update_tree($$%)
     $self->tree($self->_build_tree);
 }
 
-=pod
-sub _merge_tree($$%)
-{   my ($self, $parent, $other, %args) = @_;
-    my $tid       = 
-    my $rec       = $tid ? $enumvals->{$tid} : undef;
-    my $name      = $t->{text};
 
-    if($rec)
-    {   if($rec->value ne $t->{text})
-        {   info __x"column {col.path} rename tree enum '{from}' to '{to}'",
-                col => $self, from => $rec->value, to => $name;
-            $rec->value($name);
-        }
+# Merge a foreign tree into the existing one: it will not cause deletions and
+# avoid duplicated names.  A map will be created from ids found in imported tree
+# to ids in the current database.
 
-        if($rec->deleted)
-        {   info __x"column {col.path} deleted tree enum '{name}' revived",
-                col => $self, name => $name;
-            $rec->deleted(0);
-        }
+# We do not want to duplicate the node handling (and testing) of update_tree,
+# so translate the import into an updated tree as could have arrived from
+# the webpage.
 
-        $::db->update(Enumval => $tid, { value  => $t->{text}, deleted => 0 });
-        $enum_mapping->{$source_id} = $tid;
-    }
-    else
-    {   # new entry
-        $tid = $::db->create(Enumval => {
-            layout_id => $self->id,
-            parent    => $parent_id,
-            value     => $name,
-        })->id;
-        info __x"column {col.path} add tree enum '{name}'",
-            col => $self, name => $name;
+sub _merge_children($$)
+{   my ($self, $parent, $other) = @_;
+    my $has = $parent->{children} ||= [];
+    my %has = map $_->{name}, @$has;
 
-        $rec = $enumvals->{$tid} = $::db->get_record(Enumval => $tid);
-        $enum_mapping->{$source_id} = $tid;
-    }
-
-    $self->_update($_, $tid, $enum_mapping)
-         for @{$t->{children}};
-}
-
-=head2 $column->_import_tree($other, \%enum_mapping, %options);
-Import tree information from an external source.  C<enum_mapping> will
-be filled with the externally used ids mapped to the current ids in the
-database.
-#=cut
-
-sub _import_branch
-{   my ($self, $old_in, $new_in, %options) = @_;
-    my $report = $options{report_only};
-    my @old = sort { $a->{text} cmp $b->{text} } @$old_in;
-    my @new = sort { $a->{text} cmp $b->{text} } @$new_in;
-    my @to_write;
-
-    while (@old)
-    {   my $old = shift @old;
-        my $new = shift @new;
-
-        # If it's the same, easy, onto the next one
-        if ($old->{text} && $new->{text} && $old->{text} eq $new->{text})
-        {   trace __x"No change for tree value {value}", value => $old->{text};
-            $new->{source_id} = $new->{id};
-            $new->{id} = $old->{id};
-            push @to_write, $new;
-        }
-        # This one is different. Is the next one the same?
-        elsif($old[0] && $new[0] && $old[0]->{text} eq $new[0]->{text})
-        {   # Yes, assume the previous is a value change
-            info __x"Changing tree value {old} to {new}", old => $old->{text}, new => $new->{text};
-            $new->{source_id} = $new->{id};
-            $new->{id} = $old->{id};
-            push @to_write, $new;
-        }
-        # Is the next new one the same as the current old one?
-        elsif($new[0] && $old->{text} eq $new[0]->{text})
-        {  # Yes, assume insert new value
-            info __x"Adding tree value {new}", new => $new->{text};
-            $new->{source_id} = delete $new->{id};
-            push @to_write, $new;
-            unshift @old, $old;     # old one back onto stack for processing next loop
-        }
-        elsif($options{force})
-        {   if($new->{text})
-            {   notice __x"Unknown treeval update {value}, forcing as requested", value => $new->{text};
-                $new->{source_id} = delete $new->{id};
-                push @to_write, $new;
-            }
-            else
-            {   notice __x"Treeval {value} appears to no longer exist, force removing as requested", value => $old->{text};
-            }
+    foreach my $add (@{$other->{children} || []})
+    {   if(my $p = $has{$add->{name}})
+        {   $self->_merge_children($p, $add);
         }
         else
-        {   # Different, don't know what to do, require manual intervention
-            error __x"don't know how to handle tree updates for {column.name}, manual "
-              . "intervention required (failed at old {old} new {new})",
-                column => $self->name, old => $old->{text}, new => $new->{text};
+        {   push @$has, $add;
         }
-
-        my $kids = $new->{children} || [];
-        $new->{children} = [ $self->_import_branch($old->{children}, $kids, %options) ]
-            if @$kids;
     }
-
-    # Add any remaining new ones
-    delete $_->{id} for @new;
-    (@to_write, @new);
 }
 
-=cut
+sub _collect_map($$$)
+{   my ($self, $node, $other, $map) = @_;
+    foreach my $add (@{$other->{children} || []})
+    {   my $child = first { $_->name eq $add->{name} } $node->children;
+        $child or panic $add->{name};
+        $map->{$add->{id}} = $child->{id};
+        $self->_collect_map($child, $add, $map);
+    }
+}
+
+sub _import_tree
+{   my ($self, $other, $map, %args) = @_;
+
+    my $have = $self->to_hash(include_deleted => 1);
+    $self->_merge_children($have, $other);
+    $self->_update_tree($have);
+    $self->_collect_map($self->tree, $other, $map);
+    $self;
+}
 
 sub export_hash
 {   my $self = shift;

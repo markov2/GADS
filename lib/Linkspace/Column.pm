@@ -617,34 +617,28 @@ sub validate_search { 1 }
 sub resultset_for_values {}
 
 sub values_beginning_with
-{   my ($self, $match_string, %options) = @_;
+{   my ($self, $match_string, %args) = @_;
 
-    my $resultset = $self->resultset_for_values
-        or return ();
+    if($self->has_fixedvals)
+    {   my $choices = $self->_values_beginning_with($match_string // '');
+        $#$choices = 9 if @$choices > 10;
+        return $args{with_id} ? $choices : [ map $_->{name}, @$choices ];
+    }
 
-    my @value;
+    my $resultset   = $self->resultset_for_values or return ();
     my $value_field = 'me.'.$self->value_field;
 
     $match_string =~ s/([_%])/\\$1/g;
-    my $search = $match_string
-        ? { $value_field => { -like => "${match_string}%" } }
-        : {};
+    my %search = $match_string
+        ? ( $value_field => { -like => "${match_string}%" } )
+        : ( );
 
-    my $match_result = $resultset->search($search, { rows => 10 });
-    if($options{with_id} && $self->has_fixedvals)
-    {
-        @value = map +{
-           id   => $_->get_column('id'),
-           name => $_->get_column($self->value_field),
-        }, $match_result->search({}, columns => ['id', $value_field])->all;
-    }
-    else
-    {   @value = $match_result->search({}, {
-            select => { max => $value_field, -as => $value_field },
-        })->get_column($value_field)->all;
-    }
+    my $values_rs = $resultset->search(\%search, {
+        select => { max => $value_field, -as => $value_field },
+        rows   => 10,
+    })->get_column($value_field);
 
-    @value;
+    [ $values_rs->all ];
 }
 
 # The regex that will match the column in a calc/rag code definition

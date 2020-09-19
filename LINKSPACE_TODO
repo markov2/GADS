@@ -14,9 +14,15 @@ Database issues:
 Configuration:
   - Users should get their configurable date_pattern
 
-
   - can the date_format of a column be different that the system's
     date format?
+
+Functional changes:
+  - Trees do not do an import which tries to be smart to detect renames:
+    unknown names are simply added after the known childs.  Then, in the
+    column configuration, one can restore the order.
+  - When the same name appears again on the same level in the tree, then
+    those enums are merged with the first.
 
 TODO:
   - replace bin/app.pl with 'linkspace dance start'
