@@ -180,7 +180,13 @@ my $top_intermediate_node = $column2->tree->find('abc')->id;
 is $column2->is_valid_value($top_intermediate_node), $top_intermediate_node, 'top intermediate';
 
 is_deeply $column2->values_beginning_with('a'), ['aa', 'ab/', 'abc/'], '... find top nodes';
+is_deeply $column2->values_beginning_with('aa'), ['aa'], '... full match';
+is_deeply $column2->values_beginning_with('aa/'), [ ], '... non-leaf node only';
+is_deeply $column2->values_beginning_with('ab/'), ['ab/ab1', 'ab/ab2'], '... find leaf nodes';
 is_deeply $column2->values_beginning_with('ab/a'), ['ab/ab1', 'ab/ab2'], '... find leaf nodes';
+is_deeply $column2->values_beginning_with('ab/c'), [ ], '... no match';
+is_deeply $column2->values_beginning_with('e'), [ ], '... no match';
+is_deeply $column2->values_beginning_with(''), ['aa','ab/','abc/'], '... all tops';
 
 my @tops3 = (
    { text => 'daa' },

@@ -119,9 +119,9 @@ sub _as_string(%)
 
 sub _values_beginning_with($%)
 {   my ($self, $start, %args) = @_;
-    my @path    = split m!\s*/\s*!, $start;
-    pop @path if @path && ! length $path[-1];
-    my $partial = @path ? pop @path : undef;
+    my @path    = split m!\s*/\s*!, $start, -1;
+    my $partial = @path ? pop @path : '';
+
     my $parent  = $self->tree->find(@path) or return [];
 
     my @hits    = grep $_->name =~ /^\Q$partial/, $parent->children;
