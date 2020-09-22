@@ -57,13 +57,13 @@ cmp_ok $root2->children, '==', @tops1, '... three tops';
 
 is $column1->as_string, <<'__STRING', '... show tree with 3 tops';
 tree             column1
-     * a
-     * b
-         * b1
-         * b2
-     * c
-         * c1
-             * c12
+       a
+       b
+           b1
+           b2
+       c
+           c1
+               c12
 __STRING
 
 ### Find (also tested in the 'note' script)
@@ -134,16 +134,16 @@ like logline, qr/changed field.*end_node_only/, 'New tree, end_node_only';
 
 is $column1->as_string, <<'__STRING', 'Updated tree';
 tree             column1
-     * b
-         * b0
-         * b1b
-    D    * b2
-     * c
-    D    * c1
-    D        * c12
-     * d
-         * d1
     D* a
+       b
+     *     b0
+     *     b1b
+    D*     b2
+       c
+    D      c1
+    D*         c12
+       d
+     *     d1
 __STRING
 
 # Still to test: duplicate names

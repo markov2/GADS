@@ -138,7 +138,7 @@ has tree => (is => 'rw', lazy => 1, builder => '_build_tree');
 
 sub _build_tree
 {   my $self  = shift;
-    my $enumvals = $self->enumvals(include_deleted => 1);
+    my $enumvals = $self->enumvals(include_deleted => 1, order => 'asc');
 #warn "BUILD TREE";
     my @nodes = map Linkspace::Column::Tree::Node->new(enumval => $_), @$enumvals;
     my $nodes = index_by_id @nodes;
@@ -149,7 +149,7 @@ sub _build_tree
     my ($tops, $leafs) = part { $_->enumval->parent_id ? 1 : 0 } @nodes;
 #warn @{$tops || []}.' tops, leafs='.@{$leafs || []};
     $nodes->{$_->enumval->parent_id}->add_child($_)
-        for sort { $a->deleted <=> $b->deleted || $a->name <=> $b->name } @{$leafs || []};
+        for sort { $a->name cmp $b->name } @{$leafs || []};
 #warn $_->id, ": ", join ',', $_->children, "\n" for @nodes;
 
     Linkspace::Column::Tree::Node->new(name => 'Root', children => $tops);
