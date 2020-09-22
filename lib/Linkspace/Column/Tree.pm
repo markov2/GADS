@@ -94,7 +94,7 @@ sub _as_string(%)
     $_->walk(sub {
        my ($node, $level) = @_;
        push @lines, sprintf "%s%s%s %s",
-           ($node->deleted ? 'D' : ' '),
+           ($node->is_deleted ? 'D' : ' '),
            '    ' x ($level-1),
            ($mark_leafs && $node->is_leaf ? '*' : '*'),
            $node->name;
@@ -123,7 +123,7 @@ has tree => (is => 'rw', lazy => 1, builder => '_build_tree');
 
 sub _build_tree
 {   my $self  = shift;
-    my $enumvals = $self->enumvals(include_deleted => 1, order => 'position');
+    my $enumvals = $self->enumvals(include_deleted => 1);
 #warn "BUILD TREE";
     my @nodes = map Linkspace::Column::Tree::Node->new(enumval => $_), @$enumvals;
     my $nodes = index_by_id @nodes;
@@ -133,7 +133,8 @@ sub _build_tree
 
     my ($tops, $leafs) = part { $_->enumval->parent_id ? 1 : 0 } @nodes;
 #warn @{$tops || []}.' tops, leafs='.@{$leafs || []};
-    $nodes->{$_->enumval->parent_id}->add_child($_) for @$leafs;
+    $nodes->{$_->enumval->parent_id}->add_child($_)
+        for sort { $a->position <=> $b->position } @{$leafs || []};
 #warn $_->id, ": ", join ',', $_->children, "\n" for @nodes;
 
     Linkspace::Column::Tree::Node->new(name => 'Root', children => $tops);
@@ -214,7 +215,6 @@ sub _update_node($$)
 {   my ($self, $node, $other) = @_;
 
     my $old_childs = index_by_id $node->children;
-use Data::Dumper;
     my $new_childs = $other->{children} || [];
     my $position   = 0;
     my %new_names;   # child names to detect duplicates
@@ -263,7 +263,7 @@ use Data::Dumper;
     # All remaining old childs set to deleted, at the end of the order
     # Children of missing children are deleted as well.
 
-    $_->walk(sub { $_[0]->enumval->update({deleted => 1}) })
+    $_->walk(sub { $_[0]->enumval->update({deleted => 1, position => ++$position}) })
         for values %$old_childs;
 }
 
@@ -360,10 +360,11 @@ sub new(%)
     $self;
 }
 
-sub id      { $_[0]->enumval->id }
-sub name    { $_[0]->{name} }
-sub deleted { $_[0]->enumval->deleted }
-sub enumval { $_[0]->{enumval} }
+sub id         { $_[0]->enumval->id }
+sub name       { $_[0]->{name} }
+sub is_deleted { $_[0]->enumval->deleted }
+sub enumval    { $_[0]->{enumval} }
+sub position   { $_[0]->enumval->position }
 
 sub add_child($)
 {   my ($self, $child) = @_;

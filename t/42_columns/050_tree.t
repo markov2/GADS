@@ -118,6 +118,36 @@ my $expect1  =
 
 is_deeply $as_hash1, $expect1, 'Output as hash';
 
+### Hash update
+# Base changes on the HASH of the current tree.
+
+my $update = $column1->to_hash;
+shift $update;   # remove top 'a'
+push $update, { text => 'd', children => [ { text => 'd1' } ] };  # add top
+unshift @{$update->[0]{children}}, { text => 'b0' };  # add in front
+$update->[0]{children}[1]{text} = 'b1b';  # rename
+delete $update->[0]{children}[2];   # remove single b2
+delete $update->[1]{children}[0];   # remove tree c1/c12
+
+$layout->column_update($column1, { tree => $update, end_node_only => 1 });
+like logline, qr/changed field.*end_node_only/, 'New tree, end_node_only';
+
+is $column1->as_string, <<'__STRING', 'Updated tree';
+tree             column1
+     * b
+         * b0
+         * b1b
+    D    * b2
+     * c
+    D    * c1
+    D        * c12
+     * d
+         * d1
+    D* a
+__STRING
+
+# Still to test: duplicate names
+
 #TODO: _is_valid_value($node_id) existing node
 #TODO: _is_valid_value($node_id) non-existing node
 #TODO: _is_valid_value($node_id) for deleted node
