@@ -59,11 +59,11 @@ is $column1->as_string, <<'__STRING', '... show tree with 3 tops';
 tree             column1
      * a
      * b
-         * b1
-         * b2
+     *     b1
+     *     b2
      * c
-         * c1
-             * c12
+     *     c1
+     *         c12
 __STRING
 
 ### Find (also tested in the 'note' script)
@@ -118,12 +118,18 @@ my $expect1  =
 
 is_deeply $as_hash1, $expect1, 'Output as hash';
 
+my $valid_id = $column1->tree->find('c', 'c1', 'c12')->id;
+is $column1->is_valid_value($valid_id), $valid_id, 'existing node';
+
+my $top_leaf_node = $column1->tree->find('a')->id;
+is $column1->is_valid_value($top_leaf_node), $top_leaf_node,  'top leaf node where end_node_only';
+
 ### Hash update
 # Base changes on the HASH of the current tree.
 
 my $update = $column1->to_hash;
-shift $update;   # remove top 'a'
-push $update, { text => 'd', children => [ { text => 'd1' } ] };  # add top
+shift @$update;   # remove top 'a'
+push @$update, { text => 'd', children => [ { text => 'd1' } ] };  # add top
 unshift @{$update->[0]{children}}, { text => 'b0' };  # add in front
 $update->[0]{children}[1]{text} = 'b1b';  # rename
 delete $update->[0]{children}[2];   # remove single b2
@@ -134,17 +140,74 @@ like logline, qr/changed field.*end_node_only/, 'New tree, end_node_only';
 
 is $column1->as_string, <<'__STRING', 'Updated tree';
 tree             column1
-     * b
-         * b0
-         * b1b
-    D    * b2
+       b
+     *     b0
+     *     b1b
+    D      b2
      * c
-    D    * c1
-    D        * c12
-     * d
-         * d1
-    D* a
+    D      c1
+    D          c12
+       d
+     *     d1
+    D  a
 __STRING
+
+ok $column1->end_node_only, 'flag end_node_only';
+
+my $column1b = Linkspace::Column->from_id($column1->id);
+is_deeply $column1->to_hash, $column1b->to_hash, 'reload from database is identical';
+
+###############################
+
+my @tops2 = (
+   { text => 'aa' },
+   { text => 'ab', children => [ { text => 'ab1' }, { text => 'ab2' } ] },
+   { text => 'abc', children => [ { text => 'abc1', children => [ { text => 'abc12' } ] }] },
+);
+
+my $column2 = $layout->column_create({
+    type          => 'tree',
+    name          => 'column2 (long)',
+    name_short    => 'column2',
+    is_multivalue => 0,
+    is_optional   => 0,
+    end_node_only => 0,
+    tree          => \@tops2,
+                                            });
+
+logline;
+
+my $top_intermediate_node = $column2->tree->find('abc')->id;
+try { is $column2->is_valid_value($top_intermediate_node), $top_intermediate_node, 'top intermediate'; } ;
+is_deeply $column2->values_beginning_with ('a'), ['aa', 'ab/', 'abc/'], 'find top nodes';
+is_deeply $column2->values_beginning_with ('ab/a'), ['ab/ab1', 'ab/ab2'], 'find leaf nodes';
+
+my @tops3 = (
+   { text => 'daa' },
+   { text => 'dab', children => [ { text => 'ab1' }, { text => 'ab2' } ] },
+   { text => 'dabc', children => [ { text => 'abc1', children => [ { text => 'abc12' } ] }] },
+);
+
+my @result_value3 = map { id => $_->id, value => $_->value, deleted => $_->deleted, parent => $_->parent ? $_->parent->id: undef }, 
+    @{$column2->enumvals( { include_deleted => 1, order => 'asc' })};
+
+print Dumper(@result_value3);
+
+###############################
+
+
+try { $column1->is_valid_value($valid_id); };
+my $error_message1 = $@->wasFatal->message;
+is $error_message1,  'Node \'c12\' has been deleted and can therefore not be used', 'for deleted node';
+
+try {  $column1->is_valid_value(-1); } ;
+my $error_message2 = $@->wasFatal->message;
+is $error_message2,  'Node \'-1\' is not a valid tree node for \'column1 (long)\'', 'non-existing node';
+
+my $intermediate_node = $column1->tree->find('b')->id;
+try {  $column1->is_valid_value($intermediate_node); } ;
+my $error_message3 = $@->wasFatal->message;
+is $error_message3,  'Node \'b\' cannot be used: not a leaf node', 'error with parent where end_node_only';
 
 # Still to test: duplicate names
 
