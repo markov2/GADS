@@ -96,7 +96,7 @@ sub _is_valid_value($)
         or error __x"Node '{node.name}' has been deleted and can therefore not be used",
             node => $node;
 
-    $self->end_node_only || $node->is_leaf
+    ! $self->end_node_only || $node->is_leaf
         or error __x"Node '{node.name}' cannot be used: not a leaf node", node => $node;
 
     $value;
