@@ -61,6 +61,21 @@ sub _column_extra_update($%)
 {   my ($self, $extra, %args) = @_;
     $self->SUPER::_column_extra_update($extra, %args);
 
+    if($self->end_node_only)
+    {   # We can only switch to 'end_node_only' mode when none of the
+        # intermediate nodes is in use.  However, at the moment we cannot
+        # detect whether the field actually changes because the flags has
+        # already been updated.  Well, tree changes are rare.
+
+        $_->walk( sub {
+           my $node = shift;
+           return 1 if $self->is_leaf || ! $self->enumval_in_use($node->id);
+
+           error __x"Cannot switch to 'End Node Only' because non-end node '{node.name}' is in use.",
+               node => $node;
+        }) for $self->_tops;
+    }
+
     if(my $other = delete $extra->{tree})
     {   if(my $map = delete $args{import_tree})
              { $self->_import_tree($other, $map, %args) }
@@ -95,8 +110,8 @@ sub _as_string(%)
        my ($node, $level) = @_;
        push @lines, sprintf "%s%s%s %s",
            ($node->is_deleted ? 'D' : ' '),
+           ($mark_leafs && $node->is_leaf ? '*' : ' '),
            '    ' x ($level-1),
-           ($mark_leafs && $node->is_leaf ? '*' : '*'),
            $node->name;
     }) for $self->_tops;
     join "\n", @lines;
@@ -134,7 +149,7 @@ sub _build_tree
     my ($tops, $leafs) = part { $_->enumval->parent_id ? 1 : 0 } @nodes;
 #warn @{$tops || []}.' tops, leafs='.@{$leafs || []};
     $nodes->{$_->enumval->parent_id}->add_child($_)
-        for sort { $a->position <=> $b->position } @{$leafs || []};
+        for sort { $a->deleted <=> $b->deleted || $a->name <=> $b->name } @{$leafs || []};
 #warn $_->id, ": ", join ',', $_->children, "\n" for @nodes;
 
     Linkspace::Column::Tree::Node->new(name => 'Root', children => $tops);
@@ -216,7 +231,6 @@ sub _update_node($$)
 
     my $old_childs = index_by_id $node->children;
     my $new_childs = $other->{children} || [];
-    my $position   = 0;
     my %new_names;   # child names to detect duplicates
 
   CHILD:
@@ -237,21 +251,25 @@ sub _update_node($$)
         }
 
         my $current;
-        $position++;
-
         if($current = delete $old_childs->{$new_id // ''})
-        {   # Node reusable
+        {   # Child node reusable
             my $curval = $current->enumval;
-            $curval->update({value => $text, position => $position, deleted => 0})
+            $curval->update({value => $text, deleted => 0})
                 if $curval->value    ne $text
-                || $curval->position != $position
                 || $curval->deleted;
         }
         else
-        {   # New node
+        {   # New child node required
+            error __x"Cannot add child node '{name}' below '{parent.name}' is in use and End Node Only set",
+                name => $text, parent => $node
+                if $node->is_leaf
+                && $self->end_node_only
+                && $self->enumval_in_use($node->id);
+
             my $parent_id = $node->name eq 'Root' ? undef : $node->id;
-            my $r = $::db->create(Enumval => { layout_id => $self->id,
-                 parent => $parent_id, value => $text, position => $position });
+            my $r = $::db->create(Enumval => { layout_id => $self->id, parent => $parent_id,
+                value => $text });
+
             my $enumval  = $::db->get_record(Enumval => $r->id);
             $current = Linkspace::Column::Tree::Node->new(enumval => $enumval);
         }
@@ -263,7 +281,7 @@ sub _update_node($$)
     # All remaining old childs set to deleted, at the end of the order
     # Children of missing children are deleted as well.
 
-    $_->walk(sub { $_[0]->enumval->update({deleted => 1, position => ++$position}) })
+    $_->walk(sub { $_[0]->enumval->update({deleted => 1}) })
         for values %$old_childs;
 }
 
@@ -364,7 +382,6 @@ sub id         { $_[0]->enumval->id }
 sub name       { $_[0]->{name} }
 sub is_deleted { $_[0]->enumval->deleted }
 sub enumval    { $_[0]->{enumval} }
-sub position   { $_[0]->enumval->position }
 
 sub add_child($)
 {   my ($self, $child) = @_;
