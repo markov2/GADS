@@ -17,36 +17,36 @@ ok ! defined $class->from_name('test_name'), 'Loading unknown name';
 ### Create
 
 my $site = $class->site_create({
-    name     => 'test_name',
-    hostname => 'test_host',
+    name     => 'create_name',
+    hostname => 'create_host',
 });
 
 ok defined $site, 'Site got created';
 isa_ok $site, $class, '...';
 isa_ok $site, 'Linkspace::DB::Table', '...';
-is $site->name, 'test_name', '... right name';
-is $site->hostname, 'test_host', '... right hostname';
+is $site->name, 'create_name', '... right name';
+is $site->hostname, 'create_host', '... right hostname';
 
 my $site_id = $site->id;
-is logline, "info: Site created $site_id: test_name", '... got logged';
-is $site->path, 'test_name', '... path='.$site->path;
+is logline, "info: Site created $site_id: create_name", '... got logged';
+is $site->path, 'create_name', '... path='.$site->path;
 
 my $by_id = $class->from_id($site_id);
 ok defined $by_id, "Found via site id: $site_id";
 is $by_id->id, $site_id, '... is same site';
 isnt $by_id, $site, '... is different object';
 
-my $by_search = $class->from_search({hostname => { -like => 'test%' }});
+my $by_search = $class->from_search({hostname => { -like => 'create%' }});
 ok defined $by_search, 'Found via hostname match';
 is $by_search->id, $site->id, '... is same site';
 isnt $by_search, $site, '... is different object';
 
-my $by_host = $class->from_hostname('test_host');
+my $by_host = $class->from_hostname('create_host');
 ok defined $by_host, 'Found via site hostname';
 is $by_host->id, $site_id, '... is same site';
 isnt $by_host, $site, '... is different object';
 
-my $by_name = $class->from_name('test_name');
+my $by_name = $class->from_name('create_name');
 ok defined $by_name, 'Found via site name';
 is $by_name->id, $site_id, '... is same site';
 isnt $by_name, $site, '... is different object';
@@ -82,13 +82,9 @@ ok $site->has_changed('meta'), '... but flagged site change';
 
 ### Delete
 
-SKIP: {
-   skip 'Too dangerous and fragile to test now';
-   ok $site5->site_delete, 'Delete the second site';
-   ok $site5->has_changed('meta'), '... flag change';
-   ok $class->from_id($site_id), '... first site was not destroyed';
-   is logline, "info: Site $site5_id='lazy creat' deleted", '... deletion logged';
-}
-
+ok $site5->site_delete, 'Delete the second site';
+ok $site5->has_changed('meta'), '... flag change';
+ok $class->from_id($site_id), '... first site was not destroyed';
+is logline, "info: Site $site5_id='lazy create' deleted", '... deletion logged';
 
 done_testing;

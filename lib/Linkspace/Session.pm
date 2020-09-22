@@ -59,6 +59,7 @@ has user => (
 sub user_login
 {   my ($self, $user) = @_;
     my $active = $self->user;
+
     $active->is_admin
         or error __x"Only an admin can login someone";
     $self->{_prev_user} = $active;

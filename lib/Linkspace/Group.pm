@@ -55,9 +55,8 @@ defaults.
 =cut
 
 sub _group_create($)
-{   my ($self, $insert) = @_;
-    $insert->{site} = $self->site;
-    $self->create($insert);
+{   my ($class, $insert, %args) = @_;
+    $class->create($insert, %args);
 }
 
 sub _group_update($)

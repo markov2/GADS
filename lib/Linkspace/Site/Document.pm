@@ -369,4 +369,13 @@ sub column_unuse($)
        for @{$self->all_sheets};
 }
 
+=head2 $doc->document_delete;
+Remove all sheets maintained by this document.
+=cut
+
+sub document_delete
+{   my $self = shift;
+    $_->sheet_delete for @{$self->all_sheets};
+}
+
 1;

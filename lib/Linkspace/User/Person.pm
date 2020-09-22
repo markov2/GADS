@@ -81,7 +81,6 @@ sub _user_validate($)
 
 sub _user_create($%)
 {   my ($class, $insert, %args) = @_;
-
     $insert->{username}  = $insert->{email};
     $insert->{value}   ||= ($insert->{surname} //'').', '.($insert->{firstname} //'');
     $insert->{created} ||= DateTime->now,

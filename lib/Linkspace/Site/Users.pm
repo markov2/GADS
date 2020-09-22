@@ -136,7 +136,7 @@ sub user($)
 }
 
 =head2 my $user = $users->user_by_name($email)
-=head2 my $user = $users->user_by_name($username)
+C<$email> equals C<$username>.
 =cut
 
 sub user_by_name($)
@@ -462,6 +462,7 @@ has _group_index => (
 
 sub group_create(%)
 {   my ($self, $insert) = @_;
+    $insert->{site} ||= $self->site;
     my $group = Linkspace::Group->_group_create($insert);
     $self->_group_index->{$group->id} = $group;
     $self->component_changed;
@@ -479,7 +480,7 @@ sub group_update($$)
     $group;
 }
 
-=head2 groupsusers->group_delete($which);
+=head2 $groups->group_delete($which);
 =cut
 
 sub group_delete($)
@@ -596,10 +597,10 @@ sub sheet_unuse($)
      $::db->delete(InstanceGroup => { instance_id => $sheet->id });
 }
 
-sub site_unuse($)
+sub delete_all($)
 {   my ($self, $site) = @_;
+    $self->group_delete($_) for @{$self->all_groups};  # groups refer to users
     $self->user_delete($_)  for @{$self->all_users};
-    $self->group_delete($_) for @{$self->all_groups};
 }
 
 sub view_unuse($)

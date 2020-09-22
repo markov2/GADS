@@ -39,7 +39,7 @@ is $user2->email, 'john2@example.com', '... username';
 my $group1 = test_group;
 ok defined $group1, 'Created test group';
 isa_ok $group1, 'Linkspace::Group', '...';
-is $group1->name, 'group1', '... group name';
+is $group1->name, 'default_group', '... group name';
 
 my $group2 = make_group '2';
 isnt $group1, $group2, '... new group';

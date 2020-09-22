@@ -72,7 +72,8 @@ __PACKAGE__->db_accessors;
 =head1 METHODS: Constructors
 
 =head2 my $site = Linkspace::Site->from_hostname($hostname, %options);
-Create the object from the database.  Sites are globally maintained
+Load the site object from the database.  Sites are globally maintained by the
+Linkspace object.
 
 =cut
 
@@ -85,13 +86,12 @@ sub from_hostname($%)
 
 =head2 my $site = Linkspace::Site->from_name($name, %options);
 Create the object from the database.  Sites are globally maintained
-
 =cut
 
 sub from_name($%)
 {   my ($class, $name) = (shift, shift);
     defined $name or return undef;
-	my $record = $::db->get_record(Site => { name => $name });
+       my $record = $::db->get_record(Site => { name => $name });
     $record ? $class->from_record($record) : undef;
 }
 
@@ -140,8 +140,8 @@ sub site_update($%)
 
 sub site_delete()
 {   my $self = shift;
-    $self->users->site_unuse($self);
-    $self->document->site_unuse($self);
+    $self->document->document_delete;
+    $self->users->delete_all;
     $self->changed('meta');   # signal to cache
     $self->delete;
 }
@@ -150,7 +150,7 @@ sub site_delete()
 =head1 METHODS: Accessors
 =cut
 
-sub path { substr $_[0]->name // $_[0]->hostname, 0, 10 }
+sub path { substr $_[0]->name // $_[0]->hostname, 0, 12 }
 
 #-------------------------
 =head1 METHODS: Caching

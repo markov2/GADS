@@ -83,7 +83,7 @@ is $cached, $person, '... same object';
 
 ok ! $users->_users_complete, '... admin thinks it is still incomplete';
 my $all_users = $users->all_users;
-cmp_ok scalar @$all_users, '==', 1, '... there is only one! (administered)';
+cmp_ok @$all_users, '==', 2, '... there is only one! (administered)';  # +test_user
 is $all_users->[0], $person, "... and that's me";
 ok $users->_users_complete, '... all_users requested, so now admin complete';
 
@@ -119,15 +119,15 @@ is_deeply $person->{_coldata}, $clone2->{_coldata}, '... got same person';
 
 ### Person retire
 
-ok ! $person->deleted, 'Person not yet retired';
+ok ! $person->deleted, 'Retired person';
 ok $person->retire, "... retiring";
-is logline, "info: User ${\$person->id}='$path' changed fields: deleted lastview";
+is logline, "info: User ${\$person->id}='$path' changed fields: deleted lastview", '... logged';
 like $person->deleted, qr/^2\d\d\d-/, '... retired on '.$person->deleted;
 
 ### Person delete
-ok $users->user_delete($person), '... deleted';
-is logline, "info: User ${\$person->id}='$path' changed fields: deleted lastview";
-is logline, "info: User ${\$person->id}='$path' deleted";
+ok $users->user_delete($person), 'Deleted person';
+is logline, "info: User ${\$person->id}='$path' changed fields: deleted lastview", '... logout';
+is logline, "info: User ${\$person->id}='$path' deleted", '... log used deleted';
 my $now_missing = Linkspace::User::Person->from_id($person->id);
 ok ! defined $now_missing, '... not in table';
 

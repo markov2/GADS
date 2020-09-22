@@ -53,7 +53,8 @@ sub import(%)
     );
 
     # All database changes get lost when the test script terminates.
-    $guard = $::db->begin_work;
+    $guard = $::db->begin_work
+        unless exists $args{db_rollback} && !$args{db_rollback};
 
     test_session
         unless exists $args{start_test_session} && !$args{start_test_session};
@@ -61,7 +62,9 @@ sub import(%)
 
 END { $guard->rollback if $guard }
 
+###
 ### Logging
+###
 
 my @loglines;
 sub log($$$$)
@@ -79,57 +82,65 @@ sub logs_purge() { @loglines = () }
 END { warn "untested log: $_\n" for @loglines }
 
 
-### Some objects
+###
+### Create initial test objects
+###
+
+# These objects are created test scripts t/22_* and removed in t/99_.
+# They will stick in the database for the all tests between these
+# two script names.  All other scripts run their actions in a
+# 'begin-work/rollback' mode, so should not cause lastig changes.
 
 my ($test_site, $test_user, $test_group, $test_sheet);
 
+# test_site constructed in t/22_linkspace_test/50_test_site.t
+sub _name_test_site { 'test-site.example.com' }
+sub test_site { $test_site ||= Linkspace::Site->from_hostname(_name_test_site) }
+
+# test_user and test_group constructed in t/22_linkspace_test/51_test_user.t
+sub _name_test_user() { 'default@example.com' }
+sub test_user() { $test_user ||= test_site->users->user_by_name(_name_test_user) }
+
+sub _name_test_group() { 'default_group' }
+sub test_group() { $test_group ||= test_site->groups->group(_name_test_group) }
+
+
+###
+### Help construct various objects
+###
+
 sub make_site($@)
 {   my ($seqnr, %args) = @_;
-    my $host  = $seqnr==1 ? 'test-site' : "site$seqnr";
+    my $host = $args{hostname} ||= "test-$seqnr.example.com";
+    my $site = Linkspace::Site->site_create(\%args);
 
-    my $site = Linkspace::Site->site_create({
-        hostname => "$host.example.com",
-    });
-
-    is logline, "info: Site created ${\$site->id}: $host",
+    my $base = $host =~ s/\..*//r;
+    is logline, "info: Site created ${\$site->id}: $base",
         "created site ${\$site->id}";
 
     $site;
 }
-sub test_site(@) { $test_site ||= make_site '1', @_ } 
 
 sub make_group($@)
 {   my ($seqnr, %args) = @_;
     my $site  = $args{site} || $::session->site;
-    my $group = $site->groups->group_create({name => "group$seqnr"});
+    my $name  = $args{name} ||= "group$seqnr";
+    my $group = $site->groups->group_create({name => $name});
 
-    is logline, "info: Group created ${\$group->id}: ${\$site->path}/group$seqnr",
+    is logline, "info: Group created ${\$group->id}: ${\$site->path}/$name",
         "created group ${\$group->id}, ".$group->path;
 
     $group;
 }
 
-sub test_user(@);
-sub test_group(@)
-{   return $test_group if $test_group;
-
-    my $user = test_user;
-    $test_group = make_group '1', owner => $user, @_;
-
-    test_site->groups->group_add_user($test_group, $user);
-    like logline, qr/^info: user.*added to.*/, '... log added user to group';
-
-    $test_group;
-}
-
 sub make_user($@)
 {   my ($seqnr, %args) = @_;
-    my $site = $args{site} || $::session->site;
-    my $postfix = $seqnr==1 ? '' : $seqnr;
+    my $site    = $args{site} || $::session->site;
+    my $postfix = $seqnr || '';
     my $perms   = delete $args{permissions};
 
     my $user = $site->users->user_create({
-        email       => "john$postfix\@example.com",
+        email       => $args{email} || "john$postfix\@example.com",
         firstname   => "John$postfix",
         surname     => "Doe$postfix",
         permissions => $perms,
@@ -148,12 +159,6 @@ sub make_user($@)
     }
 
     $user;
-}
-
-sub test_user(@)
-{   $test_user ||= make_user '1',
-        permissions => ['superadmin'],
-        @_;
 }
 
 sub test_session()
