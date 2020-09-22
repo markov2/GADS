@@ -176,8 +176,11 @@ my $column2 = $layout->column_create({
 });
 ok logline, "Created column2";
 
-my $top_intermediate_node = $column2->tree->find('abc')->id;
-is $column2->is_valid_value($top_intermediate_node), $top_intermediate_node, 'top intermediate';
+my $top_node = $column2->tree->find('abc');
+is $column2->is_valid_value($top_node->id), $top_node->id, 'valid top node';
+my $intermediate_node = $column2->tree->find('abc', 'abc1');
+is $intermediate_node->path, 'abc/abc1/', 'intermediate node path';
+is $column2->is_valid_value($intermediate_node->id), $intermediate_node->id, 'valid intermediate';
 
 is_deeply $column2->values_beginning_with('a'), ['aa', 'ab/', 'abc/'], '... find top nodes';
 is_deeply $column2->values_beginning_with('aa'), ['aa'], '... full match';
