@@ -95,7 +95,10 @@ my ($test_site, $test_user, $test_group, $test_sheet);
 
 # test_site constructed in t/22_linkspace_test/50_test_site.t
 sub _name_test_site { 'test-site.example.com' }
-sub test_site { $test_site ||= Linkspace::Site->from_hostname(_name_test_site) }
+sub test_site
+{   $test_site ||= Linkspace::Site->from_hostname(_name_test_site)
+        or error "Run 'prove t/22_linkspace_test/' to create test set-up";
+}
 
 # test_user and test_group constructed in t/22_linkspace_test/51_test_user.t
 sub _name_test_user() { 'default@example.com' }
