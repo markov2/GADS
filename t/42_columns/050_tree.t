@@ -12,7 +12,7 @@ my $column1 = $layout->column_create({
     name_short    => 'column1',
     is_multivalue => 0,
     is_optional   => 0,
-                                            });
+});
 
 ok defined $column1, 'Created column1';
 my $col1_id = $column1->id;
@@ -152,7 +152,9 @@ tree             column1
      *     d1
 __STRING
 
-ok $column1->end_node_only, 'flag end_node_only';
+# Still to test: duplicate names
+
+ok $column1->end_node_only, 'flag end_node_only set';
 
 my $column1b = Linkspace::Column->from_id($column1->id);
 is_deeply $column1->to_hash, $column1b->to_hash, 'reload from database is identical';
@@ -185,8 +187,8 @@ is $column2->is_valid_value($intermediate_node->id), $intermediate_node->id, 'va
 is_deeply $column2->values_beginning_with('a'), ['aa', 'ab/', 'abc/'], '... find top nodes';
 is_deeply $column2->values_beginning_with('aa'), ['aa'], '... full match';
 is_deeply $column2->values_beginning_with('aa/'), [ ], '... non-leaf node only';
-is_deeply $column2->values_beginning_with('ab/'), ['ab/ab1', 'ab/ab2'], '... find leaf nodes';
-is_deeply $column2->values_beginning_with('ab/a'), ['ab/ab1', 'ab/ab2'], '... find leaf nodes';
+is_deeply $column2->values_beginning_with('ab/'), ['ab/ab1', 'ab/ab2'], '... all leaf nodes';
+is_deeply $column2->values_beginning_with('ab/a'), ['ab/ab1', 'ab/ab2'], '... some leaf nodes';
 is_deeply $column2->values_beginning_with('ab/c'), [ ], '... no match';
 is_deeply $column2->values_beginning_with('e'), [ ], '... no match';
 is_deeply $column2->values_beginning_with(''), ['aa','ab/','abc/'], '... all tops';
@@ -214,12 +216,78 @@ try {  $column1->is_valid_value(-1); } ;
 my $error_message2 = $@->wasFatal->message;
 is $error_message2, "Node '-1' is not a valid tree node for 'column1 (long)'", 'non-existing node';
 
-my $intermediate_node = $column1->tree->find('b')->id;
-try { $column1->is_valid_value($intermediate_node); } ;
+my $intermediate_node3 = $column1->tree->find('b')->id;
+try { $column1->is_valid_value($intermediate_node3) };
 my $error_message3 = $@->wasFatal->message;
 is $error_message3, "Node 'b' cannot be used: not a leaf node", 'error with parent where end_node_only';
 
-# Still to test: duplicate names
+###
+### Merge tree
+###
+# New tree from external source (CSV import?) May contain different nodes which
+# need to get merged in.  A map is built from the external ids to internal ids
+# be able to import the tree datums.
+
+my @tops4 = (    # for now, same as @tops1
+   { text => 'a' },
+   { text => 'b', children => [ { text => 'b1' }, { text => 'b2' } ] },
+   { text => 'c', children => [ { text => 'c1', children => [ { text => 'c12' } ] }] },
+);
+
+my $column4 = $layout->column_create({
+    type          => 'tree',
+    name          => 'column4 (long)',
+    name_short    => 'column4',
+    tree          => \@tops4,
+});
+like logline, qr/created.*column4/, '... created column4';
+
+ok $column4, "Start merging an external tree";
+
+my @merge4 = (
+   { text => 'a', id => 42,   # exists
+        children => [ { text => 'a1', id => 43 } ] },  # add level of leafs
+   { text => 'b', id => $column4->tree->find('a')->id, # add confusion
+        children => [ { text => 'b2', id => 44 },      # use sibling
+                      { text => 'b3', id => 45 } ] },  # add sibling
+   { text => 'd', id => 46 },                          # new top
+   { text => 'e', id => 47,                            # new top with child
+        children => [ { text => 'e1', id => 48 } ] },
+);
+
+my %map4;
+$layout->column_update($column4, { tree => \@merge4 }, import_tree => \%map4);
+ok keys %map4, '... merge created a map';
+
+my $hash4 = $column4->to_hash;
+is $column4->as_string, <<'__EXPECT', '... as_string as expected';
+tree             column4
+       a
+           a1
+       b
+           b1
+           b2
+           b3
+       c
+           c1
+               c12
+       d
+       e
+           e1
+__EXPECT
+
+my $tree4 = $column4->tree;
+is_deeply \%map4, {
+    $tree4->find('a')->id => $tree4->find('b')->id,   # do not be confused
+    42 => $tree4->find('a')->id,
+    43 => $tree4->find('a', 'a1')->id,
+    44 => $tree4->find('b', 'b2')->id,
+    45 => $tree4->find('b', 'b3')->id,
+    46 => $tree4->find('d')->id,
+    47 => $tree4->find('e')->id,
+    48 => $tree4->find('e', 'e1')->id,
+}, '... check map';
+
 
 #TODO: _is_valid_value($node_id) existing node
 #TODO: _is_valid_value($node_id) non-existing node

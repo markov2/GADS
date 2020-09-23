@@ -19,7 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::Tree;
 use Log::Report 'linkspace';
 
-use Scalar::Util    qw(weaken);
+use List::Util      qw(first);
 use List::MoreUtils qw(part);
 
 use Linkspace::Util qw(index_by_id is_valid_id);
@@ -226,8 +226,8 @@ sub delete_unused_enumvals(%)
 # existing tree.  When a node in the 'other' tree has an id, it matches
 # ids in the database.
 
-sub _update_node($$)
-{   my ($self, $node, $other) = @_;
+sub _update_node($$%)
+{   my ($self, $node, $other, %args) = @_;
 
     my $old_childs = index_by_id $node->children;
     my $new_childs = $other->{children} || [];
@@ -275,20 +275,24 @@ sub _update_node($$)
         }
 
         $new_names{$text} = $current;
-        $self->_update_node($current, $new_child);
+        $self->_update_node($current, $new_child, %args);
     }
 
-    # All remaining old childs set to deleted, at the end of the order
-    # Children of missing children are deleted as well.
+    if($args{delete_missing})
+    {   # All remaining old childs set to deleted, at the end of the order
+        # Children of missing children are deleted as well.
 
-    $_->walk(sub { $_[0]->enumval->update({deleted => 1}) })
-        for values %$old_childs;
+        $_->walk(sub { $_[0]->enumval->update({deleted => 1}) })
+            for values %$old_childs;
+    }
 }
 
 sub _update_tree($%)
 {   my ($self, $other, %args) = @_;
     $other = { children => $other } if ref $other eq 'ARRAY';
-    $self->_update_node($self->tree, $other);
+
+    my $missing = exists $args{delete_missing} ? $args{delete_missing} : 1;
+    $self->_update_node($self->tree, $other, delete_missing => $missing);
 
     # Bluntly rebuild all: no peephole minor changes to the tree
     $self->_enumvals($self->_build_enumvals);
@@ -307,10 +311,10 @@ sub _update_tree($%)
 sub _merge_children($$)
 {   my ($self, $parent, $other) = @_;
     my $has = $parent->{children} ||= [];
-    my %has = map $_->{name}, @$has;
+    my %has = map +($_->{text} => $_), @$has;
 
     foreach my $add (@{$other->{children} || []})
-    {   if(my $p = $has{$add->{name}})
+    {   if(my $p = $has{$add->{text}})
         {   $self->_merge_children($p, $add);
         }
         else
@@ -322,19 +326,20 @@ sub _merge_children($$)
 sub _collect_map($$$)
 {   my ($self, $node, $other, $map) = @_;
     foreach my $add (@{$other->{children} || []})
-    {   my $child = first { $_->name eq $add->{name} } $node->children;
-        $child or panic $add->{name};
-        $map->{$add->{id}} = $child->{id};
+    {   my $child = first { $_->name eq $add->{text} } $node->children;
+        $child or panic $add->{text};
+        $map->{$add->{id}} = $child->id;
         $self->_collect_map($child, $add, $map);
     }
 }
 
 sub _import_tree
 {   my ($self, $other, $map, %args) = @_;
+    $other = { children => $other } if ref $other eq 'ARRAY';
 
-    my $have = $self->to_hash(include_deleted => 1);
+    my $have = { children => $self->to_hash(include_deleted => 1) };
     $self->_merge_children($have, $other);
-    $self->_update_tree($have);
+    $self->_update_tree($have, delete_missing => 0);
     $self->_collect_map($self->tree, $other, $map);
     $self;
 }
