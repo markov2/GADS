@@ -293,12 +293,12 @@ my $column5 = $layout->column_create({
     tree          => \@tops5a,
 });
 like logline, qr/created.*column5/, '... created column5';
-
+ 
 my @tops5b = (
-   { text => 'aa' },
-   { text => 'ab', children => [ { text => 'ab2' } ] },   # deleted: { text => 'ab1' }
-   { text => 'abc', children => [ { text => 'abc1' }] },  # deleted: children => [ { text => 'abc12' } ]
-);
+    { text => 'aa' },
+    { text => 'ab', children => [ { text => 'ab2' } ] },   # deleted: { text => 'ab1' }
+    { text => 'abc', children => [ { text => 'abc1' }] },  # deleted: children => [ { text => 'abc12' } ]
+    );
 
 my @result_value5a = map +{ id => $_->id, value => $_->value,
     deleted => $_->deleted, parent => $_->parent ? $_->parent->id: undef }, 
@@ -321,17 +321,52 @@ tree             column5
     D          abc12
 __STRING
 
-#rint $column5->as_string;
-#print Dumper(@result_value5b);
 
+#
+# to_hash(include_deleted => 0) differs from to_hash(include_deleted => 1) when node deleted
+#
 
+my @tops6a = (
+   { text => 'aa' },
+   { text => 'ab', children => [ { text => 'ab1' }, { text => 'ab2' } ] },
+   { text => 'abc', children => [ { text => 'abc1', children => [ { text => 'abc12' } ] }] },
+);
 
+my $column6 = $layout->column_create({
+    type          => 'tree',
+    name          => 'column6 (long)',
+    name_short    => 'column6',
+    tree          => \@tops6a,
+});
+like logline, qr/created.*column6/, '... created column6';
+ 
+my @tops6b  =
+( { text     => 'aa', id => $column6->tree->find('aa')->id,
+  },
+  { text     => 'ab', id => $column6->tree->find('ab')->id,
+    children => [
+        { text     => 'ab2', id => $column6->tree->find('ab', 'ab2')->id,  # deleted: { text => 'ab1' }
+        },
+        ],
+  },
+  { text     => 'abc', id => $column6->tree->find('abc')->id,
+    children => [
+        { text => 'abc1', id => $column6->tree->find('abc', 'abc1')->id,  # deleted children => [ { text => 'abc12' } ]
+        },
+        ],
+  }
+);
 
+$layout->column_update($column6, { tree => \@tops6b },keep_unused => 1);
+my $to_hash6 = Dumper($column6->to_hash(include_deleted => 0));
+my $to_hash6_include_deleted = Dumper($column6->to_hash(include_deleted => 1));
+isnt $to_hash6, $to_hash6_include_deleted, 'to_hash(include_deleted => 1)) has effect';
 
+$column6->delete_unused_enumvals();
+is $column6->as_string, <<'__STRING', '... unused enumvals removed';
+tree             column6
+__STRING
 
-#TODO: delete first child: still in there but flagged 'deleted'
-#TODO: $column1->to_hash(include_deleted => 0);
-#TODO: $column1->to_hash(include_deleted => 1);
-#TODO: delete_unused_enumvals()
+diag 'need to test keeping used enumvals';
 
 done_testing;
