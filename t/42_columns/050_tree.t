@@ -124,6 +124,9 @@ is $column1->is_valid_value($valid_id), $valid_id, 'existing node';
 my $top_leaf_node = $column1->tree->find('a')->id;
 is $column1->is_valid_value($top_leaf_node), $top_leaf_node,  'top leaf node where end_node_only';
 
+my $leaf_node = $column1->tree->find('b', 'b1')->id;
+is $column1->is_valid_value($leaf_node), $leaf_node,  'leaf node where end_node_only';
+
 ### Hash update
 # Base changes on the HASH of the current tree.
 
@@ -157,7 +160,7 @@ __STRING
 ok $column1->end_node_only, 'flag end_node_only set';
 
 my $column1b = Linkspace::Column->from_id($column1->id);
-is_deeply $column1->to_hash, $column1b->to_hash, 'reload from database is identical';
+is_deeply $column1->to_hash, $column1b->to_hash, 'check tree was saved';
 
 ###############################
 
@@ -192,20 +195,6 @@ is_deeply $column2->values_beginning_with('ab/a'), ['ab/ab1', 'ab/ab2'], '... so
 is_deeply $column2->values_beginning_with('ab/c'), [ ], '... no match';
 is_deeply $column2->values_beginning_with('e'), [ ], '... no match';
 is_deeply $column2->values_beginning_with(''), ['aa','ab/','abc/'], '... all tops';
-
-my @tops3 = (
-   { text => 'daa' },
-   { text => 'dab', children => [ { text => 'ab1' }, { text => 'ab2' } ] },
-   { text => 'dabc', children => [ { text => 'abc1', children => [ { text => 'abc12' } ] }] },
-);
-
-my @result_value3 = map +{ id => $_->id, value => $_->value,
-    deleted => $_->deleted, parent => $_->parent ? $_->parent->id: undef }, 
-    @{$column2->enumvals(include_deleted => 1, order => 'asc')};
-
-#print Dumper(@result_value3);
-
-###############################
 
 
 try { $column1->is_valid_value($valid_id) };
@@ -289,17 +278,57 @@ is_deeply \%map4, {
 }, '... check map';
 
 
-#TODO: _is_valid_value($node_id) existing node
-#TODO: _is_valid_value($node_id) non-existing node
-#TODO: _is_valid_value($node_id) for deleted node
-#TODO: _is_valid_value($node_id) with leaf where end_node_only
-#TODO: _is_valid_value($node_id) error with parent where end_node_only
-#TODO: Linkspace::Column->from_id($column1->id)  check tree was saved
+### reuse nodes
 
-#TODO: $column->values_beginning_with (separate testscript typeahead?)
+my @tops5a = (
+   { text => 'aa' },
+   { text => 'ab', children => [ { text => 'ab1' }, { text => 'ab2' } ] },
+   { text => 'abc', children => [ { text => 'abc1', children => [ { text => 'abc12' } ] }] },
+);
 
-#### test column_update($c, { tree => \@t })    update
-#### test column_update($c, { tree => \@t }, import_tree => \%map)  import
+my $column5 = $layout->column_create({
+    type          => 'tree',
+    name          => 'column5 (long)',
+    name_short    => 'column5',
+    tree          => \@tops5a,
+});
+like logline, qr/created.*column5/, '... created column5';
+
+my @tops5b = (
+   { text => 'aa' },
+   { text => 'ab', children => [ { text => 'ab2' } ] },   # deleted: { text => 'ab1' }
+   { text => 'abc', children => [ { text => 'abc1' }] },  # deleted: children => [ { text => 'abc12' } ]
+);
+
+my @result_value5a = map +{ id => $_->id, value => $_->value,
+    deleted => $_->deleted, parent => $_->parent ? $_->parent->id: undef }, 
+    @{$column2->enumvals(include_deleted => 1, order => 'asc')};
+
+$layout->column_update($column5, { tree => \@tops5b },keep_unused => 1);
+
+my @result_value5b = map +{ id => $_->id, value => $_->value,
+    deleted => $_->deleted, parent => $_->parent ? $_->parent->id: undef }, 
+    @{$column5->enumvals(include_deleted => 1, order => 'asc')};
+
+is $column5->as_string, <<'__STRING', '... reuse node';
+tree             column5
+       aa
+       ab
+    D      ab1
+           ab2
+       abc
+           abc1
+    D          abc12
+__STRING
+
+#rint $column5->as_string;
+#print Dumper(@result_value5b);
+
+
+
+
+
+
 #TODO: delete first child: still in there but flagged 'deleted'
 #TODO: $column1->to_hash(include_deleted => 0);
 #TODO: $column1->to_hash(include_deleted => 1);
