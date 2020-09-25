@@ -177,6 +177,8 @@ sub to_hash
     my $selected_ids = $args{selected_ids} || [];
     my %is_selected  = map +($_ => 1), @$selected_ids;
 
+    my $include_deleted = $args{include_deleted};
+
     # Children are passed one level up via this array of "returned per level"
     # hashes.  So, $level_childs[3] contains the children to of the currently
     # being constructed parent on level 3.
@@ -187,6 +189,9 @@ sub to_hash
         my $enumval = $node->enumval;
         my $childs  = delete $level_childs[$level] || [];
 
+        $include_deleted || ! $enumval->deleted || @$childs
+            or return 1;
+
         my %def = (
             id       => $enumval->id,
             text     => $enumval->value, 
@@ -194,7 +199,7 @@ sub to_hash
         $def{children} = $childs if @$childs;
         $def{state}    = { selected => \1 } if $is_selected{$enumval->id};
         push @{$level_childs[$level-1]}, \%def;
-
+        1;
       }) for $self->_tops;
 
     $level_childs[0];
@@ -224,24 +229,46 @@ sub delete_unused_enumvals(%)
 sub _update_node($$%)
 {   my ($self, $node, $other, %args) = @_;
 
-    my $old_childs = index_by_id $node->children;
-    my $new_childs = $other->{children} || [];
+    my $old_childs = index_by_id $node->children;    # node objects id/name
+    my %old_names  = map +($_->name => $_), values %$old_childs;
+
+    my $new_childs = $other->{children} || [];       # node hashes  id/text
     my %new_names;   # child names to detect duplicates
+
+    # Normalize all new names
+    s/\s{2,}/ /g,s/^\s//,s/\s$// for map $_->{text}, @$new_childs;
+
+    # Merge branches of new childs with duplicate name into existing
+    foreach my $new_child (grep ! $_->{id}, @$new_childs)
+    {   my $old_node = $old_names{$new_child->{text}} or next;
+
+        # Be careful that the existing node may have been renamed: search text, not id
+        if(my $existing = first { $_->{id} && $_->{text} eq $new_child->{text}} @$new_childs)
+        {   # Old node still exists
+            push @{$existing->{children}}, @{$new_child->{children} || []};
+            delete $new_child->{text};   # flag already processed
+        }
+        else
+        {   # Old node is not mentioned anymore, steal it's id
+            $new_child->{id} = $old_node->id;
+        }
+    }
 
   CHILD:
     foreach my $new_child (@$new_childs)
-    {   my $text = $new_child->{text} =~ s/\s{2,}/ /gr =~ s/^\s+//r =~ s/\s+$//r;
+    {   my $text = $new_child->{text} // next;
 
         # Newly created elements have id like 'j1_12': invalid
         my $new_id = is_valid_id $new_child->{id};
 
         if(my $already = $new_names{$text})
         {   # Name already seen on this level: merge!
-            $new_id or next CHILD;    # simplest case: attempt to add duplicate
+            $new_id or next CHILD;    # simplest case: attempt to add duplicate ignored
 
             # Reassign enum datums to first enumval
             $::db->update(Enum => { layout_id => $new_id }, { layout_id => $already->id });
             $already->enumval->update({deleted => 0});
+
             next CHILD;  # stays in $old_childs for deletion
         }
 

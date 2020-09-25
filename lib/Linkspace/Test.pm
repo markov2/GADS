@@ -147,7 +147,7 @@ sub make_user($@)
     my $site    = $args{site} || $::session->site;
     my $postfix = $seqnr || '';
     my $perms   = delete $args{permissions};
-    my $email   = $args{email} || "john$postfix\@example.com",
+    my $email   = $args{email} || "john$postfix\@example.com";
 
     my $user = $site->users->user_create({
         email       => $email,

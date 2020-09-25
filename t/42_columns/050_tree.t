@@ -322,9 +322,7 @@ tree             column5
 __STRING
 
 
-#
-# to_hash(include_deleted => 0) differs from to_hash(include_deleted => 1) when node deleted
-#
+### Check to_hash(include_deleted)
 
 my @tops6a = (
    { text => 'aa' },
@@ -338,32 +336,40 @@ my $column6 = $layout->column_create({
     name_short    => 'column6',
     tree          => \@tops6a,
 });
-like logline, qr/created.*column6/, '... created column6';
+like logline, qr/created.*column6/, 'Check to_hash(include_deleted)';
+my $tree6 = $column6->tree;
  
 my @tops6b  =
-( { text     => 'aa', id => $column6->tree->find('aa')->id,
+( { text     => 'aa', id => $tree6->find('aa')->id,
   },
-  { text     => 'ab', id => $column6->tree->find('ab')->id,
+  { text     => 'ab', id => $tree6->find('ab')->id,
     children => [
-        { text     => 'ab2', id => $column6->tree->find('ab', 'ab2')->id,  # deleted: { text => 'ab1' }
+        { text => 'ab2', id => $tree6->find('ab', 'ab2')->id,
+          # deleted: { text => 'ab1' }
         },
-        ],
+    ],
   },
-  { text     => 'abc', id => $column6->tree->find('abc')->id,
+  { text     => 'abc', id => $tree6->find('abc')->id,
     children => [
-        { text => 'abc1', id => $column6->tree->find('abc', 'abc1')->id,  # deleted children => [ { text => 'abc12' } ]
+        { text => 'abc1', id => $tree6->find('abc', 'abc1')->id,
+          # deleted children => [ { text => 'abc12' } ]
         },
-        ],
+    ],
   }
 );
 
-$layout->column_update($column6, { tree => \@tops6b },keep_unused => 1);
-my $to_hash6 = Dumper($column6->to_hash(include_deleted => 0));
-my $to_hash6_include_deleted = Dumper($column6->to_hash(include_deleted => 1));
-isnt $to_hash6, $to_hash6_include_deleted, 'to_hash(include_deleted => 1)) has effect';
+$layout->column_update($column6, { tree => \@tops6b }, keep_unused => 1);
+my $to_hash6  = Dumper($column6->to_hash(include_deleted => 0));
+my $to_hash6a = Dumper($column6->to_hash(include_deleted => 0));
+is $to_hash6, $to_hash6a, '... does check via Dumper work?';
 
-$column6->delete_unused_enumvals();
-is $column6->as_string, <<'__STRING', '... unused enumvals removed';
+my $to_hash6_include_deleted = Dumper($column6->to_hash(include_deleted => 1));
+isnt $to_hash6, $to_hash6_include_deleted, '... effect include_deleted';
+
+### Check delete_unused_enumvals()
+
+$column6->delete_unused_enumvals;
+is $column6->as_string, <<'__STRING', 'Unused enumvals removed';
 tree             column6
 __STRING
 
