@@ -288,14 +288,12 @@ sub field_values($$%)
             foreach my $refers (@{$self->layout_parent->referred_by})
             {   my $refers_sheet = $::session->site->sheet($refers->sheet_id);
 
-                my $filter = Linkspace::Filter->from_hash({
-                    rules     => [{
+                my $filter = { rule => {
                         id       => $refers->id,
                         type     => 'string',
-                        value    => $id_deleted,
                         operator => 'equal',
-                    }],
-                });
+                        value    => $id_deleted,
+                }};
 
                 my $refers_page = $refers_sheet->content->search(
                     user    => undef,

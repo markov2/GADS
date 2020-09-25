@@ -3,11 +3,14 @@ package Linkspace::Row;
 use warnings;
 use strict;
 
-use Moo;
-extends 'Linkspace::DB::Table';
-
 use Log::Report 'linkspace';
 use DateTime ();
+
+use Linkspace::Row::Cell         ();
+use Linkspace::Row::Cell::Orphan ();
+
+use Moo;
+extends 'Linkspace::DB::Table';
 
 sub db_table { 'Current' }
 
@@ -34,10 +37,17 @@ Linkspace::Row - Manage one row contained in one sheet
 The Row has at least one revision, which are L<Linkspace::Row::Revision> objects.
 
 The ::Row and ::Row::Revision objects are not cached, because there are too many
-of them.
+of them.  Structural:
+
+   ::Row
+      has many ::Row::Revision
+         has many ::Row::Cell
+             has ::Datum, ::Column
 
 =head1 METHODS: Constructors
 
+The constructors may pass a 'content' with a 'sheet'-object, only a 'sheet' object,
+or neither.  It will break due to recursion when only a 'content' is provided.
 =cut
 
 sub from_record(@)
@@ -48,6 +58,14 @@ sub from_record(@)
         if $self->deleted && !$self->layout->user_can('purge');
 
     $self;
+}
+
+sub from_revision_id($@)
+{   my ($class, $rev_id) = (shift, shift);
+    $::db->get_object(
+      { 'record.id' => $rev_id, current_id => 'record.current_id',  },
+      { join => 'record' },
+      @_);
 }
 
 sub row_by_serial($%)
@@ -93,23 +111,19 @@ sub purge
     $self->sheet->user_can('purge')
         or error __"You do not have permission to purge records";
 
-    my @recs = $::db->search(Current => {
-        'curvals.value' => $self->id,
-    },{
-        prefetch => { records => 'curvals' },
-    })->all;
+    my $curvals = $self->sheet->document->curval_cells_pointing_to_row($self);
 
-    if(@recs)
+    if(@$curvals)
     {   my @use = map {
-            my %cells;
+            my %sheets;
             foreach my $record ($_->records) {
-                $cells{$_->sheet->name} = 1 for $record->curvals;
+                $sheets{$_->sheet->name} = 1 for $record->curvals;
             }
-            my $names = join ', ', keys %cells;
-            $_->id." ($names)";
-        } @recs;
-        error __x"The following records refer to this record as a value (possibly in a historical version): {records}",
-            records => \@use;
+            my $sheet_names = join ', ', sort keys %sheets;
+            $_->row_id." ($sheet_names)";
+        } @$curvals;
+        error __x"These rows refer to this row as a value (possibly in a historical version): {using}",
+            using => \@use;
     }
 
     $_->purge for @{$self->child_rows};
@@ -121,24 +135,23 @@ sub purge
     $::db->delete(AlertCache => $which);
     $::db->delete(Record     => $which);
     $::db->delete(AlertSend  => $which);
-
     $self->delete;
 
-    info __x"Row {id} purged by user {user} (was created by user {createdby} at {created}",
-        id => $self->current_id, user => $::session->user->fullname,
-        createdby => $self->created_by->fullname, created => $self->created_when;
+    info __x"Row {row.current_id} purged", row => $self;
 }
-
 #-----------------
 =head1 METHODS: Accessors
 =cut
 
 has content => (
-    is       => 'ro'
-    required => 1,
+    is      => 'ro',
+    builder => sub { $_[0]->sheet->content },
 );
 
-sub sheet { $_[0]->content->sheet }
+has sheet => (
+    is      => 'ro',
+    builder => sub { $::session->site->document->sheet($_[0]->sheet_id) },
+);
 
 #XXX MO: No idea yet what being "linked" means.
 
@@ -237,7 +250,7 @@ Make the C<$revision> the new latest version.
 sub set_current($) { $_[0]->current($_[0]) }
 
 #-----------------
-=head1 METHODS: Parent/Child relation
+=head1 METHODS: Parent/Child relation between rows
 XXX No idea what this exactly means.
 =cut
 
@@ -273,11 +286,25 @@ sub draft_create() {...}
 #---------------------
 =head1 METHODS: Approvals
 
-=head2 
 =cut
 
 
+#---------------------
+=head1 METHODS: Curval handling
+Curval fields point across sheets.  Let's try to avoid instantiating
+all sheets to find these cells.
 
-1;
+=head2 \@cells = $doc->curval_cells_pointing_to_me;
+=cut
+
+sub curval_cells_pointing_to_me()
+{   my $self    = shift;
+    my $results = $::db->search(Current =>
+        { 'curvals.value' => $row->current_id },
+        { prefetch => { records => 'curvals' } }
+    );
+    my @datums = map $_->curvals, map $_->records, $results->all;
+    [ Linkspace::Row::Cell::Orphan->from_record($_), @datums ];
+}
 
 1;

@@ -2297,17 +2297,17 @@ sub row_create($%)
            or error __"Cannot create a nested child row";
     }
 
-    Linkspace::Row->_row_create($insert, content => $self);
+    Linkspace::Row->_row_create($insert, content => $self, sheet => $self->sheet);
 }
 
 sub row_by_serial($%)
 {   my ($self, $serial) = (shift, shift);
-    Linkspace::Row->from_serial($serial, @_);
+    Linkspace::Row->from_serial($serial, @_, content => $self, sheet => $self->sheet);
 }
 
 sub row($@)
 {   my ($self, $current_id) = (shift, shift);
-    Linkspace::Row->from_id($current_id, @_);
+    Linkspace::Row->from_id($current_id, @_, content => $self, sheet => $self->sheet);
 }
 
 sub row_update($$%)
