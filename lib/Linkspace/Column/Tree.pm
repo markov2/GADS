@@ -29,9 +29,9 @@ use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column::Enum';
 
 #XXX Enumval is not cleanly wrapped as Linkspace::DB::Table, but has a serious
-#XXX problem with column 'parent' (which should have been named 'parent_id') and
-#XXX the relation 'parent' which it defined.  Hence $ev->parent returns an object,
-#XXX not the id.  Fix this dirty:
+#    problem with column 'parent' (which should have been named 'parent_id') and
+#    the relation 'parent' which it defined.  Hence $ev->parent returns an object,
+#    not the id.  Fix this dirty:
 {   no strict 'refs';
     use GADS::Schema::Result::Enumval;
     *GADS::Schema::Result::Enumval::parent_id
@@ -47,10 +47,11 @@ __PACKAGE__->register_type;
 sub db_field_extra_export { [ 'end_node_only' ] }
 sub form_extras     { [ qw/end_node_only tree/ ], [] }
 sub retrieve_fields { [ qw/id value/ ] }
-sub value_table     { 'Enum' }
 
-sub sprefix { 'value' }
-sub tjoin   { +{ $_[0]->field => 'value' } }
+sub value_table     { 'Enum' }
+sub sprefix         { 'value' }
+sub suffix          { '(\.level[0-9]+)?' }
+sub tjoin           { +{ $_[0]->field => 'value' } }
 sub value_field_as_index { 'id' }
 
 ###
@@ -139,18 +140,12 @@ has tree => (is => 'rw', lazy => 1, builder => '_build_tree');
 sub _build_tree
 {   my $self  = shift;
     my $enumvals = $self->enumvals(include_deleted => 1, order => 'asc');
-#warn "BUILD TREE";
     my @nodes = map Linkspace::Column::Tree::Node->new(enumval => $_), @$enumvals;
-    my $nodes = index_by_id @nodes;
-
-#warn "ID=", $_->id, " NAME=", $_->value, " PARENT=", $_->parent_id, "\n"
-#   for map $_->enumval, @nodes;
+    my $nodes = index_by_id \@nodes;
 
     my ($tops, $leafs) = part { $_->enumval->parent_id ? 1 : 0 } @nodes;
-#warn @{$tops || []}.' tops, leafs='.@{$leafs || []};
     $nodes->{$_->enumval->parent_id}->add_child($_)
         for sort { $a->name cmp $b->name } @{$leafs || []};
-#warn $_->id, ": ", join ',', $_->children, "\n" for @nodes;
 
     Linkspace::Column::Tree::Node->new(name => 'Root', children => $tops);
 }

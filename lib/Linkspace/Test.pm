@@ -97,7 +97,13 @@ my ($test_site, $test_user, $test_group, $test_sheet);
 sub _name_test_site { 'test-site.example.com' }
 sub test_site
 {   $test_site ||= Linkspace::Site->from_hostname(_name_test_site)
-        or error "Run 'prove t/22_linkspace_test/' to create test set-up";
+        or error <<'__MISSING_SETUP';
+
+Test site information mission from the database.  Please run
+    prove t/22_linkspace_test/
+to create test set-up.
+
+__MISSING_SETUP
 }
 
 # test_user and test_group constructed in t/22_linkspace_test/51_test_user.t
@@ -141,15 +147,16 @@ sub make_user($@)
     my $site    = $args{site} || $::session->site;
     my $postfix = $seqnr || '';
     my $perms   = delete $args{permissions};
+    my $email   = $args{email} || "john$postfix\@example.com",
 
     my $user = $site->users->user_create({
-        email       => $args{email} || "john$postfix\@example.com",
+        email       => $email,
         firstname   => "John$postfix",
         surname     => "Doe$postfix",
         permissions => $perms,
     });
 
-    is logline, "info: User created ${\$user->id}: ${\$site->path}/john$postfix\@example.com",
+    is logline, "info: User created ${\$user->id}: ${\$site->path}/$email",
         "created user ${\$user->id}, ".$user->path;
 
     is logline, "info: User ${\$user->path} add permission '$_'", "... perm $_"

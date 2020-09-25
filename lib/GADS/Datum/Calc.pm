@@ -29,14 +29,12 @@ extends 'GADS::Datum::Code';
 
 sub as_string
 {   my $self = shift;
-    my (@return, $df, $dc);
+    my (@return, $dc);
 
     foreach my $value ( @{$self->value} )
     {   push @return,
-            ! defined $value
-          ? ''
-          : ref $value eq 'DateTime'
-          ? $::session->user->dt2local($value,$df //= $self->column->dateformat)
+            ! defined $value          ? ''
+          : ref $value eq 'DateTime ' ? $::session->user->dt2local($value)
           : $self->column->return_type eq 'numeric'
           ? ( ($dc //= $self->column->decimal_places // 0)
             ? sprintf("%.${dc}f", $value)

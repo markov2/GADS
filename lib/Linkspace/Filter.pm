@@ -258,18 +258,13 @@ sub _sub_filter_single
 sub parse_date_filter
 {   my ($class, $value) = @_;
 
-    $value =~ /^(\h*([0-9]+)\h*([+])\h*)?CURDATE(\h*([-+])\h*([0-9]+)\h*)?$/
+    $value =~ /^(?:\h*(\-?[0-9]+)\h*\+\h*)?CURDATE(?:\h*([-+])\h*([0-9]+)\h*)?$/
         or return;
 
-    my ($v1, $op1, $op2, $v2) = ($2, $3, $5, $6);
+    my ($v1, $op2, $v2) = ($1, $2, $3);
     my $now = DateTime->now;
-    if ($op1 && $op1 eq '+' && $v1) { $now->add(seconds => $v1) }
-
-#   if ($op1 eq '-' && $v1) # Doesn't work, needs coding differently  XXX
-#   { $now->subtract(seconds => $v1) }
-
-    if ($op2 && $op2 eq '+' && $v2) { $now->add(seconds => $v2) }
-    if ($op2 && $op2 eq '-' && $v2) { $now->subtract(seconds => $v2) }
+    $now->add(seconds => $v1)       if $v1;
+    $now->add(seconds => "$op2$v2") if $v2;
     $now;
 }
 
@@ -292,6 +287,7 @@ sub filter_validate($)
 
         my $val   = $filter->{value};
         my $op    = $filter->{operator};
+
         if($col->return_type eq 'daterange')
         {   # Exact daterange format, than full="yyyy-mm-dd to yyyy-mm-dd"
             my $take = $op eq 'equal' || $op eq 'not_equal' ? 'full_only' : 'single_only';
@@ -311,6 +307,7 @@ sub filter_validate($)
     }
 }
 
+#---------------------------
 =head1 DETAILS
 
 As filter is based on a ruleset.  On the top level, there are some additional

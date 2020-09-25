@@ -135,7 +135,7 @@ sub enumvals_string(%)
     join ', ', map $_->value, @{$self->enumvals(@_)};
 }
 
-sub _column_extra_update($)
+sub _column_extra_update($%)
 {   my ($self, $extra, %args) = @_;
     $self->SUPER::_column_extra_update($extra, %args);
 

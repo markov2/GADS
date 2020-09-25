@@ -1407,9 +1407,8 @@ prefix '/:layout_name' => sub {
             {   session rewind => undef;
             }
             else
-            {   my $input = param('rewind_date');
-                          . ' ' . (param'rewind_time') || '23:59:59');
-                my $dt    = $::session->user->local2dt($input)
+            {   my $input = param('rewind_date') . ' ' . (param'rewind_time') || '23:59:59');
+                my $dt    = $site->local2dt(datetime => $input)
                     or error __x"Invalid date or time: {datetime}", datetime => $input;
                 session rewind => $dt;
             }

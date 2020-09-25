@@ -174,9 +174,8 @@ sub _as_string
     $range && (my $start = $range->start) && (my $end = $range->end)
         or return '';
 
-    my $format = $self->column->dateformat;
-    my $user   = $::session->user;
-    $user->dt2local($start, $format) . ' to ' . $user->dt2local($end);
+    my $site   = $::session->site;
+    $site->dt2local($start) . ' to ' . $site->dt2local($end);
 }
 
 has html_form => (
@@ -185,11 +184,8 @@ has html_form => (
 
 sub _build_html_form
 {   my $self = shift;
-    my $format = $self->column->dateformat;
-    my $user   = $::session->user;
-
-    [ map +( $user->dt2local($_->start, $format)
-           , $user->dt2local($_->end, $format) ) @{$self->values} ];
+    my $site = $::session->site;
+    [ map +($site->dt2local($_->start), $site->dt2local($_->end)), @{$self->values} ];
 }
 
 sub filter_value   { $_[0]->text_all->[0] }

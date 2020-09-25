@@ -2,8 +2,6 @@
 
 use Linkspace::Test;
 
-plan skip_all => 'to be implemented';
-
 $::session = test_session;
 my $sheet = test_sheet;
 
@@ -39,6 +37,8 @@ my $column1d = Linkspace::Column->from_id($column1->id, sheet => $sheet);
 isnt $column1d, $column1, 'recreated object';
 ok defined $column1d, 'Reload via id, avoiding cache';
 isa_ok $column1d, 'Linkspace::Column::File', '...';
+
+diag "Still needs real tests";
 
 #
 # is_valid_value

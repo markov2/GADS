@@ -21,18 +21,17 @@ package GADS::Datum::Date;
 use DateTime;
 use DateTime::Format::DateManip;
 use Log::Report 'linkspace';
+use Linkspace::Util qw/parse_duration flat/;
+
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-use namespace::clean;
-
-use Linkspace::Util qw/parse_duration/;
-
 extends 'GADS::Datum';
+
+use namespace::clean;
 
 after set_value => sub {
     my ($self, $all, %options) = @_;
-    my @all = ref $all eq 'ARRAY' ? @$all : defined $all ? $all : ();
-    shift @all if @all % 2 == 1 && !$all[0]; # First is hidden value from form
+    my @all = flat $all;
+    shift @all if @all % 2 == 1 && !$all[0]; # First is hidden value from form XXX
 
     my @values    = map $self->_to_dt($_, source => 'user', %options), @all;
     my @text_all  = sort map $self->_as_string($_), @values;
@@ -134,9 +133,7 @@ sub html_form { $_[0]->text_all }
 
 sub _as_string
 {   my ($self, $value) = @_;
-
-    $::session->user->dt2local($value, $self->column->dateformat,
-       include_time => $self->column->include_time) || '';
+    $::session->site->dt2local($value, include_time => $self->column->include_time) || '';
 }
 
 sub _build_for_code

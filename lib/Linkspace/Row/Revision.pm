@@ -1318,21 +1318,19 @@ sub pdf
     my $now = DateTime->now;
     $now->set_time_zone('Europe/London');
 
-    my $user = $::session->user;
-    my $now_formatted = $user->dt2local($now)." at ".$now->hms;
+    my $pdf = CtrlO::PDF->new(
+        footer => 'Downloaded by ' . $self->user->value . ' on '
+                . $self->site->dt2local($now)." at ".$now->hms;
+    );
 
     my $created = $self->created;
-    my $updated = $user->dt2local($created)." at ".$created->hms;
-
-    my $pdf = CtrlO::PDF->new(
-        footer => "Downloaded by ".$self->user->value." on $now_formatted",
-    );
+    my $updated = $self->site->dt2local($created)." at ".$created->hms;
 
     $pdf->add_page;
     $pdf->heading('Record '.$self->current_id);
     $pdf->heading('Last updated by '.$self->createdby->as_string." on $updated", size => 12);
 
-    my @data    = ['Field', 'Value'];
+    my @data    = [ 'Field', 'Value' ];
     my $columns = $self->sheet->layout->columns_search(user_can_read => 1);
     foreach my $col (@$columns)
     {   my $datum = $self->cell($col);

@@ -22,11 +22,8 @@ package Linkspace::Column::Date;
 use Log::Report 'linkspace';
 
 use Linkspace::Util  qw(iso2datetime);
-use GADS::View;
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
 extends 'Linkspace::Column';
 
 my @options = (
@@ -34,16 +31,19 @@ my @options = (
    default_today   => 0,
 );
 
+### A date datum is either a date in the user's local time, or the text
+#   CURDATE optionally with some seconds plus or minus.
+
 ###
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type;
 
 sub addable        { 1 }
 sub can_multivalue { 1 }
 sub has_multivalue_plus { 0 }
-sub option_defaults { shift->SUPER::option_defaults(@_, @option) }
+sub option_defaults { shift->SUPER::option_defaults(@_, @options) }
 sub return_type    { 'date' }
 
 ### only for dates
@@ -63,31 +63,29 @@ sub remove_column($)
 ### Instance
 ###
 
-sub show_datepicker { $_[0]->options->{show_datepicker} // 1 }
-sub default_today   { $_[0]->options->{default_today}   // 0 }
+sub show_datepicker
+{   my $opt = $_[0]->options;  # option may be missing: then defaults to true
+    exists $opt->{show_datepicker} ? $opt->{show_datepicker} : 1;
+}
+
+sub default_today { $_[0]->options->{default_today} // 0 }
 
 sub _is_valid_value($%)
 {   my ($self, $date, %options) = @_;
-    $self->parse_date($date)
-        or error __x"Invalid date '{value}' for {col}. Please enter as {format}.",
-             value => $date, col => $self->name, format => $self->dateformat;
+
+    $self->site->locale2dt($date)
+        or error __x"Invalid date '{value}' for {col.name}. Please enter as {format}.",
+             value => $date, col => $self, format => $self->site->locale->{date_pattern};
 
     $date;
 }
 
 sub validate_search
-{   my $self = shift;
-    my ($value, %options) = @_;
-
-    if(!$value)
-    {   return 0 unless $options{fatal};
-        error __x"Date cannot be blank for {col}.", col => $self->name;
-    }
-
-    return 1 if GADS::View->parse_date_filter($value);
-    $self->validate($value, %options);
+{   my ($self, $date, %args) = @_;
+    !! $self->parse_date($date) && $self->SUPER::validate_search($date, %args);
 }
 
+#XXX move to datum
 sub import_value
 {   my ($self, $value) = @_;
 
@@ -99,6 +97,7 @@ sub import_value
     });
 }
 
+#XXX move to datum
 sub field_values($;$%)
 {   my ($self, $datum) = @_;
     my $values = $datum->values;

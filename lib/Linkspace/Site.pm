@@ -5,6 +5,8 @@ use strict;
 
 use Log::Report 'linkspace';
 use List::Util       qw/first/;
+use Scalar::Util     qw/blessed/;
+use DateTime::Format::CLDR ();
 
 use Linkspace::Util  qw/is_valid_id/;
 use Linkspace::Site::Users ();
@@ -344,5 +346,86 @@ a look at L<Linkspace::Site::Document> method C<sheet()> for the C<%options>.
 =cut
 
 sub sheet($%) { shift->document->sheet(@_) }
+
+#-------------------------
+=head1 METHODS: Locale
+For various reasons, it is not possible to set different locales for
+different users within one site.  Main problem has to do with the
+default interpretation of timestamps and dates with respect to the
+time zone.
+=cut
+
+my %locale_defaults = (
+    language     => 'en_UK',
+    date_pattern => 'yyyy-MM-dd',
+    time_pattern => 'HH:mm:ss',
+    time_zone    => 'Europe/London',
+);
+
+has locale => (
+    is      => 'ro',
+    default => sub { \%locale_defaults },
+    trigger => sub
+      { my ($self, $set) = @_;
+        $set->{$_} ||= $locale_defaults{$_} for keys %locale_defaults;
+      },
+);
+
+sub _parser_for($$)
+{   my ($self, $locale, $pattern) = @_;
+    DateTime::Format::CLDR->new(
+        pattern   => $pattern,
+        locale    => $locale->{language},
+        time_zone => $locale->{time_zone},
+    );
+}
+
+has _date_parser => (
+    is      => 'lazy',
+    builder => sub
+      { my $self   = shift;
+        my $locale = $self->locale;
+        $self->_parser_for($locale, $locale->{date_pattern});
+      },
+);
+
+has _datetime_parser => (
+    is      => 'lazy',
+    builder => sub
+      { my $self   = shift;
+        my $locale = $self->locale;
+        my $pattern = $locale->{date_pattern} . ' ' . $locale->{time_pattern};
+        $self->_parser_for($locale, $pattern);
+      },
+);
+
+has _datemin_parser => (
+    is      => 'lazy',
+    builder => sub
+      { my $self   = shift;
+        my $locale = $self->locale;
+        my $pattern = $locale->{date_pattern} . ' HH:mm';
+        $self->_parser_for($locale, $pattern);
+      },
+);
+
+sub local2dt($;$)
+{   my ($self, $kind, $value) = @_;
+    return $value if blessed $value;  # probably some datetime object already
+
+    $kind = $value =~ / / ? 'datetime' : 'date'
+       if $kind eq 'auto';
+
+      ( $kind eq 'date'     ? $self->_date_parser
+      : $kind eq 'datetime' ? $self->_datetime_parser
+      : panic $kind
+      )->parse_datetime($value);
+}
+
+sub dt2local($%)
+{   my ($self, $dt, %args) = @_;
+    ( $args{include_time} ? $self->_datemin_parser : $self->_date_parser
+    )->format_datetime($dt);
+}
 
 1;

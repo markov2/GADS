@@ -308,36 +308,31 @@ has link_parent => (
 
 
 #### query build support
-sub sprefix    { $_[0]->field }
+sub sprefix    { $_[0]->field_name }
 
 #XXX can be HASH, ARRAY or a single value.
-sub tjoin      { $_[0]->field }
+sub tjoin      { $_[0]->field_name }
 
 sub suffix()
 {   my $self = shift;
       $self->return_type eq 'date' || $self->return_type eq 'daterange'
     ? '(\.from|\.to|\.value)?(\.year|\.month|\.day)?'
-    : $self->type eq 'tree' ? '(\.level[0-9]+)?' : '';
+    : '';
 }
 
 # Used to provide a blank template for row insertion (to blank existing
 # values). Only used in calc at time of writing
 sub blank_row { +{ $_[0]->value_field => undef }; }
 
-has dateformat => (
-    is      => 'lazy',
-    builder => sub { $_[0]->layout->config->dateformat },
-);
-
 sub parse_date
-{   my ($thing, $value) = @_;
+{   my ($self, $value) = @_;
     return if ref $value;
 
     # Check whether it's a CURDATE first
     my $dt = Linkspace::Filter->parse_date_filter($value);
     return $dt if $dt;
 
-    $::session->user->local2dt($value);
+    $self->site->local2dt(auto => $value);  #XXX auto? or can we do more specific
 }
 
 sub remove_all_permissions() { ... }  #XXX for testing
@@ -403,16 +398,17 @@ sub fetch_multivalues
 
     my %select = (
         join       => 'layout',
-        # Order by values so that multiple values appear in consistent order as
-        # field values
-        order_by   => "me.".$self->value_field,
         result_set => 'HASH',
     );
 
-    if(ref $self->tjoin)
-    {   my ($left, $prefetch_table) = %{$self->tjoin};
+    my $t = $self->tjoin;
+    if(ref $t)
+    {   my ($left, $prefetch_table) = %$t;
         $select{prefetch} = $prefetch_table;
-        $select{order_by} = $prefetch_table . "." .$self->value_field; # overrides
+        $select{order_by} = $prefetch_table . "." .$self->value_field;
+    }
+    else
+    {   $select{order_by} = "me.".$self->value_field;
     }
 
     $::db->search($self->table => {

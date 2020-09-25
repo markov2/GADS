@@ -308,7 +308,7 @@
         <div class="form-group">
             <label for="filesize">Set maximum file size (KB): (Leave blank for no limit)</label>
             <input type="text" class="form-control" name="filesize" id="filesize"
-                value="[% column.filesize %]" placeholder="Leave blank for no limit">
+                value="[% column.max_file_size %]" placeholder="Leave blank for no limit">
         </div>
     </div>
     <div class="field-options string">

@@ -257,7 +257,7 @@
 [% user = session.user %]
     <div class="form-group">
         <label for="rewind_date">Date ([% user.date_pattern | html %]):</label>
-        <input id="rewind_date" class="form-control datepicker" type="text" value="[% user.dt2local(session.rewind) %]" name="rewind_date">
+        <input id="rewind_date" class="form-control datepicker" type="text" value="[% site.dt2local(session.rewind) %]" name="rewind_date">
     </div>
     <div class="form-group">
         <label for="rewind_time">Time (HH:MM:SS):</label>

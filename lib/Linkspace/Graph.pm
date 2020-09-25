@@ -89,12 +89,12 @@ sub x_axis_name { my $x = $_[0]->x_axis; $x ? $x->name : '' }
 
 sub from_formatted
 {   my $self = shift;
-    $::session->user->dt2local($self->from);
+    $::session->site->dt2local($self->from);
 }
 
 sub to_formatted
 {   my $self = shift;
-    $::session->user->dt2local($self->to);
+    $::session->site->dt2local($self->to);
 }
 
 sub showlegend

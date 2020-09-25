@@ -63,17 +63,17 @@ sub start
     # This dirty global connects all singletons.  It simplifies the code
     # enormously.
 
-    my $settings = $self->settings;
     $self->db;
 
     unless($::session = $args->{session})
     {   my $site = $args->{site};
         unless($site)
-        {   my $host = $args->{host} || $settings->{default_site}
+        {   my $host = $args->{host} || $self->settings->{default_site}
                 or error __x"No default_site found";
 
-            $site = Linkspace::Site->from_hostname($host)
-                or error __x"Cannot find default site '{host}'", host => $host;
+            $site = Linkspace::Site->from_hostname($host,
+                locale => $self->settings_for('locale'),
+            ) or error __x"Cannot find default site '{host}'", host => $host;
         }
 
         $::session = $self->{default_session} =
@@ -253,17 +253,12 @@ sub mailer()
 
     my $mailconf = $self->settings_for('mailer') || {};
 
-    #XXX should disappear
-    my $config = GADS::Config->instance->{gads};
-
-    my $prefix = $config->{message_prefix} || "";
+    my $prefix = $mailconf->{message_prefix} || "";
     $prefix   .= "\n" if length $prefix;
 
     $self->{L_mailer} = Linkspace::Email->new(
-        mail_from      => $config->{mail_from},
-        message_prefix => $prefix,
-        new_account    => $config->{new_account},
         %$mailconf,
+        message_prefix => $prefix,
     );
 }
 

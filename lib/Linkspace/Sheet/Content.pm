@@ -1476,18 +1476,21 @@ sub _construct_filter($$%)
             # than matching all or borking.
             return ( \"0 = 1" ) if !$column->validate_search($match);
 
+            if($match eq '')
+            {   push @values, $match;
+                next;
+            }
+
             # Sub-in current date as required. Ideally we would use the same
             # code here as the calc/rag fields, but this can be accessed by
             # any user, so should be a lot tighter.
-            if($match && $match =~ /CURDATE/)
+            if($match =~ /CURDATE/)
             {   my $vdt = Linkspace::Filter->parse_date_filter($match);
                 $match = $::db->format_date($vdt);
             }
-            elsif($transform_date || ($column->return_type eq 'date' && $match))
+            elsif($transform_date || $column->return_type eq 'date')
             {   $match = $::db->format_date($column->parse_date($match));
             }
-
-            $match =~ s/\_/\\\_/g if $operator eq '-like';
 
             if($match =~ /\[CURUSER\]/)
             {   my $user = $options{user} || $::session->user;
@@ -1499,7 +1502,10 @@ sub _construct_filter($$%)
                 {   $match =~ s/\[CURUSER\]/$user->value/ge;
                 }
             }
+
+            $match =~ s/\_/\\\_/g if $operator eq '-like';
             push @values, $match;
+
         }
     }
 

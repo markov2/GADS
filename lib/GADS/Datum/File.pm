@@ -19,8 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package GADS::Datum::File;
 
 use Log::Report 'linkspace';
+use Linkspace::Util  qw(flat);
+
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 use namespace::clean;
 
 extends 'GADS::Datum';
@@ -34,7 +35,7 @@ after set_value => sub {
     my ($self, $value) = @_;
     my $clone = $self->clone; # Copy before changing text
 
-    my @in = sort grep {$_} ref $value eq 'ARRAY' ? @$value : ($value);
+    my @in = sort(flat $value);
 
     my @values;
     foreach my $val (@in)
@@ -96,28 +97,12 @@ sub value {
     length $s ? $s : undef;
 }
 
-has value_hash => (
-    is      => 'rw',
-    lazy    => 1,
-);
-
-# Make up for missing predicated value property
-sub has_value { $_[0]->has_ids }
-
-has files => (
-    is      => 'lazy',
-    isa     => ArrayRef,
-);
-
 sub _build_files
 {   my $self = shift;
 
     $self->has_init_value
        or return [ $self->_ids_to_files($self->ids) ];
 
-    # XXX - messy to account for different initial values. Can be tidied once
-    # we are no longer pre-fetching multiple records
-    my @init_value = $self->has_init_value ? @{$self->init_value} : ();
     my @values = map { ref $_ eq 'HASH' && exists $_->{record_id} ? $_->{value} : $_ } @init_value;
 
     my @return = map {
@@ -143,24 +128,6 @@ sub _ids_to_files
 }
 
 sub search_values_unique { [ map $_->{name}, @{$_[0]->files} ] }
-
-has _rset => (
-    is => 'lazy',
-);
-
-sub _build__rset
-{   my $self = shift;
-    my $ids = $self->ids || [];
-    @$ids or return;
-
-    @$ids > 1
-        and error "Only one file can be returned, and this value contains more than one file";
-    my $id = shift @$ids;
-    !$self->column || $self->column->user_can('read')
-        or error __x"You do not have access to file ID {id}", id => $id
-
-    $self->schema->resultset('Fileval')->find($id);
-}
 
 has content => (
     is      => 'lazy',

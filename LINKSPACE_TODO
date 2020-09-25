@@ -9,7 +9,7 @@ Database issues:
 
   - Move away from Plugin/Auth/Extensible functions.
   - $self->schema->storage->datetime_parser->format_date w.r.t to the
-    new $user->local2dt
+    new $site->local2dt
 
 Configuration:
   - Users should get their configurable date_pattern
