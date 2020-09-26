@@ -169,7 +169,7 @@ foreach my $test (@tests)
     my $to = $test->{option} // '';
 
     foreach my $status (qw/on off/)
-    {   my $sheet = make_sheet $sheet_counter++, data => [], multivalue => 1;
+    {   my $sheet = make_sheet $sheet_counter++, data => [], multivalues => 1;
 
         my $user = $schema->resultset('User')->create({
             username => 'test',

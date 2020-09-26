@@ -17,18 +17,18 @@ my $curval_columns = $curval_sheet->columns;
 my $curval_string  = $curval_columns->{string1};
 my $curval_enum    = $curval_columns->{enum1};
 my $schema = $curval_sheet->schema;
+
 my $sheet1 = t::lib::DataSheet->new(
     data             => [],
     instance_id      => 1,
-    schema           => $schema,
-    multivalue       => 1,
+    multivalues      => 1,
     curval           => 3,
     curval_field_ids => [$curval_string->id, $curval_enum->id],
 );
+
 my $sheet2 = t::lib::DataSheet->new(
     data             => [],
     instance_id      => 2,
-    schema           => $schema,
     curval           => 3,
     curval_field_ids => [$curval_string->id, $curval_enum->id],
 );

@@ -14,7 +14,6 @@ my $curval_sheet = make_sheet 2;
 my $sheet   = make_sheet 1,
     curval_sheet       => $curval_sheet,
     curval_columns     => [ 'string1' ],
-    multivalue         => 1,
     multivalue_columns => [ qw/string tree/ ],
     column_count       => { integer => 2 };
 my $layout = $sheet->layout;

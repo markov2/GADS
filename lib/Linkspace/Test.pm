@@ -10,7 +10,7 @@ use Test::More;
 use Import::Into;
 use Importer       ();
 use Data::Dumper   qw/Dumper/;
-use Test::MockTime ();
+use Test::MockTime (); # Load before DateTime
 use DateTime       ();
 
 use Linkspace;
@@ -91,7 +91,7 @@ END { warn "untested log: $_\n" for @loglines }
 # two script names.  All other scripts run their actions in a
 # 'begin-work/rollback' mode, so should not cause lastig changes.
 
-my ($test_site, $test_user, $test_group, $test_sheet);
+my ($test_site, $test_user, $test_group, $test_sheet, $test_orga, $test_dept);
 
 # test_site constructed in t/22_linkspace_test/50_test_site.t
 sub _name_test_site { 'test-site.example.com' }
@@ -108,11 +108,13 @@ __MISSING_SETUP
 
 # test_user and test_group constructed in t/22_linkspace_test/51_test_user.t
 sub _name_test_user() { 'default@example.com' }
-sub test_user() { $test_user ||= test_site->users->user_by_name(_name_test_user) }
+sub test_user { $test_user ||= test_site->users->user_by_name(_name_test_user) }
 
 sub _name_test_group() { 'default_group' }
-sub test_group() { $test_group ||= test_site->groups->group(_name_test_group) }
+sub test_group { $test_group ||= test_site->groups->group(_name_test_group) }
 
+sub test_orga { $test_orga  ||= test_site->workspot_create(organisation => 'My Orga') }
+sub test_dept { $test_dept  ||= test_site->workspot_create(organisation => 'My Dept') }
 
 ###
 ### Help construct various objects
@@ -153,6 +155,8 @@ sub make_user($@)
         email       => $email,
         firstname   => "John$postfix",
         surname     => "Doe$postfix",
+        organisation=> test_orga,
+        department  => test_dept,
         permissions => $perms,
     });
 

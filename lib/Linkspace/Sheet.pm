@@ -31,7 +31,6 @@ use Linkspace::Sheet::Access   ();
 #use Linkspace::Sheet::Dashboards  ();
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::DB::Table';
 
 ###!!!!  The naming is confusing, because that's legacy.

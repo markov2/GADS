@@ -82,7 +82,7 @@ foreach my $multivalue (0..1)
         calc_code        => "function evaluate (L1integer1) \n return L1integer1 * 2 \n end",
         curval           => 2,
         curval_field_ids => [ $curval_sheet->columns->{string1}->id ],
-        multivalue       => $multivalue,
+        multivalues      => $multivalue,
     );
 
     my $layout  = $sheet->layout;

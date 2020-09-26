@@ -1,16 +1,6 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
+use Linkspace::Test;
 
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Record;
-use GADS::Records;
-use GADS::Schema;
-
-use t::lib::DataSheet;
-
-$ENV{GADS_NO_FORK} = 1;
+use Linkspace::Util qw/flat/;
 
 my $data = [
     {
@@ -42,19 +32,17 @@ my $data = [
     },
 ];
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2, multivalue => 1);
-$curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
+my $curval_sheet = make_sheet 2, multivalues => 1;
 
-my $sheet   = t::lib::DataSheet->new(
-    data             => $data,
-    schema           => $schema,
-    curval           => 2,
+my $sheet   = make_sheet 1,
+    rows             => $data,
+    curval_sheet     => $curval_sheet,
     column_count     => {
         enum   => 2,
         curval => 3, # 2 multi and 1 single (with multi fields)
         tree   => 2,
     },
+    multivalue_columns => [ qw/enum curval tree/ ],
     calc_code        => "
         function evaluate (L1enum1, L1curval1, L1tree1)
             values = {}
@@ -74,36 +62,6 @@ my $sheet   = t::lib::DataSheet->new(
         end
     ",
     calc_return_type => 'string',
-);
-my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
-my $enum1   = $columns->{enum1};
-my $enum2   = $columns->{enum2};
-my $curval1 = $columns->{curval1};
-my $curval2 = $columns->{curval2};
-my $curval3 = $columns->{curval3};
-my $tree1   = $columns->{tree1};
-my $tree2   = $columns->{tree2};
-my $calc    = $columns->{calc1};
-$enum1->multivalue(1);
-$enum1->write;
-$enum2->multivalue(1);
-$enum2->write;
-$curval1->multivalue(1);
-$curval1->write;
-$curval2->multivalue(1);
-$curval2->write;
-$tree1->multivalue(1);
-$tree1->write;
-$tree2->multivalue(1);
-$tree2->write;
-$sheet->create_records;
-my $user = $sheet->user;
-
-my $record = GADS::Record->new(
-    user   => $user,
-    layout => $layout,
-    schema => $schema,
 );
 
 my @tests = (
@@ -125,12 +83,7 @@ my @tests = (
             tree2   => 'tree1',
             calc1   => 'foo1foo2BarFootree1tree2', # 2x enum values then 2x string values from curval then 2x tree
         },
-        search    => [
-            {
-                column => 'enum1',
-                value  => 'foo2',
-            },
-        ],
+        search    => { column => 'enum1', value  => 'foo2' },
         count     => 2,
     },
     {
@@ -151,14 +104,8 @@ my @tests = (
             calc1   => 'foo1foo2FooBartree1', # 2x enum values then 2x string values from curval, just 1 tree
         },
         search    => [
-            {
-                column => 'enum1',
-                value  => 'foo1',
-            },
-            {
-                column => 'enum2',
-                value  => 'foo1',
-            },
+            { column => 'enum1', value  => 'foo1' },
+            { column => 'enum2', value  => 'foo1' },
         ],
         count     => 1,
     },
@@ -178,14 +125,8 @@ my @tests = (
             calc1   => 'foo1foo2FooBartree1tree2', # 2x enum values then 2x string values from curval then 2x tree
         },
         search    => [
-            {
-                column => 'tree1',
-                value  => 'tree1',
-            },
-            {
-                column => 'tree2',
-                value  => 'tree1',
-            },
+            { column => 'tree1', value  => 'tree1' },
+            { column => 'tree2', value  => 'tree1' },
         ],
         count     => 1,
     },
@@ -195,13 +136,11 @@ my @tests = (
             enum1  => [7, 8],
             enum2  => [11, 12],
         },
-        search    => [
-            {
-                column   => 'enum1',
-                value    => 'foo1',
-                operator => 'not_equal',
-            },
-        ],
+        search    => {
+            column   => 'enum1',
+            operator => 'not_equal',
+            value    => 'foo1',
+        },
         count     => 2,
     },
     {
@@ -210,13 +149,11 @@ my @tests = (
             enum1  => [7, 8],
             enum2  => [10, 11],
         },
-        search    => [
-            {
-                column   => 'enum1',
-                value    => 'foo2',
-                operator => 'not_equal',
-            },
-        ],
+        search    => {
+            column   => 'enum1',
+            operator => 'not_equal',
+            value    => 'foo2',
+        },
         count     => 1,
     },
     {
@@ -225,13 +162,11 @@ my @tests = (
             enum1  => [7, 8],
             enum2  => [11, 12],
         },
-        search    => [
-            {
-                column   => 'enum1',
-                value    => ['foo1', 'foo2'],
-                operator => 'not_equal',
-            },
-        ],
+        search    => {
+            column   => 'enum1',
+            operator => 'not_equal',
+            value    => ['foo1', 'foo2'],
+        },
         count     => 1,
     },
     {
@@ -240,13 +175,11 @@ my @tests = (
             tree1  => [13, 14],
             tree2  => [17, 18],
         },
-        search    => [
-            {
-                column   => 'tree1',
-                value    => 'tree1',
-                operator => 'not_equal',
-            },
-        ],
+        search    => {
+            column   => 'tree1',
+            operator => 'not_equal',
+            value    => 'tree1',
+        },
         count     => 2,
     },
     {
@@ -255,13 +188,11 @@ my @tests = (
             tree1  => [13, 14],
             tree2  => [16, 17],
         },
-        search    => [
-            {
-                column   => 'tree1',
-                value    => 'tree2',
-                operator => 'not_equal',
-            },
-        ],
+        search    => {
+            column   => 'tree1',
+            operator => 'not_equal',
+            value    => 'tree2',
+        },
         count     => 1,
     },
     {
@@ -270,102 +201,70 @@ my @tests = (
             tree1  => [13, 14],
             tree2  => [17, 18],
         },
-        search    => [
-            {
-                column   => 'tree1',
-                value    => ['tree1', 'tree2'],
-                operator => 'not_equal',
-            },
-        ],
+        search    => {
+            column   => 'tree1',
+            operator => 'not_equal',
+            value    => ['tree1', 'tree2'],
+        },
         count     => 1,
     },
 );
 
 foreach my $test (@tests)
 {
-    $record->find_current_id(3);
-    foreach my $type (keys %{$test->{write}})
-    {
-        my $col = $columns->{$type};
-        $record->fields->{$col->id}->set_value($test->{write}->{$type});
-    }
-    $record->write;
-    $record->clear;
-    $record->find_current_id(3);
-    if ($test->{as_string})
-    {
-        foreach my $type (keys %{$test->{as_string}})
-        {
-            my $col = $columns->{$type};
-            is( $record->fields->{$col->id}->as_string, $test->{as_string}->{$type}, "$type updated correctly for test $test->{name}" );
+    my $row1a = $sheet->content->row(3);
+    $row1a->cell_update($test->{write});
+
+    # Reload.  Remind that rows are not cached.
+    my $row1b = $sheet->content->row(3);
+
+    if(my $as = $test->{as_string})
+    {   foreach my $type (keys %$as)
+        {   is $row1b->cell($type)->as_string, $as->{$type},
+                "$type updated correctly for test $test->{name}";
         }
     }
 
-    my @rules = map {
-        +{
-            id       => $columns->{$_->{column}}->id,
-            type     => 'string',
-            value    => $_->{value},
-            operator => $_->{operator} || 'equal',
-        }
-    } @{$test->{search}};
-    my $rules = encode_json({
+    my @rules = map +{
+        column   => $_->{column},
+        type     => 'string',
+        value    => $_->{value},
+        operator => $_->{operator} || 'equal',
+    }, flat $test->{search};
+
+    my $filter = {
         rules     => \@rules,
         condition => 'OR',
-    });
+    };
 
-    my $view = GADS::View->new(
+    my $view = $sheet->views->view_create({
         name        => 'Test view',
         filter      => $rules,
-        instance_id => 1,
-        columns     => [ map { $_->id } $layout->all ],
-        layout      => $layout,
-        schema      => $schema,
-        user        => $sheet->user,
-    );
-    $view->write;
-
-    my $records = GADS::Records->new(
-        user    => $user,
-        view    => $view,
-        layout  => $layout,
-        schema  => $schema,
+        columns     => $layout->all_columns,
     );
 
-    is( $records->count, $test->{count}, "Correct number of records for search $test->{name}");
+    my $results = $sheet->content->search({view => $view});
+    cmp_ok $results->count, '==', $test->{count},
+        "Correct number of records for search $test->{name}";
 
-    $record = $records->single;
-
-    if ($test->{as_string})
-    {
-        foreach my $type (keys %{$test->{as_string}})
-        {
-            my $col = $columns->{$type};
-            is( $record->fields->{$col->id}->as_string, $test->{as_string}->{$type}, "$type updated correctly for test $test->{name}" );
+    my $result = $results->row(1);
+    if(my $as = $test->{as_string})
+    {   foreach my $type (keys %$as)
+        {   is $result->cell($type)->as_string,  $as->{$type},
+                "$type updated correctly for test $test->{name}";
         }
     }
 }
 
 # Now test that even if a field is set back to single-value, that any existing
 # multi-values are still displayed
-$enum1->multivalue(0);
-$enum1->write;
-$enum2->multivalue(0);
-$enum2->write;
-$curval1->multivalue(0);
-$curval1->write;
-$curval2->multivalue(0);
-$curval2->write;
-$tree1->multivalue(0);
-$tree1->write;
-$tree2->multivalue(0);
-$tree2->write;
 
-$layout->clear;
-$record->clear;
+$layout->column_update($_ => { is_multivalue => 0 })
+    for qw/enum1 enum2 curval1 curval2 curval3 tree1 tree2/;
 
-# First test with record retrieved via GADS::Record
-$record->find_current_id(3);
+# First test with record retrieved via a content row
+
+my $row1a = $sheet->content->row(3);
 
 my %expected = (
     enum1   => 'foo1, foo2',
@@ -376,23 +275,18 @@ my %expected = (
     tree2   => 'tree2, tree3',
 );
 
-foreach my $type (keys %expected)
-{
-    my $col = $columns->{$type};
-    is( $record->fields->{$col->id}->as_string, $expected{$type}, "$type correct for single field with multiple values (single retrieval)" );
+foreach my $colname (keys %expected)
+{   is $row1a->cell($colname)->as_string, $expected{$colname},
+        "$colname correct for single field with multiple values (single retrieval)"; 
 }
 
-# And now via GADS:Records
-my $records = GADS::Records->new(
-    user    => $user,
-    layout  => $layout,
-    schema  => $schema,
-);
-$record = $records->single;
-foreach my $type (keys %expected)
-{
-    my $col = $columns->{$type};
-    is( $record->fields->{$col->id}->as_string, $expected{$type}, "$type correct for single field with multiple values (multiple retrieval)" );
+# And now via a result row
+
+my $row1b = $sheet->content->search->row(1);  # 1 or 3???
+
+foreach my $colname (keys %expected)
+{   is $row1b->cell($colname)->as_string, $expected{$colname},
+        "$colname correct for single field with multiple values (multiple retrieval)"; 
 }
 
-done_testing();
+done_testing;

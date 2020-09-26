@@ -1,20 +1,9 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
 
-use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
-
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Graph;
-use GADS::Graph::Data;
-use GADS::Records;
-use GADS::RecordsGraph;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 set_fixed_time('01/01/2015 12:00:00', '%m/%d/%Y %H:%M:%S');
 
+my $sheet_nr = 1;
 foreach my $multivalue (0..1)
 {
     my $linked_value = 10; # See below
@@ -58,104 +47,64 @@ foreach my $multivalue (0..1)
         },
     ];
 
-    my $curval_sheet = t::lib::DataSheet->new(instance_id => 2, multivalue => $multivalue);
-    $curval_sheet->create_records;
-    my $schema  = $curval_sheet->schema;
+    my $curval_sheet = test_sheet $sheet_nr++ , multivalues => $multivalue;
 
     # Make an edit to a curval record, to make sure that only the latest
     # version is used in the graphs
-    my $cr = GADS::Record->new(
-        user   => $curval_sheet->user,
-        layout => $curval_sheet->layout,
-        schema => $schema,
-    );
-    $cr->find_current_id(2);
-    $cr->fields->{$curval_sheet->columns->{integer1}->id}->set_value(132);
-    $cr->write(no_alerts => 1);
+
+    $curval_sheet->content->row(2)->cell_update(integer1 => 132);
 
     my $sheet   = t::lib::DataSheet->new(
-        data               => $data,
-        schema             => $schema,
-        curval             => 2,
-        multivalue         => $multivalue,
-        column_count       => {integer => 2},
-        multivalue_columns => { enum => 1, string => 1 },
+        rows               => $data,
+        curval_sheet       => $curval_sheet,
+        column_count       => { integer => 2 },
+        multivalue_columns => $multivalue ? [ qw/enum string/ ] : undef,
     );
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
-    $sheet->create_records;
 
-    my $calc2 = GADS::Column::Calc->new(
-        schema         => $schema,
-        user           => $sheet->user,
-        layout         => $layout,
-        name           => 'calc2',
-        return_type    => 'integer',
-        code           => "function evaluate (L1integer2) \n return {L1integer2, L1integer2 * 2} \nend",
-        multivalue     => 1,
-    );
-    $calc2->write;
-    $layout->clear;
+    $layout->column_create({
+        name          => 'calc2',
+        return_type   => 'integer',
+        code          => "function evaluate (L1integer2) \n return {L1integer2, L1integer2 * 2} \nend",
+        is_multivalue => 1,
+    });
 
     # Make an edit to a curval record, to make sure that only the latest
     # version is used in the graphs
-    my $r = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $sheet->layout,
-        schema => $schema,
-    );
-    $r->find_current_id(4);
-    $r->fields->{$sheet->columns->{integer1}->id}->set_value(15);
-    $r->fields->{$sheet->columns->{integer2}->id}->set_value(8);
-    $r->write(no_alerts => 1);
+    $sheet->content->row(4)->revision_update({ integer1 => 15, integer2 => 8 });
 
     # Add linked record sheet, which will contain the integer1 value for the first
     # record of the first sheet
-    my $sheet2 = t::lib::DataSheet->new(data => [], instance_id => 3, schema => $schema);
+    my $sheet2  = make_sheet 2, rows => [];
     my $layout2 = $sheet2->layout;
-    my $columns2 = $sheet2->columns;
 
     # Set link field of first sheet integer1 to integer1 of second sheet
-    $columns->{integer1}->link_parent_id($columns2->{integer1}->id);
-    $columns->{integer1}->write;
-    $columns->{enum1}->link_parent_id($columns2->{enum1}->id);
-    $columns->{enum1}->write;
-    $layout->clear; # Need to rebuild columns to get link_parent built
+    $layout->column_update($_ => { link_parent => $layout2->column($_) })
+        for qw/integer1 enum1/;
 
     # Create the single record of the second sheet, which will contain the single
     # integer1 value
-    my $child = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout2,
-        schema => $schema,
-    );
-    $child->initialise;
-    $child->fields->{$columns2->{integer1}->id}->set_value($linked_value);
-    $child->fields->{$columns2->{enum1}->id}->set_value($linked_enum);
-    $child->write(no_alerts => 1);
+    $sheet2->content->row_create({ integer1 => $linked_value, enum1 => $linked_enum });
+
     # Set the first record of the first sheet to take its value from the linked sheet
-    my $parent = GADS::Records->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    )->single;
+    my $parent = $sheet->content->search->row(1);
     #$parent->linked_id($child->current_id);
-    $parent->write_linked_id($child->current_id);
+    $parent->write_linked_id($child->current_id);   #XXX
 
     my $graphs = [
         {
             name         => 'String x-axis, integer sum y-axis',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'string1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
             data         => [[ 50, 10, $multivalue ? 35 : 20 ]],
         },
         {
             name         => 'String x-axis, multi-integer sum y-axis',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $calc2->id, #$columns->{calc2}->id,
+            x_axis       => 'string1',
+            y_axis       => 'calc2',
             y_axis_stack => 'sum',
             data         => [[ 96, 24, $multivalue ? 63 : 39 ]],
             xlabels      => [qw/Bar Foo FooBar/],
@@ -163,25 +112,25 @@ foreach my $multivalue (0..1)
         {
             name         => 'String x-axis, multi-integer sum y-axis, filtered',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $calc2->id, #$columns->{calc2}->id,
+            x_axis       => 'string1',
+            y_axis       => 'calc2'
             y_axis_stack => 'sum',
             data         => [[ 72, 26 ]],
             xlabels      => [qw/Bar FooBar/],
             rules => [
                 {
-                    id       => $calc2->id,
+                    column   => 'calc2'
                     type     => 'string',
-                    value    => '20',
                     operator => 'greater',
+                    value    => '20',
                 }
             ],
         },
         {
             name         => 'Integer x-axis, count y-axis',
             type         => 'bar',
-            x_axis       => $columns->{integer2}->id,
-            y_axis       => $columns->{string1}->id,
+            x_axis       => 'integer2',
+            y_axis       => 'string1',
             y_axis_stack => 'count',
             data         => [[ 1, 1, 2 ]],
             xlabels      => [qw/13 24 8/],
@@ -189,8 +138,8 @@ foreach my $multivalue (0..1)
         {
             name         => 'String x-axis, integer sum y-axis as percent',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'string1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
             as_percent   => 1,
             data         => $multivalue ? [[ 53, 11, 37 ]] : [[ 63, 13, 25 ]],
@@ -198,8 +147,8 @@ foreach my $multivalue (0..1)
         {
             name         => 'Pie as percent',
             type         => 'pie',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'string1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
             as_percent   => 1,
             data         => $multivalue
@@ -209,8 +158,8 @@ foreach my $multivalue (0..1)
         {
             name         => 'Pie with blank value',
             type         => 'pie',
-            x_axis       => $columns->{date1}->id,
-            y_axis       => $columns->{string1}->id,
+            x_axis       => 'date1',
+            y_axis       => 'string1',
             y_axis_stack => 'count',
             # Jqplot seems to want labels encoded only for pie graphs
             data         => [[['2013-10-10', 1], ['2014-10-10', 1], ['2016-10-10', 1], ['&lt;no value&gt;', 1]]],
@@ -218,13 +167,13 @@ foreach my $multivalue (0..1)
         {
             name         => 'String x-axis, integer sum y-axis with view filter',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'string1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
             data         => $multivalue ? [[ 15, 10, 15 ]] : [[ 15, 10 ]],
             rules => [
                 {
-                    id       => $columns->{enum1}->id,
+                    column   => 'enum1',
                     type     => 'string',
                     value    => 'foo1',
                     operator => 'equal',
@@ -234,18 +183,18 @@ foreach my $multivalue (0..1)
         {
             name            => 'Date range x-axis, integer sum y-axis',
             type            => 'bar',
-            x_axis          => $columns->{daterange1}->id,
+            x_axis          => 'daterange1',
             x_axis_grouping => 'year',
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
             data            => [[ 20, 35, 35, 20, 20, 30, 30, 20, 20 ]],
         },
         {
             name            => 'Date range x-axis, integer sum y-axis, limited time period by dates',
             type            => 'bar',
-            x_axis          => $columns->{daterange1}->id,
+            x_axis          => 'daterange1',
             x_axis_grouping => 'year',
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
             from            => DateTime->new(year => 2013, month => 8, day => 15),
             to              => DateTime->new(year => 2016, month => 6, day => 15),
@@ -255,9 +204,9 @@ foreach my $multivalue (0..1)
         {
             name            => 'Date range x-axis, integer sum y-axis, limited time period by length',
             type            => 'bar',
-            x_axis          => $columns->{daterange1}->id,
+            x_axis          => 'daterange1',
             x_axis_range    => 6,
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
             data            => [[ 30, 30, 30, 20, 20, 20, 20 ]],
             xlabels         => ['January 2015', 'February 2015', 'March 2015', 'April 2015', 'May 2015', 'June 2015', 'July 2015'],
@@ -265,9 +214,9 @@ foreach my $multivalue (0..1)
         {
             name            => 'Date range x-axis, integer sum y-axis, limited time period by length negative',
             type            => 'bar',
-            x_axis          => $columns->{daterange1}->id,
+            x_axis          => 'daterange1',
             x_axis_range    => -6,
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
             data            => [[ 30, 30, 30, 30, 30, 30, 30 ]],
             xlabels         => ['July 2014', 'August 2014', 'September 2014', 'October 2014', 'November 2014', 'December 2014', 'January 2015'],
@@ -275,22 +224,22 @@ foreach my $multivalue (0..1)
         {
             name            => 'Date range x-axis from curval, integer sum y-axis',
             type            => 'bar',
-            x_axis          => $curval_sheet->columns->{daterange1}->id,
-            x_axis_link     => $columns->{curval1}->id,
+            x_axis          => $curval_layout->column('daterange1'),
+            x_axis_link     => 'curval1',
             x_axis_grouping => 'year',
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
             data            => [[ 35, 0, 0, 0, 45, 45 ]],
         },
         {
             name            => 'Date range x-axis from curval, integer sum y-axis, group by curval',
             type            => 'bar',
-            x_axis          => $curval_sheet->columns->{daterange1}->id,
-            x_axis_link     => $columns->{curval1}->id,
+            x_axis          => $curval_layout->column('daterange1'),
+            x_axis_link     => 'curval1',
             x_axis_grouping => 'year',
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
-            group_by        => $columns->{curval1}->id,
+            group_by        => 'curval1',
             data            => [[ 0, 0, 0, 0, 45, 45 ], [ 35, 0, 0, 0, 0, 0 ]],
             labels       => [
                 'Foo, 50, foo1, , 2014-10-10, 2012-02-10 to 2013-06-15, , , c_amber, 2012',
@@ -300,18 +249,18 @@ foreach my $multivalue (0..1)
         {
             name            => 'Date x-axis, integer count y-axis',
             type            => 'bar',
-            x_axis          => $columns->{date1}->id,
+            x_axis          => 'date1',
             x_axis_grouping => 'year',
-            y_axis          => $columns->{string1}->id,
+            y_axis          => 'string1',
             y_axis_stack    => 'count',
             data            => [[ 1, 1, 0, 1 ]],
         },
         {
             name            => 'Date x-axis, integer count y-axis, limited range',
             type            => 'bar',
-            x_axis          => $columns->{date1}->id,
+            x_axis          => 'date1',
             x_axis_grouping => 'year',
-            y_axis          => $columns->{string1}->id,
+            y_axis          => 'string1',
             y_axis_stack    => 'count',
             from            => DateTime->new(year => 2014, month => 1, day => 15),
             to              => DateTime->new(year => 2016, month => 12, day => 15),
@@ -321,9 +270,9 @@ foreach my $multivalue (0..1)
         {
             name            => 'Date x-axis, integer sum y-axis, limited range by length',
             type            => 'bar',
-            x_axis          => $columns->{date1}->id,
+            x_axis          => 'date1',
             x_axis_range    => 120,
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
             data            => [[ 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]],
             xlabels         => [qw/2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 2025/],
@@ -331,11 +280,11 @@ foreach my $multivalue (0..1)
         {
             name            => 'Date x-axis, integer sum y-axis, limited range by length, grouped',
             type            => 'bar',
-            x_axis          => $columns->{date1}->id,
+            x_axis          => 'date1',
             x_axis_range    => -120,
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
-            group_by        => $columns->{enum1}->id,
+            group_by        => 'enum1',
             data            => [
                 [ 0, 0, 0, 0, 0, 0, 0, 0, 10, 15, 0 ],
             ],
@@ -345,14 +294,14 @@ foreach my $multivalue (0..1)
         {
             name            => 'Date x-axis, integer sum y-axis, limited range by dates, grouped',
             type            => 'bar',
-            x_axis          => $columns->{date1}->id,
+            x_axis          => 'date1',
             x_axis_grouping => 'year',
             x_axis_range    => 'custom',
             from            => DateTime->new(year => 2012, month => 1, day => 15),
             to              => DateTime->new(year => 2018, month => 12, day => 15),
-            y_axis          => $columns->{integer1}->id,
+            y_axis          => 'integer1',
             y_axis_stack    => 'sum',
-            group_by        => $columns->{enum1}->id,
+            group_by        => 'enum1',
             data            => $multivalue
             ? [
                 [ 0, 0, 0, 0, 20, 0, 0 ],
@@ -369,38 +318,38 @@ foreach my $multivalue (0..1)
         {
             name         => 'String x-axis, sum y-axis, group by enum',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'string1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
-            group_by     => $columns->{enum1}->id,
+            group_by     => 'enum1',
             data         => $multivalue ? [[ 0, 0, 20 ], [ 35, 0, 20 ], [ 15, 10, 15 ]] : [[ 35, 0, 20 ], [ 15, 10, 0 ]],
         },
         {
             name         => 'String x-axis, sum y-axis, group by enum as percent',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'string1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
-            group_by     => $columns->{enum1}->id,
+            group_by     => 'enum1',
             as_percent   => 1,
             data         => $multivalue ? [[ 0, 0, 36 ], [ 70, 0, 36 ], [ 30, 100, 27 ]] : [[ 70, 0, 100 ], [ 30, 100, 0 ]],
         },
         {
             name         => 'Filter on multi-value enum',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'string1',
+            y_axis       => 'integer1',
             y_axis_stack => 'count',
             data         => [[ 1, 1 ]],
             rules => [
                 {
-                    id       => $columns->{enum1}->id,
+                    id       => 'enum1',
                     type     => 'string',
                     value    => 'foo2',
                     operator => 'equal',
                 },
                 {
-                    id       => $columns->{enum1}->id,
+                    id       => 'enum1',
                     type     => 'string',
                     value    => 'foo3',
                     operator => 'equal',
@@ -412,17 +361,17 @@ foreach my $multivalue (0..1)
         {
             name         => 'Curval on x-axis',
             type         => 'bar',
-            x_axis       => $columns->{curval1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'curval1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
             data         => [[ 35, 45 ]],
         },
         {
             name         => 'Field from curval on x-axis',
             type         => 'bar',
-            x_axis       => $curval_sheet->columns->{string1}->id,
-            x_axis_link  => $columns->{curval1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => $curval_layout->column('string1'),
+            x_axis_link  => 'curval1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
             data         => [[ 35, 45 ]],
             xlabels      => ['Bar', 'Foo'],
@@ -430,9 +379,9 @@ foreach my $multivalue (0..1)
         {
             name         => 'Enum field from curval on x-axis',
             type         => 'bar',
-            x_axis       => $curval_sheet->columns->{enum1}->id,
-            x_axis_link  => $columns->{curval1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => $curval_layout->column('enum1'),
+            x_axis_link  => 'curval1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
             data         => [[ 45, 35 ]],
             xlabels      => ['foo1', 'foo2'],
@@ -440,15 +389,15 @@ foreach my $multivalue (0..1)
         {
             name         => 'Enum field from curval on x-axis, enum on y, with filter',
             type         => 'bar',
-            x_axis       => $curval_sheet->columns->{enum1}->id,
-            x_axis_link  => $columns->{curval1}->id,
-            y_axis       => $columns->{tree1}->id,
+            x_axis       => $curval_layout->column('enum1'),
+            x_axis_link  => 'curval1',
+            y_axis       => 'tree1',
             y_axis_stack => 'count',
             data         => [[ 1, 1 ]],
             xlabels      => ['foo1', 'foo2'],
             rules => [
                 {
-                    id       => $columns->{enum1}->id,
+                    column   => 'enum1',
                     type     => 'string',
                     value    => 'foo1',
                     operator => 'equal',
@@ -458,22 +407,22 @@ foreach my $multivalue (0..1)
         {
             name         => 'Curval on x-axis grouped by enum',
             type         => 'bar',
-            x_axis       => $columns->{curval1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'curval1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
-            group_by     => $columns->{enum1}->id,
+            group_by     => 'enum1',
             data         => $multivalue ? [[ 20, 0 ], [ 20, 35 ], [ 15, 10 ]] : [[ 20, 35 ], [ 15, 10 ]],
         },
         {
             name         => 'Enum on x-axis, filter by enum',
             type         => 'bar',
-            x_axis       => $columns->{enum1}->id,
-            y_axis       => $columns->{string1}->id,
+            x_axis       => 'enum1',
+            y_axis       => 'string1',
             y_axis_stack => 'count',
             data         => $multivalue ? [[ 2, 2, 1 ]] : [[ 2, 2 ]],
             rules => [
                 {
-                    id       => $columns->{tree1}->id,
+                    column   => 'tree1'
                     type     => 'string',
                     value    => 'tree1',
                     operator => 'equal',
@@ -483,13 +432,13 @@ foreach my $multivalue (0..1)
         {
             name         => 'Curval on x-axis, filter by enum',
             type         => 'bar',
-            x_axis       => $columns->{curval1}->id,
-            y_axis       => $columns->{string1}->id,
+            x_axis       => 'curval1',
+            y_axis       => 'string1',
             y_axis_stack => 'count',
             data         => [[ 1, 1 ]],
             rules => [
                 {
-                    id       => $columns->{enum1}->id,
+                    column   => 'enum1',
                     type     => 'string',
                     value    => 'foo1',
                     operator => 'equal',
@@ -499,10 +448,10 @@ foreach my $multivalue (0..1)
         {
             name         => 'Graph grouped by curvals',
             type         => 'bar',
-            x_axis       => $columns->{string1}->id,
-            y_axis       => $columns->{integer1}->id,
+            x_axis       => 'string1',
+            y_axis       => 'integer1',
             y_axis_stack => 'sum',
-            group_by     => $columns->{curval1}->id,
+            group_by     => 'curval1',
             data         => $multivalue ? [[ 35, 10, 0 ], [ 15, 0, 35 ]] : [[ 35, 10, 0 ], [ 15, 0, 20 ]],
             labels       => [
                 'Foo, 50, foo1, , 2014-10-10, 2012-02-10 to 2013-06-15, , , c_amber, 2012',
@@ -512,8 +461,8 @@ foreach my $multivalue (0..1)
         {
             name         => 'Linked value on x-axis, count',
             type         => 'bar',
-            x_axis       => $columns->{integer1}->id,
-            y_axis       => $columns->{string1}->id,
+            x_axis       => 'integer1',
+            y_axis       => 'string1',
             y_axis_stack => 'count',
             data         => [[ 1, 1, 1, 1 ]],
             xlabels      => [ 10, 15, 20, 35 ],
@@ -521,8 +470,8 @@ foreach my $multivalue (0..1)
         {
             name         => 'Linked value on x-axis (multiple linked), count',
             type         => 'bar',
-            x_axis       => $columns->{integer1}->id,
-            y_axis       => $columns->{string1}->id,
+            x_axis       => 'integer1',
+            y_axis       => 'string1',
             y_axis_stack => 'count',
             data         => [[ 1, 1, 1, 1 ]],
             xlabels      => [ 10, 20, 35, 55 ],
@@ -531,8 +480,8 @@ foreach my $multivalue (0..1)
         {
             name         => 'Linked value on x-axis (same value in normal/linked), sum',
             type         => 'bar',
-            x_axis       => $columns->{integer1}->id,
-            y_axis       => $columns->{calc1}->id,
+            x_axis       => 'integer1',
+            y_axis       => 'calc1',
             y_axis_stack => 'sum',
             data         => [[ 4024, 2009, 0 ]],
             xlabels      => [ 15, 20, 35 ],
@@ -542,13 +491,13 @@ foreach my $multivalue (0..1)
             name         => 'All columns x-axis, sum y-axis',
             type         => 'bar',
             x_axis       => undef,
-            y_axis       => $columns->{integer1}->id, # Can be anything
+            y_axis       => 'integer1', # Can be anything
             y_axis_stack => 'sum',
             data         => [[ 25 ]],
-            view_columns => [$columns->{integer1}->id],
+            view_columns => ['integer1'],
             rules => [
                 {
-                    id       => $columns->{enum1}->id,
+                    column   => 'enum1',
                     type     => 'string',
                     value    => 'foo1',
                     operator => 'equal',
@@ -557,6 +506,7 @@ foreach my $multivalue (0..1)
         },
     ];
 
+XXX
     foreach my $g (@$graphs)
     {
         # Write new linked value, or reset to original

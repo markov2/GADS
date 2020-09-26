@@ -61,7 +61,7 @@ my $curval_sheet = make_sheet 2, group => $group;
 my $sheet   = test_sheet
     data             => $data,
     curval           => 2,
-    multivalue       => 1,
+    multivalues      => 1,
     column_count     => { enum  => 1, curval => 2 },
     calc_return_type => 'date',
     calc_code        => <<'__CALC';

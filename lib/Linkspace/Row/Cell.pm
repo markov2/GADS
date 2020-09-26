@@ -45,6 +45,8 @@ short-cuts are taken which break abstraction for the sake of performance.
 # The datum can be specified as already prepared object, or as HASH raw
 # from the database.
 
+use overload '""' => 'as_string';
+
 sub new($%)
 {   my ($class, %args) = @_;
     bless \%args, $class;

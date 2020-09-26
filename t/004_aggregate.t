@@ -32,7 +32,7 @@ my $data = [
 
 my $sheet   = t::lib::DataSheet->new(
     data       => $data,
-    multivalue => 1,
+    multivalues => 1,
     calc_code  => "function evaluate (L1integer1) \n return L1integer1 * 2 \n end",
 );
 my $schema = $sheet->schema;

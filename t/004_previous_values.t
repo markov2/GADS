@@ -1,18 +1,5 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
 
-use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
-use DateTime;
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Filter;
-use GADS::Record;
-use GADS::Records;
-use GADS::RecordsGraph;
-use GADS::Schema;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 # Test search of historical values. To make sure that values from other fields
 # of the same type are not being included, create 2 fields for each column
@@ -69,17 +56,13 @@ my @values = (
     },
 );
 
-# XXX Curval tests to be done
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
+my $curval_sheet = make_sheet '2';
+
 my %data1 = map +( $_->{field}.'1' => $_->{begin_set} ), @values;
 my %data2 = map +( $_->{field}.'2' => $_->{begin_set} ), @values;
-my $sheet   = t::lib::DataSheet->new(
-    data         => [\%data1, \%data2],
-    schema       => $schema,
-    curval       => 2,
-    instance_id  => 1,
+my $sheet = make_sheet '1',
+    rows         => [ \%data1, \%data2 ],
+    curval_sheet => $curval_sheet,
     column_count => {
         string    => 2,
         enum      => 2,
@@ -89,112 +72,71 @@ my $sheet   = t::lib::DataSheet->new(
         daterange => 2,
     },
 );
-$sheet->create_records;
-my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
 
-my $records = GADS::Records->new(
-    schema => $schema,
-    layout => $sheet->layout,
-    user   => $sheet->user,
-);
-
-my $record1 = $records->single;
-my $record2 = $records->single;
-my $cid1 = $record1->current_id;
-my $cid2 = $record2->current_id;
+my $row1 = $sheet->content->row(1);
+my $row2 = $sheet->content->row(2);
 
 # Check initial written values
 foreach my $value (@values)
-{
-    my $field1 = $value->{field}.'1';
+{   my $field1 = $value->{field}.'1';
+    is $row1->cell($field1)->as_string, $value->{begin_string},
+          "Initial row1 value correct for $field1";
+
     my $field2 = $value->{field}.'2';
-    my $col = $columns->{$field1};
-    is($record1->fields->{$col->id}->as_string, $value->{begin_string}, "Initial record1 value correct for $field1");
-    $col = $columns->{$field2};
-    is($record2->fields->{$col->id}->as_string, $value->{begin_string}, "Initial record2 value correct for $field2");
+    is $row1->cell($field2)->as_string, $value->{begin_string},
+          "Initial row2 value correct for $field2";
 }
 
 # Write second values
 foreach my $value (@values)
-{
-    my $col = $columns->{$value->{field}.'1'};
-    my $set_value = $value->{end_set_id} || $value->{end_set};
-    $record1->fields->{$col->id}->set_value($set_value);
+{   my $set_value = $value->{end_set_id} || $value->{end_set};
+    $row1->revisions_create({$value->{field}.'1' => $set_value});
 }
-$record1->write(no_alerts => 1);
 
-# Check second written values
-$record1->clear;
-$record1->find_current_id($cid1);
+# Now reload the changed row from the database
+my $row1b = Linkspace::Row->from_id($row1->id, sheet => $sheet);
+
 foreach my $value (@values)
-{
-    my $col = $columns->{$value->{field}.'1'};
-    is($record1->fields->{$col->id}->as_string, $value->{end_string}, "Written value correct for $value->{field}");
+{   my $field1 = $value->{field}.'1';
+    is $row1->cell($field1)->as_string, $value->{end_string},
+        "Written value correct for $value->{field}";
 }
 
 foreach my $value (@values)
 {
-    my $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $columns->{$value->{field}.'1'}->id,
-                type     => 'string',
-                value    => $value->{begin_string},
-                operator => 'equal',
-            }],
-        },
-    );
+    my $filter1 = { rule  => {
+        column   => $value->{field}.'1',
+        type     => 'string',
+        operator => 'equal',
+        value    => $value->{begin_string},
+    }};
 
-    my $view = GADS::View->new(
+    my $view1 = $sheet->views->view_create({
         name        => 'Test view',
-        filter      => $rules,
-        instance_id => $sheet->instance_id,
-        layout      => $sheet->layout,
-        schema      => $schema,
-        user        => $sheet->user,
-    );
-    $view->write;
-
-    $records = GADS::Records->new(
-        user    => $sheet->user,
-        view    => $view,
-        layout  => $sheet->layout,
-        schema  => $schema,
+        filter      => $filter1,
     );
 
-    is ($records->count, 0, "No results using normal search on old value - $value->{field}");
+    my $results1 = $sheet->content->search(view => $view1);
+    cmp_ok $results->count, '==', 0,
+        "No results using normal search on old value - $value->{field}";
 
-    $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id              => $columns->{$value->{field}.'1'}->id,
-                type            => 'string',
-                value           => $value->{begin_string},
-                operator        => 'equal',
-                previous_values => 'positive',
-            }],
-        },
-    );
 
-    my $view_previous = GADS::View->new(
+    my $filter2 = { rule => {
+        column          => $value->{field}.'1',
+        type            => 'string',
+        operator        => 'equal',
+        value           => $value->{begin_string},
+        previous_values => 'positive',
+    }};
+
+    my $view_previous2 = $sheet->views->view_create({
         name        => 'Test view previous',
-        filter      => $rules,
-        instance_id => $sheet->instance_id,
-        layout      => $sheet->layout,
-        schema      => $schema,
-        user        => $sheet->user,
-    );
-    $view_previous->write;
-
-    $records = GADS::Records->new(
-        user    => $sheet->user,
-        view    => $view_previous,
-        layout  => $sheet->layout,
-        schema  => $schema,
+        filter      => $filter2,
     );
 
-    is ($records->count, 1, "Returned record when searching previous values - $value->{field}");
+    my $results2 = $sheet->content->search(view => $view_previous2);
+    cmp_ok $results2->count, '==', 1,
+        "Returned record when searching previous values - $value->{field}";
 
 }
 
@@ -346,30 +288,13 @@ my @tests = (
 
 foreach my $test (@tests)
 {
-    my $data = [
-        {
-            $test->{field} => $test->{value_before},
-        },
-    ];
-
-    my $sheet   = t::lib::DataSheet->new(
-        data       => $data,
-        multivalue => 1,
+    my $sheet   = make_sheet
+        rows        => [ { $test->{field} => $test->{value_before} } ],
+        multivalues => 1,
     );
-    $sheet->create_records;
-    my $schema   = $sheet->schema;
-    my $layout   = $sheet->layout;
-    my $columns  = $sheet->columns;
-    my $col      = $columns->{$test->{field}},
 
-    my $record = GADS::Record->new(
-        schema => $schema,
-        layout => $layout,
-        user   => $sheet->user,
-    );
-    $record->find_current_id(1);
-    $record->fields->{$col->id}->set_value($test->{value_after});
-    $record->write(no_alerts => 1);
+    my $row = $sheet->content->row(1);
+    $row->revision_create( { $test->{field} => $test->{value_after}} );
 
     # Enable tests for both empty string and NULL values
     if (exists $test->{empty_defined})
@@ -383,66 +308,40 @@ foreach my $test (@tests)
         });
     }
 
-    my $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id       => $columns->{$test->{field}}->id,
-                type     => 'string',
-                value    => $test->{filter_value},
-                operator => $test->{operator},
-            }],
-        },
-    );
+    my $filter1 = { rule => {
+        column   => $test->{field},
+        type     => 'string',
+        operator => $test->{operator},
+        value    => $test->{filter_value},
+    }};
 
-    my $view = GADS::View->new(
+    my $view1 = $sheet->views->view_create({
         name        => 'Test view',
-        filter      => $rules,
-        instance_id => $sheet->instance_id,
-        layout      => $sheet->layout,
-        schema      => $schema,
-        user        => $sheet->user,
-    );
-    $view->write;
+        filter      => $filter1,
+    });
 
-    $records = GADS::Records->new(
-        user    => $sheet->user,
-        view    => $view,
-        layout  => $sheet->layout,
-        schema  => $schema,
-    );
+    my $results1 = $sheet->content->search(view => $view1);
 
-    is ($records->count, $test->{count_normal}, "Correct number of results - operator $test->{operator}");
+    cmp_ok $results1->count, '==', $test->{count_normal},
+        "Correct number of results - operator $test->{operator}";
 
-    $rules = GADS::Filter->new(
-        as_hash => {
-            rules     => [{
-                id              => $columns->{$test->{field}}->id,
-                type            => 'string',
-                value           => $test->{filter_value},
-                operator        => $test->{operator},
-                previous_values => 'positive',
-            }],
-        },
-    );
 
-    my $view_previous = GADS::View->new(
+    my $filter2 = { rule     => {
+        column          => $test->{field},
+        type            => 'string',
+        value           => $test->{filter_value},
+        operator        => $test->{operator},
+        previous_values => 'positive',
+    } };
+
+    my $view_previous2 = $sheet->views->view_create({
         name        => 'Test view previous',
-        filter      => $rules,
-        instance_id => $sheet->instance_id,
-        layout      => $sheet->layout,
-        schema      => $schema,
-        user        => $sheet->user,
-    );
-    $view_previous->write;
-
-    $records = GADS::Records->new(
-        user    => $sheet->user,
-        view    => $view_previous,
-        layout  => $sheet->layout,
-        schema  => $schema,
+        filter      => $filter2,
     );
 
-    is ($records->count, $test->{count_previous}, "Correct number of results inc previous - operator $test->{operator}");
+    my $results2 = $sheet->content->search(view => $view_previous2);
+    cmp_ok $results2->count, '==', $test->{count_previous},
+         "Correct number of results inc previous - operator $test->{operator}";
 }
 
 # Test previous values for groups. Make some edits over a period of time, and
@@ -450,64 +349,41 @@ foreach my $test (@tests)
 {
     set_fixed_time('01/01/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
 
-    my $sheet   = t::lib::DataSheet->new(
-        data       => [{
-            integer1 => 10,
-        }],
-        multivalue => 1,
-    );
-    $sheet->create_records;
-    my $schema   = $sheet->schema;
-    my $layout   = $sheet->layout;
-    my $columns  = $sheet->columns;
-    my $int      = $columns->{integer1},
+    my $sheet   = test_sheet
+        rows        => [{ integer1 => 10 }],
+        multivalues => 1;
+
+    my $row = $content->row(1);
 
     set_fixed_time('09/01/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
-    my $record = GADS::Record->new(
-        schema => $schema,
-        layout => $layout,
-        user   => $sheet->user,
-    );
-    $record->find_current_id(1);
-    $record->fields->{$columns->{string1}->id}->set_value('foobar');
-    $record->write(no_alerts => 1);
+    $row->revision_create({string1 => 'foobar'});
 
     set_fixed_time('01/02/2015 01:00:00', '%m/%d/%Y %H:%M:%S');
-    $record = GADS::Record->new(
-        schema => $schema,
-        layout => $layout,
-        user   => $sheet->user,
-    );
-    $record->find_current_id(1);
-    $record->fields->{$int->id}->set_value(20);
-    $record->write(no_alerts => 1);
+    $row->revision_create({integer1 => 20});
 
     set_fixed_time('01/01/2016 01:00:00', '%m/%d/%Y %H:%M:%S');
-    $record->clear;
-    $record->find_current_id(1);
-    $record->fields->{$int->id}->set_value(30);
-    $record->write(no_alerts => 1);
+    $row->revision_create({integer1 => 30});
 
     foreach my $test ('normal', 'inrange', 'outrange')
     {
         foreach my $negative (0..1)
         {
-            my $hash = {
+            my $filter = {
                 rules     => [
                     {
-                        id              => $int->id,
+                        column1         => 'integer1',
                         type            => 'string',
-                        value           => 20,
                         operator        => $negative ? 'not_equal' : 'equal',
+                        value           => 20,
                     },
                     {
-                        id              => $layout->column_by_name_short('_version_datetime')->id,
+                        column          => '_version_datetime',
                         type            => 'string',
-                        value           => $test eq 'inrange' ? '2014-10-01' : '2014-06-01',
                         operator        => 'greater',
+                        value           => $test eq 'inrange' ? '2014-10-01' : '2014-06-01',
                     },
                     {
-                        id              => $layout->column_by_name_short('_version_datetime')->id,
+                        column          => '_version_datetime',
                         type            => 'string',
                         value           => $test eq 'inrange' ? '2015-06-01' : '2014-10-01',
                         operator        => 'less',
@@ -515,233 +391,179 @@ foreach my $test (@tests)
                 ],
                 operator => 'AND',
             };
-            $hash->{previous_values} = 'positive' unless $test eq 'normal';
-            my $rules = GADS::Filter->new(
-                as_hash => $hash,
-            );
+            $filter->{previous_values} = 'positive' unless $test eq 'normal';
 
-            my $view_previous = GADS::View->new(
+            my $view_previous = $sheet->views->view_create({
                 name        => 'Test view previous group',
-                filter      => $rules,
-                instance_id => $sheet->instance_id,
-                layout      => $sheet->layout,
-                schema      => $schema,
-                user        => $sheet->user,
+                filter      => $filter,
             );
-            $view_previous->write;
 
-            my $records = GADS::Records->new(
-                user    => $sheet->user,
-                view    => $view_previous,
-                layout  => $sheet->layout,
-                schema  => $schema,
-            );
+            my $results = $sheet->content->search(view => $view_previous);
 
             my $expected = $test eq 'inrange' ? 1 : 0;
             $expected = $expected ? 0 : 1
                 if $negative && $test ne 'normal';
-            is ($records->count, $expected, "Correct number of results for group include previous ($test), negative: $negative");
+
+            cmp_ok $results->count, '==', $expected,
+               "Correct number of results for group include previous ($test), negative: $negative";
         }
     }
 
     # Now a test to see if a value has changed in a certain period
     foreach my $inrange (0..1)
     {
-        my $rules = GADS::Filter->new(
-            as_hash => {
-                rules     => [
-                    {
-                        rules => [
-                            {
-                                id              => $int->id,
-                                type            => 'string',
-                                value           => 10,
-                                operator        => 'equal',
-                            },
-                            {
-                                id              => $layout->column_by_name_short('_version_datetime')->id,
-                                type            => 'string',
-                                value           => $inrange ? '2013-06-01' : '2014-10-01',
-                                operator        => 'greater',
-                            },
-                            {
-                                id              => $layout->column_by_name_short('_version_datetime')->id,
-                                type            => 'string',
-                                value           => '2015-06-01',
-                                operator        => 'less',
-                            }
-                        ],
-                        previous_values => 'positive',
-                    },
-                    {
-                        rules => [
-                            {
-                                id              => $int->id,
-                                type            => 'string',
-                                value           => 10,
-                                operator        => 'not_equal',
-                            },
-                            {
-                                id              => $layout->column_by_name_short('_version_datetime')->id,
-                                type            => 'string',
-                                value           => $inrange ? '2013-06-01' : '2014-10-01',
-                                operator        => 'greater',
-                            },
-                            {
-                                id              => $layout->column_by_name_short('_version_datetime')->id,
-                                type            => 'string',
-                                value           => '2015-06-01',
-                                operator        => 'less',
-                            }
-                        ],
-                        previous_values => 'positive',
-                    },
-                ],
-                operator        => 'AND',
-            },
-        );
+        my $filter = {
+            rules     => [
+                {
+                    rules => [
+                        {
+                            column          => 'integer1',
+                            type            => 'string',
+                            operator        => 'equal',
+                            value           => 10,
+                        },
+                        {
+                            column          => '_version_datetime',
+                            type            => 'string',
+                            operator        => 'greater',
+                            value           => $inrange ? '2013-06-01' : '2014-10-01',
+                        },
+                        {
+                            column          => '_version_datetime',
+                            type            => 'string',
+                            operator        => 'less',
+                            value           => '2015-06-01',
+                        }
+                    ],
+                    previous_values => 'positive',
+                },
+                {
+                    rules => [
+                        {
+                            column          => 'integer1',
+                            type            => 'string',
+                            operator        => 'not_equal',
+                            value           => 10,
+                        },
+                        {
+                            column          => '_version_datetime',
+                            type            => 'string',
+                            operator        => 'greater',
+                            value           => $inrange ? '2013-06-01' : '2014-10-01',
+                        },
+                        {
+                            column          => '_version_datetime',
+                            type            => 'string',
+                            operator        => 'less',
+                            value           => '2015-06-01',
+                        }
+                    ],
+                    previous_values => 'positive',
+                },
+            ],
+            operator        => 'AND',
+        };
 
-        my $view_previous = GADS::View->new(
+        my $view_previous = $sheet->view_create({
             name        => 'Test view previous group',
             filter      => $rules,
-            instance_id => $sheet->instance_id,
-            layout      => $sheet->layout,
-            schema      => $schema,
-            user        => $sheet->user,
-        );
-        $view_previous->write;
+        });
 
-        $records = GADS::Records->new(
-            user    => $sheet->user,
-            view    => $view_previous,
-            layout  => $sheet->layout,
-            schema  => $schema,
-        );
+        my $results = $sheet->content->search(view => $view_previous);
 
-        my $expected = $inrange ? 1 : 0;
-        is ($records->count, $expected, "Correct number of results for group include previous with value change");
+        cmp_ok $results->count, '==', ($inrange ? 1 : 0);
+            "Correct number of results for group include previous with value change";
     }
 
     # Negative group previous values match
     foreach my $match (qw/positive negative/) # Check both to ensure difference
     {
-        my $rules = GADS::Filter->new(
-            as_hash => {
-                rules     => [
-                    {
-                        rules => [
-                            {
-                                id              => $int->id,
-                                type            => 'string',
-                                value           => 20,
-                                operator        => 'equal',
-                            },
-                            {
-                                id              => $layout->column_by_name_short('_version_datetime')->id,
-                                type            => 'string',
-                                value           => '2015-06-01',
-                                operator        => 'less',
-                            },
-                        ],
-                        previous_values => $match,
-                    },
-                ],
-            },
-        );
+        my $filter = { rule => {
+            rules => [
+                {
+                    column          => 'integer1',
+                    type            => 'string',
+                    operator        => 'equal',
+                    value           => 20,
+                },
+                {
+                    column          => '_version_datetime',
+                    type            => 'string',
+                    operator        => 'less',
+                    value           => '2015-06-01',
+                },
+            ],
+            previous_values => $match,
+        } };
 
-        my $view_previous = GADS::View->new(
+        my $view_previous = $sheet->views->view_create({
             name        => 'Test view previous group',
-            filter      => $rules,
-            instance_id => $sheet->instance_id,
-            layout      => $sheet->layout,
-            schema      => $schema,
-            user        => $sheet->user,
-        );
-        $view_previous->write;
-
-        $records = GADS::Records->new(
-            user    => $sheet->user,
-            view    => $view_previous,
-            layout  => $sheet->layout,
-            schema  => $schema,
+            filter      => $filter,
         );
 
-        my $expected = $match eq 'negative' ? 0 : 1;
-        is ($records->count, $expected, "Correct number of results for negative previous value group");
+        my $results = $sheet->content->search(view => $view_previous);
+        cmp_ok $records->count, '==', ($match eq 'negative' ? 0 : 1),
+           "Correct number of results for negative previous value group";
     }
 
     # Now a test to see if a value has changed in a certain period
     foreach my $inrange (0..1)
     {
-        my $rules = GADS::Filter->new(
-            as_hash => {
-                rules     => [
-                    {
-                        rules => [
-                            {
-                                id              => $int->id,
-                                type            => 'string',
-                                value           => 20,
-                                operator        => 'equal',
-                            },
-                            {
-                                id              => $layout->column_by_name_short('_version_datetime')->id,
-                                type            => 'string',
-                                value           => '2014-12-31',
-                                operator        => 'less',
-                            }
-                        ],
-                        previous_values => 'negative',
-                    },
-                    {
-                        rules => [
-                            {
-                                id              => $int->id,
-                                type            => 'string',
-                                value           => 20,
-                                operator        => 'equal',
-                            },
-                            {
-                                id              => $layout->column_by_name_short('_version_datetime')->id,
-                                type            => 'string',
-                                value           => '2015-01-01',
-                                operator        => 'greater',
-                            },
-                            {
-                                id              => $layout->column_by_name_short('_version_datetime')->id,
-                                type            => 'string',
-                                value           => '2015-12-31',
-                                operator        => 'less',
-                            }
-                        ],
-                        previous_values => 'positive',
-                    },
-                ],
-                operator        => 'AND',
-            },
-        );
+        my $filter = { rules     => [
+                {
+                    rules => [
+                        {
+                            id              => 'integer1',
+                            type            => 'string',
+                            operator        => 'equal',
+                            value           => 20,
+                        },
+                        {
+                            id              => '_version_datetime',
+                            type            => 'string',
+                            operator        => 'less',
+                            value           => '2014-12-31',
+                        }
+                    ],
+                    previous_values => 'negative',
+                },
+                {
+                    rules => [
+                        {
+                            column          => 'integer1',
+                            type            => 'string',
+                            operator        => 'equal',
+                            value           => 20,
+                        },
+                        {
+                            column          => '_version_datetime',
+                            type            => 'string',
+                            operator        => 'greater',
+                            value           => '2015-01-01',
+                        },
+                        {
+                            column          => '_version_datetime',
+                            type            => 'string',
+                            operator        => 'less',
+                            value           => '2015-12-31',
+                        }
+                    ],
+                    previous_values => 'positive',
+                },
+            ],
+            operator        => 'AND',
+        };
 
-        my $view_previous = GADS::View->new(
+        my $view_previous = $sheet->views->view_create({
             name        => 'Test view previous group',
-            filter      => $rules,
-            instance_id => $sheet->instance_id,
-            layout      => $sheet->layout,
-            schema      => $schema,
-            user        => $sheet->user,
-        );
-        $view_previous->write;
+            filter      => $filter,
+        });
 
-        $records = GADS::Records->new(
-            user    => $sheet->user,
-            view    => $view_previous,
-            layout  => $sheet->layout,
-            schema  => $schema,
-        );
+        my $results = $sheet->content->search(view => $view_previous);
 
-        my $expected = $inrange ? 1 : 1;
-        is ($records->count, $expected, "Correct number of results for searching for change in period");
+        cmp_ok $results->count, '==', ($inrange ? 1 : 1)    #XXX
+            "Correct number of results for searching for change in period";
     }
-
 }
 
-done_testing();
+done_testing;

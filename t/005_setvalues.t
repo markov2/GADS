@@ -146,8 +146,8 @@ foreach my $multivalue (0..1)
     my $curval_sheet = make_sheet $sheet_counter++;
 
     my $sheet = make_sheet $sheet_counter++,
-        curval     => $curval_sheet->id,
-        multivalue => $multivalue;
+        curval      => $curval_sheet->id,
+        multivalues => $multivalue;
 
     my $row = $sheet->content->row_create({});
 
@@ -184,9 +184,9 @@ sub run_test($$$$)
     my $curval_sheet = make_sheet $sheet_counter++;
 
     my $sheet   = make_sheet $sheet_counter++,
-        data       => $data->{$test},
-        multivalue => $multivalue,
-        curval     => $curval_sheet->id,
+        data        => $data->{$test},
+        multivalues => $multivalue,
+        curval      => $curval_sheet->id,
     );
 
     #XXX only for this sheet

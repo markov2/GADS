@@ -195,9 +195,9 @@ foreach my $withview (qw/none with without/)
             enum1    => [qw/foo2/],
         },
     ];
-    my $curval_sheet = t::lib::DataSheet->new(
-        data        => $data,
-        multivalue  => 1,
+    my $curval_sheet = make_sheet 2,
+        rows        => $data,
+        multivalues => 1,
         instance_id => 2,
     );
     $curval_sheet->create_records;
@@ -206,41 +206,21 @@ foreach my $withview (qw/none with without/)
     # Make a change to one of the records that will be used for the curval
     # field. This ensures that when we retrieve the amalgamated data that we
     # are only retrieving the latest version
-    my $record = GADS::Record->new(
-        user   => $curval_sheet->user,
-        schema => $schema,
-        layout => $curval_sheet->layout,
-    );
-    $record->find_current_id(1);
-    $record->fields->{$curval_sheet->columns->{integer1}->id}->set_value(25);
-    $record->write(no_alerts => 1);
-
-    my $curval_columns = $curval_sheet->columns;
+    $curval_sheet->content->row(1)->cell_update(integer1 => 25);
 
     $data = [
-        {
-            string1 => 'France',
-            curval1 => [1, 2],
-        },
-        {
-            string1 => 'Germany',
-            curval1 => 3,
-        },
-        {
-            string1 => 'Spain',
-            curval1 => 4,
-        },
+        { string1 => 'France',  curval1 => [1, 2] },
+        { string1 => 'Germany', curval1 => 3 },
+        { string1 => 'Spain',   curval1 => 4 },
     ];
-    my $sheet = t::lib::DataSheet->new(
-        data             => $data,
-        curval           => $curval_sheet->instance_id,
-        schema           => $schema,
-        multivalue       => 1,
+
+    my $sheet = make_sheet 1,
+        rows             => $data,
+        curval_sheet     => $curval_sheet,
+        multivalues      => 1,
         calc_code        => "function evaluate (L1string1) \n return L1string1 end",
         calc_return_type => 'globe',
     );
-    $sheet->create_records;
-    my $columns = $sheet->columns;
     my $layout  = $sheet->layout;
 
     my $globe = GADS::Globe->new(
@@ -262,7 +242,7 @@ foreach my $withview (qw/none with without/)
         Germany
         Spain
     /];
-    my $text = [ map { "Total: $_" } @$z ];
+    my $text = [ map "Total: $_", @$z ];
 
     my $out = $globe->data->[0];
     my @results = map {
@@ -309,22 +289,16 @@ foreach my $withview (qw/none with without/)
     }
 }
 
-done_testing();
-
 sub _sort_items
 {   my $items = shift;
-    my @items;
 
-    push @items, {
-        location  => $items->{locations}->[$_],
-        text      => $items->{text}->[$_],
-        hovertext => $items->{hovertext}->[$_],
-    } foreach (0..(scalar @{$items->{locations}} - 1));
+    my $locations = $items->{locations};
+    my @new_order = sort { $locations->[$a] cmp $locations->[$b] } 0 .. (@$locations -1);
 
-    @items = sort { $a->{location} cmp $b->{location} } @items;
-    +{
-        locations => [ map { $_->{location} } @items ],
-        text      => [ map { $_->{text} } @items ],
-        hovertext => [ map { $_->{hovertext} } @items ],
-    }
+    +{ locations => [ @{$locations}         ->[@new_order] ],
+       text      => [ @{$items->{text}}     ->[@new_order] ],
+       hovertext => [ @{$items->{hovertext}}->[@new_order] ],
+     };
 }
+
+done_testing;

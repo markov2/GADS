@@ -72,7 +72,7 @@ sub db_fields_no_export
 
 #XXX change these
 my @public_attributes = qw/description helptext is_unique link_parent_id
-    is_multivalue name name_short optional remember set_can_child topic_id
+    is_multivalue name name_short optional remember can_child topic_id
     type width/;
 my @simple_import_attributes = 
    qw/name name_short optional remember isunique can_child position description

@@ -1,14 +1,5 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
 
-use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
-use DateTime;
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Records;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 set_fixed_time('01/01/2008 01:00:00', '%m/%d/%Y %H:%M:%S');
 
@@ -33,13 +24,10 @@ my $data = [
 my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
 $curval_sheet->create_records;
 my $schema = $curval_sheet->schema;
-my $sheet = t::lib::DataSheet->new(data => $data, curval => 2, schema => $schema);
 
-my $layout = $sheet->layout;
-my $columns = $sheet->columns;
-$sheet->create_records;
-
-my $showcols = [ map $_->id, $layout->columns(exclude_internal => 1) ];
+my $sheet    = t::lib::DataSheet->new(data => $data, curval => 2, schema => $schema);
+my $layout   = $sheet->layout;
+my $showcols = $layout->columns(exclude_internal => 1);
 
 my $records = GADS::Records->new(
     from    => DateTime->now,
@@ -56,44 +44,31 @@ is( @{$records->data_timeline->{items}}, 8, "Retrieving all data returns correct
 
 # Test from a later date. The records from that date should be retrieved, and
 # then the ones before as the total number is less than the threshold
-$records = GADS::Records->new(
+$records = $sheet->content->search(
     from    => DateTime->new(year => 2011, month => 10, day => 01),
-    user    => undef,
     columns => $showcols,
-    layout  => $layout,
-    schema  => $schema,
 );
 is( @{$records->data_timeline->{items}}, 8, "Retrieving all data returns correct number of points to plot for timeline" );
 
 # Add a filter and only retrieve one column
-my $rules = encode_json({
-    rules     => [{
-        id       => $columns->{string1}->id,
-        type     => 'string',
-        value    => 'Foo',
-        operator => 'equal',
-    }],
-    # condition => 'AND', # Default
-});
+my $rules = { rule => {
+    column   => 'string1',
+    type     => 'string',
+    operator => 'equal',
+    value    => 'Foo',
+}};
 
-my $view = GADS::View->new(
+my $view = $sheet->views->view_create({
     name        => 'Test view',
-    columns     => [$columns->{date1}->id],
+    columns     => [ 'date1' ],
     filter      => $rules,
-    instance_id => 1,
-    layout      => $layout,
-    schema      => $schema,
     user        => undef,
 );
-$view->write;
 
-$records = GADS::Records->new(
-    user   => undef,
+$records = $sheet->content->search({
     from   => DateTime->now,
-    layout => $layout,
-    schema => $schema,
     view   => $view,
-);
+});
 
 is( @{$records->data_calendar}, 1, "Filter and single column returns correct number of points to plot for calendar" );
 $records->clear;
@@ -108,24 +83,11 @@ my $items = $records->data_timeline(label => $columns->{string1}->id, group => 9
 like( $items->[0]->{content}, qr/Foo/, "Label included in output even if not in view" );
 
 # Now use the same filter and restrict by date
-my $fromdt = DateTime->new(
-    year       => 2010,
-    month      => 01,
-    day        => 01,
-);
-my $todt = DateTime->new(
-    year       => 2020,
-    month      => 01,
-    day        => 01,
-);
 
-$records = GADS::Records->new(
-    user   => undef,
-    layout => $layout,
-    schema => $schema,
+$records = $sheet->content->search(
     view   => $view,
-    from   => $fromdt,
-    to     => $todt,
+    from   => DateTime->new( year => 2010, month => 01, day => 01), 
+    to     => DateTime->new( year => 2020, month => 01, day => 01),
 );
 
 is( @{$records->data_calendar}, 1, "Filter, single column and limited range returns correct number of points to plot for calendar" );
@@ -148,35 +110,27 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
         $start->add(days => 1);
     }
 
-    my $sheet = t::lib::DataSheet->new(data => \@data);
-    $sheet->create_records;
-    my $schema   = $sheet->schema;
+    my $sheet    = make_sheet 3, rows => \@data;
     my $layout   = $sheet->layout;
-    my $columns  = $sheet->columns;
-    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
+    my $showcols = $layout->columns(exclude_internal => 1);
 
     # Run 2 tests - sorted by string1 and enum1. string1 will randomise the
     # results to make sure the correct ones are pulled out by date; enum1 will
     # test the sorting of groups on the timeline
     foreach my $sort (qw/string1 enum1/)
     {
-        my $view = GADS::View->new(
+        my $view = $sheet->views->view_create({
             name        => 'Foobar',
-            columns     => [$columns->{string1}->id, $columns->{date1}->id],
-            instance_id => $layout->instance_id,
-            layout      => $layout,
-            schema      => $schema,
+            columns     => [ 'string1', 'date1' ],
             user        => $sheet->user,
+            sort_column => $sort,
+            sort_order  => 'asc',
         );
-        $view->write;
-        $view->set_sorts([$sheet->columns->{$sort}->id], ['asc']);
 
-        my $records = GADS::Records->new(
+        my $records = $sheet->content->search(
             from   => DateTime->now->add(days => 100),
             user   => undef,
             view   => $view,
-            layout => $layout,
-            schema => $schema,
         );
 
         # 99 records/days from start, 49 records/days back from start. Each extreme
@@ -194,26 +148,18 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
         {
             # Check for groups in correct order
             foreach my $g (@{$timeline->{groups}})
-            {
-                if ($g->{content} eq 'foo1') {
-                    is($g->{order}, 1, "foo1 group order correct");
-                } elsif ($g->{content} eq 'foo2') {
-                    is($g->{order}, 2, "foo2 group order correct");
-                } elsif ($g->{content} eq 'foo3') {
-                    is($g->{order}, 3, "foo3 group order correct");
-                } else {
-                    panic "Something's wrong";
-                }
+            {   my $order = $g->{content} =~ /^foo([123])$/ ? $1 : panic;
+                is $g->{order}, $order, "$g->{content} group order correct";
             }
 
         }
+
         foreach my $item (@items)
         {
             if ($sort eq 'enum1')
-            {
-                # Test group value of item
+            {   # Test group value of item
                 my $cid = $item->{current_id};
-                is($item->{group}, $group_values{$cid}, "Correct group for item");
+                is $item->{group}, $group_values{$cid}, "Correct group for item";
             }
             my $time = DateTime->from_epoch(epoch => $item->{single} / 1000);
             # Centre is at now + 100 days. Should have items 50 days to the left
@@ -223,26 +169,22 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
         }
     }
 
-    $records = GADS::Records->new(
+    $records = $sheet->content->search(
         from    => DateTime->now, # Rounded down to midnight 1st Jan 2018
         to      => DateTime->now->add(days => 10), # Rounded up to midnight 12th Jan 2018
         user    => undef,
         columns => $showcols,
-        layout  => $layout,
-        schema  => $schema,
     );
 
     # 10 days, plus one either side including rounding up/down
     is( @{$records->data_timeline->{items}}, 12, "Retrieved correct subset of records for large timeline" );
 
     # Test from exactly midnight - should be no rounding
-    $records = GADS::Records->new(
+    $records = $sheet->content->search(
         from    => DateTime->new(year => 2008, month => 1, day => 1),
         to      => DateTime->new(year => 2008, month => 1, day => 10),
         user    => undef,
         columns => $showcols,
-        layout  => $layout,
-        schema  => $schema,
     );
 
     is( @{$records->data_timeline->{items}}, 10, "Retrieved correct subset of records for large timeline" );
@@ -852,21 +794,11 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
         $start->subtract(days => 1);
     }
 
-    my $curval_sheet = t::lib::DataSheet->new(instance_id => 2, data => \@curval_data, user_permission_override => 0, multivalue => 1);
-    $curval_sheet->create_records;
-    my $curval_date = $curval_sheet->columns->{date1};
-    $curval_date->set_permissions({});
-    $curval_date->write;
-    $curval_sheet->layout->clear;
+    my $curval_sheet = make_sheet 2, rows => \@curval_data, multivalues => 1;
+    $curval_sheet->layout->column_update(date1 => { permissions => {} });
 
-    my $schema = $curval_sheet->schema;
-    my $sheet = t::lib::DataSheet->new(data => \@data, curval => 2, schema => $schema, user_permission_override => 0, multivalue => 1);
-    $sheet->create_records;
-
+    my $sheet = make_sheet 3, rows => \@data, curval_sheet => $curval_sheet, multivalues => 1;
     my $layout = $sheet->layout;
-    $layout->clear;
-
-    my $columns = $sheet->columns;
 
     my $records = GADS::Records->new(
         from    => $from,
