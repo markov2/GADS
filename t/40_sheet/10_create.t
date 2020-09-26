@@ -27,6 +27,7 @@ my $sheet1_id = $sheet1->id;
 my $path = $site->path . '/first';
 isa_ok $sheet1, 'Linkspace::Sheet', '...';
 is logline, "info: Instance created $sheet1_id: $path", '... log';
+logs_purge;  # don't want to see creation of internal fields
 
 is $sheet1->site, $site, '... refers to site';
 is $sheet1->document, $doc, '... refers to document';
@@ -72,7 +73,7 @@ diag 'Many more components to follow';
 $doc->sheet_delete($sheet1);
 ok !defined $doc->sheet($sheet1_id), 'Deleted first sheet';
 ok !defined $site->sheet($sheet1_id), '... missing via site';
-is logline, "info: Instance $sheet1_id='$path' deleted", 'logged';
+is +(logs)[-1], "info: Instance $sheet1_id='$path' deleted", 'logged';
 
 ok !Linkspace::Sheet->from_id($sheet1_id, document => $doc), '... removed from DB';
 

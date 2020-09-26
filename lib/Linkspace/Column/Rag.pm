@@ -63,7 +63,7 @@ sub _filter_values { @filter_values }
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Rag    => { layout_id => $col_id });
     $::db->delete(Ragval => { layout_id => $col_id });

@@ -10,5 +10,8 @@ my $site = test_site
 
 $site->site_delete;
 
+logs_purge;
+ok 1, 'Cleanup successful';
+
 done_testing;
 

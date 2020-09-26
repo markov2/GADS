@@ -22,8 +22,9 @@ use warnings;
 use strict;
 
 use Log::Report 'linkspace';
-use List::Util   qw/first max/;
-use Scalar::Util qw/blessed/;
+use List::Util      qw/first max/;
+use Scalar::Util    qw/blessed/;
+use Linkspace::Util qw/index_by_id/;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
@@ -52,11 +53,11 @@ use Linkspace::Column::Rag         ();
 
 my @internal_columns = (
     [ _id               => id          => 1, 'ID' ],
-    [ _version_datetime => createddate => 0, 'Last edited time' ],
-    [ _version_user     => createdby   => 0, 'Last edited by' ],
-    [ _created_user     => createdby   => 0, 'Created by' ],
-    [ _deleted_by       => deletedby   => 0, 'Deleted by' ],
-    [ _created          => createddate => 0, 'Created time' ],
+#XXX[ _version_datetime => createddate => 0, 'Last edited time' ],
+#   [ _version_user     => createdby   => 0, 'Last edited by' ],
+#   [ _created_user     => createdby   => 0, 'Created by' ],
+#   [ _deleted_by       => deletedby   => 0, 'Deleted by' ],
+#   [ _created          => createddate => 0, 'Created time' ],
     [ _serial           => serial      => 1, 'Serial' ],
 );
 
@@ -71,16 +72,6 @@ has default_view_limit_extra => (
     is      => 'ro',
 );
 
-has api_index_layout => (
-    is      => 'lazy',
-    builder => sub { $_[0]->column($_[0]->api_index_layout_id) },
-);
-
-has api_index_layout_id => (
-    is      => 'ro',
-    isa     => Maybe[Int],
-);
-
 has sheet => (
     is       => 'ro',
     required => 1,
@@ -90,16 +81,20 @@ has sheet => (
 #------------------
 =head1 METHODS: Constructors
 
-=head2 $layout = $layout->insert_initial_columns;
+=head2 $layout->insert_initial_columns;
+When a new sheet is created, its layout get some standard columns.
 =cut
 
 sub insert_initial_columns()
-{    my ($self) = @_;
-return; #XXX
-     $self->column_create({
-          name_short => $_->[0], type => $_->[1], is_unique => $_->[2], name => $_->[3],
-          can_child => 0, is_internal => 1
-     }) for @internal_columns;
+{   my ($self) = @_;
+
+    my $position = 0;
+    $self->column_create({
+        name_short => $_->[0], type => $_->[1], is_unique => $_->[2],
+        name => $_->[3], can_child => 0, is_internal => 1, position => ++$position,
+    }) for @internal_columns;
+
+    $self;
 }
 
 #-------------
@@ -115,6 +110,16 @@ has has_children => (
     is      => 'lazy',
     builder => sub { !! first { $_->can_child } @{$_[0]->all_columns} },
 );
+
+sub as_string(%)
+{   my $self = shift;
+    my $columns = $self->columns_search(
+        exclude_internal => 1,
+        sort_by_position => 1,
+        @_,
+    );
+    join '', map sprintf("%2d %s", $_->position, $_->as_string), @$columns;
+}
 
 # All the column IDs needed to update all cached fields. This is all the
 # calculated/rag fields, plus any fields that they depend on
@@ -182,19 +187,20 @@ be placed thereafter in their original order.
 
 sub reposition($)
 {   my ($self, $ordered) = @_;
-    my $columns = $self->columns($ordered);
-    my $seen = index_by_id $columns;
+    my @columns  = @{$self->columns($ordered)};
 
-    my $col_nr = 0;
-    $self->column_update($_, {position => ++$col_nr})
-        for @$columns, grep !$seen->{$_->id}, @{$self->all_columns};
+    my $seen     = index_by_id @columns;
+    my @other    = grep ! $seen->{$_->id},
+        @{$self->columns_search(sort_by_position => 1)};
+
+    my $position = 0;
+
+    $self->column_update($_, { position => ++$position }) for
+        +(grep   $_->is_internal, @other),
+         @columns,
+         (grep ! $_->is_internal, @other);
 
     $self;
-}
-
-sub contains_column($)
-{   my ($self, $column) = @_;
-    !! $self->columns_index->{$column->id};
 }
 
 #--------------------------------
@@ -215,7 +221,6 @@ sub user_can_anything
 
 has referred_by => (
     is      => 'lazy',
-    isa     => ArrayRef,
     builder => sub
     {   my $self = shift;
         my $refd = $::db->search(Layout => {
@@ -273,7 +278,7 @@ sub purge
     GADS::MetricGroups->new(instance_id => $self->instance_id)->purge;
     GADS::Views->new(instance_id => $self->instance_id, user => undef)->purge;
 
-    my $columns = $self->columns_search(order_dependencies => 1, include_hidden => 1);
+    my $columns = $self->columns_search(order_dependencies => 1);
     $self->column_delete($_) for reverse @$columns;
 
     my %ref_sheet = { instance_id => $self->sheet->id };
@@ -314,6 +319,7 @@ Layout maintains is a subset of these definitions.
 has all_columns => (
     is      => 'lazy',
     builder => sub { $_[0]->sheet->document->columns_for_sheet($_[0]->sheet) },
+    predicate => 1,
 );
 
 =head2 my $column = $layout->column($which, %options);
@@ -360,13 +366,22 @@ sub columns(@)
 sub column_create($%)
 {   my ($self, $insert, %args) = @_;
     my $sheet  = $insert->{sheet} = $self->sheet;
-    my $column = Linkspace::Column->_column_create($insert);
-    $sheet->document->publish_column($column);
+    $insert->{position} ||= 1 + max map $_->position, @{$self->columns_search};
+    my $all    = $self->all_columns;  # be sure to have all before new created
 
-    push @{$self->all_columns}, $column;
+    my $name   = $insert->{name_short} or panic;
+    ! $self->column($name)
+        or error __x"Attempt to create a second column with the same short name '{name}'",
+             name => $name;
+
+    my $column = Linkspace::Column->_column_create($insert);
+
+    push @$all, $column if $self->has_all_columns;
     my $index = $self->_column_index;
     $index->{$column->id} = $column;
     $index->{$column->name_short} = $column;
+    $sheet->document->publish_column($column);
+
     $column;
 }
 
@@ -376,10 +391,19 @@ Change the content of a column.
 
 sub column_update($%)
 {   my ($self, $column, $update, %args) = @_;
+
+    my $old_name = $column->name_short;
+    my $new_name = $update->{name_short};
+    error __x"Attempt to rename column '{old}' into existing name '{name}'",
+       old => $old_name, name => $new_name
+       if $new_name && $new_name ne $old_name && $self->column($new_name);
+
     $column->_column_update($update, %args);
 
-    if(exists $update->{name_short})
-    {   $self->_column_index->{$column->name_short} = $column;
+    if($new_name)
+    {   my $index = $self->_column_index;
+        delete $index->{$old_name};
+        $index->{$column->name_short} = $column;
         $self->sheet->document->publish_column($column);
     }
 
@@ -390,7 +414,6 @@ sub column_update($%)
 =cut
 
 my %filters_invariant = (
-    exclude_hidden   => sub { ! $_[0]->is_hidden },
     exclude_internal => sub { ! $_[0]->is_internal },
     only_internal    => sub {   $_[0]->is_internal },
     only_unique      => sub {   $_[0]->is_unique },
@@ -428,35 +451,32 @@ sub _order_dependencies
     my $dep    = Algorithm::Dependency::Ordered->new(source => $source)
         or die 'Failed to set up dependency algorithm';
 
-    map $self->column_by_id($_), @{$dep->schedule_all};
+    [ map $self->column_by_id($_), @{$dep->schedule_all} ];
 }
 
 sub columns_search
-{   my ($self, %options) = @_;
-    keys %options or return $self->all_columns;
+{   my ($self, %args) = @_;
+    keys %args or return [ @{$self->all_columns} ];
 
-    # Some parameters are a bit inconvenient
-    $options{exclude_hidden} = ! delete $options{include_hidden}
-        if exists $options{include_hidden};
-
-    if(exists $options{topic_id})
-    {   if(my $topic = delete $options{topic_id})
-             { $options{topic} = $topic }
-        else { $options{without_topic} = 1 }
+    if(exists $args{topic_id})
+    {   if(my $topic = delete $args{topic_id})
+             { $args{topic} = $topic }
+        else { $args{without_topic} = 1 }
     }
 
     my @filters;
-    foreach my $flag (keys %options)
-    {
-        if(my $f = $filters_invariant{$flag})
+    foreach my $flag (keys %args)
+    {   if(my $f = $filters_invariant{$flag})
         {   # A simple filter, based on the layout alone
-            push @filters, $f if $options{$flag};
+            push @filters, $f if $args{$flag};
+            delete $args{$flag};
         }
         elsif(my $g = $filters_compare{$flag})
         {   # Filter based on comparison
-            if(defined(my $need = $options{$flag}))
+            if(defined(my $need = $args{$flag}))
             {   push @filters, sub { $g->($_[0], $need) };
             }
+            delete $args{$flag};
         }
     }
 
@@ -471,10 +491,11 @@ sub columns_search
 
     my @columns  = grep $filter->($_), @{$self->all_columns};
 
-    @columns = $self->_order_dependencies(@columns)
-        if $options{order_dependencies};
-
-    if($options{sort_by_topics})
+    my $columns;
+    if(delete $args{order_dependencies})
+    {   $columns = $self->_order_dependencies(@columns);
+    }
+    elsif(delete $args{sort_by_topics})
     {
         # Sorting by topic involves keeping the order of fields that do not
         # have a defined topic, but slotting in those together that have the
@@ -492,31 +513,26 @@ sub columns_search
         {   next if $done{$col->id}++;
             if($col->topic_id && $col->topic_id != $previous_topic_id)
             {   foreach (@{$topics{$col->topic_id}})
-                {   push @new, $_;
+                {   push @$columns, $_;
                     $done{$_->id}++;
                 }
             }
             else
-            {   push @new, $col;
+            {   push @$columns, $col;
             }
             $previous_topic_id = $col->topic_id || 0;
         }
-        return \@new;
+    }
+    elsif(delete $args{sort_by_position})
+    {   $columns = [ sort { $a->position <=> $b->position } @columns ];
+    }
+    else
+    {   $columns = \@columns;
     }
 
-    return [ sort { $a->position <=> $b->position } @columns ]
-        if $options{sort_by_position};
+    panic $_ for keys %args;
 
     \@columns;
-}
-
-=head2 my $last = $layout->highest_position;
-Returns the highest position number in use.
-=cut
-
-sub highest_position()
-{   my $columns = shift->columns_search(include_hidden => 1, sort_by_position => 1) || [];
-    @$columns ? $columns->[-1]->position : 0;
 }
 
 =head2 $layout->column_unuse($which);
@@ -539,13 +555,15 @@ Remove this column everywhere.
 
 sub column_delete($)
 {   my ($self, $column) = @_;
-    my $doc   = $self->document;
+    my $doc   = $self->sheet->document;
+
+=pod
 
     # First see if any views are conditional on this field
     my $disps = $column->display_fields;
 
     if(@$disps)
-    {   my @names = map $_->layout->name, @$disps;   #XXX???
+    {   my @names = map $_->name, @$disps;   #XXX???
         error __x"The following fields are conditional on this field: {dep}.
             Please remove these conditions before deletion.", dep => \@names;
     }
@@ -578,19 +596,21 @@ sub column_delete($)
         error __x"The following graphs references this field: {graph}. Please update them before deletion.",
             graph => [ map $_->title, @graphs ]; 
     }
+=cut
 
-    my $guard = $::db->begin_work;
     $doc->column_unuse($column);
     $column->remove_history;
-    $column->delete;    # Finally!
 
-    $guard->commit;
+    my $index = $self->_column_index;
+    $index->{$column->id} = undef;
+    $index->{$column->name_short} = undef;
+
+    $column->delete;
 }
 
 sub sheet_unuse()
 {   my ($self) = @_;
-
-    $self->column_delete($_) for $self->all_columns;
+    $self->column_delete($_) for @{$self->all_columns};
     # Layout has no substance itself
 }
 
@@ -620,5 +640,19 @@ sub load_columns($)
 
     [ map Linkspace::Column->from_record($_), $cols->all ];
 }
+
+#-----------------------
+=head1 METHODS: REST interface
+=cut
+
+has api_index_layout => (
+    is      => 'lazy',
+    builder => sub { $_[0]->column($_[0]->api_index_layout_id) },
+);
+
+has api_index_layout_id => (
+    is      => 'ro',
+    isa     => Maybe[Int],
+);
 
 1;

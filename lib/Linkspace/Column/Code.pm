@@ -28,7 +28,6 @@ use Linkspace::Util    qw/index_by_id/;
 use linkspace::Column::Code::DependsOn;
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column';
 
 ###

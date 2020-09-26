@@ -26,7 +26,6 @@ use Linkspace::Filter ();
 use Linkspace::Util   qw/is_valid_id/;
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column';
 
 ###
@@ -47,7 +46,7 @@ sub variable_join  { 1 }
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Curval      => { layout_id => $col_id });
     $::db->delete(CurvalField => { parent_id => $col_id });
@@ -59,7 +58,7 @@ sub _column_create($)
     $insert->{related_field_id} || $insert->{related_field}
         or error __x"Please select a field that refers to this table";
 
-    $class->SUPER::_columns_create($insert);
+    $class->SUPER::_column_create($insert);
 }
 
 sub _column_update($)
@@ -102,7 +101,6 @@ sub _column_update($)
     $::db->delete(CurvalField => \%search);
 
 }
-
 
 ###
 ### Instance

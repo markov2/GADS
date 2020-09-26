@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# Test Linkspace::DB::Table maintainnig a simple list with set_record_list
+# Test Linkspace::DB::Table maintaining a simple list with set_record_list
 
 use Linkspace::Test;
 

@@ -24,6 +24,7 @@ use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column';
 
 use Log::Report 'linkspace';
+use Linkspace::Util qw/flat/;
 
 my @options = (
     default_to_login => 0,
@@ -40,29 +41,27 @@ my @person_properties = qw/
 __PACKAGE__->register_type;
 
 sub has_filter_typeahead { 1 }
-sub has_fixedvals        { 1 }
-sub option_defaults      { shift->SUPER::option_defaults(@_, @options) }
-sub retrieve_fields      { \@person_properties }
-
-### Specific to Person
-
-sub person_properties    { @person_properties }
+sub has_fixedvals   { 1 }
+sub option_defaults { shift->SUPER::option_defaults(@_, @options) }
+sub retrieve_fields { \@person_properties }
+sub sprefix         { 'value' }
+sub tjoin           { +{ $_[0]->field => 'value' } }
 
 ###
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Person => { layout_id => $col_id });
 }
+
+sub person_properties    { @person_properties }
 
 ###
 ### Instance
 ###
 
-sub sprefix { 'value' }
-sub tjoin   { +{ $_[0]->field => 'value' } }
 sub default_to_login { $_[0]->options->{default_to_login} }
 
 # Convert based on whether ID or full name provided
@@ -70,7 +69,7 @@ sub value_field_as_index
 {   my ($self, $value) = @_;
 
     my $type;
-    foreach (ref $value eq 'ARRAY' ? @$value : $value)
+    foreach (flat $value)
     {   $type = /^[0-9]*$/ ? 'id' : $self->value_field;
         last if $type ne 'id';
     }
@@ -84,17 +83,8 @@ sub resultset_for_values { $self->people }
 sub id_as_string
 {   my ($self, $id) = @_;
     my $person = $self->site->users->user($user_id) or return '';
-    $person->value;
+    $person->fullname;
 }
-
-after build_values => sub {
-    my ($self, $original) = @_;
-
-    if(my $file_option = $original->{file_options}->[0])
-    {   $self->file_options({ filesize => $file_option->{filesize} });
-    }
-};
-
 
 sub import_value
 {   my ($self, $value) = @_;

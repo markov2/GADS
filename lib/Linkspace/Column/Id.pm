@@ -32,9 +32,17 @@ __PACKAGE__->register_type;
 
 sub can_multivalue   { 0 }
 sub is_internal_type { 1 }
-sub is_userinput { 0 }
-sub value_table  { 'Current' }
-sub value_field  { 'id' }
+sub is_userinput     { 0 }
+sub sprefix          { 'current' }
+sub tjoin            {}
+sub value_field      { 'id' }
+sub value_table      { 'Current' }
+
+###
+### Class
+###
+
+sub _remove_column($) {}
 
 ###
 ### Instance
@@ -46,8 +54,6 @@ sub _is_valid_value
     error __x"'{id}' is not a valid ID", id => $value;
 }
 
-sub sprefix      { 'current' }
-sub tjoin        {}
 
 1;
 

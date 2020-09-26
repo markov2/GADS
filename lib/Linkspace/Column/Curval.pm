@@ -23,8 +23,6 @@ use Linkspace::Util qw/uniq_objects/;
 use Scalar::Util    qw/blessed/;
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
 extends 'Linkspace::Column::Curcommon';
 
 my @options = (
@@ -48,9 +46,7 @@ sub form_extras { [ qw/refers_to_sheet_id filter/ ], [ 'curval_field_ids' ] }
 ### Class
 ###
 
-###
-### Instance
-###
+# _remove_column() by base-class
 
 #XXX Create with refers_to_sheet and related_column.
 #XXX curval_field_ids defaults to all non-internal columns in refers_to_sheet
@@ -64,6 +60,10 @@ sub _validate($)
           =  exists $opt->{show_add} && $opt->{value_selector} eq 'noshow';
     }
 }
+
+###
+### Instance
+###
 
 sub value_selector  { $_[0]->options->{value_selector} // 'dropdown' }
 sub show_add        { $_[0]->options->{show_add} // 0 }

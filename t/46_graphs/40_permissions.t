@@ -4,6 +4,9 @@
 
 use Linkspace::Test;
 
+plan skip_all => 'needs support for graphs';
+
+my $site   = test_site;
 my $sheet  = test_sheet with_columns => 1;
 
 my $owner  = $sheet->owner;
@@ -16,7 +19,7 @@ my $user2 = make_user '2';
 my $group1 = $sheet->group;
 
 # Add first normal user to second group
-my $group2 = $site->groups->group_create({name => $group2});
+my $group2 = $site->groups->group_create({name => 'group2'});
 $group2->add_user($user1);
 
 ok   $user1->is_in_group($sheet->group);
@@ -24,7 +27,7 @@ ok   $user1->is_in_group($group2);
 ok   $user2->is_in_group($sheet->group);
 ok ! $user2->is_in_group($group2);
 
-ok ! @{$graphs->all_graphs}, $all_graphs, 'No graphs created yet';
+ok ! @{$graphs->all_graphs}, 'No graphs created yet';
 
 my %graph_template = (
     title        => 'Test',
@@ -90,7 +93,7 @@ $graphs->graph_create({
 
 $sheet->sheet_change({ owner => $user2 });
 
-is(_graph_count($user), 2, "Normal user can see other user shared graph");
+cmp_ok _graph_count($user1), '==', 2, "Normal user can see other user shared graph";
 
 # Try creating all user shared graph
 

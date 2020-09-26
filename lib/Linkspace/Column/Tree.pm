@@ -47,12 +47,11 @@ __PACKAGE__->register_type;
 sub db_field_extra_export { [ 'end_node_only' ] }
 sub form_extras     { [ qw/end_node_only tree/ ], [] }
 sub retrieve_fields { [ qw/id value/ ] }
-
-sub value_table     { 'Enum' }
 sub sprefix         { 'value' }
 sub suffix          { '(\.level[0-9]+)?' }
 sub tjoin           { +{ $_[0]->field => 'value' } }
 sub value_field_as_index { 'id' }
+sub value_table     { 'Enum' }
 
 ###
 ### Instance

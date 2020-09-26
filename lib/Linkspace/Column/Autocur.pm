@@ -20,7 +20,6 @@ package Linkspace::Column::Autocur;
 use Log::Report 'linkspace';
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column::Curcommon';
 
 my @options = (
@@ -31,7 +30,7 @@ my @options = (
 ### META
 ###
 
-INIT { __PACKAGE__->register_type }
+__PACKAGE__->register_type
 
 sub db_field_extra_export { [ qw/related_column_id/ ] }
 sub form_extras    { [ qw/related_field_id/ ], [ 'curval_field_ids' ] }
@@ -46,6 +45,8 @@ sub value_field    { 'id' }
 ###
 ### Class
 ###
+
+sub _remove_column($) {}  # block second call to base_class
 
 ###
 ### Instance

@@ -45,17 +45,17 @@ sub value_table  { 'Calcval' }
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Calc    => { layout_id => $col_id });
     $::db->delete(Calcval => { layout_id => $col_id });
 }
 
 sub _column_create($)
-{   my ($self, $insert) = @_;
-    my $column_id = $self->SUPER::_column_create($insert);
-    $::db->create(Calc => { layout_id => $column_id, return_type => 'string' });
-    $columns_id;
+{   my ($class, $insert) = @_;
+    my $column = $class->SUPER::_column_create($insert);
+    $::db->create(Calc => { layout_id => $column->id, return_type => 'string' });
+    $column;
 }
 
 ###

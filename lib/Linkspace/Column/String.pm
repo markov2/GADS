@@ -19,17 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::String;
 
 use Log::Report 'linkspace';
+
 use Moo;
-
 extends 'Linkspace::Column';
-
-#------------------------
-=head1 NAME
-
-Linkspace::Column::String - single line or text blocks
-
-=head1 DESCRIPTION
-=cut
 
 ###
 ### META
@@ -46,7 +38,7 @@ sub has_multivalue_plus { 1 }
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(String => { layout_id => $col_id });
 }

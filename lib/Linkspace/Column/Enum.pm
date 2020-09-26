@@ -43,18 +43,20 @@ extends 'Linkspace::Column';
 
 __PACKAGE__->register_type;
 
-sub can_multivalue  { 1 }
-sub has_fixedvals   { 1 }
-sub form_extras     { [ 'ordering' ], [ qw/enumvals enumval_ids/ ] }
-sub has_filter_typeahead { 1 }
-sub retrieve_fields { [ qw/id value deleted/] }
+sub can_multivalue       { 1 }
 sub db_field_extra_export { [ qw/ordering/ ] }
+sub form_extras          { [ 'ordering' ], [ qw/enumvals enumval_ids/ ] }
+sub has_filter_typeahead { 1 }
+sub has_fixedvals        { 1 }
+sub retrieve_fields      { [ qw/id value deleted/] }
+sub sprefix              { 'value' }
+sub value_field_as_index { 'id' }
 
 ###
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     my %col_ref = (layout_id => $_[0]->id);
 
@@ -91,9 +93,7 @@ sub _as_string(%)
 ### Instance
 ###
 
-sub sprefix  { 'value' }
 sub tjoin    { +{ $_[0]->field => 'value' } }
-sub value_field_as_index { 'id' }
 
 #------------------
 =head2 METHODS: Enum
@@ -108,11 +108,16 @@ any cell anymore.
 
 =cut
 
-has _enumvals => ( is => 'rw', lazy => 1, builder => '_build_enumvals');
+has _enumvals => (
+    is      => 'rw',
+    lazy    => 1,
+    builder => '_build_enumvals',
+);
 
-sub _build_enumvals { index_by_id $::db->search(Enumval => { layout_id => $_[0]->id })->all }
+sub _build_enumvals() {   # sometimes called to rebuild _enumvals
+    index_by_id $::db->search(Enumval => { layout_id => $_[0]->id })->all;
+}
 
-#! Returns HASHes
 sub enumvals(%)
 {   my ($self, %args) = @_;
     my $order = $args{order} || $self->ordering || 'position';

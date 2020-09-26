@@ -98,11 +98,11 @@ sub _name_test_site { 'test-site.example.com' }
 sub test_site
 {   $test_site ||= Linkspace::Site->from_hostname(_name_test_site)
         or error <<'__MISSING_SETUP';
-
+*********
 Test site information mission from the database.  Please run
     prove t/22_linkspace_test/
 to create test set-up.
-
+*********
 __MISSING_SETUP
 }
 
@@ -214,6 +214,9 @@ sub make_sheet($@)
     is logline, "info: Instance created ${\$sheet->id}: ${\$sheet->path}",
         '... logged creation of sheet '.$sheet->path;
 
+    my $internal = $sheet->layout->columns_search(only_internal => 1);
+    like logline, qr/^info: Layout created .*=$_/, "... log create column $_"
+        for map $_->name_short, @$internal;
     $sheet;
 }
 

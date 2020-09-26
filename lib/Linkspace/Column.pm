@@ -196,7 +196,8 @@ sub _validate($)
 
 sub _column_create
 {   my ($base_class, $insert, %args) = @_;
-    my $class = $type2class{$insert->{type}} or panic;
+    my $class = $type2class{$insert->{type}}  or panic;
+    $insert->{name} //= $insert->{name_short};
 
     $insert->{options} = $class->option_defaults;  # modified in validate()
     $class->_validate($insert);
@@ -224,10 +225,6 @@ sub _column_extra_update($) {}
 sub _column_update($%)
 {   my ($self, $update, %args) = @_;
     $self->_validate($update);
-
-    ! $self->is_internal
-         or error __"Internal fields cannot be edited";
-
     $self->_column_extra_update(delete $update->{extras}, %args);
 
     $self->_display_fields_update(delete $update->{display_field})
@@ -425,7 +422,7 @@ so we have to check all classes.
 
 sub remove_history()
 {   my $self = shift;
-    $_->remove_column($self) for ${$self->all_column_classes};
+    $_->_remove_column($self) for @{$self->all_column_classes};
 }
 
 =head2 \%changes = $class->collect_form($column, $sheet, \%params);
@@ -471,7 +468,6 @@ sub collect_form($$$)
     {   $changes{remember}  //= 0;
         $changes{is_unique} //= 0;
         $changes{is_optional} = exists $changes{is_optional} ? $changes{is_optional} : 1;
-        $changes{position}  //= $layout->highest_position + 1;
         $changes{width}     //= 50;
         $changes{name} or error __"Please enter a name for item";
     }

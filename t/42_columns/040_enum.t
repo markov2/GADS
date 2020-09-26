@@ -36,24 +36,6 @@ ok ! $column1->is_internal, '... not internal';
 
 ### Enum utils
 
-sub enum_dump($@) {
-    my ($title, @enumvals) = @_;
-    my @lines;
-    my $index = 0;
-    while($index < @enumvals) {
-        my $id    = $enumvals[$index]{id} // '<undef>';
-        my $value = $enumvals[$index]{value};
-        push @lines, "    \[$index\] = { id : $id, value : '$value' }\n";
-        $index += 1;
-    }
-    "$title:\n", @lines;
-}
-
-sub enum_print($@) {
-    my ($title, @enumvals) = @_;
-    print enum_dump $title, @enumvals;
-}
-
 sub enum_add($$@) {
     my ($id, $value, @enumvals) = @_;
     my %enumval_new = (value => $value);
@@ -142,17 +124,6 @@ sub enum_from_column($) {
     map { id => $_->id, value => $_->value }, @{$column->enumvals};
 }
 
-sub print_enum_from_column($$) {
-    my ($title, $column) = @_;
-    print "$title:\n";
-    for my $rec (@{$column->enumvals}) {
-        my $id       = $rec->id       // '<undef>';
-        my $value    = $rec->value    // '<undef>';
-        my $position = $rec->position // '<undef>';
-        print "    { id : $id, value : '$value', position : '$position' }\n";
-    }
-}
-
 sub initial_column($) {
     my ($name) = @_;
     my $column = $layout->column_create({
@@ -191,6 +162,14 @@ ok $layout->column_update($column2a, enum_to_vals_ids(@expected_value2a), keep_u
 like logline, qr/withdraw option 'tic'/, '... log withdrawal of \'tic\'';
 my @result_value2a = enum_from_column $column2a;
 is_deeply \@result_value2a, \@expected_value2a, '... result of withdrawal \'tic\'';
+
+is $column2a->as_string, <<'__STRING', '... as string';
+enum             column2a
+    default ordering: position
+      1   tac
+      2   toe
+      3 D tic
+__STRING
 
 ### add 'other'
 
@@ -328,33 +307,33 @@ process_test_cases($column5, @test_cases5);
 
 my $column6 = initial_column 'column6';
 my %expected_value6 = (
-  'aggregate' => undef,
-  'can_child' => 0,
-  'description' => undef,
-  'display_condition' => 'AND',
-  'enumvals' => [ 'tic', 'tac', 'toe' ],
-  'group_display' => undef,
-  'helptext' => undef,
-  'id' => $column6->id,
-  'instance_id' => $sheet->id,
-  'internal' => 0,
-  'isunique' => 0,
-  'link_parent' => undef,
-  'multivalue' => 0,
-  'name' => 'column6 (long)',
-  'name_short' => 'column6',
-  'optional' => 0,
-  'options' => '{}',
-  'ordering' => undef,
-  'permissions' => {},
-  'position' => undef,
-  'related_field' => undef,
-  'remember' => 0,
-  'textbox' => 0,
-  'topic_id' => undef,
-  'type' => 'enum',
-  'typeahead' => 0,
-  'width' => 50
+  aggregate => undef,
+  can_child => 0,
+  description => undef,
+  display_condition => 'AND',
+  enumvals => [ 'tic', 'tac', 'toe' ],
+  group_display => undef,
+  helptext => undef,
+  id => $column6->id,
+  instance_id => $sheet->id,
+  internal => 0,
+  isunique => 0,
+  link_parent => undef,
+  multivalue => 0,
+  name => 'column6 (long)',
+  name_short => 'column6',
+  optional => 0,
+  options => '{}',
+  ordering => undef,
+  permissions => {},
+  position => 11,
+  related_field => undef,
+  remember => 0,
+  textbox => 0,
+  topic_id => undef,
+  type => 'enum',
+  typeahead => 0,
+  width => 50
 );
 is_deeply $column6->export_hash, \%expected_value6, '... result of export_hash';
 

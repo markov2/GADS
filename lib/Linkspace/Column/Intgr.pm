@@ -38,6 +38,7 @@ __PACKAGE__->register_type;
 
 sub addable        { 1 }
 sub can_multivalue { 1 }
+sub is_numeric      { 1 }
 sub option_defaults { shift->SUPER::option_defaults(@_, @options) }
 sub return_type    { 'integer' }
 sub value_table    { 'Intgr' }
@@ -46,7 +47,7 @@ sub value_table    { 'Intgr' }
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Intgr => { layout_id => $col_id });
 }
@@ -55,7 +56,6 @@ sub remove_column($)
 ### Instance
 ###
 
-sub is_numeric      { 1 }
 sub show_calculator { $_[0]->options->{show_calculator} }
 
 sub _is_valid_value($)

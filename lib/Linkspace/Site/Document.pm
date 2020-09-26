@@ -123,7 +123,7 @@ sub sheet_delete($)
         or return;
 
     $self->_sheet_indexes_update($sheet => undef);
-    $sheet->delete;
+    $sheet->_sheet_delete;
     $self;
 }
 
@@ -192,6 +192,11 @@ has _column_index_by_short => (
         +{ map +($_->name_short => $_), values %$id_index };
     },
 );
+
+=head2 \@columns = $doc->all_columns;
+=cut
+
+sub all_columns { [ values %{$_[0]->_column_index_by_id} ] }
 
 =head2 my $column = $doc->column($which, %options);
 Find a column by short_name or id, over all sheets.  When different sheets
@@ -362,8 +367,10 @@ Remove a column wherever it is used.
 sub column_unuse($)
 {   my ($self, $column) = @_;
 
+=pod
     $_->filter_remove_column($column)
        for grep defined, map $_->filter, @{$self->all_columns};
+=cut
 
     $_->column_unuse($column)
        for @{$self->all_sheets};

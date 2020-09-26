@@ -525,7 +525,7 @@ sub values_by_shortname
 sub initialise
 {   my ($self, %options) = @_;
 
-    my $all_columns = $self->sheet->layout->columns_search(include_internal => 1);
+    my $all_columns = $self->sheet->layout->columns_search;
     $self->columns_retrieved_do($all_columns);
 
     my %cells;

@@ -54,7 +54,7 @@ sub include_time   { 0 }
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Date => { layout_id => $col_id });
 }

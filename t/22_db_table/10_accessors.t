@@ -29,7 +29,7 @@ __PACKAGE__->db_accessors;
 
 package main;
 
-use Linkspace::Test;
+use Linkspace::Test start_test_session => 0;
 use Log::Report;
 
 my $record = GADS::Schema::Result::Layout->new({

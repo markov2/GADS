@@ -84,7 +84,7 @@ is $cached, $person, '... same object';
 ok ! $users->_users_complete, '... admin thinks it is still incomplete';
 my $all_users = $users->all_users;
 cmp_ok @$all_users, '==', 2, '... there is only one! (administered)';  # +test_user
-is $all_users->[0], $person, "... and that's me";
+ok +(grep { $_ eq $person } @$all_users), "... and that's me";
 ok $users->_users_complete, '... all_users requested, so now admin complete';
 
 ### Update user

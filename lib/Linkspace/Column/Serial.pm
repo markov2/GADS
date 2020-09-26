@@ -18,12 +18,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Column::Serial;
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
-extends 'Linkspace::Column';
-
 use Log::Report 'linkspace';
+
+use Moo;
+extends 'Linkspace::Column';
 
 ###
 ### META
@@ -43,6 +41,8 @@ sub value_field  { 'serial' }
 ###
 ### Class
 ###
+
+sub _remove_column($) {}
 
 ###
 ### Instance

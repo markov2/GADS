@@ -38,7 +38,7 @@ sub id { 42 };
 
 package main;
 
-use Linkspace::Test;
+use Linkspace::Test start_test_session => 0;
 use Log::Report;
 
 my $conv = Test::DB::Table->_record_converter;

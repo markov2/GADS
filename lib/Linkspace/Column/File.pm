@@ -47,15 +47,17 @@ extends 'Linkspace::Column';
 __PACKAGE__->register_type;
 
 sub can_multivalue  { 1 }
-sub retrieve_fields { [ qw/name mimetype id/ ] }
 sub form_extras     { [ 'filesize' ], [] }
+sub retrieve_fields { [ qw/name mimetype id/ ] }
+sub sprefix         { 'value' }
+sub string_storage  { 1 }
 sub value_field     { 'name' }
 
 ###
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(File       => { layout_id => $col_id});
     $::db->delete(FileOption => { layout_id => $col_id});
@@ -65,9 +67,7 @@ sub remove_column($)
 ### Instance
 ###
 
-sub sprefix { 'value' }
 sub tjoin   { +{ $_[0]->field => 'value' } }
-sub string_storage { 1 }
 
 has _fileoption => (
     is      => 'rw',

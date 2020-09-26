@@ -7,8 +7,8 @@
 package Test::DB::Table;
 
 use Linkspace::DB::Table;
+
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::DB::Table';
 
 sub db_table { 'Layout' }
@@ -35,7 +35,7 @@ __PACKAGE__->db_accessors;
 
 package main;
 
-use Linkspace::Test;
+use Linkspace::Test start_test_session => 0;
 use Log::Report;
 
 my $record = GADS::Schema::Result::Layout->new({

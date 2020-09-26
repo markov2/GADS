@@ -48,7 +48,7 @@ sub sort_field     { 'from' }
 ### Class
 ###
 
-sub remove_column($)
+sub _remove_column($)
 {   my $col_id = $_[1]->id;
     $::db->delete(Daterange => { layout_id => $col_id });
 }

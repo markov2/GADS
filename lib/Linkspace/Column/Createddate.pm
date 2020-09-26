@@ -19,9 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Column::Createddate;
 
 use Log::Report 'linkspace';
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 
+use Moo;
 extends 'Linkspace::Column::Date';
 
 ###
@@ -38,6 +37,12 @@ sub value_field  { 'created' }
 sub tjoin        {}
 
 sub include_time { 1 }
+
+###
+### Class
+###
+
+sub _remove_column($) {}
 
 ###
 ### Instance

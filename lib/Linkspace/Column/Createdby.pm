@@ -23,10 +23,7 @@ use List::Util      qw/uniq/;
 use Linkspace::Util qw/index_by_id/;
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
 extends 'Linkspace::Column::Person';
-use namespace::clean;
 
 ###
 ### META
@@ -36,6 +33,12 @@ __PACKAGE__->register_type;
 
 sub is_internal_type { 1 }
 sub is_userinput { 0 }
+
+###
+### Class
+###
+
+sub _remove_column($) {}
 
 ###
 ### Instance

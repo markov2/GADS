@@ -59,7 +59,7 @@
                 <label>Update existing records where this unique value already exists:</label>
                 <select class="form-control" name="update_unique">
                     <option selected></option>
-                    [% FOR column IN layout.all("only_unique", 1, "include_internal", 1) %]
+                    [% FOR column IN layout.columns_search(only_unique => 1) %]
                         <option value="[% column.id %]">[% column.name | html_entity %]</option>
                     [% END %]
                 </select>
@@ -68,7 +68,7 @@
                 <label>Skip lines where this unique value already exists in a record:</label>
                 <select class="form-control" name="skip_existing_unique">
                     <option selected></option>
-                    [% FOR column IN layout.all("only_unique", 1, "include_internal", 1) %]
+                    [% FOR column IN layout.columns_search(only_unique => 1) %]
                         <option value="[% column.id %]">[% column.name | html_entity %]</option>
                     [% END %]
                 </select>
