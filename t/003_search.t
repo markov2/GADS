@@ -1,5 +1,6 @@
 
 use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
+
 use Linkspace::Test;
 
 # Fix all tests for this date so that CURDATE is consistent

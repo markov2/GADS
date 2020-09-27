@@ -1,12 +1,7 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-use utf8;
+# Rewrite of t/003_additional_filters.t
+use Linkspace::Test;
 
-use JSON qw(encode_json);
-use Log::Report;
-
-use t::lib::DataSheet;
+plan skip_all => 'needs curval';
 
 my $data = [
     {
@@ -15,7 +10,7 @@ my $data = [
         enum1      => 7,
         tree1      => 10,
         date1      => '2010-10-10',
-        daterange1 => ['2000-10-10', '2001-10-10'],
+        daterange1 => [ '2000-10-10', '2001-10-10' ],
         curval1    => 1,
         person1    => 1,
         file1      => {
@@ -30,25 +25,19 @@ my $data = [
         enum1      => 8,
         tree1      => 11,
         date1      => '2011-10-10',
-        daterange1 => ['2000-11-11', '2001-11-11'],
+        daterange1 => [ '2000-11-11', '2001-11-11' ],
         curval1    => 2,
     },
 ];
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
-my $sheet   = t::lib::DataSheet->new(
-    data             => $data,
-    schema           => $schema,
-    curval           => 2,
-    curval_field_ids => [$curval_sheet->columns->{string1}->id, $curval_sheet->columns->{enum1}->id],
+my $curval_sheet = make_sheet 2;
+
+my $sheet   = make_sheet 1,
+    rows             => $data,
+    curval_sheet     => $curval_sheet,
+    curval_columns   => [ 'string1', 'enum1' ],
     calc_code        => qq(function evaluate (L1string1) \n return L1string1 .. "XX" \nend),
-    calc_return_type => 'string',
-);
-my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
-$sheet->create_records;
+    calc_return_type => 'string';
 
 my @tests = (
     {
@@ -157,19 +146,15 @@ my @tests = (
 
 foreach my $test (@tests)
 {
-    my $filters = [
-            +{
-                id    => $columns->{$test->{col}}->id,
-                value => $test->{search},
-            }
-    ];
-    my $records = GADS::Records->new(
-        additional_filters => $filters,
-        user               => $sheet->user,
-        layout             => $layout,
-        schema             => $schema,
-    );
-    is($records->count, $test->{count}, "Count correct for additional filters $test->{name}");
+    my $filter = +{
+        column => $test->{col},
+        value  => $test->{search},
+    };
+
+    my $results = $sheet->content->search(additional_filters => $filter);
+
+    cmp_ok $results->count, '==',  $test->{count},
+        "Count correct for additional filters $test->{name}";
 }
 
 done_testing();
