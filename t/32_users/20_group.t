@@ -13,7 +13,7 @@ isa_ok $groups, 'Linkspace::Site::Users', '... handled by ::Users object';
 ### Create first group
 
 my $all1 = $groups->all_groups;
-cmp_ok @$all1, '==', 1, '... no groups yet';  # +test_group
+cmp_ok @$all1, '==', 0, '... no groups yet';
 
 my $g1 = $groups->group_create({name => 'group1'});
 ok defined $g1, 'Created first group';
@@ -27,8 +27,8 @@ my $path1 = $g1->path;
 is logline, "info: Group created $g1_id: $path1", '... logged';
 
 my $all2 = $groups->all_groups;
-cmp_ok @$all2, '==', 2, '... indexed first group'; # new+test_group
-is $all2->[1], $g1, '... is first created group';
+cmp_ok @$all2, '==', 1, '... indexed first group';
+is $all2->[0], $g1, '... is first created group';
 
 my $g1b = $groups->group($g1_id);
 ok defined $g1b, '... addressed first group by id';
@@ -68,10 +68,9 @@ isnt $g2, $g1, '... is different group';
 is logline, "info: Group created ${\$g2->id}: ${\$g2->path}", '... logged';
 
 my $all3 = $groups->all_groups;  # ordered alphabetically
-cmp_ok @$all3, '==', 3, '... indexed two groups';   # 2 created + test_group
-is $all3->[0], test_group, '... test_group';
-is $all3->[1], $g1, '... is first created group';
-is $all3->[2], $g2, '... is second created group';
+cmp_ok @$all3, '==', 2, '... indexed two groups';   # 2 created
+is $all3->[0], $g1, '... is first created group';
+is $all3->[1], $g2, '... is second created group';
 
 
 #### Permissions
@@ -113,6 +112,6 @@ my $g2b = Linkspace::Group->from_id($g2->id);
 ok defined $g2b, '... second group still there';
 
 my $all4 = $groups->all_groups;
-cmp_ok @$all4, '==', 2, '... removed from group index';  # 3-1=2
+cmp_ok @$all4, '==', 1, '... removed from group index';
 
 done_testing;

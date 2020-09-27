@@ -16,8 +16,7 @@ my $sheet   = make_sheet 1,
     curval_sheet       => $curval_sheet,
     multivalue_columns => { curval1 => 1 },
     curval_offset      => 6,
-    curval_columns     => [ 'string1' ],
-);
+    curval_columns     => [ 'string1' ];
 
 foreach my $order (qw/asc desc/)
 {
@@ -28,12 +27,12 @@ foreach my $order (qw/asc desc/)
     my $expect = $order eq 'asc' ? "foo1 foo2 foo3 foo4" : "foo4 foo3 foo2 foo1";
 
     my $row1   = $sheet->content->row(5);   #XXX 5 = 4 current_ids in cursheet + 1
-    my @cells1 = map $_->{values}[0]->as_string, @{$row1->cell('curval1')->values},
-    is "@$cells1", $expect, "Curvals in correct order for sort $order";
+    my @cells1 = map $_->{values}[0]->as_string, @{$row1->cell('curval1')->values};
+    is "@cells1", $expect, "Curvals in correct order for sort $order";
 
     my $row2   = $sheet->content->search->row(1);
-    my @cells2 = [ map $_->{values}[0]->as_string, @{$row2->cell('curval1')->values};
-    is "@$cells2", $expect, "Curvals in correct order for sort $order";
+    my @cells2 = map $_->{values}[0]->as_string, @{$row2->cell('curval1')->values};
+    is "@cells2", $expect, "Curvals in correct order for sort $order";
 }
 
 done_testing;
