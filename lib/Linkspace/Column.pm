@@ -181,9 +181,9 @@ sub _validate($)
     # a single type.  But in other cases, specifics are stored in an 'options' HASH
     # which is kept as JSON (hence not searchable)  Updates are tricky.
     my $opts = $update->{options};
-    foreach my $name ($thing->option_names)
+    foreach my $name ( @{$thing->option_names} )
     {   exists $update->{$name} or next;
-        $opts ||= ref $thing ? $thing->options : $thing->option_defaults;
+        $opts ||= ref $thing ? $thing->_options : $thing->option_defaults;
         $opts->{$name} = delete $update->{$name} // 0;  # some are bools
     }
     $update->{options} = $opts if $opts;
