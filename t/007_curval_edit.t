@@ -9,15 +9,13 @@ use t::lib::DataSheet;
 
 foreach my $delete_not_used (0..1)
 {
-    my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-    $curval_sheet->create_records;
-    my $schema  = $curval_sheet->schema;
+    my $curval_sheet  = make_sheet 2;
+    my $curval_layout = $curval_sheet->layout;
 
-    my $sheet   = t::lib::DataSheet->new(
-        schema           => $schema,
-        curval           => 2,
+    my $sheet   = make_sheet 1,
+        curval_sheet     => $curval_sheet,
         curval_offset    => 6,
-        curval_field_ids => [ $curval_sheet->columns->{string1}->id ],
+        curval_columjs   => [ 'string1' ],
         calc_return_type => 'string',
         calc_code        => qq{function evaluate (L1curval1)
             if L1curval1 == nil then
@@ -31,16 +29,15 @@ foreach my $delete_not_used (0..1)
         end},
     );
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
-    $sheet->create_records;
 
     # Add autocur and calc of autocur to curval sheet, to check that gets
     # updated on main sheet write
-    my $autocur = $curval_sheet->add_autocur(  #XXX
-        refers_to_sheet   => $sheet,
-        related_column    => [ 'curval1 ' ],
-        curval_columns    => [ 'string1' ],
-        curval_sheet      => $sheet,
+    my $autocur = $curval_sheet->layout->column_create({
+        type            => 'autocur',
+        refers_to_sheet => $sheet,
+        related_column  => [ 'curval1 ' ],
+        curval_columns  => [ 'string1' ],
+        curval_sheet    => $sheet,   #XXX
     );
 
     $curval_sheet->layout->column_update(calc1 => { code => <<'__CODE' });
@@ -63,68 +60,65 @@ __CODE
         value_selector  => 'noshow',
     });
 
-    my $record = GADS::Record->new(
-        user   => $sheet->user_normal1,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record->find_current_id(3);
-    my $curval_datum = $record->fields->{$curval->id};
-    is( $curval_datum->as_string, '', "Curval blank to begin with");
+    my $row = $sheet->content->row(3);
+
+#XXX now it gets hairy
+
+    my $curval_datum = $row->cell('curval1');
+    is $curval_datum, '', "Curval blank to begin with";
 
     # Add a value to the curval on write
-    my $curval_count = $schema->resultset('Current')->search({ instance_id => 2 })->count;
+    my $curval_count = $curval_sheet->nr_rows;
+
     my $curval_string = $curval_sheet->columns->{string1};
-    $curval_datum->set_value([$curval_string->field."=foo1"]);
-    $record->write(no_alerts => 1);
-    is($record->fields->{$calcmain->id}->as_string, "foo1", "Main calc correct");
-    my $curval_count2 = $schema->resultset('Current')->search({ instance_id => 2 })->count;
-    is($curval_count2, $curval_count + 1, "New curval record created");
-    $record->clear;
-    $record->find_current_id(3);
-    is($record->fields->{$calcmain->id}->as_string, "foo1", "Main calc correct after load");
-    $curval_datum = $record->fields->{$curval->id};
-    is($curval_datum->as_string, 'foo1', "Curval value contains new record");
+    $row->cell_update(curval1 => [ $curval_string->field_name."=foo1"] );
+
+    is $row->cell('calc1'), "foo1", "Main calc correct";
+    my $curval_count2 = $curval_sheet->nr_rows;
+    is $curval_count2, $curval_count + 1, "New curval record created";
+
+    $record = $sheet->content->row(3);
+    is $record->fields->{$calcmain->id}->as_string, "foo1", "Main calc correct after load";
+
+    $curval_datum = $record->cell('curval1');
+    is $curval_datum, 'foo1', "Curval value contains new record";
     my $curval_record_id = $curval_datum->ids->[0];
 
     # Check full curval field that has been written
-    my $curval_record = GADS::Record->new(
-        user   => $curval_sheet->user_normal1,
-        layout => $curval_sheet->layout,
-        schema => $schema,
-    );
-    $curval_record->find_current_id($curval_record_id);
-    is($curval_record->fields->{$calc->id}->as_string, 50, "Calc from autocur of curval correct");
+    my $curval_record = $curval_sheet->content->row($curval_record_id);
+    is $curval_record->cell('calc1'), 50, "Calc from autocur of curval correct";
 
     # Add a new value, keep existing
-    $curval_count = $schema->resultset('Current')->search({ instance_id => 2 })->count;
-    $curval_datum->set_value([$curval_string->field."=foo2", $curval_record_id]);
-    $record->write(no_alerts => 1);
-    is($record->fields->{$calcmain->id}->as_string, "foo1foo2", "Main calc correct");
-    $curval_count2 = $schema->resultset('Current')->search({ instance_id => 2 })->count;
-    is($curval_count2, $curval_count + 1, "Second curval record created");
-    $record->clear;
-    $record->find_current_id(3);
-    is($record->fields->{$calcmain->id}->as_string, "foo1foo2", "Main calc correct");
-    $curval_datum = $record->fields->{$curval->id};
-    like($curval_datum->as_string, qr/^(foo1; foo2|foo2; foo1)$/, "Curval value contains second new record");
-    $record->clear;
+    $curval_count = $curval_sheet->nr_rows;
+    $record->cell_update(curval1 => [ $curval_string->field_name."=foo2", $curval_record_id ]);
+
+    is $record->cell('calc1'), "foo1foo2", "Main calc correct";
+
+    $curval_count2 = $curval_sheet->nr_rows;
+    is $curval_count2, $curval_count + 1, "Second curval record created";
+
+    my $record1b = $sheet->content->row(3);
+    isnt $record1b, $record, 'Reload produces different object';
+
+    is $record1b->cell('calc1'), "foo1foo2", "Main calc correct";
+    $curval_datum = $record->cell('curval1');
+    like $curval_datum, qr/^(foo1; foo2|foo2; foo1)$/, "Curval value contains second new record";
+
     # Check autocur from added curval
-    $record->find_current_id(6);
-    is($record->fields->{$calc->id}->as_string, "50", "Autocur calc correct");
+    my $row3 = $sheet->content->row(6);
+    is $row3->cell('calc1'), "50", "Autocur calc correct";
 
     # Edit existing
-    $record->clear;
-    $record->find_current_id(3);
-    $curval_datum = $record->fields->{$curval->id};
-    $curval_count = $schema->resultset('Current')->search({ instance_id => 2 })->count;
-    my ($d) = map { $_->{id} } grep { $_->{field_values}->{L2string1} eq 'foo2' }
+    my $row4 = $sheet->content->row(3);
+    $curval_datum = $row4->cell('curval1');
+    $curval_count = $sheet->content->nr_rows;
+    my ($d) = map $_->{id}, grep { $_->{field_values}->{L2string1} eq 'foo2' }
         @{$curval_datum->for_code};
-    $curval_datum->set_value([$curval_string->field."=foo5&current_id=$d", $curval_record_id]);
-    $record->write(no_alerts => 1);
-    $curval_count2 = $schema->resultset('Current')->search({ instance_id => 2 })->count;
-    is($curval_count2, $curval_count, "No new curvals created");
-    $record->clear;
+    $row->cell_update(curval1 => [$curval_string->field_name."=foo5&current_id=$d", $curval_record_id]);
+    $curval_count2 = $sheet->content->nr_rows;
+    is $curval_count2, $curval_count, "No new curvals created";
+#XXXX
+
     $record->find_current_id(3);
     is($record->fields->{$calcmain->id}->as_string, "foo1foo5", "Main calc correct");
     $curval_datum = $record->fields->{$curval->id};
@@ -147,13 +141,7 @@ __CODE
     like($curval_datum->as_string, qr/^(foo1; foo6|foo6; foo1)$/, "Curval value contains updated and unchanged records");
 
     # Edit existing - no actual change
-    $record = GADS::Record->new(
-        user                 => $sheet->user_normal1,
-        layout               => $layout,
-        schema               => $schema,
-        curcommon_all_fields => 1,
-    );
-    $record->find_current_id(3);
+    $record = $sheet->content->row(3);
     $curval_datum = $record->fields->{$curval->id};
     $curval_count = $schema->resultset('Current')->search({ instance_id => 2 })->count;
     $curval_datum->set_value([

@@ -1,31 +1,16 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-use utf8;
-
-use Log::Report;
-
-use t::lib::DataSheet;
-
 # Tests to check that a curval field can refer to the same table
 
+use Linkspace::Test;
+
 my $data = [
-    {
-        string1 => 'foo1',
-    },
-    {
-        string1 => 'foo2',
-    },
+    { string1 => 'foo1' },
+    { string1 => 'foo2' },
 ];
 
-my $sheet   = t::lib::DataSheet->new(
-    data => $data,
-);
+my $sheet   = make_sheet 1,
+    rows => $data;
+
 my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
-$sheet->create_records;
-my $schema = $sheet->schema;
-my $user   = $sheet->user;
 
 my $string = $columns->{string1};
 # Create another curval fields that would cause a recursive loop. Check that it
@@ -35,26 +20,19 @@ my $curval = GADS::Column::Curval->new(
     user   => $user,
     layout => $layout,
 );
-$curval->refers_to_instance_id($layout->instance_id);
-$curval->curval_field_ids([$columns->{string1}->id]);
-$curval->type('curval');
-$curval->name('curval1');
-$curval->set_permissions({$sheet->group->id => $sheet->default_permissions});
-$curval->write;
 
-my $record = GADS::Record->new(
-    user   => $sheet->user,
-    schema => $schema,
-    layout => $layout,
-);
-$record->initialise;
-$record->fields->{$string->id}->set_value('foo3');
-$record->fields->{$curval->id}->set_value(1);
-$record->write(no_alerts => 1);
+my $curval = $sheet->layout->column_create({
+    type            => 'curval',
+    name            => 'curval1',
+    refers_to_sheet => $sheet,
+    curval_columns  => [ 'string1' ],
+    permissions     => [ $sheet->group => $sheet->default_permissions ],
+});
+   
+my $row1 = $sheet->content->row_create;
+$row1->revision_create({ string1 => 'foo3', curval1 => 1 });
 
-$record->clear;
-$record->find_current_id(3);
+my $row1b = $sheet->content->row(3);  # reload
+is $row1b->cell('curval1'),  "foo1", "Curval with ID correct";
 
-is($record->fields->{$curval->id}->as_string, "foo1", "Curval with ID correct");
-
-done_testing();
+done_testing;

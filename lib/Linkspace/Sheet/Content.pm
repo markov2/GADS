@@ -450,8 +450,8 @@ sub _build__search_all_fields
     my @columns_can_view;
     my $all_columns = $self->layout->columns_search(user_can_read => 1);
     foreach my $col (@$all_columns)
-    {   push @columns_can_view, $col->id;
-        push @columns_can_view, @{$col->curval_field_ids}
+    {   push @columns_can_view, $col;
+        push @columns_can_view, @{$col->curval_columns}
             if $col->type eq 'curval'; # Curval type needs all its columns from other layout
     }
 

@@ -94,11 +94,12 @@ sub write_props
     $field->_set_options   ($new->{options});
     $field->enumvals       ($new->{enumvals})
         if $field->type eq 'enum';
+
     if ($field->type eq 'curval')
     {
-        $field->curval_field_ids($new->{curval_field_ids});
-        my ($random) = @{$field->curval_field_ids};
-        $field->refers_to_instance($layout->column($random)->layout->instance_id);
+        $field->curval_columns($new->{curval_field_ids});
+        my ($any_column) = @{$field->curval_columns};
+        $field->refers_to_instance($any_column->sheet->id);
     }
     $field->write(no_cache_update => 1, create_missing_id => 1); # Create any new enums, with existing IDs
 }

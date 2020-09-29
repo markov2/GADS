@@ -21,20 +21,18 @@ my $data = [
     },
 ];
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
-my $schema = $curval_sheet->schema;
+my $curval_sheet = make_sheet 2;
 
-my $sheet    = t::lib::DataSheet->new(data => $data, curval => 2, schema => $schema);
+my $sheet    = make_sheet 1
+    rows         => $data,
+    curval_sheet => $curval_sheet;
 my $layout   = $sheet->layout;
+
 my $showcols = $layout->columns(exclude_internal => 1);
 
-my $records = GADS::Records->new(
+my $records = $sheet->content->search(
     from    => DateTime->now,
-    user    => undef,
     columns => $showcols,
-    layout  => $layout,
-    schema  => $schema,
 );
 
 # 4 for all main sheet1 values, plus 4 for referenced curval fields
@@ -537,9 +535,7 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
             string1    => '', # Test blank
         },
     ];
-    my $curval_sheet = t::lib::DataSheet->new(data => $data, instance_id => 2);
-    $curval_sheet->create_records;
-    my $schema   = $curval_sheet->schema;
+    my $curval_sheet = make_sheet rows => $data;
 
     $data = [
         {
@@ -564,13 +560,11 @@ is( @{$records->data_timeline->{items}}, 1, "Filter, single column and limited r
         },
     ];
 
-    my $sheet    = t::lib::DataSheet->new(
-        data             => $data,
-        curval           => 2,
-        schema           => $schema,
-        curval_field_ids => [$curval_sheet->columns->{string1}->id],
+    my $sheet    = make_sheet 1,
+        rows             => $data,
+        curval_sheet     => $curval_sheet,
+        curval_columns   => [ 'string1' ],
     );
-    $sheet->create_records;
     my $layout   = $sheet->layout;
 
 

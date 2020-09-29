@@ -369,7 +369,7 @@ foreach my $todo (@columns_todo)
     }
 
     if(my $curval_ids = $data->{curval_field_ids}})
-    {   $data->{curval_field_ids} = map $column_ext2int{$_}, @$curval_ids;
+    {   $data->{curval_columns} = [ map $column_ext2int{$_}, @$curval_ids ];
     }
 
     if(my $filter_json = $data->{filter})

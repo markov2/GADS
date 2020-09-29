@@ -3,6 +3,7 @@
 [% PROCESS snippets/layout_permissions.tt %]
 [% PROCESS snippets/layout_modals.tt %]
 
+[% all_sheets = site.document.all_sheets %]
 [% BLOCK field_properties %]
     <h3>Field properties</h3>
 
@@ -103,12 +104,12 @@
     [% END %]
     <div class="form-group">
         <label for="link_parent_id">Link to a field in another table:</label>
-        [% IF instance_layouts.size %]
+        [% IF all_sheets.size %]
             <select class="form-control" id="link_parent_id" name="link_parent_id">
                 <option value="">&lt;Not linked&gt;</option>
-                [% FOREACH instance_layout IN instance_layouts %]
-                    [% FOREACH c IN instance_layout.all %]
-                        <option value="[% c.id %]" [% IF column.link_parent.id == c.id %]selected[% END %]>[% instance_layout.name | html %] - [% c.name | html %]</option>
+                [% FOREACH other_sheet IN all_sheets %]
+                    [% FOREACH c IN other_sheet.layout.all+columns %]
+                        <option value="[% c.id %]" [% IF column.link_parent.id == c.id %]selected[% END %]>[% other_sheet.name | html %] - [% c.name | html %]</option>
                     [% END %]
                 [% END %]
             </select>
@@ -224,7 +225,7 @@
     </div>
     <div class="field-options curval">
         <h4>Field options</h4>
-        [% IF instance_layouts.size %]
+        [% IF all_sheets.size %]
             [% rti = column.related_sheet_id %]
             <div class="form-group">
                 <label for="value_selector">Type of value selector:</label>
@@ -264,23 +265,23 @@
                     [% IF NOT rti %]
                         <option></option>
                     [% END %]
-                    [% FOREACH instance_layout IN instance_layouts %]
-                        <option value="[% instance_layout.instance_id %]" [% IF rti == instance_layout.instance_id %]selected[% END %]>[% instance_layout.name | html_entity %]</option>
+                    [% FOREACH other_sheet IN all_sheets %]
+                        <option value="[% other_sheet.id %]" [% IF rti == other_sheet.id %]selected[% END %]>[% other_sheet.name | html_entity %]</option>
                     [% END %]
                 </select>
             </div>
-            [% FOREACH instance_layout IN instance_layouts %]
-                <div id="instance_fields_[% instance_layout.instance_id %]" class="instance_fields"
-                    [% IF (rti AND instance_layout.instance_id != rti) OR NOT rti %]
+            [% FOREACH other_sheet IN all_sheets %]
+                <div id="instance_fields_[% other_sheet.id %]" class="instance_fields"
+                    [% IF (rti AND other_sheet.id != rti) OR NOT rti %]
                         style="display:none"
                     [% END %]
                     >
                     <div class="form-group">
                         <label for="curval_instance">Show these fields:</label>
-                        [% FOREACH c IN instance_layout.all %]
+                        [% FOREACH c IN layout.all_columns %]
                             [% NEXT IF c.type == "curval" %]
                             [% checked = "" %]
-                            [% IF instance_layout.instance_id == rti AND column.has_curval_field(c.id) %]
+                            [% IF c.id == rti AND column.has_curval_field(c.id) %]
                                 [% checked = "checked" %]
                             [% END %]
                             <div class="checkbox">
@@ -291,15 +292,15 @@
                         [% END %]
                     </div>
                     <div class="form-group">
-                            <label for="builder[% instance_layout.instance_id %]">Apply the following filters to records in the selected table:</label>
-                            <div id="builder[% instance_layout.instance_id %]"></div>
+                            <label for="builder[% other_sheet.id %]">Apply the following filters to records in the selected table:</label>
+                            <div id="builder[% other_sheet.id %]"></div>
                     </div>
                 </div>
             [% END %]
-            <input id="filter" type="hidden" name="filter" value="[% column.filter.as_json | html_entity %]">
+            <input id="filter" type="hidden" name="filter" value="[% column.filter_json | html_entity %]">
         [% ELSE %]
             <div class="alert alert-info">
-                No other instances are available to select data from
+                No other sheets are available to select data from.
             </div>
         [% END %]
     </div>
@@ -458,23 +459,22 @@
                         <option></option>
                     [% END %]
                     [% FOREACH referring IN layout.referred_by %]
-                        <option data-instance_id=[% referring.instance_id %] value="[% referring.id %]" [% IF column.related_field_id == referring.id %]selected[% END %]>[% referring.name | html_entity %]</option>
+                        <option data-instance_id=[% referring.sheet.id %] value="[% referring.id %]" [% IF column.related_field_id == referring.id %]selected[% END %]>[% referring.name | html_entity %]</option>
                     [% END %]
                 </select>
             </div>
-            [% FOREACH instance IN layout.referred_by %]
-                [% instance = instances_object.layout(instance.instance_id) %]
-                <div id="autocur_instance_[% instance.instance_id %]" class="autocur_instance"
-                    [% IF !column.related_sheet_id OR column.related_sheet_id != instance.instance_id %]
+            [% FOREACH other_sheet IN layout.referred_by %]
+                <div id="autocur_instance_[% other_sheet.id %]" class="autocur_instance"
+                    [% IF !column.related_sheet_id OR column.related_sheet_id != other_sheet.id %]
                         style="display:none"
                     [% END %]
                     >
                     <div class="form-group">
                         <label for="curval_instance">Columns to show:</label>
-                        [% FOREACH c IN instance.all %]
+                        [% FOREACH c IN other_sheet.layout.all_columns %]
                             [% NEXT IF c.type == "curval" %]
                             [% checked = "" %]
-                            [% IF instance.instance_id == column.related_sheet_id AND column.has_curval_field(c.id) %]
+                            [% IF other_sheet.id == column.related_sheet_id AND column.has_curval_field(c.id) %]
                                 [% checked = "checked" %]
                             [% END %]
                             <div class="checkbox">
@@ -495,7 +495,7 @@
 [% END %]
 
 [% BLOCK edit_field %]
-    <h2 class="edit-field">[% IF column.id %]Edit field[% ELSE %]Add a field to [% instance_name | html %][% END %]</h2>
+    <h2 class="edit-field">[% IF column.id %]Edit field[% ELSE %]Add a field to [% sheet.name | html %][% END %]</h2>
 
     <div class="tab-interface">
         <ul role="tablist">
@@ -540,7 +540,7 @@
 [% END %]
 
 [% BLOCK list_fields %]
-    <h2 class="list-fields">Manage fields in [% instance_name | html %]</h2>
+    <h2 class="list-fields">Manage fields in [% sheet.name | html %]</h2>
 
     <p class="lead">
         Each field is a column in your table. You can control which groups of users can see, edit and delete each field.
@@ -719,8 +719,8 @@
 
                 [% fiilter    = column.filter %]
                 [% filter_b64 = filter ? filter.base64 : undef %]
-                [% FOREACH instance_layout IN instance_layouts %]
-                    [% PROCESS builder.tt builder_id = instance_layout.instance_id builder_layout = instance_layout filter_normal = filter filter_base64 = filter_b64 override_permissions = 1 %]
+                [% FOREACH other_sheet IN all_sheets %]
+                    [% PROCESS builder.tt builder_id = other_sheet.id builder_layout = other_sheet.layout filter_normal = filter filter_base64 = filter_b64 override_permissions = 1 %]
                 [% END %]
                 [% IF column.filter.has_value %]
                     var data = base64.decode('[% filte_rb64 %]');

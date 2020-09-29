@@ -186,7 +186,7 @@ sub refresh
 #XXX table does not exist yet
         $c{$_}++ for $::db->search(ComponentVersions => {
             site_id => $self->id,
-            updated => { \'>', $self->last_check },
+            updated => { \ '>', $self->last_check },
         }, { column => 'component' })->all;
         $self->last_check($now);
     }

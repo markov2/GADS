@@ -243,11 +243,6 @@ sub multivalue_rs
     });
 }
 
-sub random
-{   my $self = shift;
-    $self->all_ids->[rand @{$self->all_ids}];
-}
-
 sub import_value
 {   my ($self, $value) = @_;
 

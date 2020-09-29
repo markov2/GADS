@@ -57,6 +57,7 @@ my $column2 = $sheet->layout->column_create({
     name_short    => 'column2',
     is_multivalue => 1,
     is_optional   => 1,
+show_datepicker => 1,
 });
 logline;
 

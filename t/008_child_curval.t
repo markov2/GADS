@@ -1,14 +1,5 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
 
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Record;
-use GADS::Records;
-use GADS::Schema;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 my $data = [
     {
@@ -21,11 +12,11 @@ my $data = [
     },
 ];
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
+my $curval_sheet = make_sheet 2, rows => [];
 
-my $schema = $curval_sheet->schema;
-my $sheet = t::lib::DataSheet->new(data => $data, curval => 2, schema => $schema);
+my $sheet        = make_sheet 1,
+   curval_sheet => $curval_sheet,
+   rows         => $data;
 
 my $layout = $sheet->layout;
 my $columns = $sheet->columns;
@@ -35,50 +26,25 @@ $sheet->create_records;
 # parent and child. Normally the child would not be shown in these
 # circumstances, but we do want it to be for an autocur so that all related
 # records are shown.
-my $autocur1 = $curval_sheet->add_autocur(
-    refers_to_instance_id => 1,
-    related_field_id      => $columns->{curval1}->id,
-    curval_field_ids      => [$columns->{integer1}->id],
+my $autocur1 = $curval_sheet->layout->column_create({
+    type            => 'autocur',
+    refers_to_sheet  => $sheet,
+    related_field    => 'curval1',
+    curval_columns   => [ 'integer1' ],
 );
 
-my $parent = GADS::Records->new(
-    user     => $sheet->user,
-    layout   => $layout,
-    schema   => $schema,
-)->single;
+my $parent = $sheet->content->search->row(1);
 
 # Set up field with child values
-my $string1 = $columns->{string1};
-$string1->set_can_child(1);
-$string1->write;
-$layout->clear;
+$layout->column_update(string1 => { can_child => 1 });
 
-# Create child
-my $child = GADS::Record->new(
-    user     => $sheet->user,
-    layout   => $layout,
-    schema   => $schema,
-);
-$child->parent_id($parent->current_id);
-$child->initialise;
+my $row2 = $layout->content->row_create({ parent => $parent });
+$row2->revision_create({string1 => 'Foobar');
 
-$child->fields->{$string1->id}->set_value('Foobar');
-$child->write(no_alerts => 1);
+my $results = $sheet->content->search;
+cmp_ok $results->count, '==', 2, "Parent and child records exist";
 
-my $records = GADS::Records->new(
-    user     => $sheet->user,
-    layout   => $layout,
-    schema   => $schema,
-);
+my $curval_row = $curval_sheet->content->row(1);
+is $curval_row->cell($autocur1), "10; 10", "Autocur value correct";
 
-is($records->count, 2, "Parent and child records exist");
-
-my $curval_record = GADS::Record->new(
-    user     => $sheet->user,
-    layout   => $curval_sheet->layout,
-    schema   => $schema,
-);
-$curval_record->find_current_id(1);
-is($curval_record->fields->{$autocur1->id}->as_string, "10; 10", "Autocur value correct");
-
-done_testing();
+done_testing;

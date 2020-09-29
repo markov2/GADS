@@ -1,20 +1,8 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
 
-use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Filter;
-use Linkspace::Layout;
-use GADS::Column::Calc; # Needed after Linkspace::Layout otherwise module loading problems
-use GADS::Record;
-use GADS::Records;
-use GADS::Schema;
+use Linkspace::Test;
 
-use t::lib::DataSheet;
-
-set_fixed_time('10/22/2014 01:00:00', '%m/%d/%Y %H:%M:%S'); # Fix all tests for _version_datetime calc
+# Fix all tests for _version_datetime calc
+set_fixed_time('10/22/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
 
 my $data = [
     {
@@ -32,10 +20,12 @@ my $data = [
     },
 ];
 
-my $sheet         = make_sheet '2',
-    data          => $data,
+my $curval_sheet = make_sheet 2, rows => [];
+
+my $sheet         = make_sheet 1,
+    rows          => $data,
     user_count    => 2,
-    curval        => 2,
+    curval_sheet  => curval_sheet,
     curval_fields => [ 'string1', 'date1' ],
     calc_code     => "function evaluate (L1daterange1) \n return L1daterange1.from.epoch \n end",
     calc_return_type => 'date',
@@ -43,15 +33,12 @@ my $sheet         = make_sheet '2',
 my $layout       = $sheet->layout;
 my $colperms     = { $sheet->group->id => $sheet->default_permissions };
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
-
-my $autocur1 = $curval_sheet->add_autocur(
-    curval_field_ids      => [$columns->{daterange1}->id],
-    refers_to_instance_id => 1,
-    related_field_id      => $columns->{curval1}->id,
+my $autocur1 = $curval_sheet->layout->columns_create({
+    type             => 'autocur',
+    curval_columns   => [ 'daterange1' ],
+    refers_to_sheet  => $sheet,
+    related_column   => 'curval1';
 );
-$layout->clear; # Ensure main layout takes account of its new child autocurs
 
 # Check that numeric return type from calc can be used in another calc
 my $calc_integer = $layout->column_create({
@@ -421,13 +408,13 @@ foreach my $test (@tests)
         try { $record->write } hide => 'WARNING'; # Hide warnings from invalid calc fields
         $@->reportFatal; # In case any fatal errors
         my $after = $test->{after};
-        $after =~ s/__ID/$cid/ unless ref $after eq 'Regexp';
+        $after =~ s/__ID/$cid/        unless ref $after eq 'Regexp';
         $after =~ s/__SERIAL/$serial/ unless ref $after eq 'Regexp';
         if (my $rcid = $test->{record_check})
-        {
-            $record_check->clear;
+        {   $record_check->clear;
             $record_check->find_current_id($rcid);
         }
+
         $after = qr/^$after$/ unless ref $after eq 'Regexp';
         is(ref $_, $ref, "Return value is not a reference or correct reference")
             foreach @{$record_check->fields->{$code_col->id}->value};
@@ -501,29 +488,30 @@ restore_time();
         ",
         calc_return_type => 'string';
 
-    my $calc    = $layout->column('calc1');
     my $int     = $layout->column('integer1');
 
-    $layout->column_update($calc => { is_multivalue => 1 });
+    $layout->column_update(calc1 => { is_multivalue => 1 });
 
-    my $record = $layout->row_create({});
+    my $row = $layout->row_create;
 
     # First test number of elements being returned and written
     # One element returned
-    $record->cell_update($int => 1);
+    $row->revision_create({integer1 => 1});
 
     my $rset = $schema->resultset('Calcval');
     cmp_ok $rset->count, '==', 1, "Correct number of calc values written to database";
 
-    my $datum = $record->cell($calc);
+    my $datum = $row->cell($calc);
     is $datum->as_string, "10", "Correct multivalue calc value, one element";
 
     # Now return 2 elements
-    $record->cell_update($int => 2);
-    $datum->re_evaluate;
     is($rset->count, 1, "Second calc value not yet written to database");
+    $row->revision_create({integer1 => 2});
+    $datum->re_evaluate;
+
     is($datum->as_string, "10, 10", "Correct multivalue calc value for 2 elements");
     $datum->write_value;
+
     is($rset->count, 2, "Second calc value written to database");
 
     # Test changed status of datum. Should only update after change and
@@ -534,7 +522,7 @@ restore_time();
     $datum = $record->cell($calc);
 
     # Third element
-    $record->cell_update($int => 3);
+    $row->revision_create({integer1 => 3});
 
     # Not changed to begin with
     ok ! $datum->changed, "Calc value not changed";
@@ -841,70 +829,42 @@ foreach my $multi (0..1)
         },
     );
 
-    my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-    $curval_sheet->create_records;
-    my $schema       = $curval_sheet->schema;
+    my $curval_sheet = make_sheet 2;
+
     my $sheet        = t::lib::DataSheet->new(
-        data             => $data,
+        rows             => $data,
         multivalue       => 1,
-        schema           => $schema,
-        curval           => 2,
-        curval_field_ids => [ $curval_sheet->columns->{string1}->id, $curval_sheet->columns->{date1}->id ],
+        curval_sheet     => $curval_sheet,
+        curval_columns   => [ 'string1', 'date1' ],
         calc_return_type => 'string',
         # Prevent warnings from code that doesn't evaluate correctly
         calc_code        => "function evaluate (L1daterange1) \n return 1234 \n end",
         rag_code         => "function evaluate (L1daterange1) \n return \"green\" \n end",
     );
     my $layout       = $sheet->layout;
-    my $columns      = $sheet->columns;
-    $sheet->create_records;
 
     my @cols = qw/daterange1 curval1 tree1 enum1 date1/;
     foreach my $test (@tests)
-    {
-        my $col = $columns->{$test->{col}};
-        if (!$multi)
-        {
-            $col->multivalue(0);
-            $col->write;
-        }
+    {   $layout->column_update($test->{col} => { is_multivalue => 0 });
+        $layout->column_update(calc1 => { code => $test->{code} });
 
-        my $calc = $columns->{calc1};
-        $calc->code($test->{code});
-        $calc->write;
-
-        $layout->clear;
-
-        my $record = GADS::Record->new(
-            user   => $sheet->user,
-            schema => $schema,
-            layout => $layout,
-        );
-        $record->find_current_id(3);
-        my $datum = $record->fields->{$calc->id};
-        $datum->re_evaluate;
-        is($datum->as_string, $test->{value}, "Single/multi value code result correct for $test->{col} (multi $multi)");
+        my $row  = $sheet->content->row(3);
+        my $cell = $row->cell('calc1');
+        $cell->datum->re_evaluate;
+        is $cell, $test->{value},
+            "Single/multi value code result correct for $test->{col} (multi $multi)";
     }
 }
 
 # Ensure that blank and null string fields in the database are treated the same
 foreach my $test (qw/string_empty string_null calc_empty calc_null/)
 {
-    my $data = [
-        {
-            string1 => '',
-        },
-    ];
-
-    my $sheet   = t::lib::DataSheet->new(
-        data             => $data,
+    my $sheet   = make_sheet 1,
+        rows             => [ { string1 => '' } ],
         calc_code        => 'function evaluate (_id) return "" end',
         calc_return_type => 'string',
     );
-    $sheet->create_records;
-    my $schema  = $sheet->schema;
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
 
     my $field = $test =~ /string/ ? 'L1string1' : 'L1calc1';
     my $code = "
@@ -918,14 +878,12 @@ foreach my $test (qw/string_empty string_null calc_empty calc_null/)
             return \"unexpected: \" .. L1string1
         end";
 
-    my $calc2 = GADS::Column::Calc->new(
-        schema => $schema,
-        user   => undef,
-        layout => $layout,
+    my $calc2 = $layout->column_create({
+       type      => 'calc',
         name   => 'L1calc2',
         code   => $code,
         permissions => $colperms,
-    );
+    });
 
     # Manually update database to ensure that both stored empty strings and
     # undefined values are tested
@@ -939,13 +897,8 @@ foreach my $test (qw/string_empty string_null calc_empty calc_null/)
     # Force update of calc2 field
     $calc2->update_cached;
 
-    my $record = GADS::Record->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    );
-    $record->find_current_id(1);
-    is($record->fields->{$calc2->id}->as_string, 'nil', "Calc from string correct ($test)");
+    my $row = $sheet->content->row(1);
+    is $row->cell('calc2'), 'nil', "Calc from string correct ($test)";
 }
 
-done_testing();
+done_testing;

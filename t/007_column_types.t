@@ -55,7 +55,7 @@ my @data3 = (
 );
 
 my $curval_sheet = make_sheet '2', data => \@data3;
-my $sheet   = make_sheet '1',
+my $sheet        = make_sheet '1',
     rows             => \@data2,
     multivalues      => 1,
     curval_sheet     => $curval_sheet,
@@ -103,8 +103,10 @@ my $curval_sheet2 = make_sheet '4',
     curval_offset => 12,
     rows  => 1;
 
-cmp_ok @{$curval_sheet2->column('curval1')->filtered_values}, '==, 2,
+cmp_ok @{$curval_sheet2->column('curval1')->filtered_values}, '==', 2,
     "Correct number of values for curval field";
+
+my $default_permissions = [ $sheet->group => $sheet->default_permissions ];
 
 # Add a curval field without any columns. Check that it doesn't cause fatal
 # errors when building values.
@@ -112,16 +114,16 @@ cmp_ok @{$curval_sheet2->column('curval1')->filtered_values}, '==, 2,
 # an env variable to allow it.
 $ENV{GADS_ALLOW_BLANK_CURVAL} = 1;
 
-my $curval_blank = $layout->add_column({
+my $curval_blank = $layout->column_create({
     type             => 'curval',
     name             => 'curval blank',
     refers_to_sheet  => $curval_sheet,
-    curval_field_ids => [],
-    permissions => { $sheet->group->id => $sheet->default_permissions },
+    curval_columns   => [],
+    permissions      => $default_permissions,
 )};
 
 # Now force the values to be built. This should not bork
-try { $layout->column($curval_blank->id)->filtered_values };
+try { $layout->column($curval_blank)->filtered_values };
 ok !$@, "Building values for curval with no fields does not bork";
 
 # Check that an undefined filter does not cause an exception.  Normally a blank
@@ -131,8 +133,8 @@ my $curval_blank_filter = $layout->add_column({
     name             => 'curval blank',
     type             => 'curval',
     refers_to_sheet  => $curval_sheet,
-    curval_field_ids => [],
-    permissions => { $sheet->group->id => $sheet->default_permissions },
+    curval_columns   => [],
+    permissions      => $default_permissions,
 });
 
 # Manually blank the filters
@@ -144,17 +146,19 @@ ok( !$@, "Undefined filter does not cause exception during layout build" );
 
 # Check that we can add and remove curval field IDs
 my $field_count = $schema->resultset('CurvalField')->count;
-my $curval_add_remove = $layout->add_column({
+my $curval_add_remove = $layout->column_create({
     name             => 'curval fields',
     type             => 'curval',
-    refers_to_sheet  => $curval_sheet->layout->instance_id,
+    refers_to_sheet  => $curval_sheet,
     curval_fields   => [ 'string1' ],
-    permissions => { $sheet->group->id => $sheet->default_permissions },
+    permissions     => $default_permissions,
 });
 
 is($schema->resultset('CurvalField')->count, $field_count + 1, "Correct number of fields after new");
 
-$layout->column_update($curval_add_remove, { curval_fields => ['string1', 'integer1'] });
+$layout->column_update($curval_add_remove, {
+    curval_fields => ['string1', 'integer1']
+});
 
 is($schema->resultset('CurvalField')->count, $field_count + 2, "Correct number of fields after addition");
 $layout->clear;
@@ -177,7 +181,7 @@ my $curval_filter = $layout->create_column({
     },
     refers_to_sheet => $curval_sheet,
     curval_columns  => [ 'integer1' ], # Purposefully different to previous tests
-    permissions     => { $sheet->group->id => $sheet->default_permissions },
+    permissions     => $default_permissions,
 );
 
 # Clear the layout to force the column to be build, and also to build
@@ -222,14 +226,14 @@ is $cell->as_string, $curval_value, "Curval value still correct after filter cha
 
 $layout->column_update($curval_filter => { is_multivalue => 1 });
 my $row   = $sheet->content->search->row(1);
-my $datum = $row->cell($curval_filter)->datum;
-is $datum->ids->[0], $curval_id, "Curval value ID still correct after filter change (multiple)";
-is $datum->as_string, $curval_value, "Curval value still correct after filter change (multiple)";
-is $datum->for_code->[0]{field_values}{L2enum1},i
+my $cell = $row->cell($curval_filter)->cell;
+is $cell->ids->[0], $curval_id, "Curval value ID still correct after filter change (multiple)";
+is $cell->as_string, $curval_value, "Curval value still correct after filter change (multiple)";
+is $cell->for_code->[0]{field_values}{L2enum1},i
     'foo1', "Curval value for code still correct after filter change (multiple)";
 
 # Add view limit to user
-my $autocur1 = $curval_sheet->layout->column_creat({
+my $autocur1 = $curval_sheet->layout->column_create({
     type            => 'autocur',
     refers_to_sheet => $sheet,
     related_field   => 'curval1',
@@ -276,8 +280,8 @@ my $autocur1 = $curval_sheet->layout->column_creat({
     my $filter = { rule => {
         column   => 'enum1',
         type     => 'string',
-        value    => 'foo3', # Nothing matches, should be no autocur values
         operator => 'equal',
+        value    => 'foo3', # Nothing matches, should be no autocur values
     }};
 
     $view_limit = $sheet->views->view_create({
@@ -304,7 +308,7 @@ my $calc2 = $sheet->layout->create_column({
     return_type   => 'string',
     code          => qq(function evaluate (_id, L1date1, L1daterange1) \n return {"Foo", "Bar"} \nend),
     is_multivalue => 1,
-    permissions => { $sheet->group->id => $sheet->default_permissions },
+    permissions   => $default_permissions,
 });
 
 # Add display field for filtering tests

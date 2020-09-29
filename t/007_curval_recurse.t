@@ -1,24 +1,14 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-use utf8;
-
-use Log::Report;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 # Create a recursive calc situation, and check that we don't get caught in a
 # loop (in which case this test will never finish)
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2);
-$curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
+my $curval_sheet = make_sheet 2;
 
-my $sheet   = t::lib::DataSheet->new(
-    schema           => $schema,
-    data             => [],
-    curval           => 2,
-    curval_field_ids => [ $curval_sheet->columns->{string1}->id ],
+my $sheet   = make_sheet 1,
+    rows             => [],
+    curval_sheet     => $curval_sheet,
+    curval_columns   => [ 'string1' ],
     calc_return_type => 'string',
     calc_code        => qq{function evaluate (L1curval1)
         -- Check that we can recurse into values as far as the
@@ -35,102 +25,57 @@ my $sheet   = t::lib::DataSheet->new(
     end},
 );
 my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
-$sheet->create_records;
 
 # Add autocur and calc of autocur to curval sheet, to check that gets
 # updated on main sheet write
-my $autocur = $curval_sheet->add_autocur(
-    refers_to_instance_id => 1,
-    related_field_id      => $columns->{curval1}->id,
-    curval_field_ids      => [$columns->{string1}->id],
+my $autocur = $curval_sheet->layout->column_create({
+    type => 'autocur',
+    refers_to_sheet   => $sheet,
+    related_column    => 'curval1',
+    curval_columns    => [ 'string1' ],
 );
 
-my $calc_recurse = GADS::Column::Calc->new(
-    schema      => $schema,
-    user        => $sheet->user,
-    layout      => $curval_sheet->layout,
+my $calc_recurse = $curval_sheet->layout->column_create({
     name        => 'calc_recurse',
     name_short  => 'calc_recurse',
     return_type => 'integer',
     code        => "function evaluate (L2autocur1) \n return 450 \nend",
 );
-$calc_recurse->write;
-$curval_sheet->layout->clear;
 
-my $record = GADS::Record->new(
-    user   => $sheet->user_normal1,
-    layout => $layout,
-    schema => $schema,
-);
-$record->initialise;
+my $row1 = $sheet->content->row_create;
+$row1->revision_create({ curval1 => 1, string1 => 'foo' });
 
-$record->fields->{$columns->{curval1}->id}->set_value(1);
-$record->fields->{$columns->{string1}->id}->set_value('foo');
-$record->write(no_alerts => 1);
-my $current_id = $record->current_id;
+my $row1b = $sheet->content->row($row1->current_id);
+is $row1b->cell('calc1'), "Test passed", "Calc evaluated correctly";
+is $row1b->cell('curval1'), "Foo", "Curval correct in record";
 
-$record->clear;
-$record->find_current_id($current_id);
+my $curval_sheet2 = make_sheet 3,
+    rows => [{ string1 => 'FooBar1' }];
 
-is($record->fields->{$columns->{calc1}->id}, "Test passed", "Calc evaluated correctly");
-is($record->fields->{$columns->{curval1}->id}, "Foo", "Curval correct in record");
+my $curval = $curval_sheet->layout->column_create({
+   type            => 'curval',
+   name            => 'Subcurval',
+   name_short      => 'L2curval1',
+   refers_to_sheet => $curval_sheet2,
+   curval_columns  => [ 'string1' ],
+   permissions => [ $sheet->group => $sheet->default_permissions ];
 
-my $curval_sheet2 = t::lib::DataSheet->new(
-    schema => $schema,
-    instance_id => 3,
-    data => [{
-        string1 => 'FooBar1',
-    }],
-);
-$curval_sheet2->create_records;
-my $records = GADS::Records->new(
-    user => $sheet->user,
-    layout => $curval_sheet2->layout,
-    schema => $schema,
-);
+my $row2 = $sheet->content->row(1);   #XXX == $row1?
+$row2->cell_update({ curval1 => 4, integer1 => 333 });
 
-my $curval = GADS::Column::Curval->new(
-    schema => $schema,
-    user   => $sheet->user,
-    layout => $curval_sheet->layout,
-);
-$curval->refers_to_instance_id(3);
-$curval->curval_field_ids([$curval_sheet2->columns->{string1}->id]);
-$curval->type('curval');
-$curval->name('Subcurval');
-$curval->name_short('L2curval1');
-$curval->set_permissions({$sheet->group->id => $sheet->default_permissions});
-$curval->write;
-
-$record->clear;
-$record->find_current_id(1);
-$record->fields->{$curval->id}->set_value(4);
-$record->fields->{$curval_sheet->columns->{integer1}->id}->set_value(333);
-$record->write(no_alerts => 1);
-
-$record->find_current_id(1);
-
-$sheet->layout->clear;
-
-my $calc_curval = GADS::Column::Calc->new(
-    schema      => $schema,
-    user        => $sheet->user,
-    layout      => $sheet->layout,
+my $calc_curval = $sheet->layout->column_create({
+    type => 'calc',
     name        => 'calc_curval',
     name_short  => 'calc_curval',
     return_type => 'string',
     code        => qq{function evaluate (L1curval1)
         return L1curval1.field_values.L2curval1.field_values.L3string1
     end},
+    permissions => [ $sheet->group => $sheet->default_permissions ],
 );
-$calc_curval->write;
-$calc_curval->set_permissions({$sheet->group->id => $sheet->default_permissions});
-$layout->clear;
 
+my $row2b = $sheet->content->row($row1->current_id);  #XXX
+is $row2b->cell($calc_curval), "FooBar1",
+    "Values within values of curval code is correct";
 
-$record->clear;
-$record->find_current_id($current_id);
-
-is($record->fields->{$calc_curval->id}->as_string, "FooBar1", "Values within values of curval code is correct");
-done_testing();
+done_testing;

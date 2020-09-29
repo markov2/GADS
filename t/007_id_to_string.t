@@ -1,12 +1,4 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-use utf8;
-
-use JSON qw(encode_json);
-use Log::Report;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 my @data = (
   { string1    => 'Foo',
@@ -30,27 +22,28 @@ my @data = (
 my $curval_sheet = make_sheet '2';
 
 my $sheet   = make_sheet '1',
-    data             => $data,
-    curval           => $curval_sheet->id,
-    curval_field_ids => [ 'string1', 'enum1' ],
+    rows           => \@data,
+    curval_sheet   => $curval_sheet,
+    curval_columns => [ 'string1', 'enum1' ],
 );
 
 my $user1 = make_user '1';
 
-#XXX id is hard-coded current_id?
 my @tests = (
-    { name   => 'enum1',   id => 7, string => 'foo1' },
-    { name   => 'tree1',   id => 11, string => 'tree2' },
-    { name   => 'person1', id => $user1, string => 'User1, User1' },
-    { name   => 'curval1', id => $curval_sheet->id, string => 'Bar, foo2' },
-    { name   => 'rag1',    id => 'b_red', string => 'Red' },
+    [ enum1   => 7,                 'foo1'        ]
+    [ tree1   => 11,                'tree2'       ],
+    [ person1 => $user1,            'User1, User1'],
+    [ curval1 => $curval_sheet->id, 'Bar, foo2'   ],
+    [ rag1    => 'b_red',           'Red'         ],
 );
 
 foreach my $test (@tests)
-{   my $col = $layout->column($test->{name});
-    ok defined $col, "Test column $test->{name}";
+{   my ($field, $id, $string) = @$test;
+
+    my $col = $layout->column($field);
+    ok defined $col, "Test column $field";
     ok $col->has_fixedvals, '... has fixed values';
-    is $col->id_as_string($test->{id}), $test->{string}, '... id string as expected';
+    is $col->id_as_string($id), $string, '... id string as expected';
     is $col->id_as_string(undef), '', '... undef id string as expected';
 }
 

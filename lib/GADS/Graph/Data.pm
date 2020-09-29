@@ -450,15 +450,6 @@ sub _build_data
     $options{y_max}     = 100 if defined $metric_max && $metric_max < 100;
     $options{is_metric} =   1 if defined $metric_max;
 
-    # If we had a curval as a link, then we need to reset its retrieved fields,
-    # otherwise anything else using the field after this procedure will be
-    # using the reduced columns that we used for the graph
-#XXX
-    if($self->x_axis_link)
-    {   $link->clear_curval_field_ids;
-        $link->clear;
-    }
-
     +{
         xlabels => \@xlabels, # Populated, but not used for donut or pie
         points  => \@points,

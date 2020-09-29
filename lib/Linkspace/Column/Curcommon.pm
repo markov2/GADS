@@ -123,8 +123,13 @@ has retrieve_all_columns => (
     default => 0,
 );
 
+has _curval_field_ids_index => (
+    is      => 'lazy',
+    builder => sub { +{ map +($_ => undef), @{$_[0]->curval_field_ids} } },
+);
+
 has curval_field_ids => (
-    lazy    => 1,
+    is      => 'lazy',
     builder => sub {
         my $self = shift;
         my $curval_field_ids = $::db->search(CurvalField => {
@@ -137,18 +142,15 @@ has curval_field_ids => (
     },
 );
 
-has curval_fields => (
-    is      => 'lazy',
-    builder => sub
-    {   my $self = shift;
-        $self->layout_parent->columns($self->curval_field_ids, permission => 'read');
-    },
-);
+sub curval_fields()
+{   my $self = shift;
+    $self->layout_parent->columns($self->curval_field_ids, permission => 'read');
+}
 
-has curval_field_ids_index => (
-    is      => 'lazy',
-    builder => sub { +{ map +($_ => undef), @{$_[0]->curval_field_ids} } },
-);
+sub has_curval_field
+{   my ($self, $field) = @_;
+    exists $self->_curval_field_ids_index->{$field};
+}
 
 has curval_field_ids_all => (
     is      => 'lazy',
@@ -196,20 +198,6 @@ has curval_fields_all => (
 sub sort_columns
 {   my $self = shift;
     [ map $_->sort_columns, @{$self->curval_fields} ];
-}
-
-#XXX Does this column reference the field?
-sub has_curval_field
-{   my ($self, $field) = @_;
-    exists $self->curval_field_ids_index->{$field};
-}
-
-has all_ids => (
-    is      => 'lazy',
-    builder => sub
-    {  [ $::db->search(Current => { instance_id => $self->related_sheet_id })
-          ->get_column('id')->all ];
-    },
 }
 
 has filtered_values => (
@@ -509,7 +497,7 @@ sub export_hash()
 {   my $self = shift;
     $self->SUPER::export_hash(@_,
         refers_to_instance_id => $self->related_sheet_id,
-        curval_field_ids      => $self->curval_field_ids,
+        curval_field_ids      => [ map $_->id, $self->curval_columns ],
     );
 }
 

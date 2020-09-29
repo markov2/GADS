@@ -113,18 +113,16 @@ $curval_sheet->create_records;
 my $curval_columns = $curval_sheet->columns;
 
 my $sheet = make_sheet '3',
-    data    => $data,
-    curval  => $curval_sheet->id,
-    with_columns => 1,
-    with_records => 1;
+    rows         => $data,
+    curval_sheet => $curval_sheet;
 
-my $autocur1 = $curval_sheet->add_autocur(
-    curval_field_ids      => [$columns->{daterange1}->id],
-    refers_to_instance_id => 1,
-    related_field_id      => $columns->{curval1}->id,
+my $autocur1 = $curval_sheet->layout->column_create({
+    curval_columns  => [ 'daterange' ],
+    refers_to_sheet => $sheet,
+    related_column  => [ 'curval1' ],
 );
 
-my $curval_calc = $curval_sheet->column('calc1');
+my $curval_calc = $curval_sheet->layout->column('calc1');
 $curval_calc->code("
     function evaluate (L2autocur1)
         return_value = ''
@@ -152,39 +150,33 @@ my @filters = (
     {
         name       => 'Calc with record created date',
         rules      => undef,
-        columns    => [ $created_calc->id ],
+        columns    => [ $created_calc ],
         current_id => 3,
-        update     => [ {
-            column => 'string1',
-            value  => 'foobar',
-        } ],
+        update     => [ { column => 'string1', value=> 'foobar' } ],
         alerts     => 1,
     },
     {
         name       => 'View filtering on record created date',
         rules      => [ {
-            id       => $layout->column('_created')->id,
+            column   => '_created',
             type     => 'string',
-            value    => '2014-10-20',
             operator => 'greater',
+            value    => '2014-10-20',
         } ],
-        columns    => [ $columns->{string1}->id ],
+        columns    => [ 'string1' ],
         current_id => 4,
-        update     => [ {
-            column   => 'string1',
-            value    => 'FooFoo',
-        } ],
+        update     => [ { column => 'string1', value => 'FooFoo' } ],
         alerts     => 1, # New record only
     },
     {
         name       => 'View filtering on record updated date',
         rules      => [ {
-            id       => $layout->column('_version_datetime')->id,
+            column   => '_version_datetime',
             type     => 'string',
-            value    => '2014-10-20',
             operator => 'greater',
+            value    => '2014-10-20',
         } ],
-        columns    => [ $columns->{date1}->id ], # No change to data shown
+        columns    => [ 'date1' ], # No change to data shown
         current_id => 5,
         update     => [ {
             column    => 'string1',
@@ -512,19 +504,13 @@ my @filters = (
             value    => '2014',
             operator => 'contains',
         }],
-        alert_layout     => $curval_sheet->layout,
+        alert_sheet      => $curval_sheet,
         columns          => [$curval_columns->{calc1}->id],
         current_id       => 19,
         alert_current_id => 2,
         update => [
-            {
-                column => 'curval1',
-                value  => 2,
-            },
-            {
-                column => 'daterange1',
-                value  => ['2014-01-04', '2017-06-03'],
-            },
+            { column => 'curval1', value  => 2 },
+            { column => 'daterange1', value  => ['2014-01-04', '2017-06-03'] },
         ],
         # One when new instance1 record means that 2014 appears in the autocur,
         # then a second alert when the existing instance1 record is edited and
@@ -533,19 +519,13 @@ my @filters = (
     },
     {
         name  => 'Change of autocur in other table as a result of curval change',
-        alert_layout => $curval_sheet->layout,
-        columns    => [$autocur1->id],
+        alert_sheet => $curval_sheet,
+        columns    => [ $autocur1 ],
         current_id => 20,
         alert_current_id => 2,
         update     => [
-            {
-                column => 'curval1',
-                value  => 2,
-            },
-            {
-                column => 'daterange1',
-                value  => ['2014-01-04', '2017-06-03'],
-            },
+            { column => 'curval1', value  => 2 },
+            { column => 'daterange1', value  => ['2014-01-04', '2017-06-03'] },
         ],
         # There are actually 2 changes that take place that will cause alerts,
         # but both are exactly the same so only one will be written to the
@@ -562,14 +542,11 @@ my @filters = (
             value    => 'Bar',
             operator => 'equal',
         }],
-        columns    => [ $columns->{string1}->id ],
+        columns    => [ 'string1' ],
         current_id => 1,
         alert_current_id => [3,4,5,6,7,19,20],
         update_layout    => $curval_sheet->layout,
-        update     => [ {
-            column   => 'string1',
-            value    => 'Bar',
-        } ],
+        update     => [ { column => 'string1', value => 'Bar' } ],
         # 7 new records appear in the view, which are the 7 records referencing
         # curval record ID 1, none of which were contained in the view, and
         # then all appear when the curval record is updated to include it in
@@ -589,7 +566,7 @@ foreach my $filter (@filters)
     my %view = (
         name        => $filter->{name},
         filter      => $rules,
-        columns     => $filter->{columns},
+        columns     => $sheet->layout->columns($filter->{columns}),
     );
 
     $view{is_global} = 1

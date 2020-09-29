@@ -3049,13 +3049,14 @@ sub _process_edit
         record_presentation => $record->presentation($sheet, edit => 1, new => !$id, child => $child),
     );
 
-    $params{modal_field_ids} = encode_json $sheet->layout->column($modal)
-        ->curval_field_ids
-        if $modal;
+    my %options;
+    if($modal)
+    {   my $cols = $sheet->layout->column($modal)->curval_columns;
+        $params{modal_field_ids} = encode_json [ map $_->id, @$cols ];
+        $options{layout} = undef;
+    }
 
-    my $options = $modal ? { layout => undef } : {};
-
-    template edit => \%params, $options;
+    template edit => \%params, \%options;
 }
 
 true;

@@ -115,19 +115,15 @@ for my $i (1..10)
     my $curval_sheet = _create_sheet("Curval$i", string => 3, tree => 0, enum => 3, intgr => 1);
     my $curval_layout = $curval_sheet->layout;
 
-    
-    my @curval_field_ids = map $_->id,
-        $curval_layout->search_columns({exclude_internal => 1});
-
     my $curval = $curval_layout->create_column(curval => {
         name             => "curval$i",
         is_optional      => 1,
-        curval_field_ids => \@curval_field_ids,
         delete_not_used  => 1,
         show_add         => 1,
         value_selector   => 'noshow',
         permissions      => $perms,
         refers_to_sheet  => $curval_sheet,
+        curval_columns   => $curval_layout->search_columns(exclude_internal => 1),
     });
 }
 
@@ -136,7 +132,7 @@ sub _create_sheet
 
     say "Creating table $name";
 
-    my $sheet  = $site->document->create_sheet({name => "$name"});
+    my $sheet  = $site->document->create_sheet({name => $name});
     my $layout = $sheet->layout;
 
     say "... creating $counts{string} string fields";
