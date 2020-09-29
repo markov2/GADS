@@ -38,8 +38,6 @@ isnt $column1d, $column1, 'recreated object';
 ok defined $column1d, 'Reload via id, avoiding cache';
 isa_ok $column1d, 'Linkspace::Column::Date', '...';
 
-diag "Still needs serious testing";
-
 ### setting the value of 'show_datepicker'
 
 my $column2 = $sheet->layout->column_create({
