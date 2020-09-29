@@ -296,13 +296,9 @@ sub is_valid_value($)
     [ map $self->_is_valid_value($_), @v ];
 }
 
-sub topic { $_[0]->sheet->topic($_[0]->topic_id) }
-
-has link_parent => (
-    is      => 'lazy',
-    builder => sub { $_[0]->column($_[0]->link_parent_id) },
-);
-
+sub topic       { $_[0]->sheet->topic($_[0]->topic_id) }
+sub link_parent { $_[0]->column($_[0]->link_parent_id) };
+sub _options    { decode_json($_[0]->options_json) }
 
 #### query build support
 sub sprefix    { $_[0]->field_name }

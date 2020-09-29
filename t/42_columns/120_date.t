@@ -60,5 +60,4 @@ my $column2 = $sheet->layout->column_create({
 });
 logline;
 
-
 done_testing;

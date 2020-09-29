@@ -62,7 +62,7 @@ sub person_properties    { @person_properties }
 ### Instance
 ###
 
-sub default_to_login { $_[0]->options->{default_to_login} }
+sub default_to_login { $_[0]->_options->{default_to_login} }
 
 # Convert based on whether ID or full name provided
 sub value_field_as_index

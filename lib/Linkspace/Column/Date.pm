@@ -64,11 +64,11 @@ sub _remove_column($)
 ###
 
 sub show_datepicker
-{   my $opt = $_[0]->options;  # option may be missing: then defaults to true
+{   my $opt = $_[0]->_options;  # option may be missing: then defaults to true
     exists $opt->{show_datepicker} ? $opt->{show_datepicker} : 1;
 }
 
-sub default_today { $_[0]->options->{default_today} // 0 }
+sub default_today { $_[0]->_options->{default_today} // 0 }
 
 sub _is_valid_value($%)
 {   my ($self, $date, %options) = @_;

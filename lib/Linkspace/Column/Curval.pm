@@ -65,10 +65,10 @@ sub _validate($)
 ### Instance
 ###
 
-sub value_selector  { $_[0]->options->{value_selector} // 'dropdown' }
-sub show_add        { $_[0]->options->{show_add} // 0 }
-sub delete_not_used { $_[0]->options->{delete_not_used} // 0 }
-
+sub value_selector  { $_[0]->_options->{value_selector} // 'dropdown' }
+sub show_add        { $_[0]->_options->{show_add} // 0 }
+sub delete_not_used { $_[0]->_options->{delete_not_used} // 0 }
+_
 # Whether this field has subbed in values from other parts of the record in its
 # filter
 has has_subvals => (

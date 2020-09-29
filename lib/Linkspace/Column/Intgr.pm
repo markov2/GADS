@@ -56,7 +56,7 @@ sub _remove_column($)
 ### Instance
 ###
 
-sub show_calculator { $_[0]->options->{show_calculator} }
+sub show_calculator { $_[0]->_options->{show_calculator} }
 
 sub _is_valid_value($)
 {   my ($self, $value) = @_;

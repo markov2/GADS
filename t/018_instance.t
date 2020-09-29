@@ -4,14 +4,11 @@ use warnings;
 
 use Log::Report;
 
-my $sheet1  = test_sheet rows => [];
-my $layout1 = $sheet1->layout;
+my $sheet1  = make_sheet rows => [];
 
 # Set up one normal user, one layout admin user
-my $user_normal = $sheet1->user_normal1;
-my $user_admin  = $sheet1->user;
-
-is($schema->resultset('Instance')->count, 1, "One instance created initially");
+my $user_normal = make_user 1;
+my $user_admin  = test_user;
 
 # Create second table, with no groups initially
 my $group2 = make_group '2';
@@ -23,8 +20,6 @@ my $layout2 = Linkspace::Layout->new(
     set_groups => [],
 )->write;
 
-is($schema->resultset('Instance')->count, 2, "Second instance created");
-
 # Tests for access dependent on field permissions
 {
     # Admin user has access to both
@@ -34,19 +29,21 @@ is($schema->resultset('Instance')->count, 2, "Second instance created");
     # Normal user has access to one
     $instances = GADS::Instances->new(schema => $schema, user => $user_normal );
     is(@{$instances->all}, 1, "Correct number of tables for normal user");
+
     # Check is_valid functionality
     ok($instances->is_valid(1), "Main instance is valid for normal user");
     ok(!$instances->is_valid(2), "Other instance not valid for normal user");
+
     # Add a field to second table that normal user has access to
     my $string1 = $layout2->column_create({
-        user     => undef,
         type  => 'string',
         name  => 'string1',
-        permissions => {$sheet1->group->id, ['read']},
+        permissions => [ $group => ['read'] ],
     });
 
-    $instances = GADS::Instances->new(schema => $schema, user => $user_normal );
-    is(@{$instances->all}, 2, "Correct number of tables for normal user after field added");
+    cmp_ok @{$site->document->all_sheets}, '==', 2,
+          "Correct number of tables for normal user after field added";
+
     $string1->delete;
 }
 
@@ -59,10 +56,8 @@ my $sheet2 = make_sheet '2',
     user_permission_override => 0,
     curval_offset            => 6,
     group                    => $sheet1->group,
-    _users                   => $sheet1->_users,
 );
 $layout2 = $sheet2->layout;
-$sheet2->create_records;
 
 # Tests for table-level permissions. Add permission to table1, and check that
 # not possible from table2
@@ -96,46 +91,35 @@ $sheet2->create_records;
                     $layout1->set_groups($perms);
                     $layout1->write;
                 }
-                else {
-                    # Test can't with second table
+                else
+                {   # Test can't with second table
                     $test_sheet = $sheet2;
                 }
                 my $layout;
                 if ($layout_from eq 'new')
                 {
                     $test_sheet->user_layout($user_normal);
-                    $test_sheet->clear_layout;
                     $layout = $test_sheet->layout;
                 }
-                else {
-                    $layout = GADS::Instances->new(schema => $schema, user => $user_normal)->layout($test_sheet->instance_id);
+                else
+                {   $layout = GADS::Instances->new(user => $user_normal)->layout($test_sheet->instance_id);
                 }
-                my $records = GADS::Records->new(
-                    user   => $user_normal,
-                    layout => $layout,
-                    schema => $schema,
-                );
+                my $results = $sheet->content->search(user => $user_normal);
 
-                if ($test eq 'delete')
-                {
-                    my $record = $records->single;
-                    try { $record->delete_current };
-
-                    if ($pass == 3)
-                    {
-                        ok(!$@, "Able to delete record with correct permission for pass $pass");
-                        # Add record back in
-                        $schema->resultset('Current')->find($record->current_id)->update({ deleted => undef });
-                    }
-                    else {
-                        like($@, qr/You do not have permission to delete records/, "Unable to delete record without required permission for pass $pass");
+                my $row = $sheet->content->row_first;
+                if($test eq 'delete')
+                {   try { $row->delete };
+                    if($pass == 3)
+                    {   ok $@, "Able to delete row with correct permission for pass $pass";
+                        $row->delete(0); # Add record back in
+                    else
+                    {   like $@, qr/You do not have permission to delete records/,
+                           "Unable to delete row without required permission for pass $pass";
                     }
                 }
 
                 elsif ($test eq 'purge')
-                {
-                    my $record     = $records->single;
-                    my $current_id = $record->current_id;
+                {   my $current_id = $record->current_id;
                     my $record_id  = $record->record_id;
 
                     # First check whether the user has access to view the deleted record.
@@ -147,13 +131,14 @@ $sheet2->create_records;
                         schema => $schema,
                     );
                     try { $record->find_deleted_currentid($current_id, $layout->instance_id) };
-                    if ($pass == 3)
-                    {
-                        ok(!$@, "Accessed deleted record successfully");
+                    if($pass == 3)
+                    {   ok !$@, "Accessed deleted record successfully";
                     }
                     else {
-                        like($@, qr/You do not have access to this deleted record/, "Failed to access deleted record");
+                    {   like $@, qr/You do not have access to this deleted record/,
+                           "Failed to access deleted record";
                     }
+
                     try { $record->find_deleted_recordid($record_id, $layout->instance_id) };
                     if ($pass == 3)
                     {
@@ -208,14 +193,13 @@ $sheet2->create_records;
 
                 elsif ($test eq 'layout')
                 {
-                    my ($col) = $layout->all(userinput => 1); # Get a random field
+                    my ($col) = $layout->columns_search(userinput => 1); # Get a random field
                     try { $col->write };
                     if ($pass == 3)
-                    {
-                        ok(!$@, "Able to write field with correct permission for pass $pass");
+                    {   ok !$@, "Able to write field with correct permission for pass $pass";
                     }
-                    else {
-                        like($@, qr/You do not have permission to manage field/, "Unable to write field with correct permission for pass $pass");
+                    else
+                    {   like $@, qr/You do not have permission to manage field/, "Unable to write field with correct permission for pass $pass";
                     }
                 }
 
@@ -226,52 +210,42 @@ $sheet2->create_records;
 
                 elsif ($test eq 'view_create')
                 {
-                    my $view = GADS::View->new(
-                        instance_id => $layout->instance_id,
-                        layout      => $layout,
-                        schema      => $schema,
+                    my $view = try { $sheet->views->view_create({
                         name        => 'Test',
-                        global      => 0,
+                        is_global   => 0,
                         columns     => [],
-                    );
-                    try { $view->write };
-                    if ($pass == 3)
-                    {
-                        ok(!$@, "Able to create view with correct permission for pass $pass");
+                    }) };
+
+                    if($pass == 3)
+                    {   ok !$@, "Able to create view with correct permission for pass $pass";
                     }
-                    else {
-                        like($@, qr/does not have permission to create new views/, "Unable to create view with correct permission for pass $pass");
+                    else
+                    {   like $@, qr/does not have permission to create new views/, "Unable to create view with correct permission for pass $pass";
                     }
                 }
 
                 elsif ($test eq 'create_child')
-                {
-                    # Managed in controller at the moment
+                {   # Managed in controller at the moment
                 }
 
                 elsif ($test eq 'bulk_update')
-                {
-                    # Managed in controller at the moment
+                {   # Managed in controller at the moment
                 }
 
                 elsif ($test eq 'link')
-                {
-                    my $record = $records->single;
-                    try { $record->write_linked_id($record->current_id) }; # Invalid link, but will work for test
-                    if ($pass == 3)
-                    {
-                        ok(!$@, "Able to link record with correct permission for pass $pass");
+                {   try { $row->write_linked_id($row->current_id) }; # Invalid link, but will work for test
+                    if($pass == 3)
+                    {   ok !$@, "Able to link record with correct permission for pass $pass";
                     }
-                    else {
-                        like($@, qr/You do not have permission to link records/, "Unable to link record without required permission for pass $pass");
+                    else
+                    {   like($@, qr/You do not have permission to link records/, "Unable to link record without required permission for pass $pass");
                     }
                 }
 
                 else { panic "Invalid test: $test" }
 
-                if ($pass == 3)
-                {
-                    # Remove permission
+                if($pass == 3)
+                {   # Remove permission
                     $layout->set_groups([]);
                     $layout->write;
                 }
@@ -281,4 +255,4 @@ $sheet2->create_records;
 }
 
 
-done_testing();
+done_testing;

@@ -68,7 +68,7 @@ has show_datepicker => (
     builder => sub {
         my $self = shift;
         return 0 unless $self->has_options;
-        $self->options->{show_datepicker};
+        $self->_options->{show_datepicker};
     },
     trigger => sub { $_[0]->reset_options },
 );
