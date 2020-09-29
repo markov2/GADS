@@ -83,13 +83,13 @@ sub _is_valid_value($)
 
     my $from_dt = $self->parse_date($from)
         or error __x"Invalid start date {value} for {col}. Please enter as {format}.",
-            value => $from, col => $self->name, format => $self->dateformat;
+            value => $from, col => $self->name, format => $self->site->locale->{date_pattern};
 
     my $to_dt = $self->parse_date($to)
         or error __x"Invalid end date {value} for {col}. Please enter as {format}.",
-            value => $to, col => $self->name, format => $self->dateformat;
+            value => $to, col => $self->name, format => $self->site->locale->{date_pattern};
 
-    DateTime->compare($from_dt, $to_dt) <= 1
+    DateTime->compare($from_dt, $to_dt) < 0
         or error __x"Start date must be before the end date for '{col}'",
             col => $self->name;
 
