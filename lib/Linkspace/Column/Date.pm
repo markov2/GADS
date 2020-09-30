@@ -73,7 +73,7 @@ sub default_today { $_[0]->_options->{default_today} // 0 }
 sub _is_valid_value($%)
 {   my ($self, $date, %options) = @_;
 
-    $self->site->locale2dt($date)
+    $self->site->local2dt('auto',$date)
         or error __x"Invalid date '{value}' for {col.name}. Please enter as {format}.",
              value => $date, col => $self, format => $self->site->locale->{date_pattern};
 
