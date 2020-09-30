@@ -17,19 +17,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
  
 package Linkspace::Test::Sheet;
- 
-use Log::Report  'linkspace';
 
 use strict;
 use warnings;
+ 
+use Log::Report  'linkspace';
 
 use Moo;
 extends 'Linkspace::Sheet';
-
-has curval_offset => (
-   is      => 'lazy',
-   builder => sub { $_[0]->curval ? 6 : 0 },
-);
 
 has no_groups => (
     is      => 'ro',
@@ -97,17 +92,67 @@ has curval_field_ids => (
 );
 
 my $default_enumvals = qw/foo1 foo3 foo3/;
+
 my @default_trees    =
-  ( { text     => 'tree1' },
-    { text     => 'tree2', children => [ { text => 'tree3' } ] },
+  ( { text => 'tree1' },
+    { text => 'tree2', children => [ { text => 'tree3' } ] },
   );
+
 my @can_multivalue_columns = qw/calc curval date daterange enum file string tree/;
 my @default_permissions = qw/read write_new write_existing write_new_no_approval
     write_existing_no_approval/;
 
-curval --> curval_sheet
-curval_offset... ? current_id?
-curval_fields_ids --> curval_columns, names relative to curval_sheet
+my %dummy_file_data = (
+    name     => 'myfile.txt',
+    mimetype => 'text/plain',
+    content  => 'My text file',
+);
+
+sub _default_rag_code($) { my $seqnr = shift; <<__RAG }
+function evaluate (L${seqnr}daterange1)
+    if type(L${seqnr}daterange1) == \"table\" and L${seqnr}daterange1[1] then
+        dr1 = L${seqnr}daterange1[1]
+    elseif type(L${seqnr}daterange1) == \"table\" and next(L${seqnr}daterange1) == nil then
+        dr1 = nil
+    else
+        dr1 = L${seqnr}daterange1
+    end
+    if dr1 == nil then return end
+    if dr1.from.year < 2012 then return 'red' end
+    if dr1.from.year == 2012 then return 'amber' end
+    if dr1.from.year > 2012 then return 'green' end
+end
+__RAG
+
+sub _default_calc_code($) { my $seqnr = shift;  <<__CALC }
+function evaluate (L${seqnr}daterange1)
+    if type(L${seqnr}daterange1) == \"table\" and L${seqnr}daterange1[1] then
+        dr1 = L${seqnr}daterange1[1]
+    elseif type(L${seqnr}daterange1) == \"table\" and next(L${seqnr}daterange1) == nil then
+        dr1 = nil
+    else
+        dr1 = L${seqnr}daterange1
+    end
+    if dr1 == null then return end
+    return dr1.from.year
+end
+__CALC
+
+my @default_sheet_rows = (   # Don't change these: some tests depend on them
+    {   string1    => 'Foo',
+        integer1   => 50,
+        date1      => '2014-10-10',
+        enum1      => 1 + $config->{curval_offset},
+        daterange1 => ['2012-02-10', '2013-06-15'],
+    },
+    {
+        string1    => 'Bar',
+        integer1   => 99,
+        date1      => '2009-01-02',
+        enum1      => 2 + $config->{curval_offset},
+        daterange1 => ['2008-05-04', '2008-07-14'],
+    },
+);
 
 sub _create_content($%)
 {   my ($self, %args) = @_;
@@ -126,6 +171,12 @@ sub _create_content($%)
 
    my $all_optional = exists $args{all_optional} ? $args{all_optional} : 1;
    my $calc_return_type = $args{calc_return_type} || 'integer';
+
+
+curval --> curval_sheet
+    my $curval_offset = $curval_sheet ? 6 : 0;
+    # curval_fields_ids --> curval_columns, names relative to curval_sheet
+    my $curval_columns = $curval_sheet->layout->columns($args{curval_columns});
 
     foreach my $type ( qw/string intgr enums tree/ )
 # date daterange file person

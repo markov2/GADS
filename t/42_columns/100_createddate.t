@@ -1,13 +1,11 @@
 # Check the Createddate column type
 
-use Linkspace::Test;
+use Linkspace::Test
+    not_ready => 'to be implemented';
 
-plan skip_all => 'to be implemented';
-
-$::session = test_session;
 my $sheet = test_sheet;
 
-my $column1 = $sheet->layout->column_create({
+my $column1 = $layout->column_create({
     type          => 'createddate',
     name          => 'column1 (long)',
     name_short    => 'column1',
@@ -25,12 +23,12 @@ isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::Createddate', '...';
 
 ### by short_name from cache
-my $column1b = $sheet->layout->column('column1');
+my $column1b = $layout->column('column1');
 ok defined $column1b, 'Reload via name';
 is $column1b->id, $col1_id;
 
 ### by id from cache
-my $column1c = $sheet->layout->column($col1_id);
+my $column1c = $layout->column($col1_id);
 ok defined $column1b, 'Reload via id';
 is $column1b->id, $col1_id,'... loaded with id';
 
@@ -48,7 +46,7 @@ isa_ok $column1d, 'Linkspace::Column::Createddate', '...';
 # optional and multivalue
 #
 
-my $column2 = $sheet->layout->column_create({
+my $column2 = $layout->column_create({
     type          => 'createddate',
     name          => 'column2 (long)',
     name_short    => 'column2',

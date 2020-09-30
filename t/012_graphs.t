@@ -54,7 +54,7 @@ foreach my $multivalue (0..1)
 
     $curval_sheet->content->row(2)->cell_update(integer1 => 132);
 
-    my $sheet   = t::lib::DataSheet->new(
+    my $sheet   = make_sheet 1,
         rows               => $data,
         curval_sheet       => $curval_sheet,
         column_count       => { integer => 2 },
@@ -541,71 +541,52 @@ XXX
             $parent2->write_linked_id($child2->current_id);
         }
 
-        my $graph = GADS::Graph->new(
-            layout       => $layout,
-            schema       => $schema,
-            current_user => $sheet->user,
-        );
-        $graph->title($g->{name});
-        $graph->type($g->{type});
-        $graph->x_axis($g->{x_axis});
-        $graph->x_axis_link($g->{x_axis_link})
-            if $g->{x_axis_link};
-        $graph->x_axis_grouping($g->{x_axis_grouping})
-            if $g->{x_axis_grouping};
-        $graph->x_axis_range($g->{x_axis_range})
-            if $g->{x_axis_range};
-        $graph->from($g->{from});
-        $graph->to($g->{to});
-        $graph->y_axis($g->{y_axis});
-        $graph->y_axis_stack($g->{y_axis_stack});
-        $graph->group_by($g->{group_by})
-            if $g->{group_by};
-        $graph->as_percent($g->{as_percent});
-        $graph->write;
 
-        my $view;
-        if (my $r = $g->{rules})
-        {
-            my $rules = encode_json({
+### 2020-09-30: columns in GADS::Schema::Result::Graph
+# id              description     stackseries     x_axis_range
+# instance_id     from            to              y_axis
+# title           group_by        trend           y_axis_label
+# type            group_id        x_axis          y_axis_stack
+# user_id         is_shared       x_axis_grouping
+# as_percent      metric_group    x_axis_link
+
+        my $name = $g->{title} = delete $g->{name};
+        ok 1, "Create graph $name";
+
+        if(my $rules   = delete $g->{rules})
+        {   my %filter = (
                 rules     => $r,
-                condition => $g->{condition} || 'AND',
-            });
+                condition => delete $g->{condition} || 'AND',
+            );
 
-            $view = GADS::View->new(
-                name        => 'Test view',
-                filter      => $rules,
-                instance_id => 1,
-                layout      => $layout,
-                schema      => $schema,
-                user        => $sheet->user,
-                columns     => $g->{view_columns} || [],
+            $view = $sheet->views->view_create({
+                name        => "Test view $name",
+                filter      => \%filter,
+                columns     => delete $g->{view_columns} || [],
             );
             $view->write;
         }
+
+
+        my $graph = $sheet->graphs->graph_create($g);
 
         my $records = GADS::RecordsGraph->new(
             user              => $sheet->user,
             layout            => $layout,
             schema            => $schema,
         );
-        my $graph_data = GADS::Graph::Data->new(
-            id      => $graph->id,
-            view    => $view,
-            records => $records,
-            schema  => $schema,
-        );
+        my $graph_data = $sheet->content->search(view => $view)->graph($graph);
 
-        is_deeply($graph_data->points, $g->{data}, "Graph data for $g->{name} is correct");
-        is_deeply($graph_data->xlabels, $g->{xlabels}, "Graph xlabels for $g->{name} is correct")
+        is_deeply $graph_data->points,  $g->{data},    '... points as expected';
+        is_deeply $graph_data->xlabels, $g->{xlabels}, '... xlabels as expected'
             if $g->{xlabels};
-        if ($g->{labels})
-        {
-            my @labels = map { $_->{label} } @{$graph_data->labels};
-            is_deeply([@labels], $g->{labels}, "Graph labels for $g->{name} is correct");
+
+        if($g->{labels})
+        {   my @labels = map $_->{label}, @{$graph_data->labels};
+            is_deeply \@labels, $g->{labels}, '... labels as expected';
         }
 
-        if ($child2)
+        if($child2)
         {   $parent2->write_linked_id(undef);
             #XXX parent2 a Row::Revision, and $child2 a Row?
             $parent2->purge; # Just the record, revert to previous version XXX
@@ -615,40 +596,23 @@ XXX
 }
 
 # Test graph of large number of records
-my @data;
-push @data, {
-    string1  => 'foobar',
-    integer1 => 2,
-} for (1..1000);
+my @data = 
 
-my $sheet = t::lib::DataSheet->new(data => \@data);
-$sheet->create_records;
-my $columns = $sheet->columns;
+my $sheet = make_sheet 1,
+    rows    => [ map +{ string1 => 'foobar', integer1 => 2}, 1..1000 ],
+    columns => [ 'string1', 'integer1' ];
 
-my $graph = GADS::Graph->new(
+my $graph = $sheet->graphs->graph_create({
     title        => 'Test graph',
     type         => 'bar',
-    x_axis       => $columns->{string1}->id,
-    y_axis       => $columns->{integer1}->id,
+    x_axis       => 'string1',
+    y_axis       => 'integer1',
     y_axis_stack => 'sum',
-    layout       => $sheet->layout,
-    schema       => $sheet->schema,
-    current_user => $sheet->user,
-);
-$graph->write;
+});
 
-my $records = GADS::RecordsGraph->new(
-    user   => $sheet->user,
-    layout => $sheet->layout,
-    schema => $sheet->schema,
-);
+my $graph_data = $sheet->content->search->graph($graph);
 
-my $graph_data = GADS::Graph::Data->new(
-    id      => $graph->id,
-    records => $records,
-    schema  => $sheet->schema,
-);
+is_deeply $graph_data->points, [[2000]],
+    "Graph data for large number of records is correct";
 
-is_deeply($graph_data->points, [[2000]], "Graph data for large number of records is correct");
-
-done_testing();
+done_testing;

@@ -1,8 +1,8 @@
 # Test ::Group  groups_viewable
 # Derived from old t/012_graph_permissions.t
 
-#XXX TESTS STILL FAILING
-use Linkspace::Test;
+use Linkspace::Test
+    not_ready => 'needs graphs';
 
 use_ok 'Linkspace::Site::Users';
 use_ok 'Linkspace::Group';

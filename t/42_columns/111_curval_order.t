@@ -1,8 +1,7 @@
 # rewrite of t/007_curval_order.t
 # Check the ordering features of curval searches
-use Linkspace::Test;
-
-plan skip_all => 'Not attempted';
+use Linkspace::Test
+    not_ready => 'waiting for curval';
 
 my $curval_sheet = make_sheet 2, rows => [
     { string1 => 'foo1' },
@@ -13,8 +12,9 @@ my $curval_sheet = make_sheet 2, rows => [
 
 my $sheet   = make_sheet 1,
     rows               => [ { string1 => 'foo', curval1 => [ 1..4 ] } ],
+    columns            => [ qw/string1 curval1/ ],
+    multivalue_columns => [ qw/curval1/ ],
     curval_sheet       => $curval_sheet,
-    multivalue_columns => { curval1 => 1 },
     curval_offset      => 6,
     curval_columns     => [ 'string1' ];
 
@@ -27,12 +27,12 @@ foreach my $order (qw/asc desc/)
     my $expect = $order eq 'asc' ? "foo1 foo2 foo3 foo4" : "foo4 foo3 foo2 foo1";
 
     my $row1   = $sheet->content->row(5);   #XXX 5 = 4 current_ids in cursheet + 1
-    my @cells1 = map $_->{values}[0]->as_string, @{$row1->cell('curval1')->values};
+
+    # Curval is a multivalue with 4 datums, which each have a value
+    my @cells1 = map $_->value(0), @{$row1->cell('curval1')->values};
     is "@cells1", $expect, "Curvals in correct order for sort $order";
 
-    my $row2   = $sheet->content->search->row(1);
-    my @cells2 = map $_->{values}[0]->as_string, @{$row2->cell('curval1')->values};
-    is "@cells2", $expect, "Curvals in correct order for sort $order";
+    is $row1->cell('curval1'), $expect =~ s/ /, /gr, "... as string";
 }
 
 done_testing;

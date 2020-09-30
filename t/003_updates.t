@@ -1,17 +1,6 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
+use Linkspace::Test;
 
-use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
-use Log::Report;
-use Linkspace::Layout;
-use GADS::Record;
-use GADS::Records;
-use GADS::Schema;
-
-use t::lib::DataSheet;
-
-set_fixed_time('10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S'); # Write initial values as this date
+set_fixed_time('10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
 
 # A number of tests to try updates to records, primarily concerned with making
 # sure the relevant SQL joins pull out the correct number of records. If we get
@@ -110,57 +99,46 @@ my @update2 = (
     },
 );
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2, data => $data2);
-$curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
-my $sheet   = t::lib::DataSheet->new(
-    data         => $data1,
-    schema       => $schema,
-    curval       => 2,
+my $curval_sheet = make_sheet 2, rows => $data2;
+
+my $sheet   = make_sheet 1,
+    rows         => $data1,
+    curval_sheet => $curval_sheet,
     column_count => {
         enum   => 1,
         curval => 2, # Test for correct number of record_later searches
     },
 );
 my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
-$sheet->create_records;
+
 my $user = $sheet->user;
 # Add autocur field
-my $autocur1 = $curval_sheet->add_autocur(refers_to_instance_id => 1, related_field_id => $columns->{curval1}->id);
+my $autocur1 = $curval_sheet->layout->column_create({
+    type => 'autocur',
+    refers_to_sheet => $sheet,
+    related_column  => 'curval1',
+});
 
 # Check initial content of single record
-my $record_single = GADS::Record->new(
-    user   => $user,
-    layout => $layout,
-    schema => $schema,
-);
-is( $record_single->find_current_id(3)->current_id, 3, "Retrieved record from main table" );
-my $curval1_id = $columns->{curval1}->id;
-my $curval2_id = $columns->{curval2}->id;
-is( $record_single->fields->{$curval1_id}->as_string, 'FooBar2, , , , , , , , a_grey, ', "Correct initial curval1 value from main table");
-is( $record_single->fields->{$curval2_id}->as_string, 'FooBar1, , , , , , , , a_grey, ', "Correct initial curval2 value from main table");
-# $record->clear;
+my $row1 = $sheet->content->row(3);
+is $row1->current_id, 3, "Retrieved record from main table";
 
-my $records = GADS::Records->new(
-    user    => $user,
-    layout  => $layout,
-    schema  => $schema,
-);
+is $row1->cell('curval1'), 'FooBar2, , , , , , , , a_grey, ',
+    "Correct initial curval1 value from main table";
 
-is ($records->count, 2, 'Correct count of results initially');
-is (@{$records->results}, 2, 'Correct number of results initially');
+is $row1->cell('curval2'), 'FooBar1, , , , , , , , a_grey, ',
+   "Correct initial curval2 value from main table");
+
+my $records = $result->content->search;
+is $records->count, 2, 'Correct count of results initially';
+is @{$records->rwos}, 2, 'Correct number of results initially';
 
 # Set up curval record
-my $record_curval = GADS::Record->new(
-    user    => $user,
-    layout  => $curval_sheet->layout,
-    schema  => $schema,
-);
-$record_curval->find_current_id(1);
+my $record_curval = $curval_sheet->row(1);
 
 # Check autocur value of curval sheet
-is( $record_curval->fields->{$autocur1->id}->as_string, ', 45, , , , , , , a_grey, ', "Autocur value correct initially");
+is $record_curval->cell('autocur1'), ', 45, , , , , , , a_grey, ',
+   "Autocur value correct initially";
 
 # First updates to the main sheet
 foreach my $test (@update1)
@@ -202,11 +180,7 @@ foreach my $update (@update2)
     is ($records->count, 2, 'Count of sheet 1 records still correct after value update');
     is (@{$records->results}, 2, 'Number of actual sheet 1 records still correct after value update');
 
-    my $records_curval = GADS::Records->new(
-        user    => $user,
-        layout  => $curval_sheet->layout,
-        schema  => $schema,
-    );
+    my $records_curval = $curval_sheet->content->searchC;
     is ($records_curval->count, 2, 'Count of curval sheet records still correct after value update');
     is (@{$records_curval->results}, 2, 'Number of actual curval sheet records still correct after value update');
 
@@ -246,28 +220,28 @@ foreach my $update (@update2)
     my $curval_sheet = make_sheet 2;
 
     my $sheet   = make_sheet 1,
-        data           => [ { curval1 => [1, 2] }],
+        rows           => [ { curval1 => [1, 2] }],
         curval_sheet   => $curval_sheet,
         curval_columns => [ 'string1' ];
 
-    $sheet->layout->column_update($curval => {
+    $sheet->layout->column_update(curval1 => {
         show_add       => 1,
         value_selector => 'noshow',
     });
     my $content = $sheet->content;
 
     my $row3 = $content->row(3);
-    my $curval_datum = $row3->cell($curval);
-    is $curval_datum->as_string, "Foo; Bar", "Initial value of curval correct";
+    my $curval_datum = $row3->cell('curval1');
+    is $curval_datum, "Foo; Bar", "Initial value of curval correct";
 
-    $content->cell_update($curval => [1, 2]);
+    $content->cell_update(curval1 => [1, 2]);
     ok !$curval_datum->changed, "Curval not changed with same current IDs";
 
     my $stringf = $curval_sheet->layout->column('string1')->field_name;
-    $content->cell_update($curval => [ "$stringf=Foo&current_id=1", "$stringf=Bar&current_id=2"]);
+    $content->cell_update(curval1 => [ "$stringf=Foo&current_id=1", "$stringf=Bar&current_id=2"]);
     ok !$curval_datum->changed, "Curval not changed with same content";
 
-    $content->cell_update($curval => [ "$stringf=Foobar&current_id=1", "$stringf=Bar&current_id=2"]);
+    $content->cell_update(curval1 => [ "$stringf=Foobar&current_id=1", "$stringf=Bar&current_id=2"]);
     ok  $curval_datum->changed, "Curval changed with HTML update";
 }
 

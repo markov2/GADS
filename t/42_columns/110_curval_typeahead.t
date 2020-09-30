@@ -1,9 +1,8 @@
 # Test type-ahead for curval fields
 # Extracted from t/009_typeahead.t
 
-use Linkspace::Test;
-
-plan skip_all => "Waiting for test_sheet";
+use Linkspace::Test
+    not_ready => "Waiting for test_sheet";
 
 my $data = [
     {

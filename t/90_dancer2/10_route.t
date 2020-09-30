@@ -1,13 +1,9 @@
 # Rewrite of t/002_index_route.t
-use Linkspace::Test;
+use Linkspace::Test
+    not_ready => 'Needs dancer';
 
-plan skip_all => 'Needs dancer';
-
-__END__
-use GADS;
+#use GADS;
 use Plack::Test;
-use HTTP::Request::Common;
-use DBICx::Sugar qw(schema);
 
 my $app = GADS->to_app;
 

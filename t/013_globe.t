@@ -1,37 +1,19 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Globe;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 my $simple_data = [
-    {
-        string1    => 'France',
-        integer1   => 10,
-        enum1      => 'foo2',
-    },{
-        string1    => 'Great Britain',
-        integer1   => 15,
-        enum1      => 'foo3',
-    },
+    { string1 => 'France',        integer1 => 10, enum1 => 'foo2' },
+    { string1 => 'Great Britain', integer1 => 15, enum1 => 'foo3' },
 ];
 
 # Simple test first
 {
-    my $sheet = t::lib::DataSheet->new(
-        data             => $simple_data,
+    my $sheet = make_sheet 1,
+        rows             => $simple_data,
         calc_code        => "function evaluate (L1string1) \n return L1string1 end",
         calc_return_type => 'globe',
     );
 
-    $sheet->create_records;
-    my $schema  = $sheet->schema;
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
 
     my $records_options = {
         user   => $sheet->user,
@@ -56,62 +38,45 @@ foreach my $withview (qw/none with without/)
 {
     my @countries = qw(Albania Algeria Andorra Angola Australia
         Bahamas Bahrain Barbados Bermuda Bolivia);
-    my @data;
 
+    my @data;
     for my $i (1..500)
     {
-        my $mod1 = $i % 10;
-        my $mod2 = $i % 3;
-        push @data, {
-            string1  => $countries[$mod1],
+        push @data,
+         +{ string1  => $countries[$i % 10],
             integer1 => 10,
-            enum1    => "foo".($mod2+1),
-        }
+            enum1    => "foo".($i % 3 +1),
+          };
     }
 
-    my $sheet = t::lib::DataSheet->new(
-        data             => \@data,
+    my $sheet = make_sheet 2,
+        rows             => \@data,
         calc_code        => "function evaluate (L1string1) \n return L1string1 end",
         calc_return_type => 'globe',
     );
-
-    $sheet->create_records;
-    my $schema  = $sheet->schema;
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
 
     my $records_options = {
         user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
     };
-    if ($withview =~ /with/)
-    {
-        my $cols = $withview eq 'with' ? [$columns->{calc1}->id] : [$columns->{string1}->id];
-        my $view = GADS::View->new(
+
+    if($withview =~ /with/)
+    {   my $view = $sheet->views->view_create({
             name        => 'Test view',
-            columns     => $cols,
-            instance_id => $layout->instance_id,
-            layout      => $layout,
-            schema      => $schema,
-            user        => $sheet->user,
+            columns     => [ $withview eq 'with' ? 'calc1' : 'string1' ],
+            grouping    => 'string1', # Should make no difference whatsoever
         );
-        $view->write;
-        $view->set_groups([$columns->{string1}->id]); # Should make no difference whatsoever
         $records_options->{view} = $view;
     }
 
     foreach my $test (qw/group label color color_count group_numeric/)
     {
-        my %options = $test eq 'group'
-            ? (group_col_id => $columns->{enum1}->id)
-            : $test eq 'color'
-            ? (color_col_id => $columns->{integer1}->id)
-            : $test eq 'color_count'
-            ? (color_col_id => -1)
-            : $test eq 'group_numeric'
-            ? (group_col_id => $columns->{integer1}->id)
-            : (label_col_id => $columns->{string1}->id);
+        my %options
+          = $test eq 'group' ? (group_col_id => $columns->{enum1}->id)
+          : $test eq 'color' ? (color_col_id => $columns->{integer1}->id)
+          : $test eq 'color_count' ? (color_col_id => -1)
+          : $test eq 'group_numeric' ? (group_col_id => $columns->{integer1}->id)
+          :                            (label_col_id => $columns->{string1}->id);
 
         $options{records_options} = $records_options;
 
@@ -260,16 +225,12 @@ foreach my $withview (qw/none with without/)
 
 # Invalid columns
 {
-    my $sheet = t::lib::DataSheet->new(
-        data             => $simple_data,
+    my $sheet = make_sheet 1,
+        rows             => $simple_data,
         calc_code        => "function evaluate (L1string1) \n return L1string1 end",
-        calc_return_type => 'globe',
-    );
+        calc_return_type => 'globe';
 
-    $sheet->create_records;
-    my $schema  = $sheet->schema;
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
 
     my $records_options = {
         user   => $sheet->user,

@@ -74,8 +74,20 @@ sub row_by_serial($%)
 }
 
 sub _row_create($%)
-{   my ($self, $insert, %args) = @_;
-    $self->insert($insert, content => $args{content});
+{   my ($class, $insert, %args) = @_;
+
+    my $guard  = $::db->begin_work;
+    my $revision;
+    if(my $data = delete $insert->{revision}) 
+    {   # May cast validation errors
+        $revision = $class->_revision_prepare($data);
+    }
+
+    my $row = $self->insert($insert, content => $args{content});
+    Linkspace::Row::Revision->_revision_create($revision, $row, @_);
+
+    $guard->commit;
+    $row;
 }
 
 sub _row_update()
@@ -173,6 +185,14 @@ sub deleted_when
 
 sub is_deleted   { !! $self->deleted }   # deleted is a date
 
+sub nr_rows()
+{   # query to count rows which are not deleted
+}
+
+sub first_row()
+{   # Used in test-scripts: current_id does not need to start at 1
+}
+
 #-----------------
 =head1 METHODS: Manage row revisions
 A row has seen one or more revisions.
@@ -220,8 +240,12 @@ sub revision($%)
 =cut
 
 sub revision_create($%)
-{   my ($self, $insert) = (shift, shift);
-    Linkspace::Row::Revision->_revision_create($insert, $self, @_);
+{   my ($self, $revision) = (shift, shift);
+    my $guard  = $::db->begin_work;
+    my $insert = $self->revision_prepare($revision);
+    my $rev    = Linkspace::Row::Revision->_revision_create($insert, $self, @_);
+    $guard->commit;
+    $rev;
 }
 
 =head2 my $revision = $row->revision_update($revision, $update, %options);
@@ -249,15 +273,21 @@ Make the C<$revision> the new latest version.
 #XXX more work expected
 sub set_current($) { $_[0]->current($_[0]) }
 
+=head2 my $cell = $row->created_by;
+Returns the Person who created the initial revisions of this row.  This is kept
+in the '_created_user' column in every revision.
+=cut
+
+sub created_by() { $_[0]->current->cell('_created_user')->datum }
+
 #-----------------
 =head1 METHODS: Parent/Child relation between rows
 XXX No idea what this exactly means.
 =cut
 
-has _parent    => (is => 'rw');
 sub parent_row
 {   my $self = shift;
-    $self->{_parent} ||= $self->content->row($self->parent_row_id);
+    $self->content->row($self->parent_row_id);
 }
 
 sub has_parent_row { !! $_[0]->parent_row_id }
@@ -273,6 +303,10 @@ sub child_rows()
     });
 }
 
+sub child_row_create()
+{   my ($self, %args) = @_;
+    $self->content->row_create(%args, parent_row => $self);
+}
 
 #---------------------
 =head1 METHODS: Draft row

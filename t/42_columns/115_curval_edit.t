@@ -1,11 +1,6 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-use utf8;
 
-use Log::Report;
-
-use t::lib::DataSheet;
+use Linkspace::Test
+    not_ready => 'rewrite ongoing';
 
 foreach my $delete_not_used (0..1)
 {
@@ -26,8 +21,8 @@ foreach my $delete_not_used (0..1)
                 ret = ret .. curval.field_values.L2string1
             end
             return ret
-        end},
-    );
+        end};
+
     my $layout  = $sheet->layout;
 
     # Add autocur and calc of autocur to curval sheet, to check that gets
@@ -37,8 +32,8 @@ foreach my $delete_not_used (0..1)
         refers_to_sheet => $sheet,
         related_column  => [ 'curval1 ' ],
         curval_columns  => [ 'string1' ],
-        curval_sheet    => $sheet,   #XXX
-    );
+        curval_sheet    => $sheet,
+    });
 
     $curval_sheet->layout->column_update(calc1 => { code => <<'__CODE' });
         function evaluate (L2autocur1)
@@ -50,8 +45,6 @@ foreach my $delete_not_used (0..1)
         end
 __CODE
 
-    # Calc from main sheet
-    my $calcmain = $columns->{calc1};
 
     # Set up curval to be allow adding and removal
     $layout->column_update(curval1 => {
@@ -63,6 +56,7 @@ __CODE
     my $row = $sheet->content->row(3);
 
 #XXX now it gets hairy
+#   my $calcmain = $columns->{calc1};
 
     my $curval_datum = $row->cell('curval1');
     is $curval_datum, '', "Curval blank to begin with";
@@ -77,8 +71,8 @@ __CODE
     my $curval_count2 = $curval_sheet->nr_rows;
     is $curval_count2, $curval_count + 1, "New curval record created";
 
-    $record = $sheet->content->row(3);
-    is $record->fields->{$calcmain->id}->as_string, "foo1", "Main calc correct after load";
+    my $record = $sheet->content->row(3);
+    is $record->cell('calc1'), "foo1", "Main calc correct after load";
 
     $curval_datum = $record->cell('curval1');
     is $curval_datum, 'foo1', "Curval value contains new record";
@@ -120,7 +114,7 @@ __CODE
 #XXXX
 
     $record->find_current_id(3);
-    is($record->fields->{$calcmain->id}->as_string, "foo1foo5", "Main calc correct");
+    is($record->cell('calc1'), "foo1foo5", "Main calc correct");
     $curval_datum = $record->fields->{$curval->id};
     like($curval_datum->as_string, qr/^(foo1; foo5|foo5; foo1)$/, "Curval value contains updated record");
 
@@ -136,7 +130,8 @@ __CODE
     is($curval_count2, $curval_count, "No new curvals created");
     $record->clear;
     $record->find_current_id(3);
-    is($record->fields->{$calcmain->id}->as_string, "foo1foo6", "Main calc correct");
+    is $record->cell('calc1'), "foo1foo6", "Main calc correct";
+
     $curval_datum = $record->fields->{$curval->id};
     like($curval_datum->as_string, qr/^(foo1; foo6|foo6; foo1)$/, "Curval value contains updated and unchanged records");
 
@@ -224,4 +219,4 @@ __CODE
     is($curval_record->fields->{$autocur->id}->as_string, 'Foo', "Autocur value is correct");
 }
 
-done_testing();
+done_testing;

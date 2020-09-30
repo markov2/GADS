@@ -682,15 +682,13 @@ sub _in_alert_send($)
     $::db->resultset(AlertSend => {view_id => $view->id})->count;
 }
 
-$sheet = t::lib::DataSheet->new(data => $data);
-$columns = $sheet->columns;
-$sheet->create_records;
+$sheet = make_sheet 1, rows => $data;
 
 # First create a view with no filter
-my $view = $views->view_create(
+my $view = $views->view_create({
     name        => 'view1',
-    columns     => [ $columns->{date1}->id ],
-);
+    columns     => [ 'date1' ],
+});
 
 my $alert1 = $view1->create_alert(24, $sheet->user);
 
@@ -698,28 +696,24 @@ cmp_ok _in_alert_cache($view1), '==',  7,
     'Correct number of alerts inserted';
 
 # Add a column, check alert cache
-$views->view_update($view1, {
-    columns => [$columns->{string1}->id, $columns->{date1}->id],
-});
+$views->view_update($view1, { columns => [ 'string1', 'date1' ] });
 
 cmp_ok _in_alert_cache($view1), '==', 14, 
     'Correct number of alerts for column addition';
 
 # Remove a column, check alert cache
 
-$views->view_update($view1, { columns => [ $columns->{string1}->id ] });
+$views->view_update($view1, { columns => [ 'string1' ] });
 cmp_ok _in_alert_cache, '==',  7,
    'Correct number of alerts for column removal';
 
 # Add a filter to the view, alert cache should be updated
-$view1->filter = Linkspace::Filter->from_hash({
-    rules     => [{
-        id       => $columns->{string1}->id,
+$views->view_update($view1 => { filter => { rule => {
+        column   => 'string1',
         type     => 'string',
         value    => 'Foo',
         operator => 'equal',
-    }],
-});
+}}});
 
 cmp_ok _in_alert_cache($view1), '==', 5,
     'Correct number of alerts after view updated';
@@ -727,36 +721,25 @@ cmp_ok _in_alert_cache($view1), '==', 5,
 # Instantiate view from scratch, check that change in filter changes alerts
 # First as hash
 
-my $filter2 = {
-    rules     => [{
-        id       => $columns->{string1}->id,
-        type     => 'string',
-        value    => 'Bar',
-        operator => 'equal',
-    }],
-};
+my $filter2 = { rule => { columns  => 'string1',
+    type     => 'string',
+    operator => 'equal',
+    value    => 'Bar',
+}};
 
-my $view2 = $views->create_view(
-    user        => $sheet->user,
-    filter      => $filter2,
-);
+my $view2 = $views->view_create({ filter => $filter2 });
 
 cmp_ok _in_alert_cache($view2), '==', 2,
     'Correct number of alerts after view updated (from hash)';
 
-my $filter3 = {
-    rules     => [{
-        id       => $columns->{string1}->id,
-        type     => 'string',
-        value    => 'Foo',
-        operator => 'equal',
-    }],
-};
+my $filter3 = { rule => {
+    column   => 'string1',
+    type     => 'string',
+    operator => 'equal',
+    value    => 'Foo',
+}};
 
-my $view3 = $views->create_view(
-    user        => $sheet->user,
-    filter      => $filter3,
-);
+my $view3 = $views->view_create({ filter => $filter3 });
 
 cmp_ok _in_alert_cache($view3), '==', 3,
     'Correct number of alerts after view updated (from json)';
@@ -792,30 +775,28 @@ test_curuser 'string', \@curuser_string_data, 'string1';
 
 sub test_curuser
 {   my ($curuser_type, $data, $filter_col ) = @_;
-}
-    $sheet = $site->document->sheet_create(data => $data);
+
+    $sheet = make_sheet 1, rows => $data;
 
     # First create a view with no filter
     my $col_ids = $curuser_type eq 'person'
-      ? [ 'string1', 'person1' ]
+      ? [ 'string1',  'person1' ]
       : [ 'integer1', 'string1' ];
 
     # Add a person filter, check alert cache
-    my $filter1 = {
-        rules  => [{
-            id       => $layout->column($filter_col)->id,
-            type     => 'string',
-            value    => '[CURUSER]',
-            operator => 'equal',
-        }],
-    };
+    my $filter1 = { rules  => {
+        columns  => $filter_col,
+        type     => 'string',
+        operator => 'equal',
+        value    => '[CURUSER]',
+    }};
 
     my $view1 = $views->view_create({
         name        => 'view1',
         is_global   => 1,
         columns     => $col_ids,
         filter      => $filter1,
-    );
+    });
 
     $view1->alert_set(24, $user2);  #XXX?
 
@@ -842,40 +823,36 @@ sub test_curuser
     # Change global view slightly, check alerts
     my $filter1;
     if($curuser_type eq 'person')
-    {   $filter1 = {
-            rules     => [
-                {
-                    id       => $layout->column('person1')->id,
-                    type     => 'string',
-                    value    => '[CURUSER]',
-                    operator => 'equal',
-                }, {
-                    id       => $columns->{string1}->id,
-                    type     => 'string',
-                    value    => 'Foo',
-                    operator => 'equal',
-                }
-            ],
-        };
+    {   $filter1 = { rules => [
+            {
+                column   => 'person1',
+                type     => 'string',
+                operator => 'equal',
+                value    => '[CURUSER]',
+            }, {
+                column   => 'string1',
+                type     => 'string',
+                value    => 'Foo',
+                operator => 'equal',
+            }
+        ] };
     }
     else
-    {   $filter1 = {
-            rules     => [
-                {
-                    id       => $columns->{string1}->id,
-                    type     => 'string',
-                    value    => '[CURUSER]',
-                    operator => 'equal',
-                }, {
-                    id       => $columns->{integer1}->id,
-                    type     => 'string',
-                    value    => 100,
-                    operator => 'equal',
-                }
-            ],
-        };
+    {   $filter1 = { rules => [
+            {
+                column   => 'string1',
+                type     => 'string',
+                operator => 'equal',
+                value    => '[CURUSER]',
+            }, {
+                column   => 'integer1',
+                type     => 'string',
+                value    => 100,
+                operator => 'equal',
+            }
+        ] };
     }
-    $views->view_update($view1, { filter => $filter1 });
+    $views->view_update($view1 +> { filter => $filter1 });
 
     cmp_ok _in_alert_cache($view1, $user1), '==', 2,
        'Correct number of CURUSER alerts after filter change (user1)';
@@ -898,24 +875,20 @@ sub test_curuser
     # And remove curuser filter
     my $filter2;
     if($curuser_type eq 'person')
-    {   $filter2 = {
-            rules     => [ {
-                id       => $columns->{string1}->id,
-                type     => 'string',
-                value    => 'Foo',
-                operator => 'equal',
-            } ],
-        };
+    {   $filter2 = { rule => {
+            column   => 'string1',
+            type     => 'string',
+            value    => 'Foo',
+            operator => 'equal',
+        } };
     }
     else
-    {   $filter2 = {
-            rules     => [ {
-                id       => $columns->{integer1}->id,
-                type     => 'string',
-                value    => '100',
-                operator => 'equal',
-            } ],
-        };
+    {   $filter2 = { rules =>[ {
+            column   => 'integer1',
+            type     => 'string',
+            operator => 'equal',
+            value    => '100',
+        } };
     }
     $views->view_upate($view1 => { filter => $filter2 });
 
@@ -927,9 +900,7 @@ sub test_curuser
 }
 
 # Check alerts after update of calc column code
-$sheet = t::lib::DataSheet->new;
-$columns = $sheet->columns;
-$sheet->create_records;
+$sheet = make_sheet 1;
 
 # First create a view with no filter
 
@@ -949,9 +920,8 @@ cmp_ok _in_alert_send($view), '==', 0,
 
 # Update calc column to same result (extra space to ensure update),
 # should be no more alerts,
-my $calc_col = $columns->{calc1};
 
-$layout->column_update($calc_col => {
+$layout->column_update(calc1 => {
     code => "function evaluate (L1daterange1) \n if L1daterange1 == null then return end \n return L1daterange1.from.year\nend ",
 });
 
@@ -960,7 +930,7 @@ cmp_ok _in_alert_send($view), '==', 0,
 
 # Update calc column for different result (one record will change, other
 # has same end year)
-$layout->column_update($calc_col => {
+$layout->column_update(calc1 => {
     code => "function evaluate (L1daterange1) \n if L1daterange1 == null then return end \n return L1daterange1.to.year\nend"
 });
 
@@ -970,20 +940,18 @@ cmp_ok _in_alert_send($view), '==', 1,
 # Add filter, check alert after calc update
 $::db->delete('AlertSend');
 
-my $filter = {
-    rules     => [ {
-        id       => $columns->{calc1}->id,
-        type     => 'string',
-        value    => '2011',
-        operator => 'greater',
-    } ],
-};
+my $filter = { rules => {
+    column   => 'calc1',
+    type     => 'string',
+    operator => 'greater',
+    value    => '2011',
+} };
 $views->view_update($view, { filter => $filter });
 
 cmp_ok _in_alert_cache($view), '==', 1,
     'Correct number of alert caches after filter applied';
 
-$layout->column_update($calc_col => {
+$layout->column_update(calc1 => {
    code => "function evaluate (L1daterange1) \n if L1daterange1 == null then return end \n return L1daterange1.from.year\nend"
 });
 
@@ -995,27 +963,22 @@ cmp_ok _in_alert_send($view), '==', 1,
 # year hard-coded in the Lua code. Years of 2010 and 2014 are used for the tests.
 foreach my $viewtype (qw/normal group global/)
 {
-    $sheet = t::lib::DataSheet->new(
-        calc_code => "function evaluate (L1daterange1) \nif L1daterange1.from.year < 2010 then return 1 else return 0 end\nend",
-    );
-    $sheet->create_records;
-    $columns = $sheet->columns;
+    $sheet = make_sheet 1,
+        calc_code => "function evaluate (L1daterange1) \nif L1daterange1.from.year < 2010 then return 1 else return 0 end\nend";
 
     # First create a view with no filter
-    $view = $sheet->view_create({
+    my $view = $sheet->view_create({
         name        => 'view1',
         is_global   => $viewtype eq 'group' || $viewtype eq 'global',
         group       => $viewtype eq 'group' && $sheet->group,
         columns     => [ 'calc1' ],
-        filter      => {
-            rules     => [ {
-                id       => $columns->{calc1}->id,
-                type     => 'string',
-                value    => '1',
-                operator => 'equal',
-            } ],
-        },
-    );
+        filter      => { rule => {
+            column   => 'calc1',
+            type     => 'string',
+            operator => 'equal',
+            value    => '1',
+        } },
+    });
 
     $alert = $view->alert_set(24, $sheet->user);
 
@@ -1054,11 +1017,9 @@ note "About to test alerts for bulk updates. This could take some time...";
 
 # Some bulk data, almost all matching the filter, but not quite,
 # to test big queries (otherwise current_ids is not searched)
-my @data = ( { string1 => 'Bar' }, +{ string1 => 'Foo' } x 1000 );
 
-$sheet = t::lib::DataSheet->new(data => \@data);
-$columns = $sheet->columns;
-$sheet->create_records;
+$sheet = make_sheet 1,
+    rows => [{ string1 => 'Bar' }, +{ string1 => 'Foo' } x 1000 ) ];
 
 # Check alert count now, same query we perform at end
 my $alerts_rs = $::db->search(AlertSend => {
@@ -1067,21 +1028,18 @@ my $alerts_rs = $::db->search(AlertSend => {
 });
 my $alert_count = $alerts_rs->count;
 
-my $rules = {
-    rules     => [{
-        id       => $columns->{string1}->id,
+my $rules = { rule => {
+        column   => 'string1',
         type     => 'string',
         value    => 'Foo',
         operator => 'equal',
-    }],
-};
+}};
 
 my $view1 = $views->view_create({
     name        => 'view1',
     filter      => $rules,
-    user        => $sheet->user,
-    columns     => [$columns->{string1}->id],
-);
+    columns     => [ 'string1' ],
+});
 my $alert1 = $view->alert_set(24, $sheet->user);
 
 my @ids = $::db->resultset('Current')->get_column('id')->all;
@@ -1091,7 +1049,7 @@ my $alert_send = $alert1->send_create({
     user        => $sheet->user,
     base_url    => undef, # $self->base_url,
     current_ids => \@ids,
-    columns     => [ $columns->{string1}->id ],  # needed?
+    columns     => [ 'string1' ],  # needed?
 });
 $alert_send->process;
 

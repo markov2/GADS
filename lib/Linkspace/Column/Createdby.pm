@@ -31,8 +31,11 @@ extends 'Linkspace::Column::Person';
 
 __PACKAGE__->register_type;
 
+sub is_optional      { 1 }    # Legacy
 sub is_internal_type { 1 }
-sub is_userinput { 0 }
+sub is_userinput     { 0 }
+sub sprefix()        { 'createdby' }
+sub tjoin            { 'createdby' }
 
 ###
 ### Class
@@ -44,8 +47,6 @@ sub _remove_column($) {}
 ### Instance
 ###
 
-sub sprefix() { 'createdby' }
-sub tjoin     { 'createdby' }
 
 # Different to normal function, this will fetch users when passed a list of IDs
 sub fetch_multivalues

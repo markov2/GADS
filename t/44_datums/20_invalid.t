@@ -1,16 +1,11 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
+# Rewrite t/006_invalid_values.t
 
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Record;
-use GADS::Records;
-use GADS::Schema;
+use Linkspace::Test
+    not_ready => 'needs rewrite';
 
-use t::lib::DataSheet;
+#XXX use Datum objects directly
 
-my $data = [
+my $sheet = make_sheet 1, rows => [
     {
         string1    => 'foobar',
         integer1   => '',
@@ -20,30 +15,19 @@ my $data = [
         daterange1 => ['', ''],
     }
 ];
-
-my $sheet = t::lib::DataSheet->new(data => $data);
-
-my $schema = $sheet->schema;
-my $columns = $sheet->columns;
 my $layout = $sheet->layout;
-$sheet->create_records;
 
-my $records = GADS::Records->new(
-    user    => $sheet->user,
-    layout  => $layout,
-    schema  => $schema,
-);
-my $results = $records->results;
+my $results = $sheet->content->search;
+cmp_ok $results->count, '==', 1, "One record in test dataset";
 
-is( scalar @$results, 1, "One record in test dataset");
-
-my ($record) = @$results;
+my $row = $results->row(1);
 
 my $string1 = $columns->{'string1'};
 $string1->force_regex('[0-9]+');
 # Try unchanged - should only result in warning
 try { $record->fields->{$string1->id}->set_value("foobar") } hide => 'ALL';
 ok(!$@, "No exception writing unchanged bad string value for force_regex settings" );
+
 my ($warning) = $@->exceptions;
 like($warning, qr/Invalid value/, "Correct warning writing unchanged bad string value for force_regex settings" );
 # Error with normal changed

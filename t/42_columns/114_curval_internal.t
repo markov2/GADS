@@ -1,9 +1,8 @@
 # Rewrite of t/007_curval_internal.t
 # Tests to check that internal columns can be used in curval fields
 
-use Linkspace::Test;
-
-plan skip_all => 'waiting for curval';
+use Linkspace::Test
+    not_ready => 'waiting for curval';
 
 my $curval_sheet = make_sheet 2,
     rows               => [ { string1 => 'foo1' } ],

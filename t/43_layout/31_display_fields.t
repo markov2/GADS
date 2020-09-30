@@ -1,8 +1,7 @@
 #!/usr/bin/env perl
 
-use Linkspace::Test;
-
-use_ok 'Linkspace::Filter::DisplayField';
+use Linkspace::Test
+    not_ready => 'Linkspace::Filter::DisplayField';
 
 plan skip_all => 'Waits for cell handling';
 
@@ -18,32 +17,28 @@ my $sheet   = make_sheet 1,
     column_count       => { integer => 2 };
 my $layout = $sheet->layout;
 
-my $string1  = $layout->column('string1');  ok $string1;
-my $enum1    = $layout->column('enum1');    ok $enum1;
-my $integer1 = $layout->column('integer1'); ok $integer1;
-
 sub _set_filter($$$)
 {   my ($column, $settings, $rules) = @_;
-    $layout->column_update($column, { display_field => {
+    $layout->column_update($column => { display_field => {
         %$settings,
         rules     => $rules,
     }});
 }
 
 #XXX used?
-$layout->column_update($string1, { display_field => { rules => {
+$layout->column_update(string1 => { display_field => { rules => {
     operator => 'equal',
     regex    => 'foobar',
 }}});
 
 my $row = $sheet->content->row(3);
-sub _cell($)    { $row->cell($_[0]) }
-sub _set($$)    { $row->cell_update($_[0], $_[1]) }
+sub _cell($)     { $row->cell($_[0]) }
+sub _set(@)      { $row->revision_create( { @_ } ) }
 sub _contains($) { $row->cell($_[0])->as_string }
 
 # Initial checks
-is _contains $string1, 'Foo', 'Initial string value is correct';
-is _contains $integer1, '50', 'Initial integer value is correct';
+is _contains string1  => 'Foo', 'Initial string value is correct';
+is _contains integer1 => '50', 'Initial integer value is correct';
 
 my @tests1 = (
     {
@@ -97,27 +92,25 @@ my @tests1 = (
 
 foreach my $test (@tests1)
 {   my $op = $test->{operator};
-    _set_filter $integer1, { column => $string1 }, { regex => 'foobar', operator => $op };
+    _set_filter integer1 => { column => 'string1' }, { regex => 'foobar', operator => $op };
 
     # Test write of value that should be shown
-    {   _set $string1  => $test->{normal};
-        _set $integer1 => '150';
+    {   _set string1 => $test->{normal}, integer1 => '150';
 
-        is _contains $string1, $test->{string_normal} || $test->{normal},
+        is _contains string1 => $test->{string_normal} || $test->{normal},
             "Updated string value is correct (normal $op)";
 
-        is _contains $integer1, '150',
+        is _contains integer1 => '150',
             "Updated integer value is correct (normal $op)";
     }
 
     # Test write of value that shouldn't be shown (string)
-    {   _set $string1  => $test->{blank};
-        _set $integer1 => '200';
+    {   _set string1 => $test->{blank}, integer1 => '200';
 
-        is _contains $string1, $test->{string_blank} || $test->{blank},
+        is _contains string1 => $test->{string_blank} || $test->{blank},
             "Updated string value is correct (blank $op)";
 
-        is _contains $integer1, '',
+        is _contains integer1 => '',
            "Updated integer value is correct (blank $op)";
     }
 }
@@ -157,7 +150,7 @@ my @tests2 = (
 
 foreach my $test (@tests2)
 {
-    $layout->column_update($integer1, { display_field => {
+    $layout->column_update(integer1 => { display_field => {
         _rule_rows => $test->{filters},
         condition  => $test->{display_condition},
     }});
@@ -166,47 +159,39 @@ foreach my $test (@tests2)
     {
         # Test write of value that should be shown
         if(my $n = $value->{normal})
-        {   _set $string1  => $n->{string1};
-            _set $enum1    => $n->{enum1};
-            _set $integer1 => '150';
+        {   _set string1 => $n->{string1}, enum1 => $n->{enum1}, integer1 => '150';
 
-            is _contains $string1, $test->{string_normal} || $test->{normal},
+            is _contains string1 => $test->{string_normal} || $test->{normal},
                 "Updated string value is correct (normal $test->{type})";
 
-            is _contains $integer1, '150',
+            is _contains integer1 => '150',
                 "Updated integer value is correct (normal $test->{type})";
         }
 
         # Test write of value that shouldn't be shown (string)
         if(my $b = $value->{blank})
-        {   _set $string1  => $b->{string1};
-            _set $enum1    => $b->{enum1};
-            _set $integer1 => '200';
+        {   _set string1 => $b->{string1}, enum1 => $b->{enum1}, integer1 => '200';
 
-            is _contains $string1, $test->{string_blank} || $test->{blank},
+            is _contains string1 => $test->{string_blank} || $test->{blank},
                "Updated string value is correct (blank $test->{type})";
 
-            is _contains $integer1, '',
+            is _contains integer1 => '',
                "Updated integer value is correct (blank $test->{type})";
         }
     }
 }
 
 # Reset
-_set_filter $integer1, { column => $string1}, { regex => 'foobar', operator => 'equal' };
+_set_filter integer1 => { column => 'string1'}, { regex => 'foobar', operator => 'equal' };
 
 # Test that mandatory field is not required if not shown by regex
-{   $layout->column_update($integer1, { is_optional => 0 });
+{   $layout->column_update(integer1 => { is_optional => 0 });
 
-    try { _set $string1  => 'foobar';
-          _set $integer1 => '';
-        };
+    try { _set string1 => 'foobar', integer1 => '' };
     like $@, qr/is not optional/,
         'Record failed to be written with shown mandatory blank';
 
-    try { _set $string1  => 'foo';
-          _set $integer1 => '';
-        };
+    try { _set string1 => 'foo', integer1 => '' };
     ok !$@, 'Record successfully written with hidden mandatory blank';
 }
 
@@ -264,130 +249,115 @@ my @tests3 = (
 
 foreach my $test (@tests3)
 {   my $column = $test->{column};
-    _set_filter $integer1, { column => $column }, { regex => $test->{regex} };
+    _set_filter integer1 => { column => $column }, { regex => $test->{regex} };
 
-    _set $column   => $test->{value_blank};
-    try { _set $integer1 => 838 };
+    try { _set $column => $test->{value_blank}, integer1 => 838 };
     is $@, '...';
 
-    is _contains $integer1, '', "Value not written for blank regex match (column $column)";
+    is _contains integer1 => '', "Value not written for blank regex match (column $column)";
 
-    _set $column   => $test->{value_match};
-    _set $integer1 => 839;
-    is _contains $integer1, '839', "Value written for regex match (column $column)";
+    _set $column => $test->{value_match}, integer1 => 839;
+    is _contains integer1 => '839', "Value written for regex match (column $column)";
 }
 
 # Test blank value match
-{   _set_filter $integer1, { column => $string1 }, { regex => '' };
+{   _set_filter integer1 => { column => 'string1' }, { regex => '' };
 
-    _set $string1  => '';
-    _set $integer1 => 789;
-    is _contains $integer1, '789', "Value written for blank regex match";
+    _set string1 => '', integer1 => 789;
+    is _contains integer1 => '789', "Value written for blank regex match";
 
-    _set $string1   => 'foo';
-    _set $integer1  => 234;
-    is _contains $integer1, '', "Value not written for blank regex match";
+    _set string1 => 'foo', integer1 => 234;
+    is _contains integer1 => '', "Value not written for blank regex match";
 }
 
 # Test value that depends on tree. Full levels of tree values can be tested
 # using the nodes separated by hashes
 {
-    # Set up columns
-    my $tree1 = $layout->column('tree1');
-    _set_filter $integer1, { column => $tree1 }, { regex => '(.*#)?tree3' };
+    _set_filter integer1 => { column => 'tree1' }, { regex => '(.*#)?tree3' };
 
     # Set value of tree that should blank int
-    _set $tree1    => 10; # value: tree1
-    _set $integer1 => '250';
-    is _contains $tree1,   'tree1', 'Initial tree value is correct';
-    is _contains $integer1, '', 'Updated integer value is correct';
+    _set tree1 => 10, integer1 => '250';   # value: tree1
+    is _contains tree1    => 'tree1', 'Initial tree value is correct';
+    is _contains integer1 => '', 'Updated integer value is correct';
 
     # Set matching value of tree - int should be written
-    _set $tree1    => 12;
-    _set $integer1 => '350';
-    is _contains $tree1    => 'tree3', 'Updated tree value is correct';
-    is _contains $integer1 => '350', 'Updated integer value is correct';
+    _set tree1 => 12, integer1 => '350';
+    is _contains tree1    => 'tree3', 'Updated tree value is correct';
+    is _contains integer1 => '350', 'Updated integer value is correct';
 
     # Same but multivalue - int should be written
-    _set $tree1    => [ 10, 12];
-    _set $integer1 => '360';
-    is _contains $tree1, 'tree1, tree3', 'Updated tree value is correct';
-    is _contains $integer1, '360', 'Updated integer value is correct';
+    _set tree1 => [ 10, 12 ], integer1 => '360';
+    is _contains tree1    => 'tree1, tree3', 'Updated tree value is correct';
+    is _contains integer1 => '360', 'Updated integer value is correct';
 
     ###
     ### Now test 2 tree levels
     ###
 
-    _set_filter $integer1, { column => 'tree1' }, { regex => 'tree2#tree3' };
+    _set_filter integer1 => { column => 'tree1' }, { regex => 'tree2#tree3' };
 
     # Set matching value of tree - int should be written
-    _set $tree1    => 12;
-    _set $integer1 => '400';
-    is _contains $tree1, 'tree3', 'Tree value is correct';
-    is _contains $integer1, '400', 'Updated integer value with full tree path is correct';
+    _set tree1 => 12, integer1 => '400';
+    is _contains tree1    => 'tree3', 'Tree value is correct';
+    is _contains integer1 => '400', 'Updated integer value with full tree path is correct';
 
     # Same but reversed - int should not be written
-    _set $tree1    => 11;
-    _set $integer1 => '500';
-    is _contains $tree1, 'tree2', 'Tree value is correct';
-    is _contains $integer1, '', 'Updated integer value with full tree path is correct';
+    _set tree1 => 11, integer1 => '500';
+    is _contains tree1    => 'tree2', 'Tree value is correct';
+    is _contains integer1 => '', 'Updated integer value with full tree path is correct';
 
     ###
     ### Same, but test higher level of full tree path
     ###
-    _set_filter $integer1, { column => 'tree1' },
+    _set_filter integer1 => { column => 'tree1' },
       { regex => 'tree2#', operator => 'contains' };
 
     # Set matching value of tree - int should be written
-    _set $tree1    => 12;
-    _set $integer1 => '600';
-    is _contains $tree1, 'tree3', 'Tree value is correct';
-    is _contains $integer1, '600', 'Updated integer value with full tree path is correct';
+    _set tree1 => 12, integer1 => '600';
+    is _contains tree1    => 'tree3', 'Tree value is correct';
+    is _contains integer1 => '600', 'Updated integer value with full tree path is correct';
 }
 
 # Tests for dependent_shown
 {
     sub _shown($) { _cell($_[0])->dependent_shown }
 
-    _set_filter $integer1, { column => $string1 }, { regex => 'Foobar'};
+    _set_filter integer1 => { column => 'string1' }, { regex => 'Foobar'};
 
-    _set $string1  => 'Foobar';
-    _set $integer1 => '100';
-    ok _shown $string1,  "String shown in view";
-    ok _shown $integer1, "Integer shown in view";
+    _set string1 => 'Foobar', integer1 => '100';
+    ok _shown 'string1',  "String shown in view";
+    ok _shown 'integer1', "Integer shown in view";
 
-    _set $string1  => 'Foo';
-    _set $integer1 => '200';
-    ok _shown $string1, "String still shown in view";
-    ok _shown $integer1, "Integer not shown in view";
+    _set string1 => 'Foo', integer1 => '200';
+    ok _shown 'string1', "String still shown in view";
+    ok _shown 'integer1', "Integer not shown in view";
 
-    _set $string1  => 'Foobarbar';
-    _set $integer1 => '200';
-    ok  _shown $string1, "String still shown in view";
-    ok !_shown $integer1, "Integer not shown in view";
+    _set string1  => 'Foobarbar', integer1 => '200';
+    ok  _shown 'string1', "String still shown in view";
+    ok !_shown 'integer1', "Integer not shown in view";
 
     # Although dependent_shown is not used in table view, it is still
     # generated as part of the presentation layer
-    my $page = $sheet->content->search(columns => [ $integer1 ]);
+    my $page = $sheet->content->search(columns => [ 'integer1' ]);
     while($row = $page->row_next)
     {   # Will always be shown as the column it depends on is not in the view
-        ok _shown $integer1, "Integer not shown in view";
+        ok _shown 'integer1', "Integer not shown in view";
     }
 }
 
 # Tests for recursive display fields
 {
-    try { _set_filter $string1, { column => $string1 }, { regex => 'Foobar' } };
+    try { _set_filter string1 => { column => 'string1' }, { regex => 'Foobar' } };
     like $@, qr/not be the same/, "Unable to write display field same as field itself";
 }
 
 # Finally check that columns with display fields can be deleted
 {
-    try { $string1->delete };
+    try { $layout->column_delete('string1') };
     like $@, qr/remove these conditions before deletion/,
         "Correct error when deleting depended field";
 
-    $integer1->delete;
+    { $layout->column_delete('integer1');
     ok "Correctly deleted independent display field";
 }
 

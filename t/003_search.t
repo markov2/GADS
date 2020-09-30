@@ -60,10 +60,10 @@ my $group   = test_group;
 my $curval_sheet = make_sheet 2, group => $group;
 
 my $sheet   = test_sheet
-    data             => $data,
-    curval           => 2,
+    rows             => $data,
+    curval_sheet     => $curval_sheet,
     multivalues      => 1,
-    column_count     => { enum  => 1, curval => 2 },
+    column_count     => { enum => 1, curval => 2 },
     calc_return_type => 'date',
     calc_code        => <<'__CALC';
         function evaluate (L1daterange1)
@@ -110,7 +110,7 @@ my $curval_sheet2 = make_sheet 3,
     curval_fields    => [ 'integer1' ],
 );
 
-my $curval3 = $curval_layout->column_create(curval => {
+my $curval3 = $curval_layout->column_create(curval3 => {
     name             => 'curval3',
     refers_to_sheet  => $curval_sheet2,
     curval_fields    => [ 'string1' ],
@@ -849,7 +849,7 @@ foreach my $multivalue (0..1)
             next FILTER;
         }
 
-        my $page = $sheet->content->search(view => $view);
+        my $results = $sheet->content->search(view => $view);
 
         cmp_ok $records->count, '==', $filter->{count},
              "$filter->{name} for record count()";
@@ -858,14 +858,14 @@ foreach my $multivalue (0..1)
              "$filter->{name} actual number records";
 
         if(my $tv = $filter->{values})
-        {   my $row = $page->row(1);
+        {   my $row = $results->row(1);
             foreach my $field (keys %$tc)
             {   is $row->cell($field)->as_string, $tv->{$field}, ".. test value $field";
             }
         }
 
         $sheet->views->view_update($view, { sortings => [ [$view_columns, ['asc']] ]});
-        my $page = $sheet->content->search(view => $view);
+        my $results = $sheet->content->search(view => $view);
 
         cmp_ok $records->count, '==', $filter->{count},
             "$filter->{name} for record count()";
@@ -881,7 +881,7 @@ foreach my $multivalue (0..1)
             push @column_ids, $int_id if ! grep $_ == $int_id, @column_ids;
             $sheet->views->view_update({columns => \@column_ids});
 
-            my $aggregate = $page->aggregate_results;
+            my $aggregate = $results->aggregate_results;
             is $aggregate->cell($int_id)->as_string, $filter->{aggregate},
                 "Aggregate integer value correct";
         }
@@ -939,9 +939,9 @@ foreach my $multivalue (0..1)
     });
 
     my $content = $sheet->content;
-    my $page = $content->search(view => $view);
+    my $results = $content->search(view => $view);
 
-    cmp_ok $page->count, '==', 1, 'Correct number of results when limiting to a view';
+    cmp_ok $results->count, '==', 1, 'Correct number of results when limiting to a view';
 
     # Check can only directly access correct records. Test with and without any
     # columns selected.
@@ -991,7 +991,7 @@ foreach my $multivalue (0..1)
 
     $user->set_view_limits( [$view_limit, $view_limit2] );
 
-    my $page = $sheet->search(view => $view);
+    my $results = $sheet->search(view => $view);
     cmp_ok $records->count, '==', 2, 'Correct number of results when limiting to 2 views';
 
     # view limit with a view with negative match multivalue filter
@@ -1019,45 +1019,45 @@ foreach my $multivalue (0..1)
                 value    => '2014-10-10',
             }},
         );
-        my $page = $sheet->search(view => $view);
+        my $results = $sheet->search(view => $view);
 
-        cmp_ok $page->number_rows, '==', 1,
+        cmp_ok $results->number_rows, '==', 1,
             'Correct result count when limiting to negative multivalue view';
 
-        cmp_ok scalar @{$page->rows}, '==', 1,
+        cmp_ok scalar @{$results->rows}, '==', 1,
             'Correct number of results when limiting to negative multivalue view';
     }
 
     # Quick searches
     # Limited view still defined
-    my $page1 = $content->search('Foobar');
-    cmp_ok $page1->row_count, '==', 0,
+    my $results1 = $content->search('Foobar');
+    cmp_ok $results1->row_count, '==', 0,
         'quick search results when limiting to a view';
 
     # And again with numerical search (also searches record IDs). Current ID in limited view
-    my $page2 = $content->search(8);
-    cmp_ok $page2->row_count, '==', 1,
+    my $results2 = $content->search(8);
+    cmp_ok $results2->row_count, '==', 1,
         'quick search results for number when limiting to a view (match)';
 
     # This time a current ID that is not in limited view
-    my $page3 = $records->search(5);
-    cmp_ok $page3->row_count, '==', 0,
+    my $results3 = $records->search(5);
+    cmp_ok $results3->row_count, '==', 0,
         'quick search results for number when limiting to a view (no match)';
 
     # Reset and do again with non-negative view
     $user->set_view_limits([$view_limit]);
-    my $page4 = $content->search('Foobar');
-    cmp_ok $page4->row_count, '==', 0,
+    my $results4 = $content->search('Foobar');
+    cmp_ok $results4->row_count, '==', 0,
         'quick search results when limiting to a view';
 
     # Current ID in limited view
-    my $page5 = $content->search(8);
-    cmp_ok $page5->row_count, '==', 0,
+    my $results5 = $content->search(8);
+    cmp_ok $results5->row_count, '==', 0,
         'quick search results for number when limiting to a view (match)';
 
     # Current ID that is not in limited view
-    my $page6 = $content->search(5);
-    cmp_ok $page6->row_count, '==', 1,
+    my $results6 = $content->search(5);
+    cmp_ok $results6->row_count, '==', 1,
         'quick search results for number when limiting to a view (no match)';
 
     # Same again but limited by enumval
@@ -1071,16 +1071,16 @@ foreach my $multivalue (0..1)
     });
 
 #XXX install $view_limit?
-    my $page7 = $content->search;
-    cmp_ok $page7->row_count, '==', 2, 'limiting to a view with enumval';
+    my $results7 = $content->search;
+    cmp_ok $results7->row_count, '==', 2, 'limiting to a view with enumval';
 
     $user->view_limit($view_limit);   # add?
-    ok $page7->row_by_current_id(7), "Retrieved record within limited view";
+    ok $results7->row_by_current_id(7), "Retrieved record within limited view";
 
     $views->view_delete($view_limit);
 
-    my $page = $content->search('2014-10-10');
-    cmp_ok $page->row_count, '==', 1,
+    my $results = $content->search('2014-10-10');
+    cmp_ok $results->row_count, '==', 1,
         'quick search results when limiting to a view with enumval';
 
     # Check that record can be retrieved for edit
@@ -1109,13 +1109,13 @@ foreach my $multivalue (0..1)
     is (@{$records->results}, 1, 'Correct number of results when limiting to a view with curval');
 
     # Check that record can be retrieved for edit
-    my $page11 = $sheet->search({
+    my $results11 = $sheet->search({
         curcommon_all_fields => 1, # Used for edits
     });
     $record->find_current_id($records->single->current_id);
 
     {   $user->add_viewlimit($view_limit);
-        ok $page11->row_by_current_id(3), "Retrieved record within limited view";
+        ok $results11->row_by_current_id(3), "Retrieved record within limited view";
         $limit->delete;
     }
 
@@ -1172,7 +1172,7 @@ foreach my $multivalue (0..1)
 
 {
     # Test view_limit_extra functionality
-    my $sheet = t::lib::DataSheet->new(data =>
+    my $sheet = make_sheet 1, data =>
     [ { string1 => 'FooBar', integer1   =>  50 },
       { string1 => 'Bar',    integer1   => 100 },
       { string1 => 'Foo',    integer1   => 150 },
@@ -1181,50 +1181,45 @@ foreach my $multivalue (0..1)
 
     my $limit_extra1 = $sheet->views->view_create({
         name    => 'Limit to view extra',
-        filter  => {
-            rule  => {
-                column   => 'string1',
-                operator => 'equal',
-                value    => 'FooBar',
-            },
-        },
+        filter  => { rule  => {
+            column   => 'string1',
+            operator => 'equal',
+            value    => 'FooBar',
+        } },
     });
 
     my $limit_extra2 = $sheet->views->view_create({
-        name        => 'Limit to view extra',
-        filter      => {
-            rule     => {
-                column1  => 'integer1',
-                type     => 'string',     #XXX sure?
-                operator => 'greater',
-                value    => '75',
-            },
-        },
+        name    => 'Limit to view extra',
+        filter  => { rule => {
+            column1  => 'integer1',
+            type     => 'string',     #XXX sure?
+            operator => 'greater',
+            value    => '75',
+        } },
     });
 
     $sites->document->sheet_update($sheet, { default_view_limit_extra => $limit_extra1 });
 
-    my $page0 = $sheet->content->search;
-    cmp_ok $page0->row_count, '==', 2, '... rows limited to a view limit extra';
-    $page0->row(1)->cell('string1')->as_string, 'FooBar', '... limited record';
+    my $results0 = $sheet->content->search;
+    cmp_ok $results0->row_count, '==', 2, '... rows limited to a view limit extra';
+    $results0->row(1)->cell('string1')->as_string, 'FooBar', '... limited record';
 
-    my $page1 = $sheet->content->search({ view_limit_extra => $limit_extra2 });
-    ok $page1, 'Applied second view limit in search';
+    my $results = $sheet->content->search(view_limit_extra => $limit_extra2);
+    ok $results, 'Applied second view limit in search';
 
-    cmp_ok $page1->row_count, '==', 3,
+    cmp_ok $results->count, '==', 3,
         '... number of results when changing view limit extra';
 
-    $page1->row(1)->cell($string1)->as_string, 'Bar',
-        '... limited record when changed';
+    $results->row(1)->cell($string1), 'Bar', '... limited record when changed';
 
 
     $site->users->user_update($user, { view_limits => [ $limit_extra1 ]});
 
-    my $page2 = $sheet->content->search({ view_limit_extra => $limit_extra2 });
-    ok $page2, 'Applied second view limit in search, with default limit as well';
+    my $results2 = $sheet->content->search(view_limit_extra => $limit_extra2);
+    ok $results2, 'Applied second view limit in search, with default limit as well';
 
-    cmp_ok $page2->row_count, '==', 1, '... rows with both view limits and extra limits';
-    $page2->row(1)->cell('string1')->as_string, 'FooBar',
+    cmp_ok $results2->count, '==', 1, '... rows with both view limits and extra limits';
+    $results2->row(1)->cell('string1'), 'FooBar',
        "... limited record for both types of limit";
 }
 
@@ -1234,36 +1229,36 @@ foreach my $multivalue (0..1)
 
     # ASC
     $sheet->sheet_update({sort_column => $layout->column('_id'), sort_type => 'asc'});
-    my $page1 = $sheet->content->search;
-    is $page1->row(0)->current_id, 3, "Correct first record for default_sort (asc)";
-    is $page1->row(-1)->current_id, 9, "Correct last record for default_sort (asc)";
+    my $results1 = $sheet->content->search;
+    is $results1->row(0)->current_id, 3, "Correct first record for default_sort (asc)";
+    is $results1->row(-1)->current_id, 9, "Correct last record for default_sort (asc)";
 
     # DESC
     $sheet->sheet_update({sort_column => $layout->column('_id'), sort_type => 'desc'});
-    my $page2 = $sheet->content->search;
-    is $page2->row(0)->current_id, 9, "Correct first record for default_sort (desc)";
-    is $page2->row(-1)->current_id, 3, "Correct last record for default_sort (desc)";
+    my $results2 = $sheet->content->search;
+    is $results2->row(0)->current_id, 9, "Correct first record for default_sort (desc)";
+    is $results2->row(-1)->current_id, 3, "Correct last record for default_sort (desc)";
 
     # Column from view
     $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_type => 'asc'});
-    my $page3 = $sheet->content->search;
-    is $page3->row(0)->current_id, 6, "Correct first record for default_sort (column in view)";
-    is $page3->row(-1)->current_id, 7, "Correct last record for default_sort (column in view)";
+    my $results3 = $sheet->content->search;
+    is $results3->row(0)->current_id, 6, "Correct first record for default_sort (column in view)";
+    is $results3->row(-1)->current_id, 7, "Correct last record for default_sort (column in view)";
 
     # Standard sort parameter for search()
-    my $page4 = $sheet->content->search(
+    my $results4 = $sheet->content->search(
         sort => { type => 'desc', id   => $layout->column('integer1')->id },
     );
-    is $page4->row(0)->current_id, 6, "Correct first record for standard sort";
-    is $page4->row(-1)->current_id, 7, "Correct last record for standard sort";
+    is $results4->row(0)->current_id, 6, "Correct first record for standard sort";
+    is $results4->row(-1)->current_id, 7, "Correct last record for standard sort";
 
     # Standard sort parameter for search() with invalid column. This can happen if the
     # user switches tables and there is still a sort parameter in the session. In this
     # case, it should revert to the default search.
     $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_type => 'desc' });
-    my $page5 = $sheet->content->search(sort => { type => 'desc', id => -1000 });
-    is $page5->row(0)->current_id, 6, "Correct first record for standard sort";
-    is $page5->row(-1)->current_id, 7, "Correct last record for standard sort";
+    my $results5 = $sheet->content->search(sort => { type => 'desc', id => -1000 });
+    is $results5->row(0)->current_id, 6, "Correct first record for standard sort";
+    is $results5->row(-1)->current_id, 7, "Correct last record for standard sort";
 }
 
 my @sorts = (
@@ -1485,7 +1480,7 @@ foreach my $multivalue (0..1)
               : \@sort_types;
 
             $view->view_update({ sortings => [ [ \@sort_by, $sort_type ] ] });
-            my $page = $sheet->content->search(
+            my $results = $sheet->content->search(
                 view     => $view,
                 sortings => $sorting,
             );
@@ -1494,7 +1489,7 @@ foreach my $multivalue (0..1)
 
         {   ok 1, "testing sort $sort->{name} is overriden";
 
-            my $page = $sheet->content->search(
+            my $results = $sheet->content->search(
                 view     => $view,
                 sortings => +{ type => 'desc', id => $layout->column('_id')->id,
             );
@@ -1503,21 +1498,21 @@ foreach my $multivalue (0..1)
             my $last  = $sort->{min_id} || 3;
 
             # 1 record per page to test sorting across multiple pages
-            $page->window(rows_per_page => 1);
+            $results->window(rows_per_page => 1);
 
-            is $page->row(0)->current_id - $cid_adjust, $first,
+            is $results->row(0)->current_id - $cid_adjust, $first,
                '... first record for sort override';
 
             if(my $fs = $sort->{first_string})
             {   foreach my $colname (keys %$fs)
-                {   is $page->row(0)->cell($colname)->as_string,
+                {   is $results->row(0)->cell($colname)->as_string,
                        $sort->{first_string}->{$colname},
                        "... first record value for $colname";
                 }
             }
 
             my $new_pagenr = $sort->{count} || 7;
-            $page->window(page_number => $new_pagenr);
+            $results->window(page_number => $new_pagenr);
 
             ok defined $new_page, "... moved to other page";
             is $new_page->page_number, $sort->{count} || 7,
@@ -1529,7 +1524,7 @@ foreach my $multivalue (0..1)
 
             if(my $ls = $sort->{last_string})
             {   foreach my $colname (keys %$ls)
-                {   is $page->row(0)->field($colname)->as_string,
+                {   is $results->row(0)->field($colname)->as_string,
                        $sort->{last_string}->{$colname},
                        "last record value for $colname";
                 }
@@ -1561,27 +1556,27 @@ foreach my $multivalue (0..1)
 
         {   ok 1, "testing sort $sort->{name}, sort defined by view";
 
-            my $page = $sheet->content->search(view => $view);
+            my $results = $sheet->content->search(view => $view);
 
-            is $page->all_rows, $sort->{count},
+            is $results->all_rows, $sort->{count},
                 '... number of records in results'
                 if $sort->{count};
 
-            like $page->row(0)->current_id - $cid_adjust, $sort->{first},
+            like $results->row(0)->current_id - $cid_adjust, $sort->{first},
                  '... first record';
 
-            like $page->row(-1)->current_id - $cid_adjust, $sort->{last},
+            like $results->row(-1)->current_id - $cid_adjust, $sort->{last},
                 '... last record';
 
             # Then switch to 1 record per page to test sorting across multiple pages
-            $page->window(rows_per_page => 1);
+            $results->window(rows_per_page => 1);
 
-            like $page->row(0)->current_id - $cid_adjust, $sort->{first},
+            like $results->row(0)->current_id - $cid_adjust, $sort->{first},
                 '... correct first record';
 
-            $page->window(page_number => $sort->{count} || 7);
+            $results->window(page_number => $sort->{count} || 7);
 
-            like $page->row(0)->current_id - $cid_adjust, $sort->{last},
+            like $results->row(0)->current_id - $cid_adjust, $sort->{last},
                 '... last record';
         }
 
@@ -1593,24 +1588,24 @@ foreach my $multivalue (0..1)
             my $rev = $sort_types[0] eq 'asc' ? 'desc' : 'asc';
             $view->view_update({ sortings => [ [ \@sort_by, $rev ] ] });
 
-            my $page = $sheet->content->search(view => $view);
+            my $results = $sheet->content->search(view => $view);
 
-            is $page->all_rows, $sort->{count}, '... number of records in results'
+            is $results->count, $sort->{count}, '... number of records in results'
                 if $sort->{count};
 
-            like $page->row(0)->current_id - $cid_adjust, $sort->{last},
+            like $results->row(0)->current_id - $cid_adjust, $sort->{last},
                 '... first record in reverse';
 
-            like $page->row(-1)->current_id - $cid_adjust, $sort->{last},
+            like $results->row(-1)->current_id - $cid_adjust, $sort->{last},
                 '... last record in reverse';
 
             # Then switch to 1 record per page to test sorting across multiple pages
-            $page->window(rows_per_page => 1);
+            $results->window(rows_per_page => 1);
 
-            like( $page->row(0)->current_id - $cid_adjust, $sort->{last}, "Correct first record for sort $sort->{name} in reverse");
+            like( $results->row(0)->current_id - $cid_adjust, $sort->{last}, "Correct first record for sort $sort->{name} in reverse");
 
                 $records->page($sort->{count} || 7);
-            like $page->row(0)->current_id - $cid_adjust, $sort->{first}, "Correct last record for sort $sort->{name} in reverse");
+            like $results->row(0)->current_id - $cid_adjust, $sort->{first}, "Correct last record for sort $sort->{name} in reverse");
         }
 
         #### Count only    XXX was pass4
@@ -1619,16 +1614,16 @@ foreach my $multivalue (0..1)
         if(my $count = $sort->{count})
         {   ok 1, "testing sort $sort->{name}, count only";
 
-            my $page = $sheet->content->search(view => $view);
-            is $page->count, $count, '... record count';
+            my $results = $sheet->content->search(view => $view);
+            is $results->count, $count, '... record count';
 
-ok ! $page->_loaded_any_record;
+ok ! $results->_loaded_any_record;
         }
 
         $sheet->views->view_delete($view);
     }
 }
 
-restore_time();
+restore_time;
 
 done_testing;

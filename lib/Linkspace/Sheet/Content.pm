@@ -2279,6 +2279,19 @@ sub max_serial
         ->get_column('serial')->max;
 }
 
+=head2 my $rows = $content->rows(%options);
+Returns the rows, each as L<Linkspace::Row> instance.  Unless C<include_deleted>
+is given, the deleted rows are ignored.
+
+B<WARNING:> this will be very expensive for large sheet: use content search
+for the website.
+=cut
+
+sub rows(%)
+{   my ($self, %args) = @_;
+#XXX
+}
+
 #--------------------------
 =head1 METHODS: Single rows
 
@@ -2306,8 +2319,16 @@ sub row_by_serial($%)
 }
 
 sub row($@)
-{   my ($self, $current_id) = (shift, shift);
-    Linkspace::Row->from_id($current_id, @_, content => $self, sheet => $self->sheet);
+{   my ($self, $current_id, %args) = @_;
+    my $include_deleted = $args{include_deleted};
+    my $row = Linkspace::Row->from_id($current_id, %args, content => $self, sheet => $self->sheet);
+
+    if(! $include_deleted && $row->is_deleted)
+    {   warning "Access to deleted row $current_id refused";
+        return;
+    }
+
+    $row;
 }
 
 sub row_update($$%)

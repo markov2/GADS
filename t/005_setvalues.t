@@ -1,14 +1,4 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Record;
-use GADS::Records;
-use GADS::Schema;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 my $plan = {
     string1 => {
@@ -57,8 +47,8 @@ my $plan = {
         old_as_string => 'User1, User1',
         new           => {
             id       => 2,
-            username => "user2\@example.com",
-            email    => "user2\@example.com",
+            username => 'user2@example.com',
+            email    => 'user2@example.com',
             value    => 'User2, User2',
 
         },
@@ -146,10 +136,10 @@ foreach my $multivalue (0..1)
     my $curval_sheet = make_sheet $sheet_counter++;
 
     my $sheet = make_sheet $sheet_counter++,
-        curval      => $curval_sheet->id,
-        multivalues => $multivalue;
+        curval_sheet => $curval_sheet,
+        multivalues  => $multivalue;
 
-    my $row = $sheet->content->row_create({});
+    my $row = $sheet->content->row_create;
 
     foreach my $type (keys %$plan)
     {   my $col = $sheet->layout->column($type);
@@ -184,9 +174,9 @@ sub run_test($$$$)
     my $curval_sheet = make_sheet $sheet_counter++;
 
     my $sheet   = make_sheet $sheet_counter++,
-        data        => $data->{$test},
-        multivalues => $multivalue,
-        curval      => $curval_sheet->id,
+        rows         => $data->{$test},
+        multivalues  => $multivalue,
+        curval_sheet => $curval_sheet,
     );
 
     #XXX only for this sheet
@@ -328,8 +318,8 @@ foreach my $multivalue (0..1)
 
 # Set of tests to check behaviour when values start as undefined (as happens,
 # for example, when a new column is created and not added to existing records)
-my $curval_sheet = make_sheet '1';
-my $sheet        = make_sheet '2', curval => $curval_sheet->id;
+my $curval_sheet = make_sheet 1;
+my $sheet        = make_sheet 2, curval_sheet => $curval_sheet;
 
 foreach my $c (keys %$values)
 {   my $column = $columns->{$c};
@@ -358,19 +348,19 @@ foreach my $c (keys %$values)
 }
 
 
-# Test madatory fields
+# Test mandatory fields
 {
-    my $sheet = test_sheet
-        optional                 => 0,
-        data                     => [],
-        curval                   => 2;
+    my $curval_sheet = make_sheet 2;
 
-    my $curval_sheet = make_sheet '2';
-
+    my $sheet = make_sheet 1,
+        optional     => 0,
+        rows         => [],
+        curval_sheet => $curval_sheet;
     my $layout = $sheet->layout;
+
     foreach my $column ($layout->search_columns(userinput => 1))
     {   my $colname = $column->name;
-        try { $content->row_create({})};  #XXX per column?
+        try { $content->row_create };  #XXX per column?
         like $@, qr/\Q$colname/, "Correctly failed to write without mandatory value";
 
         # Write a value, so it doesn't stop on same column next time

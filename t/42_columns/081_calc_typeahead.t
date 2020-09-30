@@ -1,16 +1,16 @@
-# Test type-ahead for calc fields
 # Extracted from t/009_typeahead.t
+# Test type-ahead for calc fields
 
-use Linkspace::Test;
+use Linkspace::Test
+    not_ready => 'Waiting for Calc';
 
-plan skip_all => 'Waiting for filled test_sheet';
-
-my $sheet   = test_sheet rows => 3;
+my $sheet   = make_sheet 1;
 my $layout  = $sheet->layout;
 
 my $column1 = $layout->column('calc1');
 
-my $v1a = $column1->values_beginning_with('2');
-cmp_ok @$v1a, '==', 0, "Typeahead on calculated integer does not search as string begins with";
+my $v1a     = $column1->values_beginning_with('2');
+cmp_ok @$v1a, '==', 0,
+     'Typeahead on calculated integer does not search as string begins with';
 
 done_testing;

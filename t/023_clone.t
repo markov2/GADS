@@ -1,10 +1,5 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
 
-use Log::Report;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 my $curval_sheet = make_sheet 2;
 
@@ -18,8 +13,8 @@ my $data = [ {
     tree1      => 'tree1',
 } ];
 
-my $sheet   = make_sheet 1;
-    data             => $data,
+my $sheet   = make_sheet 1,
+    rows             => $data,
     curval_sheet     => $curval_sheet,
     curval_columns   => [ 'string1'],
 );

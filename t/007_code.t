@@ -2,7 +2,7 @@
 use Linkspace::Test;
 
 # Fix all tests for _version_datetime calc
-set_fixed_time('10/22/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
+set_fixed_time '10/22/2014 01:00:00', '%m/%d/%Y %H:%M:%S';
 
 my $data = [
     {
@@ -31,7 +31,7 @@ my $sheet         = make_sheet 1,
     calc_return_type => 'date',
 );
 my $layout       = $sheet->layout;
-my $colperms     = { $sheet->group->id => $sheet->default_permissions };
+my $colperms     = [ $sheet->group => $sheet->default_permissions ];
 
 my $autocur1 = $curval_sheet->layout->columns_create({
     type             => 'autocur',
@@ -358,17 +358,14 @@ foreach my $test (@tests)
     }) } hide => 'WARNING'; # Hide warnings from invalid calc fields
     $@->reportFatal unless $test->{is_error}; # In case any fatal errors
 
-    if(defined $test->{is_error})
+    if($test->{is_error})
     {
-        if ($test->{is_error})
-        {
-            like($@, qr/Unable to submit/, "Failed to write record with error return type");
-            $code_col->delete;
-            next;
-        }
-        else {
-        {   ok(!$@, "Successfully wrote record without error $@");
-        }
+        like($@, qr/Unable to submit/, "Failed to write record with error return type");
+        $code_col->delete;
+        next;
+    }
+    elsif(defined $test->{is_error})
+    {   ok !$@, "Successfully wrote record without error $@";
     }
 
     push @results, $sheet->content->row($row_new->current_id);
@@ -831,7 +828,7 @@ foreach my $multi (0..1)
 
     my $curval_sheet = make_sheet 2;
 
-    my $sheet        = t::lib::DataSheet->new(
+    my $sheet        = make_sheet 1,
         rows             => $data,
         multivalue       => 1,
         curval_sheet     => $curval_sheet,

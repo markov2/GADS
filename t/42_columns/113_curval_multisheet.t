@@ -1,9 +1,8 @@
 # Rewrite of t/004_multisheet.t
 # Only use multivalue for the referenced sheet. Normal multivalue is tested elsewhere.
 
-use Linkspace::Test;
-
-plan skip_all => 'waiting for curval';
+use Linkspace::Test
+   not_ready => 'waiting for curval';
 
 my $curval_sheet = make_sheet 3, columns => [ qw/string1 enum1/ ];
 my $curval_layout = $curval_sheet->layout;

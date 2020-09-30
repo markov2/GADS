@@ -1,9 +1,8 @@
 # Test type-ahead for enum fields
 # Extracted from t/009_typeahead.t
 
-use Linkspace::Test;
-
-plan skip_all => 'Waiting for filled test_sheet';
+use Linkspace::Test
+    not_ready => 'Waiting for filled test_sheet';
 
 my $sheet   = test_sheet rows => 3;
 my $layout  = $sheet->layout;

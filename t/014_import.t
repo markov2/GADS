@@ -1,23 +1,12 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
 
-use Test::MockTime qw(set_fixed_time restore_time); # Load before DateTime
-use Log::Report;
-use GADS::Import;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 $ENV{GADS_NO_FORK} = 1; # Prevent forking during import process
 
 # version tests
 {
-    my $sheet = t::lib::DataSheet->new(data => []);
-
-    my $schema  = $sheet->schema;
+    my $sheet = make_sheet 1;
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
-    $sheet->create_records;
 
     my $user1 = $schema->resultset('User')->create({
         username => 'test',
@@ -52,12 +41,8 @@ $ENV{GADS_NO_FORK} = 1; # Prevent forking during import process
 # Deleted version of live enumval and tree
 foreach my $type (qw/enum tree/)
 {
-    my $sheet = t::lib::DataSheet->new(data => []);
-
-    my $schema  = $sheet->schema;
+    my $sheet = make_sheet 2;
     my $layout  = $sheet->layout;
-    my $columns = $sheet->columns;
-    $sheet->create_records;
 
     my $val = $type eq 'enum' ? 'foo1' : 'tree1';
     my $enumval = $schema->resultset('Enumval')->search({ value => $val });

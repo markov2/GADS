@@ -1,39 +1,16 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-
-use GADS::Records;
-use Log::Report;
-
-use t::lib::DataSheet;
+use Linkspace::Test;
 
 my $data = [
-    {
-        string1    => 'foo1',
-        integer1   => 25,
-        enum1      => [1,2],
-    },
-    {
-        string1    => 'foo1',
-        integer1   => 50,
-        enum1      => 2,
-    },
-    {
-        string1    => 'foo2',
-        integer1   => 60,
-        enum1      => 2,
-    },
-    {
-        string1    => 'foo2',
-        integer1   => 70,
-        enum1      => 3,
-    },
+    { string1 => 'foo1', integer1 => 25, enum1 => [1,2] },
+    { string1 => 'foo1', integer1 => 50, enum1 => 2 },
+    { string1 => 'foo2', integer1 => 60, enum1 => 2 },
+    { string1 => 'foo2', integer1 => 70, enum1 => 3 },
 ];
 
-my $sheet   = t::lib::DataSheet->new(
-    data       => $data,
+my $sheet   = make_sheet 1,
+    rows        => $data,
     multivalues => 1,
-    calc_code  => "function evaluate (L1integer1) \n return L1integer1 * 2 \n end",
+    calc_code   => "function evaluate (L1integer1) \n return L1integer1 * 2 \n end",
 );
 my $schema = $sheet->schema;
 my $layout  = $sheet->layout;
@@ -67,11 +44,8 @@ is(@results, 4, "Correct number of normal rows");
 
 is($records->aggregate_results, undef, "No aggregate results initially");
 
-$integer1->aggregate('sum');
-$integer1->write;
-$calc1->aggregate('sum');
-$calc1->write;
-$layout->clear;
+$layout->column_update(integer1 => { aggregate => 'sum' });
+$layout->column_update(calc1    => { aggregate => 'sum' });
 
 $records = GADS::Records->new(
     view   => $view,

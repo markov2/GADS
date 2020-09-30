@@ -1,15 +1,18 @@
-use Linkspace::Test;
+use Linkspace::Test
+    not_ready => 'much rewrite to do';
 
-my $sheet   = test_sheet multivalues => 1;
+my $sheet   = make_sheet 1, multivalues => 1;
 my $layout  = $sheet->layout;
+my $content = $sheet->content;
 
 sub _records
 {   my ($user, $count) = @_;
-    cmp_ok $sheet->content->nr_rows, '==', $count, "Check number of records in retrieved dataset";
+    cmp_ok $content->row_count, '==', $count,
+       'Check number of records in retrieved dataset';
     @{$results->rows} if defined wantarray;
 }
 
-ok ! $layout->has_children, "Layout does not have children initially";
+ok ! $layout->has_children, 'Layout does not have children initially';
 
 my $row1 = _records($sheet->user, 2)->[0];
 
@@ -17,22 +20,17 @@ my $row1 = _records($sheet->user, 2)->[0];
 
 try {
     # First try writing without selecting any unique values. Should bork.
-    $sheet->content->child_row_create({
-        user       => $sheet->user,
-        parent_row => $row1,     #XXX id is current_id
-    });
+    $row1->child_create;
 };
-ok $@, "Failed to write child record with no unique columns defined";
+ok $@, 'Failed to write child record with no unique columns defined';
 
 # Only set unique daterange. Should affect daterange field and dependent calc
 
 $layout->colomn_update(daterange1 => { can_child => 1 });
-ok $layout->has_children, "Layout has children after creating child column";
+ok $layout->has_children, 'Layout has children after creating child column';
 
-my $child_row = $sheet->content->child_row_create({
-    user       => $sheet->user,
-    parent_row => $row1,
-    cells      => { daterange1 => ['2011-10-10','2015-10-10'] },
+my $child_row = $row1->child_create({
+    cells => { daterange1 => ['2011-10-10','2015-10-10'] },
 });
 
 ### Force refetch of everything from database
@@ -41,12 +39,12 @@ my $child_row = $sheet->content->child_row_create({
 my ($parent, $other, $child) = _records($sheet->user, 3);
 
 isnt $parent->cell('daterange1'), $child->cell('daterange1'),
-    "Parent and child date ranges are different";
+    'Parent and child date ranges are different';
 
-is $parent->cell('calc1'), 2012, "Parent calc value is correct after first write";
-is $child->cell('calc1'),  2011, "Child calc value is correct after first write";
+is $parent->cell('calc1'), 2012, 'Parent calc value is correct after first write';
+is $child->cell('calc1'),  2011, 'Child calc value is correct after first write';
 
-is $parent->cell($_), $child->cell($_), "Parent and child $_ are the same";
+is $parent->cell($_), $child->cell($_), 'Parent and child $_ are the same';
     for qw/string1 enum1 tree1 date1 rag1/;
 
 ### Now update parent daterange and strings and check relevant changes in child
@@ -64,16 +62,16 @@ $row->revision_create({
 my ($parent2, $other2, $child2) = _records($sheet->user, 3);
 
 isnt $parent2->cell('daterange1'), $child2->cell('daterange1'),
-    "Parent and child date ranges are different";
+    'Parent and child date ranges are different';
 
-is $parent2->cell('calc1'), 2000, "Parent calc value is correct after second write";
-is $child2->cell('calc1'),  2011, "Child calc value is correct after second write";
+is $parent2->cell('calc1'), 2000, 'Parent calc value is correct after second write';
+is $child2->cell('calc1'),  2011, 'Child calc value is correct after second write';
 
-is $parent2->cell($_), $child2->cell($_), "Parent and child $_ are the same"
+is $parent2->cell($_), $child2->cell($_), 'Parent and child $_ are the same'
     for qw/string1 enum1 tree1 date1/;
 
 # Same as parent even though DR different
-is $child2->cell('rag1'), 'b_red', "Child rag is red";
+is $child2->cell('rag1'), 'b_red', 'Child rag is red';
 
 ### Test multivalue field
 # First, a second value
@@ -81,12 +79,12 @@ is $child2->cell('rag1'), 'b_red', "Child rag is red";
 $parent2->cell_update(enum1 => [ 2, 3 ]);
 my ($parent3, $other3, $child3) = _records($sheet->user, 3);
 
-is $parent3->cell('enum1'), $child3->cell('enum1'), "Parent and child enums are the same";
+is $parent3->cell('enum1'), $child3->cell('enum1'), 'Parent and child enums are the same';
 
 # And second, back to a single value
 $parent3->cell_update(enum1 => 3);
 my ($parent4, $other4, $child4) = _records($sheet->user, 3);
-is $parent4->cell('enum1'), $child4->cell('enum1'), "Parent and child enums are the same";
+is $parent4->cell('enum1'), $child4->cell('enum1'), 'Parent and child enums are the same';
 
 
 # Now change unique field and check values
@@ -96,12 +94,12 @@ $layout->column_update(string1 => { can_child => 1 });
 $child4->cell_update(string1 => foo3);
 my ($parent5, $other5, $child5) = _records($sheet->user, 3);
 
-is $parent5->cell('daterange1'), $child5->cell('daterange1'), "Parent and child date ranges are the same";
-is $parent5->cell('calc1'), 2000, "Parent calc value is correct after writing new daterange to parent after child unique change";
-is $child5->cell('calc1'),  2000, "Child calc value is correct after removing daterange as unique";
+is $parent5->cell('daterange1'), $child5->cell('daterange1'), 'Parent and child date ranges are the same';
+is $parent5->cell('calc1'), 2000, 'Parent calc value is correct after writing new daterange to parent after child unique change';
+is $child5->cell('calc1'),  2000, 'Child calc value is correct after removing daterange as unique';
 
-isnt $parent5->cell('string1'), $child5('string1'), "Parent and child strings are different";
-is   $parent5->cell('rag1'), $child5->cell('rag1'), "Parent and child rags are the same";
+isnt $parent5->cell('string1'), $child5('string1'), 'Parent and child strings are different';
+is   $parent5->cell('rag1'), $child5->cell('rag1'), 'Parent and child rags are the same';
 
 # Set new daterange value in parent, check it propagates to child calc and
 # alerts set correctly. Run 2 tests, one with a calc value that is different in
@@ -109,112 +107,67 @@ is   $parent5->cell('rag1'), $child5->cell('rag1'), "Parent and child rags are t
 $ENV{GADS_NO_FORK} = 1;
 foreach my $calc_depend (0..1)
 {
-    my $code = $calc_depend
-        ? "function evaluate (L1string1, L1integer1) \n return string.sub(L1string1, 1, 3) .. L1integer1 \n end"
-        : "function evaluate (L1string1) \n return 'XX' .. string.sub(L1string1, 1, 3) \n end";
+    if($cal_depend)
+    {   $code = 'function evaluate (L1string1, L1integer1) \n return string.sub(L1string1, 1, 3) .. L1integer1 \n end';
+        $column = 'string1';
+        $calc_initial = 'Foo500';
+        $value        = 'Bar';
+        $calc_child   = 'Bar50';
+        $view_expected = 2;
+    }
+    else
+    {   $code = 'function evaluate (L1string1) \n return 'XX' .. string.sub(L1string1, 1, 3) \n end';
+        $column = 'integer1';
+        $calc_initial = 'XXFoo';
+        $value  = 100;            # value does not matter
+        $calc_child   = 'XXFoo';
+        $view_expected = 1;
+    }
 
-    my $sheet = t::lib::DataSheet->new(
+    my $sheet = make_sheet 1,
         rows             => [ { string1  => 'Foo', integer1 => 50 } ],
         calc_code        => $code,
         calc_return_type => 'string',
     );
     my $layout  = $sheet->layout;
 
-    my $string1 = $columns->{string1};
-    my $string1_id = $string1->id;
-    if ($calc_depend)
-    {
-        $columns->{string1}->set_can_child(1);
-        $columns->{string1}->write;
-    }
-    else {
-        $columns->{integer1}->set_can_child(1);
-        $columns->{integer1}->write;
-    }
-    my $calc1_id = $columns->{calc1}->id;
-    $layout->clear;
+    $layout->column_update($column => { can_child => 1 });
 
-    my $parent = GADS::Record->new(
-        schema => $schema,
-        layout => $layout,
-        user   => $sheet->user,
-    );
     my $parent_id = 1;
-    $parent->find_current_id($parent_id);
-    my $v = $calc_depend ? 'Foo50' : 'XXFoo';
-    is($parent->fields->{$calc1_id}, $v, 'Initial double calc correct');
+    my $parent = $sheet->content->row($parent_id);
 
-    my $child = GADS::Record->new(
-        user     => $sheet->user,
-        layout   => $layout,
-        schema   => $schema,
-    );
-    $child->parent_id($parent->current_id);
-    $child->initialise;
-    if ($calc_depend)
-    {
-        $child->fields->{$string1_id}->set_value('Bar');
-    }
-    else {
-        # Doesn't really matter what we write here for these tests
-        $child->fields->{$columns->{integer1}->id}->set_value(100);
-    }
-    $child->write;
-    my $child_id = $child->current_id;
-    $child->clear;
-    $child->find_current_id($child_id);
-    $v = $calc_depend ? 'Bar50' : 'XXFoo';
-    is($child->fields->{$calc1_id}, $v, 'Calc correct for child record');
+    is $parent->cell('calc1'), $calc_initial, 'Initial double calc correct';
 
-    my $view = GADS::View->new(
+    my $child = $sheet->content->row_create({ parent_row => $parent });
+    is $child->cell('calc1'), $calc_child, 'Calc correct for child record';
+
+    my $view = $sheet->views->view_create({
         name        => 'view1',
-        instance_id => 1,
-        layout      => $layout,
-        schema      => $schema,
-        user        => $sheet->user,
-        global      => 1,
-        columns     => [$calc1_id],
+        columns     => [ 'calc1' ],
+        is_global   => 1,
     );
-    $view->write;
 
     # Calc field can be different in child, so should see child in view
-    my $records = GADS::Records->new(
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-        view   => $view,
-    );
-    my $count = $calc_depend ? 2 : 1;
-    is($records->count, $count, "Correct parent and child in view");
 
-    my $alert = GADS::Alert->new(
-        user      => $sheet->user,
-        layout    => $layout,
-        schema    => $schema,
-        frequency => 24,
-        view_id   => $view->id,
-    );
-    $alert->write;
+    my $results = $sheet->content->search(view => $view);
+    is $results->count, $view_expected, 'parent and child in view';
 
-    is( $schema->resultset('AlertSend')->count, 0, "Correct number");
+    my $alerts = $sheet->alerts;
+    my $alert  = $alerts->alert_create(24, $view);
 
-    $parent->fields->{$string1_id}->set_value('Baz');
-    $parent->write;
+    cmp_ok $alerts->alerts_sent_count, '==', 0, '... no alerts sent yet';
+    $parent->revision_create({ string1 => 'Baz' });
 
-    is( $schema->resultset('AlertSend')->count, $count, "Correct number");
-    $schema->resultset('AlertSend')->delete;
+    cmp_ok $alerts->alerts_sent_count, '==', $view_expected, '... alerts sent';
+    $alerts->remove_alerts_send;
 
     # Set new string value in parent but one that doesn't affect calc value
-    $parent->clear;
-    $parent->find_current_id($parent_id);
-    $parent->fields->{$string1_id}->set_value('Bazbar');
-    $parent->write;
-    is( $schema->resultset('AlertSend')->count, 0, "Correct number");
+    $parent->revision_create({ string1 => 'Bazbar' });
+    cmp_ok $alerts->alerts_sent_count, '==', 0, '... no alerts sent yet';
 
     # And now one that does affect it
-    $parent->fields->{$string1_id}->set_value('Baybar');
-    $parent->write;
-    is( $schema->resultset('AlertSend')->count, $count, "Correct number");
+    $parent->revision_create({ string1 => 'Baybar' });
+    cmp_ok $alerts->alerts_sent_count, '==', $view_expected, '... alerts sent';
 }
 
 # Check that each record's parent/child IDs are correct
@@ -239,9 +192,9 @@ foreach my $calc_depend (0..1)
     );
     $parent->find_current_id($parent_id);
 
-    is($child->parent_id, $parent_id, "Child record has correct parent ID");
+    is($child->parent_id, $parent_id, 'Child record has correct parent ID');
     my $chid = pop @{$parent->child_record_ids};
-    is($chid, $child_id, "Parent record has correct child ID");
+    is($chid, $child_id, 'Parent record has correct child ID');
 
     # Then single record_id
     $child->clear;
@@ -249,15 +202,15 @@ foreach my $calc_depend (0..1)
     $parent->clear;
     $parent->find_record_id($parent_record_id);
 
-    is($child->parent_id, $parent_id, "Child record has correct parent ID");
+    is($child->parent_id, $parent_id, 'Child record has correct parent ID');
     $chid = pop @{$parent->child_record_ids};
-    is($chid, $child_id, "Parent record has correct child ID");
+    is($chid, $child_id, 'Parent record has correct child ID');
 
     # Now as bulk retrieval
     ($parent, $other, $child) = _records($sheet->user, 3);
-    is($child->parent_id, $parent_id, "Child record has correct parent ID");
+    is($child->parent_id, $parent_id, 'Child record has correct parent ID');
     $chid = pop @{$parent->child_record_ids};
-    is($chid, $child_id, "Parent record has correct child ID");
+    is($chid, $child_id, 'Parent record has correct child ID');
 }
 
 # Check update of child record that has been deleted
@@ -265,41 +218,25 @@ foreach my $calc_depend (0..1)
     my $parent_id        = $parent->current_id;
     my $child_id         = $child->current_id;
 
-    my $parent = GADS::Record->new(
-        user     => $sheet->user,
-        layout   => $layout,
-        schema   => $schema,
-    );
-    $parent->find_current_id($parent_id);
+    my $parent1 = $sheet->content->row($parent_id);
+    $parent1->revision_create( { date1 => '1980-10-05'} );
 
-    # Write field to parent, should be copied to child
-    $parent->fields->{$columns->{date1}->id}->set_value('1980-10-05');
-    $parent->write(no_alerts => 1);
-    my $child = GADS::Record->new(
-        user     => $sheet->user,
-        layout   => $layout,
-        schema   => $schema,
-    );
-    $child->find_current_id($child_id);
-    # Check child
-    is($child->fields->{$columns->{date1}->id}, '1980-10-05', "Child value correctly written by parent");
+    my $child1 = $sheet->content->row($child_id);
+    is $child1->cell('date1'), '1980-10-05', 'Child value correctly written by parent';
 
     # Delete child
-    $child->delete_current;
+    $sheet->content->row_delete($child1);
 
     # Set parent again
-    $parent->clear;
-    $parent->find_current_id($parent_id);
-    $parent->fields->{$columns->{date1}->id}->set_value('1985-10-05');
-    $parent->write(no_alerts => 1);
+    my $parent1b = $sheet->content->row($parent_id);  #XXX ? needed
+    $parent1b->revision_create( { date1 => '1980-10-05'} );
 
     # Check child and parent
-    $child->clear;
-    $child->find_current_id($child_id, deleted => 1);
-    is($child->fields->{$columns->{date1}->id}, '1980-10-05', "Deleted child record has not been updated");
-    $parent->clear;
-    $parent->find_current_id($parent_id);
-    is($parent->fields->{$columns->{date1}->id}, '1985-10-05', "Parent updated correctly");
+    my $$child1b = $sheet->content->row($child_id, include_deleted => 1);
+    is $child1b->cell('date1'), '1980-10-05', 'Deleted child record has not been updated';
+
+    my $parent1c = $sheet->content->row($parent_id);  #XXX ? needed
+    is $parent->cell('date1'), '1980-10-05', 'Parent updated correctly';
 
     # Undelete for future tests
     $child->restore;
@@ -307,38 +244,18 @@ foreach my $calc_depend (0..1)
 
 # Check that child record can be retrieved directly even if no child fields
 {
-    my $child_id = $child->current_id;
+    $layout->column_update($_ => { can_child => 0 })
+         for $layout->all(exclude_internal => 1);
 
-    foreach my $col ($layout->all(exclude_internal => 1))
-    {
-        $col->set_can_child(0);
-        $col->write;
-    }
-
-    $layout->clear;
-    my $string1 = $layout->column_by_name('string1');
-
-    my $child = GADS::Record->new(
-        user     => $sheet->user,
-        layout   => $layout,
-        schema   => $schema,
-    );
-    $child->find_current_id($child_id);
-    is($child->fields->{$string1->id}, "foo3", "Child record successfully retrieved with child fields");
+    my $child = $sheet->content->row($child_id);
+    is $child->cell('string1'), 'foo3', 'Child record successfully retrieved with child fields';
 
     # Update child record (via parent) even if no child fields
-    my $parent_id = $parent->current_id;
-    my $parent = GADS::Record->new(
-        user     => $sheet->user,
-        layout   => $layout,
-        schema   => $schema,
-    );
-    $parent->find_current_id($parent_id);
-    $parent->fields->{$string1->id}->set_value('Foobar');
-    $parent->write(no_alerts => 1);
-    $child->clear;
-    $child->find_current_id($child_id);
-    is($child->fields->{$string1->id}, "Foobar", "Child record successfully retrieved with child fields");
+
+    $sheet->content->row($parent)->revision_create({ string1 => 'Foobar' });
+
+    my $child2 = $sheet->content->row($child_id);  # reload
+    is $child2->cell('string1'), 'Foobar', 'Child record successfully retrieved with child fields';
 }
 
-done_testing();
+done_testing;

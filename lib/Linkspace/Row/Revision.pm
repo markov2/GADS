@@ -130,7 +130,17 @@ sub cell($)
     $c ? $self->_cells->{$c->id} : undef;
 }
 
-sub created_by { $_[0]->site->users->user($_[0]->created_by_id) }
+#sub created_by { $_[0]->site->users->user($_[0]->created_by_id) }
+
+sub value($;$)
+{   my ($self, $col, $index) = @_;
+    my $cell = $self->cell($col);
+
+    # index required for potential multivalue fields
+    defined $index || ! $cell->column->can_multivalue or panic;
+
+    $cell->values->[$index || 0];
+}
 
 =head2 $rev->is_historic;
 Returns true when this revision is not the current revision of the row.

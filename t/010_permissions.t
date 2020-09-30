@@ -1,52 +1,41 @@
-use Test::More; # tests => 1;
-use strict;
-use warnings;
-
-use JSON qw(encode_json);
-use Log::Report;
-use GADS::Filter;
-use GADS::Group;
-use GADS::Groups;
-use Linkspace::Layout;
-use GADS::Record;
-use GADS::Records;
-use GADS::Schema;
-
-use t::lib::DataSheet;
+use Linkspace::Test
+    create_test_session => 0;
 
 # 2 sets of data to alternate between for changes
-my $data = {
-    a => [
-        {
-            string1    => 'foo',
-            integer1   => '100',
-            enum1      => 7,
-            tree1      => 10,
-            date1      => '2010-10-10',
-            daterange1 => ['2000-10-10', '2001-10-10'],
-            curval1    => 1,
-        },
-    ],
-    b => [
-        {
-            string1    => 'bar',
-            integer1   => '200',
-            enum1      => 8,
-            tree1      => 11,
-            date1      => '2011-10-10',
-            daterange1 => ['2000-11-11', '2001-11-11'],
-            curval1    => 2,
-        },
-    ],
+
+sub _set_data($$$);
+
+my $row_a = {
+    string1    => 'foo',
+    integer1   => '100',
+    enum1      => 7,
+    tree1      => 10,
+    date1      => '2010-10-10',
+    daterange1 => ['2000-10-10', '2001-10-10'],
+    curval1    => 1,
 };
 
-my $curval_sheet = t::lib::DataSheet->new(instance_id => 2, no_groups => 1, users_to_create => [qw/superadmin/]);
-$curval_sheet->create_records;
-my $schema  = $curval_sheet->schema;
-my $sheet   = t::lib::DataSheet->new(data => $data->{a}, schema => $schema, curval => 2, no_groups => 1, users_to_create => [qw/superadmin/]);
+my $row_b = {
+    string1    => 'bar',
+    integer1   => '200',
+    enum1      => 8,
+    tree1      => 11,
+    date1      => '2011-10-10',
+    daterange1 => ['2000-11-11', '2001-11-11'],
+    curval1    => 2,
+};
+
+my $curval_sheet = make_sheet 2,
+    no_groups       => 1,
+    users_to_create => [ qw/superadmin/ ];
+
+my $sheet   = make_sheet 1,
+    rows         => [ $row_a ],
+    curval_sheet => $curval_sheet,
+    no_groups    => 1,
+    users_to_create => [ qw/superadmin/ ];
+
 my $layout  = $sheet->layout;
-my $columns = $sheet->columns;
-$sheet->create_records;
 
 # Create users
 my %users = (
@@ -55,21 +44,19 @@ my %users = (
     readwrite => $sheet->create_user,
 );
 
-# Groups
-foreach my $group_name (qw/read limited readwrite/)
-{
-    my $group  = GADS::Group->new(schema => $schema);
-    $group->name($group_name);
-    $group->write;
-}
+### Create groups
 
-# Check groups and add users
-my $groups = GADS::Groups->new(schema => $schema);
-is( scalar @{$groups->all}, 3, "Groups created successfully");
+$site->groups->group_create( { name => $_ } )
+    for qw/read limited readwrite/;
+
+### Check groups and add users
+
+my $all_groups = $site->groups->all_groups;
+cmp_ok @$all_groups, '==', 3, "Groups created successfully";
+
 my %groups;
-foreach my $group (@{$groups->all})
-{
-    my $usero = $users{$group->name};
+foreach my $group (@$all_groups)
+{   my $usero = $users{$group->name};
     $usero->groups($schema->resultset('User')->find($sheet->user->id), [$group->id]);
     $groups{$group->name} = $group->id;
 }
@@ -79,29 +66,35 @@ is( $schema->resultset('UserGroup')->count, 3, "Correct number of permissions ad
 
 # Write groups such that the limited group only has read/write access to one
 # field in the main sheet, but not the curval sheet
-foreach my $column ($layout->all(exclude_internal => 1), $curval_sheet->layout->all(exclude_internal => 1))
+
+my @all_perms = qw/read write_new write_existing approve_new approve_existing
+    write_new_no_approval write_existing_no_approval/;
+
+foreach my $column ($layout->column_search(exclude_internal => 1),
+                    $curval_sheet->layout->column_search(exclude_internal => 1))
 {
     # Read only
-    my $read = [qw/read/];
-    my $all  = [qw/read write_new write_existing approve_new approve_existing
-        write_new_no_approval write_existing_no_approval
-    /];
-    my $permissions = {
-        $groups{read} => $read,
-    };
-    $permissions->{$groups{limited}} = $all
-        if $column->name eq 'string1' && $column->layout->instance_id != $curval_sheet->instance_id;
-    $permissions->{$groups{readwrite}} = $all;
-    $column->set_permissions($permissions);
-    $column->write;
+    my $permissions = { $groups{read} => [ 'read' ] };
+
+    $permissions->{$groups{limited}} = \@all_perms
+        if $column->name eq 'string1'
+        && $column->sheet_id != $curval_sheet->id;
+
+    $permissions->{$groups{readwrite}} = \@all_perms;
+
+    $layout->column_update($column, { permissions => $permissions };
 }
+
 # Turn off the permission override on the curval sheet so that permissions are
 # actually tested (turned on initially to populate records)
-$curval_sheet->layout->user_permission_override(0);
+
+$user->permission_overide(0); #XXX
 
 foreach my $user_type (qw/readwrite read limited/)
 {
     my $user = $users{$user_type};
+
+#XXX no
     # Need to build layout each time, to get user permissions
     # correct
     my $layout = Linkspace::Layout->new(
@@ -110,7 +103,8 @@ foreach my $user_type (qw/readwrite read limited/)
         config      => GADS::Config->instance,
         instance_id => $sheet->instance_id,
     );
-    my $layout_curval = Linkspace::Layout->new(
+
+    my $curval_layout = Linkspace::Layout->new(
         user        => $user,
         schema      => $schema,
         config      => GADS::Config->instance,
@@ -121,12 +115,6 @@ foreach my $user_type (qw/readwrite read limited/)
     # layout will affect how permissions are checked, so test both
     foreach my $with_columns (0..1)
     {
-        if ($with_columns)
-        {
-            $layout->columns;
-            $layout_curval->columns;
-        }
-
         if ($user_type eq 'read')
         {
             ok(!$layout->user_can('write_existing'), "User $user_type cannot write to anything");
@@ -134,15 +122,14 @@ foreach my $user_type (qw/readwrite read limited/)
         else
         {   ok($layout->user_can('write_existing'), "User $user_type can write to something in layout");
         }
+
         if ($user_type eq 'readwrite')
         {
-            ok($layout_curval->user_can('write_existing'), "User $user_type can write to something in layout");
+            ok($curval_layout->user_can('write_existing'), "User $user_type can write to something in layout");
         }
-        else {
-            ok(!$layout_curval->user_can('write_existing'), "User $user_type cannot write to anything");
+        else
+        {   ok(!$curval_layout->user_can('write_existing'), "User $user_type cannot write to anything");
         }
-        $layout->clear;
-        $layout_curval->clear;
     }
 
     # Check that user has access to all curval values
@@ -152,48 +139,36 @@ foreach my $user_type (qw/readwrite read limited/)
 
     # Now apply a filter. Correct number of curval values should be
     # retrieved, regardless of user perms
-    $curval_column->filter(GADS::Filter->new(
-        as_hash => {
-            rules => [{
-                id       => $curval_sheet->columns->{string1}->id,
-                type     => 'string',
-                value    => 'Foo',
-                operator => 'equal',
-            }],
-        },
-        layout => $layout,
-    ));
-    $curval_column->write;
+    $layout->column_update($curval_column => { filter => { rules => {
+        column   => $curval_layout->column('string1'),
+        type     => 'string',
+        value    => 'Foo',
+        operator => 'equal',
+    }}});
 
     cmp_ok @{$curval_column->filtered_values}, '==', 1,
         "User has access to all curval values after filter";
 
-    # Reset for next test
-    $curval_column->clear_filter;
-    $curval_column->write;
-
-
     # First try writing to existing record
-    my $sheet7 = make_sheet '7', rows => 1;
+    my $sheet7 = make_sheet 7;
 
-    my $row7_2 = $sheet7->add_row({});
+    my $row7_2 = $sheet7->content->row_create;
 
 ...
     foreach my $rec (@records)
     {
-        _set_data($data->{b}->[0], $layout, $rec, $user_type);
+        _set_data($row_b, $rec, $user_type);
         my $record_max = $schema->resultset('Record')->get_column('id')->max;
         try { $rec->write(no_alerts => 1) };
         if ($user_type eq 'read')
-        {
-            ok( $@, "Write failed to read-only user" );
+        {   ok $@, "Write failed to read-only user";
         }
         else
         {   ok( !$@, "Write for user with write access did not bork" );
             my $record_max_new = $schema->resultset('Record')->get_column('id')->max;
             is( $record_max_new, $record_max + 1, "Change in record's values took place for user $user_type" );
             # Reset values to previous
-            _set_data($data->{a}->[0], $layout, $rec, $user_type);
+            _set_data($row_a, $rec, $user_type);
             $rec->write(no_alerts => 1);
         }
     }
@@ -213,35 +188,30 @@ my $group2 = make_group '2';
 
 foreach my $test (qw/single all/)
 {
-    my $sheet   = test_sheet
-    my $columns = $sheet->columns;
-    my $group1  = $sheet->group;    #XXX overridden version
-    my $string1 = $columns->{string1};
-    $sheet->create_records;
+    my $sheet   = make_sheet 1;
+    my $group1  = $sheet->group;    #XXX overridden version??>
 
-    $string1->set_permissions($group1 => [qw/read write_new write_existing/]);
-    $string1->set_permissions($group2 => [qw/read write_new write_existing/]);
+    $sheet->layout->column_update(string1 => { permissions => [
+        $group1 => [qw/read write_new write_existing/],
+        $group2 => [qw/read write_new write_existing/],
+    ]});
 
-    my $rules = Linkspace::Filter->from_hash({
-        rules     => [{
-            id       => $string1->id,
-            type     => 'string',
-            value    => 'Foo',
-            operator => 'equal',
-        }],
-    });
+    my $rules = { rule => {
+        id       => 'string1',
+        operator => 'equal',
+        value    => 'Foo',
+    }};
 
-    my $view = $sheet->view_create({
+    my $view = $sheet->views->view_create({
         name        => 'Foo',
         filter      => $rules,
-        columns     => [ $string1->id ],
+        columns     => [ 'string1' ],
         owner       => undef,
     );
-    $view->write;
 
     $view->alert_create({ frequency => 24 });
-    my $filter = $view->filter_json;
-    like $filter, qr/Foo/, "Filter initially contains Foo search";
+
+    like $view->filter_json, qr/Foo/, "Filter initially contains Foo search";
 
     my $cached1 = $view->alerts_cached_for($string1);
     ok @$cached1, "Alert cache contains string1 column";
@@ -285,9 +255,8 @@ $layout->clear;
 
 # Check setting of global permissions - can only be done by superadmin
 {
-    my $sheet = t::lib::DataSheet->new(site_id => 1);
-    $sheet->create_records;
-    my $schema = $sheet->schema;
+    my $sheet = make_site 1;
+
     foreach my $usertype (qw/user user_useradmin user_normal1/) # "user" is superadmin
     {
         my $user;
@@ -305,24 +274,23 @@ $layout->clear;
         my $failed = $@;
         if ($usertype eq 'user')
         {
-            ok($user, "Superadmin user created successfully");
-            ok(!$failed, "Creating superadmin user did not bork");
+            ok $user, "Superadmin user created successfully";
+            ok !$failed, "Creating superadmin user did not bork";
         }
-        else {
-            ok(!$user, "Superadmin user not created as $usertype");
-            like($failed, qr/do not have permission/, "Creating superadmin user borked as $usertype");
+        else
+        {   ok !$user, "Superadmin user not created as $usertype";
+            like $failed, qr/do not have permission/, "Creating superadmin user borked as $usertype";
         }
     }
 }
 
-done_testing();
+done_testing;
 
-sub _set_data
-{   my ($data, $layout, $rec, $user_type) = @_;
-    foreach my $column ($layout->all(userinput => 1))
-    {
-        next if $user_type eq 'limited' && $column->name ne 'string1';
-        my $datum = $rec->fields->{$column->id};
-        $datum->set_value($data->{$column->name});
-    }
+sub _set_data($$$)
+{   my ($data, $row, $user_type) = @_;
+
+    my %data = $data;
+    delete $data{string1} if $user_type eq 'limited';
+
+    $row->revision_create($data);
 }
