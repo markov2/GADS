@@ -52,6 +52,7 @@ sub retrieve_fields { [ qw/name mimetype id/ ] }
 sub sprefix         { 'value' }
 sub string_storage  { 1 }
 sub value_field     { 'name' }
+sub tjoin           { +{ $_[0]->field_name => 'value' } }
 
 ###
 ### Class
@@ -66,8 +67,6 @@ sub _remove_column($)
 ###
 ### Instance
 ###
-
-sub tjoin   { +{ $_[0]->field => 'value' } }
 
 has _fileoption => (
     is      => 'rw',
@@ -87,12 +86,12 @@ sub _is_valid_value($)
 {   my ($self, $value) = @_;
 
     (my $file_id) = $value =~ /^\s*([0-9]+)\s*$/
-        or error __x"'{int}' is not a valid id of a file for '{col}'",
-            int => $value, col => $self->name;
+        or error __x"'{int}' is not a valid id of a file for '{col.name}'",
+            int => $value, col => $self;
 
     $::db->get_record(Fileval => $file_id)
-        or error __x"File {int} is not found for '{col}'",
-            int => $value, col => $self->name;
+        or error __x"File {int} is not found for '{col.name}'",
+            int => $value, col => $self;
 
     $file_id;
 }

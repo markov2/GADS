@@ -465,4 +465,11 @@ sub path()
     $self->parent->path . $self->name . ($self->is_leaf ? '' : '/');
 }
 
+sub as_string() { join '#', map $_->name, $_[0]->ancestors, $_[0] }
+
+sub ancestors()
+{   my $parent = $_[0]->parent or return;
+    $parent->is_root ? () : ($parent->ancestors, $parent);
+}
+
 1;

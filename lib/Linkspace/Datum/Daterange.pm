@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Daterange;
+package Linkspace::Datum::Daterange;
 
 use DateTime;
 use DateTime::Span;
@@ -26,7 +26,7 @@ use MooX::Types::MooseLike::Base qw/:all/;
 
 use Linkspace::Util qw/parse_duration/;
 
-extends 'GADS::Datum';
+extends 'Linkspace::Datum';
 
 # Set datum value with value from user
 after set_value => sub {
@@ -191,18 +191,12 @@ sub _build_html_form
 sub filter_value   { $_[0]->text_all->[0] }
 sub search_values_unique { $_[0]->text_all }
 
-sub _build_for_code
-{   my $self = shift;
-    return undef if !$self->column->is_multivalue && $self->is_blank;
-    my @return = map {
-        +{
-            from  => $self->_date_for_code($_->start),
-            to    => $self->_date_for_code($_->end),
-            value => $self->_as_string($_),
-        };
-    } @{$self->values};
-
-    $self->column->multivalue || @return > 1 ? \@return : $return[0];
+sub _value_for_code
+{   my ($self, $cell, $value) = @_;
+     +{ from  => $self->_dt_for_code($value->start),
+        to    => $self->_dt_for_code($value->end),
+        value => $self->_as_string($cell, $value),
+      };
 }
 
 1;

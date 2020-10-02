@@ -19,10 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Audit;
 
 use Log::Report 'linkspace';
-
 use Scalar::Util qw/blessed/;
 use DateTime;
-use GADS::Datum::Person;
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/ArrayRef HashRef/;
 

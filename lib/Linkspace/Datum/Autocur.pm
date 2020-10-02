@@ -16,14 +16,13 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Autocur;
+package Linkspace::Datum::Autocur;
 
-use HTML::Entities qw/encode_entities/;
 use Log::Report 'linkspace';
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
+use HTML::Entities qw/encode_entities/;
 
-extends 'GADS::Datum::Curcommon';
+use Moo;
+extends 'Linkspace::Datum::Curcommon';
 
 sub _transform_value
 {   my ($self, $value) = @_;
@@ -45,9 +44,7 @@ sub _transform_value
     elsif (my $r = $value->{record})
     {
         $record = GADS::Record->new(
-            schema               => $self->column->schema,
             layout               => $self->column->layout_parent,
-            user                 => undef,
             record               => $r->{current}->{record_single},
             linked_id            => $r->{current}->{linked_id},
             parent_id            => $r->{current}->{parent_id},
@@ -58,6 +55,7 @@ sub _transform_value
     else {
         panic "Unexpected value: $value";
     }
+
     ($record, $id);
 }
 

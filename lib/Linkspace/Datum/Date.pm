@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Date;
+package Linkspace::Datum::Date;
 
 use DateTime;
 use DateTime::Format::DateManip;
@@ -24,9 +24,7 @@ use Log::Report 'linkspace';
 use Linkspace::Util qw/parse_duration flat/;
 
 use Moo;
-extends 'GADS::Datum';
-
-use namespace::clean;
+extends 'Linkspace::Datum';
 
 after set_value => sub {
     my ($self, $all, %options) = @_;
@@ -50,7 +48,6 @@ after set_value => sub {
 
 has values => (
     is      => 'rwp',
-    isa     => ArrayRef,
     lazy    => 1,
     coerce  => sub {
         my $values = shift;
@@ -78,20 +75,6 @@ has values => (
         \@values;
     },
 );
-
-sub is_blank { ! grep $_, @{$_[0]->values} }
-
-# Can't use predicate, as value may not have been built on
-# second time it's set
-has has_value => (
-    is => 'rw',
-);
-
-around 'clone' => sub {
-    my $orig = shift;
-    my $self = shift;
-    $orig->($self, values => $self->values, @_);
-};
 
 sub _to_dt
 {   my ($self, $value, %options) = @_;
@@ -132,19 +115,11 @@ sub as_string { join ', ', @{$_[0]->text_all} }
 sub html_form { $_[0]->text_all }
 
 sub _as_string
-{   my ($self, $value) = @_;
-    $::session->site->dt2local($value, include_time => $self->column->include_time) || '';
+{   my ($self, $column, $value) = @_;
+    $::session->site->dt2local($value, include_time => $column->include_time) || '';
 }
 
-sub _build_for_code
-{   my $self = shift;
-
-    return undef if !$self->column->is_multivalue && $self->is_blank;
-
-    my @return = map $self->_date_for_code($_), @{$self->values};
-
-    $self->column->is_multivalue || @return > 1 ? \@return : $return[0];
-}
+sub _value_for_code { $_[0]->_dt_for_code($_[2]) }
 
 1;
 

@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Code;
+package Linkspace::Datum::Code;
 
 use Data::Dumper;
 use GADS::Safe;
@@ -26,7 +26,7 @@ use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 use namespace::clean;
 
-extends 'GADS::Datum';
+extends 'Linkspace::Datum';
 
 after 'set_value' => sub {
     my $self = shift;
@@ -35,27 +35,14 @@ after 'set_value' => sub {
 
 has value => (
     is      => 'lazy',
-    isa     => ArrayRef,
-    clearer => 1,
 );
 
 has has_value => (
     is => 'rwp',
 );
 
-has layout => (
-    is       => 'rw',
-    required => 1,
-);
-
-has schema => (
-    is       => 'rw',
-    required => 1,
-);
-
 has vars => (
     is      => 'lazy',
-    clearer => 1,
 );
 
 sub _build_vars
@@ -74,8 +61,6 @@ around 'clone' => sub {
     my $self = shift;
     $orig->($self,
         has_value => $self->has_value,
-        layout    => $self->layout,
-        schema    => $self->schema,
         @_,
     );
 };

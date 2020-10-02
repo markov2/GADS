@@ -135,6 +135,12 @@ sub enumval($)
     $id ? $self->_enumvals->{$id} : undef;
 }
 
+sub enumval_name($)
+{   my ($self, $id) = @_;
+    my $ev = $id ? $self->_enumvals->{$id} : undef;
+    $ev ? $ev->value : $ev;
+}
+
 sub enumvals_string(%)
 {   my $self = shift;
     join ', ', map $_->value, @{$self->enumvals(@_)};

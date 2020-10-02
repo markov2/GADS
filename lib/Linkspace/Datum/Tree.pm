@@ -16,13 +16,13 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Tree;
+package Linkspace::Datum::Tree;
 
 use Log::Report;
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
-extends 'GADS::Datum';
+extends 'Linkspace::Datum';
 
 after set_value => sub {
     my ($self, $value) = @_;
@@ -44,9 +44,9 @@ after set_value => sub {
 
 sub id { panic "id() removed for Tree datum" }
 
+sub values { $_[0]->ids }
 sub ids           { $_[0]->value_hash->{ids} || [] }
 sub ids_as_params { join '&', map "ids=$_", @{$_[0]->ids} }
-sub is_blank      { ! grep $_, @{$_[0]->ids} }
 
 # Make up for missing predicated value property
 sub has_value     { ! $_[0]->is_blank || $_[0]->init_no_value }
@@ -85,24 +85,7 @@ has value_hash => (
     },
 );
 
-
-sub ancestors { $_[0]->column->ancestors }
-
-has full_path => (
-    is      => 'lazy',
-    builder => sub {
-        my $self = shift;
-        my @all;
-        my @all_texts = @{$self->text_all};
-        foreach my $anc (@{$self->ancestors})
-        {   my $path = join '#', map $_->{value}, @$anc;
-            my $text = shift @all_texts;
-            push @all, $path ? "$path#".$text : $text;
-        }
-        \@all;
-    },
-);
-
+sub full_path { $_[0]->as_string }
 sub value_regex_test { shift->full_path }
 sub as_string  { $_[0]->text // "" }
 sub as_integer { panic "No integer value" }
@@ -111,50 +94,21 @@ sub as_integer { panic "No integer value" }
 sub text { join ', ', @{$_[0]->text_all} }
 sub text_all { $_[0]->value_hash->{text} || [] }
 
-around 'clone' => sub {
-    my $orig = shift;
-    my $self = shift;
-    $orig->($self,
-        ids     => $self->ids,
-        text    => $self->text,
-        @_,
-    );
-};
-
-sub _code_values($)
+sub _value_for_code($$$)
 {   my ($self, $column, $node_id) = @_;
-
-    my $node    = $column->node($node_id);
-    my @parents = $node ? $node->{node}{node}->ancestors : ();
-    pop @parents; # Remove root
+    my $node = $column->node($node_id) or panic;
 
     my (%parents, $count);
-    foreach my $parent (reverse @parents)
-    {   my $pnode_id = $parent->name;  #XXX name or id?
-        my $pnode    = $column->node($pnode_id);
-
-        # Use text for the parent number, as this will not work in Lua:
-        # value.parents.1
-        $parents{'parent'.++$count} = $pnode->{value};
+    foreach my $parent (reverse $node->ancestors)
+    {   # Use text for the parent number, as this will not work in Lua:
+        # node.parents.1  hence  node.parents.parent1
+        #XXX does it need an extra HASH level?  node.parent1?
+        $parents{'parent'.++$count} = $parent->id;
     }
 
-     +{ value   => $self->is_blank ? undef : $node->{value},
+     +{ value   => $node->name,
         parents => \%parents,
       };
-}
-
-sub _build_for_code
-{   my $self   = shift;
-    my $column = $self->column;
-    my @values = map $self->_code_values($column, $_), @{$self->ids};
-
-    return \@values
-       if $column->is_multivalue || @values > 1;
-
-    # If the value is blank then still return a hash. This makes it easier
-    # to use in Lua without having to test for the existence of a value
-    # first
-    $values[0] || +{ value => undef, parents => {} };
 }
 
 1;

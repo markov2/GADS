@@ -302,10 +302,10 @@ sub ids_to_values
 }
 
 sub field_values_for_code
-{   my $self = shift;
-    my %options = @_;
+{   my ($self, %options) = @_;
     my $already_seen_code = $options{already_seen_code};
     my $values = $self->field_values(@_, all_fields => 1);
+#XXX my @cells =
 
     my @retrieve_cols = grep $_->name_short,
          @{$self->curval_fields_retrieve(all_fields => 1)};
@@ -326,6 +326,7 @@ sub field_values_for_code
             # each curval/autocur
             $d->already_seen_level($options{level} + ($col->is_curcommon ? 1 : 0));
             $return->{$cid}->{$col->name_short} = $d->for_code;
+# $cell->for_code
         }
     }
 

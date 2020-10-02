@@ -506,26 +506,25 @@ sub values_by_shortname
 
     my %index;
     foreach my $name (@$names)
-    {   my $col    = $self->layout->column_by_name_short($name)
-            or error __x"Short name {name} does not exist", name => $name;
+    {   my $col   = $self->layout->column($name) or panic $name;
+        my $cell  = $self->cell($col);
+        my $linked = $col->link_parent;
 
-        my $linked = $self->linked_id && $col->link_parent;
-        my $datum  = $self->cell($col)
-            or panic __x"Value for column {name} missing. Possibly missing entry in layout_depend?", name => $col->name;
-
-        my $d = $datum->is_awaiting_approval
-            ? $datum->oldvalue
-            : $linked && $datum->oldvalue # linked, and value overwritten
-            ? $datum->oldvalue
-            : $datum;
+        my $cell_base
+           = $cell->is_awaiting_approval ? $cell->old_values
+           : $linked && $cell->old_values # linked, and value overwritten
+           ? $cell->oldvalue
+           : $cell;
 
         # Retain and provide recurse-prevention information. See further
         # comments in Linkspace::Column::Curcommon
         my $already_seen_code = $params{already_seen_code};
         $already_seen_code->{$col->id} = $params{level};
-        $d->already_seen_code($already_seen_code);
-        $d->already_seen_level($params{level} + ($col->is_curcommon ? 1 : 0));
-        $index{$name} = $d->for_code;
+
+        $index{$name} = $cell_base->for_code(
+           already_seen_code  => $already_seen_code,
+           already_seen_level => $params{level} + ($col->is_curcommon ? 1 : 0),
+        );
     };
     \%index;
 }
@@ -540,9 +539,9 @@ sub initialise
 
     my %cells;
     foreach my $column (@$all_columns)
-    {   $cells{$column->id}
-           = $self->linked_id && $column->link_parent
-           ? $self->linked_record->cell($column->link_parent)
+    {   my $link_parent = $column->link_parent;
+        $cells{$column->id}
+           = $link_parent ? $link_parent_row->cell($link_parent)  #XXX
            : $column->class->new(
                 record           => $self,
                 record_id        => $self->record_id,

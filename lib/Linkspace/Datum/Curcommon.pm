@@ -16,7 +16,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Curcommon;
+package Linkspace::Datum::Curcommon;
 
 use Log::Report 'linkspace';
 use CGI::Deurl::XS 'parse_query_string';
@@ -27,9 +27,7 @@ use List::Util      qw/uniq/;
 use Linkspace::Util qw/list_diff is_valid_id/;
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
-extends 'GADS::Datum';
+extends 'Linkspace::Datum';
 
 with 'GADS::Role::Presentation::Datum::Curcommon';
 
@@ -391,13 +389,6 @@ sub field_values
     [ values %$values ];
 }
 
-sub field_values_for_code
-{   my ($self, %options) = @_;
-    $self->_records
-        ? $self->column->field_values_for_code(rows => $self->_records, %options)
-        : $self->column->field_values_for_code(ids => $self->ids, %options);
-}
-
 sub set_values
 {   my $self = shift;
     $self->column->value_selector eq 'noshow'
@@ -427,22 +418,25 @@ sub html_form
     return \@return;
 }
 
-sub _build_for_code
-{   my ($self, %options) = @_;
+sub _values_for_code($$$)
+{   my ($self, $cell, $value, $args) = @_;
 
-    my $already_seen_code = $self->already_seen_code;
     # Get all field data in one chunk
-    my $field_values = $self->field_values_for_code(already_seen_code => $already_seen_code, level => $self->already_seen_level);
+    my %options = (
+        already_seen_code => $args{already_seen_code}, 
+        level => $args{already_seen_level},
+    );
 
-    my @values = map {
-        +{
-            id           => int $_->{id}, # Ensure passed to Lua as number not string
-            value        => $_->{value},
-            field_values => $field_values->{$_->{id}},
-        }
-    } grep { $_->{id} } (@{$self->values}); # Values that have not been written will not have an ID
+#XXX rewrite to call for 1
+    $self->_records
+        ? $column->field_values_for_code(rows => $self->_records, %options)
+        : $column->field_values_for_code(ids => $self->ids, %options);
 
-    $self->column->multivalue || @values > 1 ? \@values : $values[0];
-}
+
+     +{
+        id           => int $value->{id}, # Ensure passed to Lua as number not string
+        value        => $value->{value},
+        field_values => $field_values->{$value->{id}},
+      };
 
 1;

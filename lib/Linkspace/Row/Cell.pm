@@ -16,10 +16,15 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
+#XXX This really needs to be fast: I do not use Moo
+
 package Linkspace::Row::Cell;
 
 use warnings;
 use strict;
+
+use Log::Report 'linkspace';
+use Linkspace::Datum  ();
 
 =head1 NAME
 
@@ -52,12 +57,76 @@ sub new($%)
     bless \%args, $class;
 }
 
-sub datum    { $_[0]->{datum} ||= $_[0]->_instantiate_datum }
+sub _cell_create($%)
+{   my ($class, $insert, %args) = @_;
+
+    my @datums = flat(delete $insert->{datums} || delete $insert->{datum});
+    @datums or return;
+
+    $args{column} or panic;
+    $class->new(%args);
+}
 
 sub column   { $_[0]->{column} }
 sub revision { $_[0]->{revision} }
 sub row      { $_[0]->{row}   ||= $_[0]->revision->row }
 sub sheet    { $_[0]->{sheet} ||= $_[0]->revision->sheet }
 sub layout   { $_[0]->{layout}||= $_[0]->sheet->layout }
+
+#-------------
+=head1 METHODS: Handling datums
+
+=head2 my $datum = $cell->datum;
+Returns the datum which is kept in the cell.  Croaks when this is a
+cell in a multivalue column.  May return C<undef> for a cell in a
+column with optional values.
+=cut
+
+sub datum()
+{   my $self = shift;
+    ! $column->is_multivalue or panic;
+    $self->{datums}[0];
+}
+
+=head2 \@datums = $cell->datums;
+Returns all datums in this cell.  Also when this is not a multivalue
+column, it still returns an ARRAY.
+=cut
+
+sub datums() { $_[0]->{datums} }
+
+=head2 \%h = $datum->for_code(%options);
+Create a datastructure to pass column information to Calc logic.
+Curcommon offers some options.
+
+It is a pity, but the handling of multivalues is not consistent.
+=cut
+
+sub for_code(%)
+{   my ($self, %args) = @_;
+    my $datums = $self->values;
+    @$values or return undef;
+
+    my @datums = @{$self->datums};
+    my @r = map $_->_value_for_code($self, $_, \%args), @datums;
+
+    if($datums[0]->isa('Linkspace::Datum::Tree'))
+    {   @r or push @r, +{  value => undef, parents => {} };
+    }
+    elsif($datums[0]->isa('Linkspace::Datum::Enum'))
+    {   return $self->column->is_multivalue
+            ? +{ text => $self->as_string, values => \@r }
+            : $self->as_string;
+    }
+
+    #XXX Not smart to pass multival datums in an inconsitent way
+    $self->column->is_multivalue && @r > 1 ? \@r : $r[0];
+}
+
+has is_awaiting_approval => (
+    is      => 'rw',
+    isa     => Bool,
+    default => 0,
+);
 
 1;

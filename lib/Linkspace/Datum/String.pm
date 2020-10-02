@@ -16,16 +16,16 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::String;
+package Linkspace::Datum::String;
+
+use warnings;
+use strict;
 
 use HTML::FromText   qw/text2html/;
 use Log::Report 'linkspace';
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-
-extends 'GADS::Datum';
-
+extends 'Linkspace::Datum';
 with 'GADS::Role::Presentation::Datum::String';
 
 after set_value => sub {
@@ -54,7 +54,6 @@ after set_value => sub {
 
 has values => (
     is        => 'rwp',
-    isa       => ArrayRef,
     lazy      => 1,
     builder   => sub {
         my $self = shift;
@@ -75,26 +74,15 @@ sub is_blank   { ! grep length, @{$_[0]->values} }
 sub as_string  { join ', ', @{$_[0]->text_all} }
 sub as_integer { panic "Not implemented" }
 
-around 'clone' => sub {
-    my $orig = shift;
-    my $self = shift;
-    $orig->($self, values => $self->values, text_all => $self->text_all, @_);
-};
-
 sub html_withlinks
 {   my $string = shift->as_string;
     text2html($string, urls => 1, email => 1, metachars => 1);
 }
 
-sub _build_for_code
-{   my ($self, %options) = @_;
-
-    # Consistently return undef for empty string, so that the variable can be
-    # tested in Lua easily using "if variable", otherwise empty strings are
-    # treated as true in Lua
-    my @values = map length $_ ? $_ : undef, @{$self->text_all};
-    $self->column->is_multivalue || @values > 1 ? \@values : $values[0];
-}
+# Consistently return undef for empty string, so that the variable can be
+# tested in Lua easily using "if variable", otherwise empty strings are
+# treated as true in Lua.
+sub _value_for_code($$$) { length $_[2] ? $_[2] : undef }
 
 1;
 

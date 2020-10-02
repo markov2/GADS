@@ -16,11 +16,13 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Curval;
+package Linkspace::Datum::Curval;
+
+use warnings;
+use srict;
 
 use Moo;
-
-extends 'GADS::Datum::Curcommon';
+extends 'Linkspace::Datum::Curcommon';
 
 sub _transform_value
 {   my ($self, $value) = @_;
@@ -39,7 +41,6 @@ sub _transform_value
     {
         $id = exists $value->{record_single} ? $value->{record_single}->{current_id} : $value->{value}; # XXX see above comment
         $record = GADS::Record->new(
-            schema               => $self->column->schema,
             layout               => $self->column->layout_parent,
             user                 => undef,
             record               => exists $value->{record_single} ? $value->{record_single} : $value, # XXX see above comment

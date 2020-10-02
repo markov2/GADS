@@ -16,49 +16,34 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Calc;
+package Linkspace::Datum::Calc;
 
 use Data::Dumper qw/Dumper/;
 use Log::Report 'linkspace';
-use Math::Round qw/round/;
-use Moo;
+use Math::Round      qw/round/;
 use Scalar::Util qw(looks_like_number);
-use namespace::clean;
+use Linkspace::Util  qw/flat/;
 
-extends 'GADS::Datum::Code';
+use Moo;
+extends 'Linkspace::Datum::Code';
 
-sub as_string
-{   my $self = shift;
-    my (@return, $dc);
-
-    foreach my $value ( @{$self->value} )
-    {   push @return,
-            ! defined $value          ? ''
-          : ref $value eq 'DateTime ' ? $::session->user->dt2local($value)
-          : $self->column->return_type eq 'numeric'
-          ? ( ($dc //= $self->column->decimal_places // 0)
-            ? sprintf("%.${dc}f", $value)
-            : ($value + 0)   # Remove trailing zeros
-            )
-          : $value;
-    }
-
-    join ', ', @return;
+sub as_string($)
+{   my ($self, $column) = @_;
+    join ', ', map $column->format_value($_) // '', @{$self->values};
 }
 
 sub convert_value
 {   my ($self, $in) = @_;
 
     my $column = $self->column;
+    my $rt     = $column->return_type;
 
     my @values = $column->is_multivalue && ref $in->{return} eq 'ARRAY'
         ? @{$in->{return}} : $in->{return};
 
-    {  local $Data::Dumper::Indent = 0;
-       trace __x"Values into convert_value is: {value}", value => Dumper(\@values);
-    }
+    trace __x"Values into convert_value is: {value}", value => \@values;
 
-    if ($in->{error}) # Will have already been reported
+    if($in->{error}) # Will have already been reported
     {   @values = ('<evaluation error>');
     }
 
@@ -66,7 +51,7 @@ sub convert_value
 
     foreach my $val (@values)
     {
-        if ($column->return_type eq "date")
+        if($rt eq 'date')
         {   if (defined $val && looks_like_number($val))
             {
                 my $ret = try { DateTime->from_epoch(epoch => $val) };
@@ -80,32 +65,30 @@ sub convert_value
                 }
             }
         }
-        elsif($column->return_type eq 'numeric' || $column->return_type eq 'integer')
-        {   if (defined $val && looks_like_number($val))
+        elsif($rt eq 'numeric' || $column->rt eq 'integer')
+        {   if(defined $val && looks_like_number($val))
             {   my $ret = $val;
-                $ret = round $ret if defined $ret && $column->return_type eq 'integer';
+                $ret = round $ret if defined $ret && $rt eq 'integer';
                 push @return, $ret;
             }
         }
-        elsif($column->return_type eq 'globe')
+        elsif($rt eq 'globe')
         {   if ($self->column->check_country($val))
             {   push @return, $val;
             }
             else
-            {   mistake __x"Failed to produce globe location: unknown country {country}", country => $val;
+            {   error __x"Failed to produce globe location: unknown country {country}", country => $val;
             }
         }
-        elsif ($column->return_type eq 'error')
-        {
-            error $val if $val;
+        elsif ($rt eq 'error')
+        {   error $val if $val;
         }
         else
         {   push @return, $val if defined $val;
         }
     }
 
-    no warnings "uninitialized";
-    trace __x"Returning value from convert_value: {value}", value => Dumper(\@return);
+    trace __x"Returning value from convert_value: {value}", value => \@return;
 
     @return;
 }
@@ -121,22 +104,21 @@ sub write_value
 
 # Compare 2 calc values. Could be from database or calculation. May be used
 # with scalar values or arrays
-sub equal
-{   my ($self, $a, $b) = @_;
-    my @a = ref $a eq 'ARRAY' ? @$a : ($a);
-    my @b = ref $b eq 'ARRAY' ? @$b : ($b);
-    @a = sort @a if defined $a[0];
-    @b = sort @b if defined $b[0];
+sub equal($$$)
+{   my ($self, $column, $a, $b) = @_;
+    my @a = sort(flat $a);
+    my @b = sort(flat $b);
     return 0 if @a != @b;
+
+    my $rt = $column->return_type;
+
     # Iterate over each pair, return 0 if different
     foreach my $a2 (@a)
-    {
-        my $b2 = shift @b;
+    {   my $b2 = shift @b;
+        defined $a2 || defined $b2 or next;  # both undef
 
-        (defined $a2 xor defined $b2)
-            and return 0;
-        !defined $a2 && !defined $b2 and next; # Same
-        my $rt = $self->column->return_type;
+        return 0 if defined $a2 || defined $b2;
+
         if($rt eq 'numeric' || $rt eq 'integer')
         {   $a2 += 0; $b2 += 0; # Remove trailing zeros
             return 0 if $a2 != $b2;
@@ -150,24 +132,15 @@ sub equal
         {   return 0 if $a2 ne $b2;
         }
     }
-    # Assume same
-    return 1;
+
+    1;  # same
 }
 
-sub _build_for_code
-{   my $self = shift;
-    my $rt   = $self->column->return_type;
-    my $v    = $self->value;
-
-    my @return
-      = $rt eq 'date'    ? map $self->_date_for_code($_), @$v
-      : $rt eq 'numeric' ? map $self->as_string + 0, @$v   #XXX??
-      : $rt eq 'integer' ? map int($_ // 0), @$v
-      : map +(defined ? "$_" : undef), @v
-
-    $self->column->is_multivalue ? \@return : $return[0];
+sub _value_for_code
+{   my ($self, $column, $value) = @_;
+        $column->return_type eq 'date'
+      ? $self->_dt_for_code($value)
+      : $column->format_value($value);
 }
-
-sub is_blank { ! length $_[0]->as_string }
 
 1;

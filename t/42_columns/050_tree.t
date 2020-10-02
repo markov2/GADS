@@ -185,6 +185,8 @@ my $top_node = $column2->tree->find('abc');
 is $column2->is_valid_value($top_node->id), $top_node->id, 'valid top node';
 my $intermediate_node = $column2->tree->find('abc', 'abc1');
 is $intermediate_node->path, 'abc/abc1/', 'intermediate node path';
+is $intermediate_node->as_string, 'abc#abc1', '... as_string';
+
 is $column2->is_valid_value($intermediate_node->id), $intermediate_node->id, 'valid intermediate';
 
 is_deeply $column2->values_beginning_with('a'), ['aa', 'ab/', 'abc/'], '... find top nodes';
@@ -338,6 +340,11 @@ my $column6 = $layout->column_create({
 });
 like logline, qr/created.*column6/, 'Check to_hash(include_deleted)';
 my $tree6 = $column6->tree;
+
+is_deeply
+    [ $tree6->find(qw/abc abc1 abc12/)->ancestors ],
+    [ $tree6->find('abc'), $tree6->find(qw/abc abc1/) ],
+    'Ancestors';
  
 my @tops6b  =
 ( { text     => 'aa', id => $tree6->find('aa')->id,

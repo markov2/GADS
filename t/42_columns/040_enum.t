@@ -1,7 +1,8 @@
 # Check the Integer column type
 
 use Linkspace::Test;
-use Clone qw(clone);
+use Clone      qw(clone);
+use List::Util qw(min max);
 
 $::session = test_session;
 
@@ -116,7 +117,7 @@ sub enum_reorder($@) {
 
 sub enum_from_records($) {
     my ($recs) = @_;
-    map { id => $_->id, value => $_->value }, @$recs;
+    map +{ id => $_->id, value => $_->value }, @$recs;
 }
 
 sub enum_from_column($) {
@@ -286,8 +287,7 @@ sub process_test_cases {
 my $column5 = initial_column 'column5';
 
 my @enumvals5 = enum_from_column $column5;
-use List::Util qw(min max);
-my $invalid_value = max(map { $_->{id} } @enumvals5) + 1;
+my $invalid_value = max(map $_->{id}, @enumvals5) + 1;
 
 my @test_cases5 = (
     [1, 'valid enum',   'tac',           "$enumvals5[1]{id}"                                     ],

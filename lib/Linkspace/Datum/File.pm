@@ -16,15 +16,13 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::File;
+package Linkspace::Datum::File;
 
 use Log::Report 'linkspace';
 use Linkspace::Util  qw(flat);
 
 use Moo;
-use namespace::clean;
-
-extends 'GADS::Datum';
+extends 'Linkspace::Datum';
 with 'GADS::Role::Presentation::Datum::File';
 
 ### 2020-09-03: columns in GADS::Schema::Result::Fileval
@@ -134,18 +132,7 @@ has content => (
     builder => sub { $_[0]->_rset && $_[0]->_rset->content },
 );
 
-around 'clone' => sub {
-    my $orig = shift;
-    my $self = shift;
-    $orig->($self,
-        ids   => $self->ids,
-        files => $self->files,
-        @_,
-    );
-};
-
-
-sub as_string  { join ', ', map $_->{name}, @{$self->files || []} }
+sub as_string  { join ', ', map $_->{name}, @{$_[0]->files || []} }
 sub as_integer { panic "Not implemented" }
 sub html_form  { $_[0]->ids }
 

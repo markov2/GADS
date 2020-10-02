@@ -16,13 +16,12 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Integer;
+package Linkspace::Datum::Integer;
 
 use Log::Report 'linkspace';
 
 use Moo;
-use namespace::clean;
-extends 'GADS::Datum';
+extends 'Linkspace::Datum';
 
 after set_value => sub {
     my ($self, $value) = @_;
@@ -82,10 +81,6 @@ sub as_integer
     my $int  = int($self->value // 0);
 }
 
-sub _build_for_code
-{   my $self = shift;
-    defined $self->value or return undef;
-    int $self->value;
-}
+sub _value_for_code { int $_[2] }
 
 1;

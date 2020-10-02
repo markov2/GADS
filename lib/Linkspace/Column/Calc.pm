@@ -75,8 +75,21 @@ sub string_storage { $_[0]->value_field eq 'value_text' }
 
 sub calc           { ($_[0]->calcs)[0] )     #XXX why a has_many relationship?
 sub code           { $_[0]->calc->{code} }
-sub decimal_places { $_[0]->calc->{decimal_places} }
+sub decimal_places { $_[0]->calc->{decimal_places} // 0 }
 sub return_type    { $_[0]->calc->{return_type} }
+
+sub _format_numeric($) { my $dc = $self->decimal_places
+
+sub format_value($)
+{   my ($self, $value) = @_;
+    my $rt   = $column->return_type;
+
+      $rt eq 'date'    ? $::session->site->dt2local($value)
+    : $rt eq 'numeric' ? sprintf("%.*f", $self->decimal_places, $value)+0
+    : $rt eq 'integer' ? int($value // 0) + 0   # remove trailing zeros
+    : defined $value   ? "$value" : undef;
+
+}
 
 sub extra_update($)
 {   my ($self, $extra) = @_;

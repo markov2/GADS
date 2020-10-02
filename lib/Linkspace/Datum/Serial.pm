@@ -16,21 +16,20 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Serial;
+package Linkspace::Datum::Serial;
+use warnings;
+use strict;
 
 use Log::Report 'linkspace';
-use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
 
-extends 'GADS::Datum';
+use Moo;
+extends 'Linkspace::Datum';
 
 has value => (
     is      => 'lazy',
-    isa     => Maybe[Int],
     builder => sub { $_[0]->record->serial }
 );
 
-sub is_blank   { ! $_[0]->value }
 sub as_string  { $_[0]->value }
 sub as_integer { $_[0]->value }
 

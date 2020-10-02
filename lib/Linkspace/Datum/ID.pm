@@ -1,6 +1,6 @@
 =pod
 GADS - Globally Accessible Data Store
-Copyright (C) 2019 Ctrl O Ltd
+Copyright (C) 2014 Ctrl O Ltd
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
@@ -16,34 +16,25 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Count;
+package Linkspace::Datum::ID;
+
+use warnings;
+use strict;
 
 use Log::Report 'linkspace';
-use Moo;
 
-extends 'GADS::Datum';
+use Moo;
+extends 'Linkspace::Datum';
 
 has value => (
     is      => 'lazy',
-    builder => sub { $_[0]->init_value->[0] },
+    builder => sub { $_[0]->current_id },
 );
 
-sub as_string
-{   my $self = shift;
-    defined $self->value or return '';
-    $self->as_integer." unique";
-}
+sub as_string  { $_[0]->value }
+sub as_integer { $_[0]->value || undef }
 
-sub as_integer
-{   my $v = $_[0]->value;
-    defined $v ? int($v || 0) : undef;
-}
-
-sub is_blank { !! defined $_[0]->value }
-
-sub _build_for_code
-{   my $self = shift;
-    $self->string;
-}
+sub _value_for_code($$$) { $_[2] }
 
 1;
+

@@ -16,14 +16,14 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
-package GADS::Datum::Enum;
+package Linkspace::Datum::Enum;
 
 use Log::Report 'linkspace';
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 use namespace::clean;
 
-extends 'GADS::Datum';
+extends 'Linkspace::Datum';
 
 after set_value => sub {
     my ($self, $value) = @_;
@@ -186,21 +186,11 @@ sub as_integer
     $self->id // 0;
 }
 
-sub _build_for_code
-{   my ($self, %options) = @_;
+sub values { $_[0]->{ids} }
 
-    my $ids   = $self->value_hash->{ids};
-    my @texts = @{$self->value_hash->{text}};
-    my @values = map +{ id => $_, value => pop @texts }, @$ids;
-
-    return $self->blank ? undef : $self->as_string
-        if !$self->column->is_multivalue && @values <= 1;
-
-    +{
-        text   => $self->as_string,
-        values => \@values,
-    };
-
+sub _value_for_code
+{   my ($self, $cell, $enum_id) = @_;
+     +{ id => $enum_id, value => $cell->column->enumval_name($enum_id) };
 }
 
 1;
