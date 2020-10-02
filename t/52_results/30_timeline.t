@@ -1,0 +1,728 @@
+# Rewrite of t/013_datetime.t
+
+use Linkspace::Test
+    not_ready => 'rewrite needs more work';
+
+set_fixed_time '01/01/2008 01:00:00', '%m/%d/%Y %H:%M:%S';
+
+my $data = [
+    {
+        string1    => 'Foo',
+        date1      => '2013-10-10',
+        daterange1 => ['2014-03-21', '2015-03-01'],
+        integer1   => 10,
+        enum1      => 'foo1',
+        curval1    => 1,
+    },
+    {
+        string1    => 'Bar',
+        date1      => '2014-10-10',
+        daterange1 => ['2010-01-04', '2011-06-03'],
+        integer1   => 15,
+        enum1      => 'foo1',
+        curval1    => 2,
+    },
+];
+
+my $curval_sheet = make_sheet 2;
+
+my $sheet    = make_sheet 1
+    rows         => $data,
+    curval_sheet => $curval_sheet;
+my $layout   = $sheet->layout;
+
+my $showcols = $layout->columns(exclude_internal => 1);
+
+###
+
+my $results1 = $sheet->content->search(
+    from    => DateTime->now,
+    columns => $showcols,
+);
+
+# 4 for all main sheet1 values, plus 4 for referenced curval fields
+cmp_ok @{$results1->data_calendar}, '==', 8,
+    "Retrieving all data returns correct number of points to plot for calendar";
+
+cmp_ok @{$results1->data_timeline->{items}}, '==', 8,
+    "Retrieving all data returns correct number of points to plot for timeline";
+
+# Test from a later date. The records from that date should be retrieved, and
+# then the ones before as the total number is less than the threshold
+
+my $results2 = $sheet->content->search(
+    from    => DateTime->new(year => 2011, month => 10, day => 01),
+    columns => $showcols,
+);
+
+cmp_ok @{$results2->data_timeline->{items}}, '==', 8,
+    "Retrieving all data returns correct number of points to plot for timeline";
+
+# Add a filter and only retrieve one column
+my $rules = { rule => {
+    column   => 'string1',
+    type     => 'string',
+    operator => 'equal',
+    value    => 'Foo',
+}};
+
+my $view = $sheet->views->view_create({
+    name        => 'Test view',
+    columns     => [ 'date1' ],
+    filter      => $rules,
+    user        => undef,
+);
+
+my $results3 = $sheet->content->search({
+    from   => DateTime->now,
+    view   => $view,
+});
+
+cmp_ok @{$results3->data_calendar}, '==', 1,
+   "Filter and single column returns correct number of points to plot for calendar";
+
+my $timeline3 = $results3->data_timeline;
+cmp_ok @{$timeline3->{items}}, '==', 1,
+   "Filter and single column returns correct number of points to plot for timeline";
+
+ok !@{$timeline3->{groups}}, "No groups when no group_id set");
+
+# When a timeline includes a label, that column should be automatically
+# included even if it's not part of the view. Also include invalid group and
+# color and check it has no effect.
+
+my $items = $records->data_timeline(label => 'string1', group => 999, color => 999)->{items};
+like( $items->[0]->{content}, qr/Foo/, "Label included in output even if not in view" );
+
+# Now use the same filter and restrict by date
+
+my $results4 = $sheet->content->search(
+    view   => $view,
+    from   => DateTime->new( year => 2010, month => 01, day => 01), 
+    to     => DateTime->new( year => 2020, month => 01, day => 01),
+);
+
+cmp_ok @{$results4->data_calendar}, '==', 1,
+   "Filter, single column and limited range returns correct number of points to plot for calendar";
+
+cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
+   "Filter, single column and limited range returns correct number of points to plot for timeline";
+
+# Test limited display of many timeline records
+{
+    my @data;
+    my $start = DateTime->now;
+    my %group_values;
+    for my $count (1..300)
+    {
+        push @data, {
+            string1 => 'Foo'.int rand(1000),
+            date1   => $start->ymd,
+            enum1   => 'foo'.(($count % 3) + 1),
+        };
+        $group_values{$count} = ($count % 3) + 1;
+        $start->add(days => 1);
+    }
+
+    my $sheet    = make_sheet 3, rows => \@data;
+    my $layout   = $sheet->layout;
+
+    # Run 2 tests - sorted by string1 and enum1. string1 will randomise the
+    # results to make sure the correct ones are pulled out by date; enum1 will
+    # test the sorting of groups on the timeline
+
+    foreach my $sort (qw/string1 enum1/)
+    {
+        my $view = $sheet->views->view_create({
+            name        => 'Foobar',
+            columns     => [ 'string1', 'date1' ],
+            sort_column => $sort,
+            sort_order  => 'asc',
+        );
+
+        my $results = $sheet->content->search(
+            from   => DateTime->now->add(days => 100),
+            view   => $view,
+        );
+
+        # 99 records/days from start, 49 records/days back from start. Each extreme
+        # is not counted, so that the range can be loaded from that date (as there
+        # may be more records of the same date)
+
+        my $grouping = $sort eq 'enum1' ? 'enum1' : undef;
+        my $timeline = $records->data_timeline(grouping => $grouping);
+
+        # Centre of timeline (now + 100 days) minus 50 days
+        is $timeline->{min}->ymd, '2008-02-19', "Correct start range of timeline";
+
+        # Centre of timeline plus 100 days (plus 1 day for additional visible range)
+        is $timeline->{max}->ymd, '2008-07-20', "Correct end range of timeline";
+
+        my @items = @{$timeline->{items}};
+        cmp_ok @items, '==', 148, "Retrieved correct subset of records for large timeline";
+
+        if($sort eq 'enum1')
+        {
+            # Check for groups in correct order
+            foreach my $g (@{$timeline->{groups}})
+            {   my $order = $g->{content} =~ /^foo([123])$/ ? $1 : panic;
+                is $g->{order}, $order, "$g->{content} group order correct";
+            }
+
+        }
+
+        foreach my $item (@items)
+        {
+            if ($sort eq 'enum1')
+            {   # Test group value of item
+                my $cid = $item->{current_id};
+                is $item->{group}, $group_values{$cid}, "Correct group for item";
+            }
+            my $time = DateTime->from_epoch(epoch => $item->{single} / 1000);
+            # Centre is at now + 100 days. Should have items 50 days to the left
+            # and 100 days to the right
+            cmp_ok($time, '>', DateTime->now->add(days => 50), "Item after minimum date expected");
+            cmp_ok($time, '<', DateTime->now->add(days => 200), "Item before maximum date expected");
+        }
+    }
+
+    ###
+
+    my $results2 = $sheet->content->search(
+        from    => DateTime->now, # Rounded down to midnight 1st Jan 2018
+        to      => DateTime->now->add(days => 10), # Rounded up to midnight 12th Jan 2018
+        user    => undef,
+        columns => $showcols,
+    );
+
+    # 10 days, plus one either side including rounding up/down
+    cmp_ok @{$results2->data_timeline->{items}}, '==', 12,
+        "Retrieved correct subset of records for large timeline";
+
+    ### Test from exactly midnight - should be no rounding
+
+    my $results3 = $sheet->content->search(
+        from    => DateTime->new(year => 2008, month => 1, day => 1),
+        to      => DateTime->new(year => 2008, month => 1, day => 10),
+        columns => $showcols,
+    );
+
+    cmp_ok @{$results3->data_timeline->{items}}, '==', 10,
+        "Retrieved correct subset of records for large timeline";
+}
+
+# Test exclusive functionality
+{
+    my $sheet    = make_sheet 1, rows => [
+        { string1 => 'foo1', daterange1 => ['2009-01-01', '2009-06-01'] },
+        { string1 => 'foo2', daterange1 => ['2010-01-01', '2010-06-01'] },
+        { string1 => 'foo3', daterange1 => ['2011-01-01', '2011-06-01'] },
+    ];
+
+    my $layout   = $sheet->layout;
+
+    my $dr1      = $sheet->columns->{daterange1}->id;
+    my $showcols = $layout->columns_search(exclude_internal => 1);
+
+    my %search = (
+        from    => DateTime->new(year => 2009, month => 03, day => 01),
+        to      => DateTime->new(year => 2011, month => 03, day => 01),
+        columns => $showcols,
+    );
+
+    # Normal - should include dateranges that go over the from/to values
+    my $results1  = $sheet->content->search(%search);
+    is @{$results1->data_timeline->{items}}, 3, "Records retrieved inclusive";
+
+    # Should not include dateranges that go over the to
+
+    $search{exclusive} = 'to';
+    my $results2 = $sheet->content->search(%search);
+    my $items3 = $results2->data_timeline->{items};
+    cmp_ok @$items3, '==', 2, "Records retrieved exclusive to";
+    like $items3->[0]->{content}, qr/foo1/, "Correct first record for exclusive to";
+
+    # Should not include dateranges that go over the from
+
+    $search{exclusive} = 'from';
+    my $results3 = $sheet->content->search(%search);
+    my $data_timeline = $results3->data_timeline;
+    my $items3 = $data_timeline->{items};
+    cmp_ok @$items3, 2, "Records retrieved exclusive from";
+    like $items3->[0]->{content}, qr/foo2/, "Correct first record for exclusive from";
+    is $data_timeline->{min}->ymd, '2009-03-01', "Correct start range of timeline";
+    is $data_timeline->{max}->ymd, '2011-03-01', "Correct end range of timeline";
+}
+
+# Test permissions
+{
+    my $data = [
+        {
+            string1    => 'Foo',
+            enum1      => 1,
+            date1      => '2010-01-10',
+            daterange1 => ['2009-01-01', '2009-06-01'],
+        },
+        {
+            string1    => 'Bar',
+            enum1      => 2,
+            date1      => '2010-02-10',
+            daterange1 => ['2009-02-01', '2009-05-01'],
+        },
+    ];
+
+    my $sheet   = make_sheet 1, rows => $data;
+    my $layout  = $sheet->layout;
+
+    $layout->column_update(string1 => { permissions => [ $sheet->group => [] ] });
+
+    my $records = GADS::Records->new(
+        user    => $sheet->user_normal1,
+        layout  => $layout,
+        schema  => $schema,
+    );
+
+    # Normal - should include dateranges that go over the from/to values
+    my @items = @{$records->data_timeline->{items}};
+    # 4 items for each record (2 date fields, plus created and edited)
+    is(@items, 8, "Correct number of timeline items");
+    foreach my $item (@items)
+    {
+        unlike($item->{content}, qr/(Foo|Bar)/, "String value not in restricted item content");
+        my $in_values = grep $_->{name} eq 'string1', @{$item->{values}};
+        ok(!$in_values, "String value not in restricted item values");
+    }
+
+    # Remove date field permissions and check now excluded
+    my $date1 = $sheet->columns->{date1};
+    $date1->set_permissions({$sheet->group->id => []});
+    $date1->write;
+    $layout->clear;
+    $records = GADS::Records->new(
+        user    => $sheet->user_normal1,
+        layout  => $layout,
+        schema  => $schema,
+    );
+
+    @items = @{$records->data_timeline->{items}};
+    # 3 items for each record (1 date field, plus created and edited)
+    is(@items, 6, "Correct number of timeline items with date field removed");
+}
+
+# Date from a calc field
+{
+    my $data = [
+        {
+            string1    => 'foo1',
+            daterange1 => ['2009-01-01', '2009-06-01'],
+        },
+        {
+            string1    => 'foo2',
+            daterange1 => ['2010-01-01', '2010-06-01'],
+        },
+    ];
+
+    my $year = 86400 * 366; # 2008 is a leap year
+    my $sheet = t::lib::DataSheet->new(
+        data             => $data,
+        calc_code        => "function evaluate (L1daterange1) \n return L1daterange1.from.epoch - $year \nend",
+        calc_return_type => 'date',
+    );
+
+    $sheet->create_records;
+    my $schema   = $sheet->schema;
+    my $layout   = $sheet->layout;
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
+
+    my $records = GADS::Records->new(
+        from    => DateTime->new(year => 2007, month => 01, day => 01),
+        to      => DateTime->new(year => 2008, month => 12, day => 01),
+        user    => undef,
+        columns => $showcols,
+        layout  => $layout,
+        schema  => $schema,
+    );
+
+    # Normal - should include dateranges that go over the from/to values
+    my @items = @{$records->data_timeline->{items}};
+    is( @items, 1, "Records retrieved inclusive" );
+    my $item = $items[0];
+    is($item->{content}, "foo1 (calc1)", "Calc content for item");
+    my $time = DateTime->new(year => 2008, month => 1, day => 1);
+    is($item->{start}, $time->epoch * 1000, "Correct date for item");
+}
+
+# No records to display
+{
+    my $sheet = t::lib::DataSheet->new(data => []);
+    $sheet->create_records;
+    my $schema   = $sheet->schema;
+    my $layout   = $sheet->layout;
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
+
+    my $records = GADS::Records->new(
+        from    => DateTime->now,
+        user    => undef,
+        columns => $showcols,
+        layout  => $layout,
+        schema  => $schema,
+    );
+
+    is( @{$records->data_timeline->{items}}, 0, "No timeline entries for no records" );
+    is($records->data_timeline->{min}, undef, "No min value for no items on timeline");
+    is($records->data_timeline->{max}, undef, "No max value for no items on timeline");
+}
+
+# No records with date fields to display
+{
+    my $sheet = t::lib::DataSheet->new(data => [{ string1 => 'Foobar' }]);
+    $sheet->create_records;
+    my $schema   = $sheet->schema;
+    my $layout   = $sheet->layout;
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
+
+    my $records = GADS::Records->new(
+        user    => undef,
+        columns => $showcols,
+        layout  => $layout,
+        schema  => $schema,
+    );
+
+    is( @{$records->data_timeline->{items}}, 0, "No timeline entries for no records" );
+    is($records->data_timeline->{min}, undef, "No min value for no items on timeline");
+    is($records->data_timeline->{max}, undef, "No max value for no items on timeline");
+}
+
+# No records with date fields to display
+{
+    my @data;
+    my $now = DateTime->now;
+    my $early = DateTime->now->subtract(years => 10);
+    foreach my $count (1..300)
+    {
+        push @data, {
+            date1      => $now->clone,
+            daterange1 => [$early->ymd, $early->clone->add(months => 1)->ymd],
+        };
+        $now->add(days => 1);
+    }
+    my $sheet = t::lib::DataSheet->new(data => \@data);
+    $sheet->create_records;
+    my $schema   = $sheet->schema;
+    my $layout   = $sheet->layout;
+    my $showcols = [ map { $_->id } $layout->columns(exclude_internal => 1) ];
+
+    my $records = GADS::Records->new(
+        from    => DateTime->now->add(days => 100),
+        user    => $sheet->user,
+        columns => $showcols,
+        layout  => $layout,
+        schema  => $schema,
+    );
+
+    my $return = $records->data_timeline;
+
+    is( @{$return->{items}}, 148, "Correct number of timeline items" );
+    # 2008-01-01 + 100 days - 50 days - 1 day
+    is($return->{min}->ymd, '2008-02-19', "Min value is same as start of records");
+    # 2008-01-01 + 100 days + 100 days + 2 days
+    is($return->{max}->ymd, '2008-07-21', "Max value is same as end of records");
+}
+
+# No records with date fields to display
+{
+    my $sheet    = make_sheet 1;
+    my $layout   = $sheet->layout;
+
+    my $records = GADS::Records->new(
+        from    => DateTime->now->subtract(years => 1),
+        to      => DateTime->now->add(years => 2),
+        columns => $layout->columns_search(exclude_internal => 1),
+    );
+
+    my $return = $records->data_timeline;
+
+    # One record (Bar) with 2 date fields (date1 and daterange1)
+    is( @{$return->{items}}, 2, "Correct number of timeline items" );
+    is($return->{min}, $from, "Min value is same as start of records");
+    is($return->{max}, $to, "Max value is same as end of records");
+}
+
+# Calc field as group
+{
+    my $sheet = make_sheet 1, rows => [
+        { string1 => 'foo1', daterange1 => ['2009-01-01', '2009-06-01'] },
+        { string1 => 'foo2', daterange1 => ['2010-01-01', '2010-06-01'] },
+    ];
+    my $layout   = $sheet->layout;
+
+    my $results = $sheet->content->search(
+        columns => $layout->columns_search(exclude_internal => 1),
+    );
+
+    my $return = $results->data_timeline(grouping => 'calc1');
+
+    # Normal - should include dateranges that go over the from/to values
+    is( @{$return->{items}}, 2, "Correct number of items for group by calc" );
+    foreach my $item (@{$return->{items}})
+    {
+        unlike($item->{content}, qr/(2009|2010)/, "Item does not contain group value");
+    }
+
+    is @{$return->{groups}}, 2, "Correct number of groups for group by calc";
+
+    # We didn't specify a from or a to, so the timeline will just plot whatever
+    # items it is given
+    is $return->{min}, undef, "No min value for no range specification";
+    is $return->{max}, undef, "No max value for no range specification";
+}
+
+# DST. Check that dates which fall on DST changes are okay.
+{
+    my $sheet = make_sheet 1,
+       rows => [ { string1 => 'foo1', date1 => '2018-03-26' } ];
+
+    my $results = $sheet->content->search(
+        from    => DateTime->now,
+        user    => $sheet->user,
+        columns => $sheet->layout->columns_search(exclude_internal => 1),
+    );
+
+    my $return = $results->data_timeline;
+
+    # Normal - should include dateranges that go over the from/to values
+    cmp_ok @{$return->{items}}, '==', 1,
+        "Correct number of items for timeline with DST value";
+}
+
+# Curval as group field does not show curval items on timeline labels
+{
+    my $curval_sheet = make_sheet 2, rows => [
+        { string1    => 'foobar1' },
+        { string1    => 'foobar4' }, # Test ordering
+        { string1    => 'foobar3' },
+        { string1    => ''        }, # Test blank
+    ];
+
+    $data = [
+        { string1 => 'Foo',                 date1 => '2013-10-10', curval1 => 1 },
+        { string1 => 'Bar',                 date1 => '2014-10-10', curval1 => 2 },
+        { string1 => 'FooBar',              date1 => '2015-10-10', curval1 => [2,3] },
+        { string1 => 'Blank curval',        date1 => '2015-03-10', },
+        { string1 => 'Blank curval string', date1 => '2015-04-10', curval1 => 4 },
+    ];
+
+    my $sheet    = make_sheet 1,
+        rows             => $data,
+        curval_sheet     => $curval_sheet,
+        curval_columns   => [ 'string1' ],
+    );
+    my $layout   = $sheet->layout;
+
+    my $sort_field = $layout->columns('curval1')->id
+       . '_'. $curval_sheet->layout->columns('string1')->id;
+
+    my $view = $sheet->views->create_view(
+        name        => 'Test',
+        columns     => $layout->columns_search(exclude_internal => 1),
+        sort_column => $sort_field,
+        sort_order  => 'asc',
+    );
+
+    my $results = $sheet->content->search(view => $view);
+    my $return  = $results->data_timeline(grouping => 'curval1');
+
+    # Normal - should include dateranges that go over the from/to values
+    cmp_ok @{$return->{items}}, '==', 6, "... number of items for group by curval";
+
+    foreach my $item (@{$return->{items}})
+    {
+        ok($item->{group}, "Item has a group defined");
+        # Check that the pop-up values include all fields
+        # If the curval is blank, then don't expect it to appear in the pop-up
+        my $expected = $item->{current_id} == 8 || $item->{current_id} == 9 ? 'string1,rag1' : 'string1,curval1,rag1';
+        my $cols = join ',', map { $_->{name} } @{$item->{values}};
+        # Should be all non-blank, non-date fields in view
+        is($cols, $expected, "Correct columns in pop-up");
+    }
+
+    foreach my $item (@{$return->{items}})
+    {   unlike $item->{content}, qr/foobar/, "Item does not contain curval group value";
+    }
+    is( @{$return->{groups}}, 4, "Correct number of groups for group by curval" );
+    my $g = join ',', map { $_->{content} } sort { $a->{order} <=> $b->{order} } @{$return->{groups}};
+    is($g, '&lt;blank&gt;,foobar1,foobar3,foobar4', "Curval group values correct");
+}
+
+# Test ranges of timeline when only specifying from, with only dates from a
+# curval. This is rather an edge-case, but has caused problems in the past.
+{
+    my $data = [
+        { string1 => 'foo1', curval1 => 1 },
+        { string1 => 'foo1', curval1 => 2 },
+    ];
+
+    my $curval_sheet = make_sheet 2;
+
+    my $sheet = make_sheet 1,
+        rows         => $data,
+        curval_sheet => $curval_sheet;
+
+    my $layout = $sheet->layout;
+
+    my $records = $sheet->content->search(
+        from    => DateTime->new(year => 2011, month => 06, day => 01),
+        columns => [ 'string1', 'curval1' ],
+    );
+
+    my $return = $records->data_timeline;
+    is($return->{min}->ymd, '2008-05-03', "Correct start range of timeline");
+    is($return->{max}->ymd, '2014-10-12', "Correct end range of timeline");
+
+    # Normal - should include dateranges that go over the from/to values
+    is( @{$return->{items}}, 4, "Correct number of items for timeline with only curval dates" );
+}
+
+# Test ranges of timeline when only specifying from, with only dates from a
+# curval. This is rather an edge-case, but has caused problems in the past.
+{
+    my (@curval_data, @data);
+
+    # Create a set of data around today's date (1/1/2008) and a set of data
+    # much before then. Only the set of data around today's date should be
+    # retrieved
+
+    my $start = DateTime->now;
+    for my $count (1..300)
+    {   push @curval_data, { string1 => "Foo $count", date1 => $start->ymd };
+        $start->add(days => 1);
+        push @data, { string1 => "Bar $count", curval1 => $count };
+    }
+
+    $start = DateTime->new(year => 1990, month => 1, day => 1);
+    for my $count (1..100)
+    {   push @curval_data, { string1 => "Foo $count", date1 => $start->ymd };
+        $start->add(days => 1);
+        push @data, { string1 => "Bar $count", curval1 => $count + 300 };
+    }
+
+    my $curval_sheet = make_sheet 2, rows => => \@curval_data;
+
+    my $sheet = make_sheet 1,
+        rows         => \@data,
+        curval_sheet => $curval_sheet;
+
+    my $layout = $sheet->layout;
+
+    my $view = $sheet->views->view_create({
+        name         => 'Test view',
+        columns      => [ 'string1', 'curval1' ],
+        sort_columns => [ 'string1' ],
+        sort_order   => [ 'asc' ];
+    );
+
+    my $results = $sheet->content->search(
+        view    => $view,
+        from    => DateTime->now->add(days => 100), # 10th April 2008
+    );
+
+    my $return = $results->data_timeline;
+    ok defined $return, "Timeline using curval";
+
+    # Normal - should include dateranges that go over the from/to values
+    cmp_ok @{$return->{items}}, '==', 148, "...  timeline with only curval dates";
+
+    # 10th April 2008 - 50 days = 20th February 2008, minus 1 day to show range
+    is $return->{min}->ymd, '2008-02-19', "... start range";
+
+    # 10th April 2008 + 100 days = 19th July 2008, plus 1 day for width plus 1 day to show range
+    is $return->{max}->ymd, '2008-07-21', "... end range";
+
+}
+
+# View with no date column. XXX This test doesn't actually check the bug that
+# prompted its inclusion, which was a PostgreSQL error as a result of comparing
+# an integer (current_id field) with a date. Sqlite does not enforce typing.
+{
+    my $sheet    = make_sheet 1;
+    my $layout   = $sheet->layout;
+#   my $showcols = $layout->columns(exclude_internal => 1);  XXX
+
+    my $view = $sheet->views->view_create({
+        name        => 'Test view',
+        columns     => [ 'string1' ],
+    );
+
+    my $records = $sheet->content->search({
+        view   => $view,
+        from   => DateTime->now,
+    });
+
+    cmp_ok @{$records->data_timeline->{items}}, '==', 0,
+       "No timeline entries for no records";
+}
+
+# Test to check that date fields in a curval that the user does not have access
+# to are not included in the timeline calculations.
+# Assume a "from" date of 2010-01-01. Create 200 records starting at that date,
+# with normal dates ascending from there and curval dates the inverse. The
+# curval dates are not accessible by the user, and should therefore not affect
+# the records pulled.
+{
+    my @data;
+    my $start = DateTime->new(year => 2010, month => 1, day => 1);
+    my $from = $start->clone;
+
+    # Create a set of data around today's date (1/1/2008) and a set of data
+    # much before then. Only the set of data around today's date should be
+    # retrieved
+    for my $count (1..200)
+    {   push @data, { string1 => "Bar $count", date1 => $start->ymd, curval1 => $count };
+        $start->add(days => 1);
+    }
+    my @curval_data;
+    for my $count (1..200)
+    {   push @curval_data, { string1 => "Foo $count", date1 => $start->ymd };
+        $start->subtract(days => 1);
+    }
+
+    my $curval_sheet = make_sheet 2,
+       rows        => \@curval_data,
+       multivalues => 1;
+
+    $curval_sheet->layout->column_update(date1 => { permissions => {} });
+
+    my $sheet = make_sheet 1,
+        rows         => \@data,
+        curval_sheet => $curval_sheet,
+        multivalues  => 1;
+    my $layout = $sheet->layout;
+
+
+    # No records after the "from" are retrieved, as we don't have permission to
+    # them (date1 of the curval sheet only). The other dates available (created
+    # date) are all the same and therefore not retrieved as we only use values
+    # after the minimum date retrieved (see comments in GADS::Records)
+
+    my $results1 = $curval_sheet->content->search(from => $from);
+    my $return1  = $results1->data_timeline;
+    cmp_ok @{$return1->{items}}, '==', 0,
+        "Correct number of items for timeline for curval table";
+
+    my $results2 = $sheet->content->search(from => $from);
+    my $return2 = $results2->data_timeline;
+
+    # Full set of records after the from date, nothing before as above
+    cmp_ok @{$return2->{items}}, '==', 99,
+         "Correct number of items for timeline with no access to curval dates";
+
+    # Min retrieved is created date (1st Jan 2008), minus one day to show
+    # range, although there isn't anything to show at this range
+    is $return->{min}->ymd, '2007-12-31', "Correct start range of timeline";
+
+    # 1st Jan 2010 + 100 days = 11th April 2010, plus 1 day for width
+    # plus 1 day to show range
+    is $return->{max}->ymd, '2010-04-13', "Correct end range of timeline";
+}
+
+done_testing;
