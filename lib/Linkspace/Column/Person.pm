@@ -78,10 +78,10 @@ sub value_field_as_index
 }
 
 sub people { $_[0]->site->users->all_users }
-sub resultset_for_values { $self->people }
+sub resultset_for_values { $_[0]->people }
 
 sub id_as_string
-{   my ($self, $id) = @_;
+{   my ($self, $user_id) = @_;
     my $person = $self->site->users->user($user_id) or return '';
     $person->fullname;
 }
@@ -96,6 +96,22 @@ sub import_value
         value        => $value->{value},
     });
 }
+
+sub _is_valid_value($)
+{   my ($self, $value) = @_;
+
+    (my $person_id) = $value =~ /^\s*([0-9]+)\s*$/
+        or error __x"'{int}' is not a valid id of a person for '{col.name}'",
+            int => $value, col => $self;
+
+    $self->site->users->user($person_id)
+        or error __x"Person {int} is not found for '{col.name}'",
+            int => $value, col => $self;
+
+    $person_id;
+}
+
+
 
 1;
 

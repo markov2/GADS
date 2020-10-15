@@ -1,7 +1,6 @@
 # Check the Person column type
 
-use Linkspace::Test
-    not_ready => 'to be implemented';
+use Linkspace::Test;
 
 my $sheet   = make_sheet 1;
 my $layout  = $sheet->layout;
@@ -43,18 +42,20 @@ isa_ok $column1d, 'Linkspace::Column::Person', '...';
 # is_valid_value
 #
 
-#
-# optional and multivalue
-#
-
 my $column2 = $layout->column_create({
     type          => 'person',
     name          => 'column2 (long)',
-    name_short    => 'column2',
-    is_multivalue => 1,
-    is_optional   => 1,
+    name_short    => 'column2'
 });
 logline;
 
+my $test_user_id = test_user->id; 
+is $column2->is_valid_value($test_user_id), $test_user_id, '... check user id';
+
+try { $column2->is_valid_value('0'); } ;
+is $@->wasFatal->message, 'Person 0 is not found for \'column2 (long)\'', '... user id not found';
+
+try { $column2->is_valid_value('invalid user id'); } ;
+is $@->wasFatal->message, '\'invalid user id\' is not a valid id of a person for \'column2 (long)\'', '... invalid user id';
 
 done_testing;
