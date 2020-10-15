@@ -1,10 +1,13 @@
+# Test simplest form of row
 # Extracted from t/021_topic.t
 
 use Linkspace::Test
-    not_ready => 'needs revisions';
+#   not_ready => 'needs revisions'
+;
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     columns => [ qw/string integer enum date/ ];
+
 my $layout  = $sheet->layout;
 my $content = $sheet->content;
 
@@ -21,7 +24,7 @@ try { $content->row_create( { revision => \%revision } ) };
 like $@, qr/until the following fields have been completed.*string1.*integer1/,
     'Unable to write with missing values';
 
-is $content->row_count, $row_count, 'No new records created';
+cmp_ok $content->row_count, '==', $row_count, 'No new records created';
 
 ### Set one of the values, should be the same result
 
@@ -36,7 +39,7 @@ $revision{integer1} = 100;
 my $row = try { $content->row_create( { revision => \%revision } ) };
 ok $row, 'Row written after values completed';
 
-is $content->row_count, $row_count +1, 'new record in table';
+cmp_ok $content->row_count, '==', $row_count +1, 'new record in table';
 
 my $rev = $row->current;
 is $rev->cell('integer1'), 100,      '... integer1 arrived';

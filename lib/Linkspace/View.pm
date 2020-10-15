@@ -22,10 +22,10 @@ use Log::Report 'linkspace';
 use MIME::Base64;
 use List::Util qw(first);
 
-use Linkspace::View::Alert;
-use Linkspace::View::Filter;
-use Linkspace::View::Sorting;
-use Linkspace::View::Grouping;
+#use Linkspace::View::Alert;
+#use Linkspace::View::Filter;
+#use Linkspace::View::Sorting;
+#use Linkspace::View::Grouping;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -87,15 +87,15 @@ sub _view_validate($)
     exists $changes->{name} && length $changes->{name} < 128
         or error __"View name must be less than 128 characters";
 
-    if(   (exists $changed->{is_global} && $changed->{is_global})
-       || (exists $changed->{is_for_admins} && $changed->{is_for_admins} ))
+    if(   (exists $changes->{is_global} && $changes->{is_global})
+       || (exists $changes->{is_for_admins} && $changes->{is_for_admins} ))
     {   # Refuse owner
         $changes->{user_id} = undef;
         delete $changes->{user};
     }
 
     if(my $filter = Linkspace::Filter->from_json($changes->{filter_json}))
-    {   $filter->_filter_validate($layout);
+    {   $filter->_filter_validate($thing);
         $changes->{filter} = $filter;
     }
 
@@ -118,9 +118,9 @@ sub _view_create
     $insert->{is_global} = !$insert->{owner} && !$insert->{owner_id};
 
     my @relations = (
-        sortings  => delete $update{sortings},
-        groupings => delete $update{groupings},
-        monitor   => delete $update{column_ids},
+        sortings  => delete $insert->{sortings},
+        groupings => delete $insert->{groupings},
+        monitor   => delete $insert->{column_ids},
     );
 
     my $self = $class->_view_validate($insert)->create($insert, %args);
@@ -143,16 +143,16 @@ sub _view_update
 
     # Preserve owner if editing other user's view
     if(! $self->owner && ! $update->{owner_id} && ! $update->{owner})
-    {   $update->{owner} = $user if $sheet->is_writable($user);
+    {   $update->{owner} = $user if $self->sheet->is_writable($user);
     }
 
     $self->is_writable($user)
         or error __x"User {user.path} does not have permission to create new views", user => $user;
 
     my @relations = (
-        sortings  => delete $update{sortings},
-        groupings => delete $update{groupings},
-        monitor   => delete $update{column_ids},
+        sortings  => delete $update->{sortings},
+        groupings => delete $update->{groupings},
+        monitor   => delete $update->{column_ids},
     );
 
     $self->_view_validate($update)->update(View => $self->id, $update);
@@ -216,7 +216,7 @@ sub is_writable(;$)
     }
 
     return 1 if $sheet->user_can(view_create => $victim)
-        if +($self->owner_id //0) == $victim->id;
+             || ($self->owner_id //0) == $victim->id;
 
     $sheet->is_writable($victim);
 }
@@ -232,6 +232,7 @@ equal values.
 has _view_groupings => (
     is      => 'lazy',
     builder => sub {
+        my $self = shift;
         Linkspace::View::Grouping->search_objects({ view => $self }, view => $self);
     },
 );
@@ -251,7 +252,7 @@ sub grouping_on($)
 # has more than one group and they can be drilled down into
 
 sub first_grouping_column_id()
-{    my $groups = $self->groupings;
+{    my $groups = shift->groupings;
      @$groups ? $groups->[0]->layout_id : undef;
 }
 
@@ -287,11 +288,12 @@ has _alerts => (
 sub all_alerts { $_[0]->_alerts }
 sub has_alerts { scalar @{$_[0]->_alerts} }
 
-=head2 my $alert = $view->alert($user?);
+=head2 my $alert = $view->alert_for($user?);
 Returns the single alert object for the user.
 =cut
 
-sub alert
+#XXX is there only one?   Warning: alerts() is a Perl built-in
+sub alert_for($)
 {   my ($self, $which) = @_;
     $which ||= $::session->user;
     my $user_id = blessed $which ? $which->id : $which;
@@ -305,9 +307,10 @@ the alert gets removed.
 
 sub alert_set($;$)
 {   my ($self, $frequency, $user) = @_;
-    $user ||= $session->user;
+    $user ||= $::session->user;
     my $all = $self->_alerts; 
 
+    my $user_id = $user->id;
     if(my $alert = first { $user_id == $_->id } @$all)
     {   if(defined $frequency)
         {   $alert->_alert_update({frequency => $frequency});
@@ -319,12 +322,12 @@ sub alert_set($;$)
     }
     elsif(defined $frequency)
     {   my $alert = Linkspace::View::Alert->_alert_create({
-             view => $view, owner => $user, frequency => $frequency
+             view => $self, owner => $user, frequency => $frequency
         });
 
         # Check whether this view already has alerts. No need for another
         # cache if so, unless view filtter contains CURUSER
-        $self->update_cache($view) if ! @$all || $self->has_curuser;
+        $self->update_cache if ! @$all || $self->has_curuser;
         push @$all, $alert;
     }
 }
@@ -383,13 +386,13 @@ sub _set_monitor($)
 {   my ($self, $col_ids) = @_;
     defined $col_ids or return;
 
-    $view->column_monitor->_columns_update;
+    $self->column_monitor->_columns_update;
 
     my %colviews = map +($_ => 1), @{$self->column_ids};
 
 ### 2020-05-10: columns in GADS::Schema::Result::ViewLayout
 # id         layout_id  order      view_id
-    my $columns = $sheet->layout->columns_search(user_can_read => 1);
+    my $columns = $self->sheet->layout->columns_search(user_can_read => 1);
     foreach my $column (grep $colviews{$_->id}, @$columns)
     {
         # Column should be in view
@@ -399,7 +402,7 @@ sub _set_monitor($)
         next if $::db->get_record(ViewLayout => \%item)->count;
 
 ### Linkspace::View::Column->_column_create(\%item);
-        $::db->create(ViewLayout => $item);
+        $::db->create(ViewLayout => \%item);
 
 #XXX The next block is:  (move to Alerts class)
 #XXX $self->alert_cache_create({column => $column, current_id => $_->current_id})
@@ -451,7 +454,7 @@ sub view_delete()
     $_->alert_delete for $self->all_alerts;
     # $self->filter_changed;
 
-    $users->view_unuse($self);
+    $::session->site->users->view_unuse($self);
     $self->delete;
 }
 
@@ -476,7 +479,7 @@ sub show_sorts
     # Sort order is defined by the database sequential ID of each sort
     #XXX there is an 'order' field in the table
 
-    [ map $_->info, sort { $a->id <=> $b->id }, @{$self->all_sorts} ];
+    [ map $_->info, sort { $a->id <=> $b->id } @{$self->all_sorts} ];
 }
 
 sub _unpack_filter_id($$)
@@ -500,6 +503,8 @@ sub _filter_rec_uniq { $_[0]->layout_id . '\0' . ($_[0]->parent_id // '\0') }
 
 sub _set_sortings
 {   my ($self, $sortings) = @_;
+    my $order = 0;
+
     my @sortings;
     foreach (@$sortings)
     {   my ($filter_id, $sort_type) = @$_;

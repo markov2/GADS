@@ -298,7 +298,7 @@ sub _jpfetch
         push @return, grep $_->{search}, @joins[$end+1..@joins-1] if $options{search};
     }
     else
-    {   @return = @$joins;
+    {   @return = @joins;
     }
 
       ! defined $options{linked} ? @return                      #XXX exists

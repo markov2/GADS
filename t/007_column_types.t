@@ -29,14 +29,14 @@ my @data3 = (
         integer1   => 50,
         date1      => '2014-10-10',
         daterange1 => ['2012-02-10', '2013-06-15'],
-        enum1      => 1,
+        enum1      => 'foo1',
     },
     {
         string1    => 'Bar',
         integer1   => 99,
         date1      => '2009-01-02',
         daterange1 => ['2008-05-04', '2008-07-14'],
-        enum1      => 2,
+        enum1      => 'foo2',
     },
     {
         string1    => 'Bar',
@@ -50,12 +50,12 @@ my @data3 = (
         integer1   => 150,
         date1      => '2000-01-02',
         daterange1 => ['2001-05-12', '2002-03-22'],
-        enum1      => 3,
+        enum1      => 'foo3',
     },
 );
 
-my $curval_sheet = make_sheet '2', data => \@data3;
-my $sheet        = make_sheet '1',
+my $curval_sheet = make_sheet data => \@data3;
+my $sheet        = make_sheet,
     rows             => \@data2,
     multivalues      => 1,
     curval_sheet     => $curval_sheet,
@@ -99,9 +99,7 @@ cmp_ok @{$curval->all_values}, '==', 4,
 # Create a second curval sheet, and check that we can link to first sheet
 # (which links to second)
 my $curval_sheet2 = make_sheet '4',
-    curval => 1,
-    curval_offset => 12,
-    rows  => 1;
+    curval_sheet => 1;
 
 cmp_ok @{$curval_sheet2->column('curval1')->filtered_values}, '==', 2,
     "Correct number of values for curval field";

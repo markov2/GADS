@@ -59,11 +59,11 @@ my $data = [
 my $group   = test_group;
 my $curval_sheet = make_sheet 2, group => $group;
 
-my $sheet   = test_sheet
+my $sheet   = make_sheet 1,
     rows             => $data,
     curval_sheet     => $curval_sheet,
     multivalues      => 1,
-    column_count     => { enum => 1, curval => 2 },
+    column_count     => { curval => 2 },
     calc_return_type => 'date',
     calc_code        => <<'__CALC';
         function evaluate (L1daterange1)

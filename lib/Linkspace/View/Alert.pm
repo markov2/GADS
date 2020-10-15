@@ -24,13 +24,11 @@ use Log::Report     'linkspace';
 use Moo;
 extends 'Linkspace::DB::Table';
 
-use namespace::clean;
-
 sub db_table { 'Alert' }
 
 sub db_fields_rename { +{
     user_id => 'owner_id',
-});
+}; }
 
 ### 2020-05-11: columns in GADS::Schema::Result::Alert
 # id         user_id    frequency  view_id
@@ -73,7 +71,7 @@ sub _alert_validate($)
 
 sub _alert_create($%)
 {   my ($class, $insert) = (shift, shift);
-    $self->create($insert, @_);
+    $class->create($insert, @_);
 }
 
 sub _alert_update($)

@@ -93,28 +93,25 @@ sub nr_pages($)
 sub has_rag_column() { !! first { $_->type eq 'rag' } @{$_[0]->columns} }
 
 =head2 \@rows = $results->rows(%select);
-Returns ::Result::Rows for the selected page.  Those are expensive to compute
-and not cached (because they may consume a lot of memory)
+Returns ::Result::Row objects for the selected page.  Row selections are
+expensive to compute and not cached (because they may consume a lot of memory)
 =cut
 
 sub rows(%)
 {   my ($self, %args) = @_;
-    my $page = ($args{page} || 1) -1;
+    my $page_nr = ($args{page} || 1) -1;
 
-    my $hits = $self->hits;
-    my @hits = @$hits;
+    my @page_set = @{$self->hits};
     if(my $page_size = $args{page_size})
-    {   splice @hits, 0, $page * $page_size;
-        $#hits = $page_size -1;
+    {   splice @page_set, 0, $page_nr * $page_size;
+        $#page_set = $page_size -1;
     }
-
-    my %need_row = map +($_->{current_id} => $_), grep !$_->{row}, @hits;
 
     # Need to implement bulk loads later
-    foreach my $current_id (keys %need_row)
-    {   my $row =
-        $need_row{$current_id}{row} = $row;
-    }
+    $_->{row} ||= $self->_collect_row($_)
+        for @page_set;
+
+    [ map $_->{row}, @page_set ];
 }
 
 

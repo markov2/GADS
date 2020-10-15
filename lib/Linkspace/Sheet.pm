@@ -23,7 +23,7 @@ use Clone        'clone';
 use Algorithm::Dependency::Source::HoA ();
 use Algorithm::Dependency::Ordered ();
 
-#use Linkspace::Sheet::Layout   ();
+use Linkspace::Sheet::Layout   ();
 use Linkspace::Sheet::Access   ();
 #use Linkspace::Sheet::Content ();
 #use Linkspace::Sheet::Views   ();

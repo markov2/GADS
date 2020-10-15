@@ -19,10 +19,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Site::Document;
 
 use Log::Report  'linkspace';
-use Scalar::Util    qw(blessed);
-use List::Util      qw(first);
+use Scalar::Util     qw(blessed);
+use List::Util       qw(first);
 
-use Linkspace::Util qw(index_by_id);
+use Linkspace::Util  qw(index_by_id);
 use Linkspace::Sheet ();
 use Moo;
 
@@ -149,7 +149,8 @@ sub sheet_update($$%)
 
 sub sheet_create($%)
 {   my ($self, $insert, %args) = @_;
-    my $sheet  = Linkspace::Sheet->_sheet_create($insert, document => $self, %args);
+    my $class  = $args{class} || 'Linkspace::Sheet';
+    my $sheet  = $class->_sheet_create($insert, document => $self, %args);
     $self->_sheet_indexes_update($sheet);
     $sheet;
 }

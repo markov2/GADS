@@ -26,7 +26,7 @@ use POSIX qw(ceil);
 use Scalar::Util qw(looks_like_number);
 use Text::CSV::Encoded;
 
-use Linkspace::Util    qw(to_id);
+use Linkspace::Util    qw(to_id flat);
 use Linkspace::View    ();
 use Linkspace::Results ();
 
@@ -60,7 +60,7 @@ used to retrieve the results.
 =cut
 
 sub _build_query(%)
-{   my ($self, $args) = @_;
+{   my ($self, %args) = @_;
 
     my $include_children = exists $args{include_children}
       ? delete $args{include_children}
@@ -78,10 +78,13 @@ sub _build_query(%)
 
     my $current_ids = delete $args{limit_current_ids};
     $current_ids    = map +($_ => 1), @$current_ids if ref $current_ids eq 'ARRAY';
+    my $filter      = $self->sheet->filter_prepare(delete $args{filter});
 
-    my $view        = delete $args{view};
-    my $filter      = $sheet->filter_prepare(delete $args{filter})
-     || ($view ? $view->filter : undef);
+    my ($view, $grouping);
+    if($view = delete $args{view})
+    {   $filter ||= $view->filter;
+        $grouping = $view->has_grouping;
+    }
 
     my %query = (
         filter           => $filter,
@@ -93,15 +96,16 @@ sub _build_query(%)
         only_drafts      => $only_drafts,
         search           => delete $args{search},       # text pattern
         search_limit     => delete $args{search_limit} || 500,
-        sort             => delete $args{sort},
+        sorts            => [ flat delete($args{sort}), delete($args{sorts}) ],
         user             => $user,
         view             => $view,
         view_limit_extra => delete $args{view_limit_extra},
         view_limits      => \@view_limits,
+        needs_column_grouping => $grouping,
     );
 
-        curcommon_all_fields => $self->curcommon_all_fields,
-        columns              => $self->columns,
+#       curcommon_all_fields => $self->curcommon_all_fields,
+#       columns              => $self->columns,
 
     ### Rewind
     # Whether to take results from some previous point in time.  During a search,
@@ -147,10 +151,10 @@ sub search(%)
 {   my $self = shift;
     my ($query, $args) = $_->_build_query(@_);
 
-
+my $hits;
     Linkspace::Results->new(
-        query => \%query,
-        hits  => \@hits,
+        query => $query,
+        hits  => $hits,
     );
 }
 
@@ -169,9 +173,8 @@ sub _view_limits_search
     my $view_limits = $query->{view_limits};
     @$view_limits or return [];
 
-    my @limits;
-    my @limits, map $self->_construct_filter($query, $_, %options), @$view_limits;
-    my $limit = @limits==1 ? $limits : [ '-or' => \@limits ];
+    my @limits = map $self->_construct_filter($query, $_, %options), @$view_limits;
+    my $limit  = @limits==1 ? $limits[0] : [ '-or' => \@limits ];
 
     my $extra = $self->_construct_filter($query, $query->{view_limit_extra}, %options);
     $extra ? [ -and => [ $limit, $extra ]] : $limit;
@@ -221,45 +224,31 @@ has has_children => (
     isa     => Bool,
 );
 
-# A parameter that can be used externally to restrict to a set of current IDs.
-# This will also have the search parameters applied, which could include
-# limited views for the user (unlike the above internal parameter)
-has limit_current_ids => (
-    is  => 'rw',
-    isa => Maybe[ArrayRef],
-);
-
-sub _build_current_ids
-{   my $self = shift;
-    local $GADS::Schema::Result::Record::REWIND = $query{rewind_formatted};
-    $self->_set_current_ids || [ $self->_current_ids_rs->all ];
-}
-
 # Common search parameters used across different queries
 sub common_search($)
 {   my ($self, $query, $current) = @_;
     $current ||= 'me';
     my @search;
 
-    push @search, { "$current.deleted" =>
-        ($self->is_deleted ? { '!=' => undef } : undef)
-    };
+    $query->{include_deleted}
+        or push @search, { "$current.deleted" => undef };
 
-    push @search, { "$current.parent_id" => undef }
-        if !$self->include_children;
+    $query->{include_children}
+        or push @search, { "$current.parent_id" => undef };
 
-    push @search, { "$current.draftuser_id" => undef }
-        if !$self->is_draft;
+    $query->{include_drafts}
+        or push @search, { "$current.draftuser_id" => undef };
 
     @search;
 }
 
 # Produce the overall search condition array
 sub search_query
-{   my ($self, %options) = @_;
+{   my ($self, $query, %options) = @_;
+
     # Only used by record_later_search(). Will pull wrong query_params
     # if left in %options
-    my $linked        = delete $options{is_linked};
+    my $is_linked     = delete $options{is_linked};
     my @search        = $self->_query_params(%options);
     my $root_table    = $options{root_table} || 'current';
     my $current       = $options{alias} || ($root_table eq 'current' ? 'me' : 'current');
@@ -285,8 +274,9 @@ sub search_query
         $self->common_search($query, $current),
         $self->record_later_search(%options, is_linked => $is_linked);
 
-    push @search, { "$record_single.created" => { '<' => $query{rewind_formatted} } }
-        if $query{rewind_formatted};
+    if(my $rewind = $self->content->rewind_formatted)
+    {   push @search, { "$record_single.created" => { '<' => $rewind } };
+    }
 
     \@search;
 }
@@ -320,7 +310,7 @@ sub sort_first { $_[0]->_sorts->[0] }
 
 sub results($)
 {   my ($self, $query) = @_;
-    $self->needs_column_grouping ? $self->_build_group_results($query) : $self->_build_standard_results($query);
+    $query->{needs_column_grouping} ? $self->_build_group_results($query) : $self->_build_standard_results($query);
 }
 
 sub _construct_filter;
@@ -336,7 +326,7 @@ sub linked_hash
     +{ linked => [
         {   "record_single$alt" => [
                 "record_later$alt",
-                $self->jpfetch(%options, linked => 1);   
+                $self->jpfetch(%options, linked => 1),
              ]
         } ],
      };
@@ -357,19 +347,19 @@ sub search_views($)
     foreach my $view (@views)
     {   # Treat each view with CURUSER as a separate view for each user
         # that has it set as an alert
-        my $user_ids = $view->alert_users_ids || [ undef ];
+        my $users = $view->alert_users || [ undef ];
 
         my $filter  = $view->filter;
         unless($filter)
         {   # No filter, definitely in view
-            foreach my $user_id (@$user_ids)
+            foreach my $user (@$users)
             {   push @foundin,
-                    map +{ view => $view, user_id => $user_id, id => $_ }, @$current_ids;
+                    map +{ view => $view, user => $user, id => $_ }, @$current_ids;
             }
             next;
         }
 
-        foreach my $user_id (@$user_ids)
+        foreach my $user (@$users)
         {   my %search = (
                 'me.instance_id' => $self->sheet->id,
                 $self->_construct_filter($query, $filter, ignore_perms => 1, user => $user),
@@ -403,7 +393,7 @@ sub search_views($)
             }
 
             push @foundin,
-                map +{ view => $view, user_id => $user_id, id => $_ }, @ids;
+                map +{ view => $view, user => $user, id => $_ }, @ids;
         }
     }
     @foundin;
@@ -415,7 +405,7 @@ has _search_all_fields => (
 );
 
 sub _build__search_all_fields
-{   my $self = shift;
+{   my ($self, $query) = @_;
 
     my $search = $self->search
         or return {};
@@ -556,13 +546,8 @@ sub _build_search_limit_reached
 {   my $self = shift;
     if(my $lr = $self->_search_all_fields->{limit_reached}) { return $lr }
 
+my $max;
     $max && $max < $self->count ? $max : undef;
-}
-
-has needs_column_grouping => (
-    is      => 'lazy',
-    isa     => Bool,
-    builder => sub { my $v = $_[0]->view; $v && $v->has_grouping };
 }
 
 # Produce a standard set of results without grouping
@@ -602,7 +587,7 @@ sub _current_ids_rs
     $page_nr = $self->nr_pages
         if $page_nr && $page_nr > 1 && $page_nr > $self->nr_pages;
 
-    if(!$self->needs_column_grouping && !$options{aggregate})
+    if(! $query->{needs_column_grouping} && !$options{aggregate})
     {   $select->{rows} = $self->rows ||= $self->max_results;
         $select->{page} = $page_nr if $page_nr;
     }
@@ -617,7 +602,7 @@ sub _current_ids_rs
 # the required version of a record is retrieved. Assumes that REWIND has
 # already been set by the calling function.
 sub _cid_search_query
-{   my ($self, %options) = @_;
+{   my ($self, $query, %options) = @_;
 
     my $search = { map %$_, $self->record_later_search(prefetch => 1, sort => 1, linked => 1, group => 1, %options) };
 
@@ -629,7 +614,7 @@ sub _cid_search_query
     # therefore performance (Pg at least) has been shown to be better if we run
     # the ID subquery first and only pass the IDs in to the main query
     $search->{'me.id'}
-      = $self->needs_column_grouping || $options{aggregate}
+      = $query->{needs_column_grouping} || $options{aggregate}
       ? +{ -in => $self->_current_ids_rs(%options)->as_query }
       : $self->current_ids;
 
@@ -681,7 +666,7 @@ sub _build_standard_results($)
         '+select' => $self->_plus_select, # Used for additional sort columns
         '+columns' => [
             { record_created => $select_creation_date },
-            { record_created_user => $select_creator }.
+            { record_created_user => $select_creator },
         ],
         order_by     => $self->order_by(prefetch => 1),
         result_class => 'HASH',
@@ -768,49 +753,49 @@ sub fetch_multivalues
             foreach my $loop (0..1)
             {   next if $loop && !$is_linked;
 
-                if ($col->is_multivalue && !$cols_done{$col->id})
-                {   my @retrieve_ids;
-                    foreach my $parent_curval_field (@{$curval_fields{$col->field}})
+                my @retrieve_ids;
+                if($col->is_multivalue && !$cols_done{$col->id})
+                {   foreach my $parent_curval_field (@{$curval_fields{$col->field}})
                     {   foreach my $rec (@$retrieved)
                         {   my $pcf = $rec->{$parent_curval_field} or next;
                             push @retrieve_ids, map $_->{value}, flat $pcf;
                         }
                     }
-                    else
-                    {   @retrieve_ids = $is_linked ? @linked_ids : @$record_ids;
-                    }
-
-                    # Fetch the multivalues for either the main record IDs or the
-                    # records within the curval values. We fetch all values for a
-                    # particular type of field in one go (e.g. all the enum values).
-                    # Sometimes a field will be done, but it will have no values, in
-                    # which case it runs the danger of fetching all values again, thus
-                    # duplicating some values. We therefore have to flag to make sure
-                    # we don't do this.
-                    my %colsd;
-
-                    # Force all columns to be retrieved if it's a curcommon field and this
-                    # record has the flag saying they need to be
-                    $col->retrieve_all_columns(1)
-                        if $col->is_curcommon && $self->curcommon_all_fields;
-
-                    my @multivals = $col->fetch_multivalues(
-                        \@retrieve_ids,
-                        is_draft => $params{is_draft},
-                        curcommon_all_fields => $self->curcommon_all_fields,
-                    );
-
-                    foreach my $val (@multivals)
-                    {   my $col_id = $val->{layout_id};
-                        next if $cols_done{$col_id};
-
-                        push @{$multi{$val->{record_id}}{"field$col_id"}}, $val;
-                        $colsd{$col_id} = 1;
-                    }
-
-                    # Flag that all these columns are done, even if no values
-                    $cols_done{$_} = 1 for keys %colsd;
                 }
+                else
+                {   @retrieve_ids = $is_linked ? @linked_ids : @$record_ids;
+                }
+
+                # Fetch the multivalues for either the main record IDs or the
+                # records within the curval values. We fetch all values for a
+                # particular type of field in one go (e.g. all the enum values).
+                # Sometimes a field will be done, but it will have no values, in
+                # which case it runs the danger of fetching all values again, thus
+                # duplicating some values. We therefore have to flag to make sure
+                # we don't do this.
+                my %colsd;
+
+                # Force all columns to be retrieved if it's a curcommon field and this
+                # record has the flag saying they need to be
+                $col->retrieve_all_columns(1)
+                    if $col->is_curcommon && $self->curcommon_all_fields;
+
+                my @multivals = $col->fetch_multivalues(
+                    \@retrieve_ids,
+                    is_draft => $params{is_draft},
+                    curcommon_all_fields => $self->curcommon_all_fields,
+                );
+
+                foreach my $val (@multivals)
+                {   my $col_id = $val->{layout_id};
+                    next if $cols_done{$col_id};
+
+                    push @{$multi{$val->{record_id}}{"field$col_id"}}, $val;
+                    $colsd{$col_id} = 1;
+                }
+
+                # Flag that all these columns are done, even if no values
+                $cols_done{$_} = 1 for keys %colsd;
 
                 if(my $lp = $col->link_parent)
                 {   $col       = $lp;
@@ -823,6 +808,7 @@ sub fetch_multivalues
         }
     }
 
+    my %multi;
     foreach my $row (@$records)
     {   my $record = $row->record;
 
@@ -839,7 +825,7 @@ sub fetch_multivalues
         foreach my $curval_subfield (keys %curval_fields)
         {
             foreach my $curval_field (@{$curval_fields{$curval_subfield}})
-            {   my $subs = $record->{$curval_field}:
+            {   my $subs = $record->{$curval_field};
                 foreach my $subrecord (flat $subs)
                 {   # Foreach whole curval value
                     my $v = $subrecord->{value} or next;
@@ -855,7 +841,7 @@ sub fetch_multivalues
             }
         }
 
-        if($record_linked = $row->linked_record_raw)
+        if(my $record_linked = $row->linked_record_raw)
         {   my $multi = $multi{$record_linked->{id}};
             @{$record_linked}{keys %$multi} = values %$multi;
         }
@@ -863,7 +849,7 @@ sub fetch_multivalues
         {   my $multi = $multi{$linked_id};
             @{$record}{keys %$multi} = values %$multi; #XXX which not record_linked?
         }
-    };
+    }
 }
 
 # Store for all the current IDs when retrieving rows in chunks. Storing them
@@ -893,7 +879,7 @@ has _next_single_id => (
 # the rows in chunks
 my $chunk = 100;
 sub single
-{   my $self = shift;
+{   my ($self, $query) = @_;
 
     my $next_id = $self->_next_single_id;
 
@@ -904,7 +890,7 @@ sub single
     # Check if we've returned all resulsts available
     return if $self->records_retrieved_count >= @{$self->_all_cids_store};
 
-    if (!$self->needs_column_grouping) # Don't retrieve in chunks for group records
+    unless($query->{needs_column_grouping}) # Don't retrieve in chunks for group records
     {
         if(   ($next_id == 0 && $self->_single_page == 0) # First run
             || $next_id >= $chunk # retrieved all of current chunk
@@ -947,7 +933,6 @@ sub _build_count
         if $self->search;
 
     my $search_query = $self->search_query(search => 1, linked => 1);
-    local $GADS::Schema::Result::Record::REWIND = $query{rewind_formatted};
 
     $::db->search(Current => [ -and => $search_query ], {
         join     => [
@@ -989,6 +974,8 @@ sub _build_has_children
 
 sub _build_columns_retrieved_do
 {   my $self = shift;
+
+    my %col_ids;   #XXX get them
     my $layout = $self->layout;
 
     # First, add all the columns in the view as a prefetch. During
@@ -998,14 +985,13 @@ sub _build_columns_retrieved_do
     my $layout_columns = $layout->columns;
 
     if(my $my_columns = $query->{columns})
-    {   @columns = grep $col_ids{$_->id}, @$layout_columns;  # now ordered
+    {   @columns = grep $col_ids{$_->id}, @$my_columns;  # now ordered
     }
-    elsif ($self->view)
+    elsif($self->view)
     {
         @columns = @{$self->columns_view};
-        if (my $extra = $self->columns_extra)
-        {
-            push @columns, $self->column($_->{parent_id} || $_->{id})
+        if(my $extra = $self->columns_extra)
+        {   push @columns, $self->column($_->{parent_id} || $_->{id})
                 for @$extra;
         }
     }
@@ -1040,7 +1026,7 @@ sub _build_columns_retrieved_no
 sub _build_columns_view
 {   my ($self, $query) = @_;
     my $view = $query->{view}
-        or return $layout->columns_search(user_can_read => 1);
+        or return $sheet->layout->columns_search(user_can_read => 1);
 
     my $layout = $self->layout;
     my ($main_grouping, @grouping_columns) = @{$view->grouping_columns};
@@ -1048,12 +1034,12 @@ sub _build_columns_view
 
     my %view_columns = map +($_->id => $_),
         @{$view->columns},
-        @$grouping_columns;
+        @grouping_columns;
 
     my $cols = $layout->columns_search(
-        user_can_read      => 1,
-        group_display      => $group_display,  #XXX unused
-        include_column_ids => \%view_columns,  #XXX unused
+        user_can_read   => 1,
+        group_display   => $group_display,  #XXX unused
+        include_columns => \%view_columns,  #XXX unused
     );
 
       $main_grouping
@@ -1120,7 +1106,7 @@ sub _query_params
         # Add any date ranges to the search from above
         if(@search_dates)
         {   push @limit, $self->_construct_filter($query, +{
-               condition => 'OR', rules => \@search_date
+               condition => 'OR', rules => \@search_dates
             });
         }
 
@@ -1185,15 +1171,12 @@ sub _sort_builder
     }
 
     my @sorts;
-    if(my $sort = $query{sort})
-    {   foreach my $s (@$sorts)
-        {   $layout->column($s->{id}) or next;
-            push @sorts, {
-                id   => $s->{id}   || $row_id,
-                type => $s->{type} || 'asc',
-            };
-        }
-        return \@sorts if @sorts;
+    foreach my $s (@{$query->{sorts}})
+    {   $layout->column($s->{id}) or next;
+        push @sorts, +{
+            id   => $s->{id}   || $id_column->id,
+            type => $s->{type} || 'asc',
+        };
     }
 
     my $view = $query->{view};
@@ -1236,14 +1219,14 @@ sub order_by
         {   my $parent = $column_parent || $column->sort_parent;
             $self->add_join($parent, sort => 1) if $parent;
             $self->add_join($col_sort, sort => 1, parent => $parent);
-            my $s_table = $self->table_name($col_sort, sort => 1, %options, parent => $parent);
+            my $s_table = $self->table_name($col_sort, sort => 1, %args, parent => $parent);
             my $sort_name;
             if($column->link_parent)
             {   # Original column, not the sub-column ($col_sort)
                 my $col_link = shift @$cols_link;
                 $self->add_join($col_link, sort => 1);
                 my $main = "$s_table.".$column->sort_field;
-                my $link = $self->table_name($col_link, sort => 1, linked => 1, %options).".".$col_link->sort_field;
+                my $link = $self->table_name($col_link, sort => 1, linked => 1, %args).".".$col_link->sort_field;
 
                 $sort_name = $current_rs->helper_concat(
                      { -ident => $main },
@@ -2250,7 +2233,7 @@ __CASE_NO_LINK
             # force is_group to be 1 if calculating total aggregates, which
             # will then force the sum. At the moment the only aggregate is sum,
             # but that may change in the future
-            is_grouping          => $options{is_group} || $self->needs_column_grouping,
+            is_grouping          => $options{is_group} || $query->{needs_column_grouping},
             group_cols           => \%group_cols,
             columns_retrieved_no => $self->columns_retrieved_no,
             columns_retrieved_do => $self->columns_retrieved_do,

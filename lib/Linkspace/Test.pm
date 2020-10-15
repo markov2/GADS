@@ -1,6 +1,5 @@
 
 package Linkspace::Test;
-
 use warnings;
 use strict;
 
@@ -13,7 +12,8 @@ use Data::Dumper   qw/Dumper/;
 use Test::MockTime (); # Load before DateTime
 use DateTime       ();
 
-use Linkspace;
+use Linkspace      ();
+use Linkspace::Test::Sheet ();
 
 our @EXPORT = qw/
    logline logs logs_purge
@@ -21,14 +21,14 @@ our @EXPORT = qw/
    make_site    test_site
    make_user    test_user
    make_group   test_group
-   make_sheet   test_sheet
+   make_sheet
 /;
 
 sub test_site(@);    sub make_site($@);   my $test_site;
 sub test_user(@);    sub make_user($@);   my $test_user;
 sub test_group(@);   sub make_group($@);  my $test_group;
 sub test_session(@); sub make_session(@); my $test_session;
-sub test_sheet(@);   sub make_sheet($@);  my $test_sheet;
+sub make_sheet(@);
 
 our $guard;  # visible for guard test only
 
@@ -171,6 +171,28 @@ sub test_user(@)
         @_;
 }
 
+=pod
+   my $return; my $count = $self->schema->site_id && ($self->schema->site_id - 1) * 5;
+   foreach my $permission (@{$self->users_to_create})
+    {
+        $count++;
+        # Give view create permission as default, so that normal user can
+        # create views for tests
+        my $perms
+            = $permission =~ 'normal'     ? ['view_create']
+            : $permission eq 'superadmin' ? [qw/superadmin link delete purge view_group/]
+            : [ $permission ];
+        $return->{$permission} = $self->create_user(permissions => $perms, user_id => $count);
+    }
+        elsif (!$self->no_groups) {
+            # Create a group for each user/permission
+            my $name  = "${permission}_$user_id";
+            my $group = $::db->get_record(Group => { name => $name });
+               ||= $::db->create(Group => { name => $name });
+}
+
+=cut
+
 
 ### Group
 
@@ -232,13 +254,15 @@ sub switch_user($)
 }
 
 #XXX to be tested
-sub make_sheet($@)
-{   my ($seqnr, %args) = @_;
-    $args{name} ||= "sheet $seqnr";
+my $sheet_seqnr = 0;
+sub make_sheet(@)
+{   my %args = @_;
+    my $seqnr = ++$sheet_seqnr;
+    $args{name}  ||= "sheet $seqnr";
 
-    my $with_columns = delete $args{with_columns};  #XXX TBI
-
-    my $sheet = test_site->document->sheet_create(\%args);
+    my $sheet = test_site->document->sheet_create(\%args,
+        class => 'Linkspace::Test::Sheet',
+    );
 
     is logline, "info: Instance created ${\$sheet->id}: ${\$sheet->path}",
         '... logged creation of sheet '.$sheet->path;
@@ -246,26 +270,17 @@ sub make_sheet($@)
     my $internal = $sheet->layout->columns_search(only_internal => 1);
     like logline, qr/^info: Layout created .*=$_/, "... log create column $_"
         for map $_->name_short, @$internal;
-    $sheet;
-}
 
-sub test_sheet(@)
-{   return $test_sheet if $test_sheet;
+	# The $test_group contains all generated users with superadmin rights
+	$sheet->access->group_allow(test_group, qw/layout view_create/);
 
-    $test_sheet = make_sheet 0,
-        name_short => 'test_sheet',
-        @_;
-
-    # The $test_group contains all generated users with superadmin rights
-    $test_sheet->access->group_allow(test_group, qw/layout view_create/);
-
-    like logline, qr/^info: InstanceGroup created.*layout/,
+	like logline, qr/^info: InstanceGroup created.*layout/,
         '... test_user can layout';
 
-    like logline, qr/^info: InstanceGroup created.*view_create/,
+	like logline, qr/^info: InstanceGroup created.*view_create/,
         '... test_user can view_create';
 
-    $test_sheet;
+    $sheet;
 }
 
 1;
