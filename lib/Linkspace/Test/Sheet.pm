@@ -26,72 +26,24 @@ use Log::Report  'linkspace';
 use Moo;
 extends 'Linkspace::Sheet';
 
-has no_groups => (
-    is      => 'ro',
-    default => 0,
-);
+sub _sheet_create($%)
+{   my ($class, $config, %args) = @_;
+    my $self = $class->SUPER::_sheet_create({
+          name => delete $config->{name},
+       },
+       %args,
+    );
+    $self->_fill_layout($config);
+    $self->_fill_content($config);
 
-has organisation => (
-    is => 'lazy',
-    builder => sub { $::db->create(Organisation => { name => 'My Organisation' });
+    panic $_ for keys %$config;
+    $self;
 }
 
-has department => (
-    is => 'lazy',
-    builder => sub { $::db->create(Department => { name => 'My Department' }) },
-}
+# Not autocur
+my @default_column_types =  qw/string intgr enums tree date daterange file person curval rag/;
 
-sub _build__users
-{   my $self = shift;
-    # If the site_id is defined, then we may be cresating multiple sites.
-    # Therefore, offset the ID with the number of sites, to account that the
-    # row IDs may already have been used.  This assumes that when testing
-    # multiple sites that only the default 5 users are created.
-    my $return; my $count = $self->schema->site_id && ($self->schema->site_id - 1) * 5;
-    foreach my $permission (@{$self->users_to_create})
-    {
-        $count++;
-        # Give view create permission as default, so that normal user can
-        # create views for tests
-        my $perms
-            = $permission =~ 'normal'     ? ['view_create']
-            : $permission eq 'superadmin' ? [qw/superadmin link delete purge view_group/]
-            : [ $permission ];
-        $return->{$permission} = $self->create_user(permissions => $perms, user_id => $count);
-    }
-    $return;
-}
-
-sub create_user
-{   my ($self, %options) = @_;
-    my @permissions = @{$options{permissions} || []};
-
-    foreach my $permission (@permissions)
-    {
-        if (my $permission_id = $self->_permissions->{$permission})
-        {
-            $self->schema->resultset('UserPermission')->find_or_create({
-                user_id       => $user_id,
-                permission_id => $permission_id,
-            });
-            $user->clear_permission;
-        }
-        elsif (!$self->no_groups) {
-            # Create a group for each user/permission
-            my $name  = "${permission}_$user_id";
-            my $group = $::db->get_record(Group => { name => $name });
-               ||= $::db->create(Group => { name => $name });
-}
-
-has curval => (
-    is => 'ro',
-);
-
-has curval_field_ids => (
-    is => 'ro',
-);
-
-my $default_enumvals = qw/foo1 foo3 foo3/;
+my @default_enumvals = qw/foo1 foo2 foo3/;
 
 my @default_trees    =
   ( { text => 'tree1' },
@@ -99,7 +51,7 @@ my @default_trees    =
   );
 
 my @can_multivalue_columns = qw/calc curval date daterange enum file string tree/;
-my @default_permissions = qw/read write_new write_existing write_new_no_approval
+my @default_permissions    = qw/read write_new write_existing write_new_no_approval
     write_existing_no_approval/;
 
 my %dummy_file_data = (
@@ -110,9 +62,9 @@ my %dummy_file_data = (
 
 sub _default_rag_code($) { my $seqnr = shift; <<__RAG }
 function evaluate (L${seqnr}daterange1)
-    if type(L${seqnr}daterange1) == \"table\" and L${seqnr}daterange1[1] then
+    if type(L${seqnr}daterange1) == "table" and L${seqnr}daterange1[1] then
         dr1 = L${seqnr}daterange1[1]
-    elseif type(L${seqnr}daterange1) == \"table\" and next(L${seqnr}daterange1) == nil then
+    elseif type(L${seqnr}daterange1) == "table" and next(L${seqnr}daterange1) == nil then
         dr1 = nil
     else
         dr1 = L${seqnr}daterange1
@@ -126,9 +78,9 @@ __RAG
 
 sub _default_calc_code($) { my $seqnr = shift;  <<__CALC }
 function evaluate (L${seqnr}daterange1)
-    if type(L${seqnr}daterange1) == \"table\" and L${seqnr}daterange1[1] then
+    if type(L${seqnr}daterange1) == "table" and L${seqnr}daterange1[1] then
         dr1 = L${seqnr}daterange1[1]
-    elseif type(L${seqnr}daterange1) == \"table\" and next(L${seqnr}daterange1) == nil then
+    elseif type(L${seqnr}daterange1) == "table" and next(L${seqnr}daterange1) == nil then
         dr1 = nil
     else
         dr1 = L${seqnr}daterange1
@@ -138,50 +90,62 @@ function evaluate (L${seqnr}daterange1)
 end
 __CALC
 
-my @default_sheet_rows = (   # Don't change these: some tests depend on them
+my @default_sheet_rows = (   # Don't change these: many tests depend on them
     {   string1    => 'Foo',
         integer1   => 50,
         date1      => '2014-10-10',
-        enum1      => 1 + $config->{curval_offset},
+        enum1      => 'foo1',
         daterange1 => ['2012-02-10', '2013-06-15'],
     },
     {
         string1    => 'Bar',
         integer1   => 99,
         date1      => '2009-01-02',
-        enum1      => 2 + $config->{curval_offset},
+        enum1      => 'foo2',
         daterange1 => ['2008-05-04', '2008-07-14'],
     },
 );
 
-sub _create_content($%)
-{   my ($self, %args) = @_;
-    my $content = $self->content;
+sub _fill_layout($$)
+{   my ($self, $args) = @_;
+    my $layout   = $self->layout;
     my $sheet_id = $self->id;
 
-#   my $permissions = $self->no_groups ? undef
-#     : { $self->group->id => $self->default_permissions };
+    my $permissions = [ test_group => \@default_permissions ];
 
-    my $mv = delete $args{multivalue_columns}
-          || (delete $args{multivalues} ? \@can_multivalue_columns : ());
+    # Restrict the columns to be created
+    my $column_types = delete $args->{columns} || \@default_column_types;
 
-    my %mv = map +($_ => 1), @$mv;
+    my %mv;
+    if(my $mv = $args->{multivalue_columns})
+    {   foreach my $type (@$mv)
+        {   Linkspace::Column->type2class($mv)->can_multivalue or panic $mv;
+            $mv{$type} = 1;
+        }
+    }
 
-    my $cc = column_count
+    my $cc = delete $args->{column_count} || {};
 
-   my $all_optional = exists $args{all_optional} ? $args{all_optional} : 1;
-   my $calc_return_type = $args{calc_return_type} || 'integer';
+    my $all_optional = exists $args->{all_optional} ? $args->{all_optional} : 1;
 
+    my ($curval_sheet, @curval_columns);
+    if($curval_sheet = $args->{curval_sheet})
+    {   if(my $cols = $args->{curval_columns})
+        {   @curval_columns = @{$curval_sheet->layout->columns($cols)};
+        }
+        else
+        {   @curval_columns = grep ! $_->is_internal && !$_->type eq 'autocur',
+                @{$curval_sheet->all_columns};
+        }
+    }
 
-curval --> curval_sheet
-    my $curval_offset = $curval_sheet ? 6 : 0;
-    # curval_fields_ids --> curval_columns, names relative to curval_sheet
-    my $curval_columns = $curval_sheet->layout->columns($args{curval_columns});
+    my $rag_code  = delete $args->{rag_code};
+    my $calc_rt   = delete $args->{calc_return_type};
+    my $calc_code = delete $args->{calc_code};
 
-    foreach my $type ( qw/string intgr enums tree/ )
-# date daterange file person
+    foreach my $type (@$column_types)
     {
-        foreach my $count (1.. ($column_count{$type} || 1))
+        foreach my $count (1.. ($cc->{$type} || 1))
         {
             my %insert = (
                 type          => $type,
@@ -193,81 +157,55 @@ curval --> curval_sheet
             );
 
             if($type eq 'enum')
-            {    $insert{enumvals} = \@default_enumvals;
+            {   $insert{enumvals} = \@default_enumvals;
             }
             elsif($type eq 'tree')
-            {    $insert{tree}     = \@default_trees;
+            {   $insert{tree}     = \@default_trees;
             }
-            $layout->column_create($insert);
+            elsif($type eq 'curval')
+            {   $insert{refers_to_sheet} = $curval_sheet;
+                $insert{curval_columns}  = \@curval_columns;
+next;
+            }
+            elsif($type eq 'rag')
+            {   $insert{code} = $rag_code || _default_rag_code($sheet_id);
+next;
+            }
+            elsif($type eq 'calc')
+            {   $insert{return_type} = $calc_rt || 'integer';
+                $insert{code}        = $calc_code || _default_calc_code($sheet_id);
+next;
+            }
+
+            $layout->column_create(\%insert);
         }
     }
+}
 
+sub _fill_content($$)
+{   my ($sheet, $config) = @_;
+    my $content = $sheet->content;
+    my $data    = delete $config->{rows} || \@default_sheet_rows;
 
-my $file1 = $layout->column_create(
-    type          => 'file',
-    name          => 'file1',
-    optional      => $self->optional,
-    is_multivalue => $self->multivalue && $self->multivalue_columns->{file},
-    permissions   => $permissions,
-);
+    foreach my $row_data (@$data)
+    {   my $row = $content->row_create({
+            base_url => undef,   #XXX
+        });
 
-my $person1 = $layout->column_create(
-    type          => 'person',
-    name          => 'person1',
-    permissions   => $permissions,
-);
+        $row_data->{file1} = \%dummy_file_data
+            if exists $row_data->{file1} && ref $row_data->{file1} ne 'HASH';
 
-    my @curvals;
-    if ($self->curval)
-    {
-        foreach my $count (1..($self->column_count->{curval} || 1))
-        {
-            my $refers_to_sheet = $config->{curval_sheet};
-            my $curval_field_ids_rs = $::db->search(Layout => {
-                type        => { '!=' => 'autocur' },
-                internal    => 0,
-                instance_id => $refers_to_sheet->id,
-            });
-            my $curval_fields = $config->{curval_fields} ||
-                [ map $_->id, $curval_field_ids_rs->all ];
-
-my $name = 'curval'.$count;
-my $curval = $layout->column_create(
-    type          => 'curval',
-    name          => $name,
-    name_short    => "L${instance_id}$name",
-    optional      => $config->{optional},
-    is_multivalue => $self->multivalue && $self->multivalue_columns->{file},  #XXX file?
-    permissions   => $permissions,
-    refers_to_instance_id => $refers_to_instance_id,
-    curval_field_ids => $curval_field_ids.
-);
-            push @curvals, $curval;
-        }
+        my $revision = $row->revision_create($row_data, no_alerts => 1);
     }
 
-my $rag1 = $layout->column_create(
-    type          => 'rag',
-    name          => 'rag1',
-    optional      => $self->optional,
-    permissions   => $permissions,
-    code          => $args{rag_code} || _default_rag_code($sheet->id);
-);
+    1;
+}
 
-my $calc1 = $layout->column_create(
-    type        => 'calc',
-    name        => 'calc1',
-    name_short  => "L${instance_id}calc1",
-    return_type => $self->calc_return_type,
-    code        => $args{calc_code} || _default_calc_code($sheet->id);
-    permissions => $permissions,
-    is_multivalue => $self->multivalue && $self->multivalue_columns->{calc},
-);
-
-# Add an autocur column to this sheet
+# Add an autocur column to this sheet    ### should not be used anymore
 my $autocur_count = 50;
 sub add_autocur
 {   my ($self, $seqnr, $config) = @_;
+    my $layout = $self->layout;
 
     my $autocur_fields = $config->{curval_columns}
         || $layout->columns_search({ internal => 0 });
@@ -275,7 +213,7 @@ sub add_autocur
     my $permissions = $config->{no_groups} ? undef :
       [ $self->group => $self->default_permissions ];
 
-    my $name = 'autocur' . $autocur_count++,
+    my $name = 'autocur' . $autocur_count++;
     $layout->column_create({
         type            => 'autocur',
         name            => $name,
@@ -287,56 +225,15 @@ sub add_autocur
     });
 }
 
-sub 
-    my $sheet = make _sheet...
-    _sheet_layout($sheet, $config);
-    _sheet_fill($sheet, $config);
-
-sub sheet_layout($$)
-{   my ($sheet, $config) = @_;
-    my $cc    = $config->{column_count} || {};
-    my $is_mv = $config->{multivalue_columns} || $default_multivalue_columns;
-    $is_mv = map +($_ => 1) @$is_mv if ref $is_mv eq 'ARRAY';
-
-    #XXX to be removed after conversion of tests
-    panic "Rename curval => curval_sheet" if $config->{curval};
-    panic "Rename curval_field_ids => curval_columns" if $config->{curval_field_ids};
-
-    if(my $curval_sheet = $config->{curval_sheet})
-    {   my $columns = $curval_sheet->layout->columns($config->{curval_columns});
-        ...;
-    }
-}
-
-sub fill_sheet($$)
-{   my ($sheet, $config) = @_;
-    my $content = $sheet->content;
-
-    my $data = $config->{data} || \@default_sheet_rows;
-    $#$data  = $config->{rows} if defined $config->{rows};
-
-    foreach my $row_data (@$data)
-    {   my $row = $content->row_create({
-            base_url => undef,
-        });
-
-        $row_data->{file1} = \%dummy_file_data
-            if exists $row_data->{file1} && ref $row_data->{file1} ne 'HASH';
-
-        my $revision = $row->revision_create($row_data, no_alerts => 1);
-    }
-
-    1;
-};
 
 sub set_multivalue
-{   my ($self, $value) = @_;
-    foreach my $col ($self->layout->all_columns)
-    {   if($self->multivalue_columns->{$col->type})
-        {   $layout->column_update($col, { is_multivalue => $value });
-        }
+{   my ($self, $config) = @_;
+    my $layout = $self->layout;
+
+    foreach my $col ($self->layout->columns_search(exclude_internal => 1))
+    {   $layout->column_update($col, { is_multivalue => $config->{$col->type} })
+            if exists $config->{$col->type} or next;
     }
-    $self->layout->clear;
 }
 
 1;
