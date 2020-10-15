@@ -1,7 +1,7 @@
 use Linkspace::Test
     not_ready => 'much rewrite to do';
 
-my $sheet   = make_sheet 1, multivalues => 1;
+my $sheet   = make_sheet multivalues => 1;
 my $layout  = $sheet->layout;
 my $content = $sheet->content;
 
@@ -124,7 +124,7 @@ foreach my $calc_depend (0..1)
         $view_expected = 1;
     }
 
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         rows             => [ { string1  => 'Foo', integer1 => 50 } ],
         calc_code        => $code,
         calc_return_type => 'string',

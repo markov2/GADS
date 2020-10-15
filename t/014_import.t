@@ -5,7 +5,7 @@ $ENV{GADS_NO_FORK} = 1; # Prevent forking during import process
 
 # version tests
 {
-    my $sheet = make_sheet 1;
+    my $sheet = make_sheet;
     my $layout  = $sheet->layout;
 
     my $user1 = $schema->resultset('User')->create({
@@ -41,7 +41,7 @@ $ENV{GADS_NO_FORK} = 1; # Prevent forking during import process
 # Deleted version of live enumval and tree
 foreach my $type (qw/enum tree/)
 {
-    my $sheet = make_sheet 2;
+    my $sheet = make_sheet;
     my $layout  = $sheet->layout;
 
     my $val = $type eq 'enum' ? 'foo1' : 'tree1';
@@ -154,7 +154,7 @@ foreach my $test (@tests)
     my $to = $test->{option} // '';
 
     foreach my $status (qw/on off/)
-    {   my $sheet = make_sheet $sheet_counter++, data => [], multivalues => 1;
+    {   my $sheet = make_sheet data => [], multivalues => 1;
 
         my $user = $schema->resultset('User')->create({
             username => 'test',
@@ -412,7 +412,7 @@ foreach my $test (@update_tests)
     # Create initial records with this datetime
     set_fixed_time('10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
 
-    my $curval_sheet = make_sheet $sheet_counter++;
+    my $curval_sheet = make_sheet;
 
     my %extra;
     if(my $t = $test->{calc_code})
@@ -420,7 +420,7 @@ foreach my $test (@update_tests)
         $extra{calc_return_type} = 'string';
     }
 
-    my $sheet  = make_sheet $sheet_counter++,
+    my $sheet  = make_sheet
         curval => $curval_sheet->id,
         data   => $test->{existing_data} || undef,
         %extra;

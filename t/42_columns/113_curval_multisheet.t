@@ -4,17 +4,17 @@
 use Linkspace::Test
    not_ready => 'waiting for curval';
 
-my $curval_sheet = make_sheet 3, columns => [ qw/string1 enum1/ ];
+my $curval_sheet = make_sheet columns => [ qw/string1 enum1/ ];
 my $curval_layout = $curval_sheet->layout;
 
-my $sheet1 = make_sheet 1,
+my $sheet1 = make_sheet
     rows             => [],
     multivalues      => 1,
     curval_sheet     => $curval_sheet,
     curval_columns   => [ 'string1', 'enum1' ];
 my $layout1 = $sheet1->layout;
 
-my $sheet2 = make_sheet 2,
+my $sheet2 = make_sheet
     rows             => [],
     curval_sheet     => $curval_sheet,
     curval_columns   => [ 'string1', 'enum1' ];

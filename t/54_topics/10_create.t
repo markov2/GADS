@@ -2,7 +2,7 @@
 use Linkspace::Test
     not_ready => 'waiting for Topics';
 
-my $sheet   = make_sheet 1;
+my $sheet   = make_sheet;
 my $layout  = $sheet->layout;
 my $content = $sheet->content;
 

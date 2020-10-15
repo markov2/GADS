@@ -4,11 +4,11 @@
 use Linkspace::Test
     not_ready => 'waiting for curval';
 
-my $curval_sheet = make_sheet 2,
+my $curval_sheet = make_sheet
     rows               => [ { string1 => 'foo1' } ],
     columns            => [ 'string1' ];
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows               => [ { string1 => 'foo', curval1 => 1 } ],
     columns            => [ qw/string1 curval1/ ],
     curval_sheet       => $curval_sheet,

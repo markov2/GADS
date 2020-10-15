@@ -52,7 +52,7 @@ $layout2->purge;
 is($schema->resultset('Instance')->count, 1, "Second instance deleted");
 
 # Make sure same users is used from first sheet
-my $sheet2 = make_sheet '2',
+my $sheet2 = make_sheet
     user_permission_override => 0,
     curval_offset            => 6,
     group                    => $sheet1->group,

@@ -3,7 +3,7 @@
 use Linkspace::Test;
 
 $::session = test_session;
-my $sheet = test_sheet;
+my $sheet = make_sheet;
 
 my $column1 = $sheet->layout->column_create({
     type          => 'intgr',

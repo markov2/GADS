@@ -3,14 +3,14 @@
 use Linkspace::Test
     not_ready => 'waiting for curval';
 
-my $curval_sheet = make_sheet 2, rows => [
+my $curval_sheet = make_sheet rows => [
     { string1 => 'foo1' },
     { string1 => 'foo2' },
     { string1 => 'foo3' },
     { string1 => 'foo4' },
 ];
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows               => [ { string1 => 'foo', curval1 => [ 1..4 ] } ],
     columns            => [ qw/string1 curval1/ ],
     multivalue_columns => [ qw/curval1/ ],

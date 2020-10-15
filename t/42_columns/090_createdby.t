@@ -3,7 +3,7 @@
 use Linkspace::Test
     not_ready => 'to be implemented';
 
-my $sheet   = make_sheet 1;
+my $sheet   = make_sheet;
 my $layout  = $sheet->layout;
 
 my $column1 = $layout->column_create({

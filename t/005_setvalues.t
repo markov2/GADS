@@ -133,9 +133,9 @@ my $sheet_counter = 42;
 
 foreach my $multivalue (0..1)
 {
-    my $curval_sheet = make_sheet $sheet_counter++;
+    my $curval_sheet = make_sheet;
 
-    my $sheet = make_sheet $sheet_counter++,
+    my $sheet = make_sheet
         curval_sheet => $curval_sheet,
         multivalues  => $multivalue;
 
@@ -171,9 +171,9 @@ foreach my $multivalue (0..1)
 
 sub run_test($$$$)
 {   my ($multivalue, $test, $arrayref, $deleted) = @_;
-    my $curval_sheet = make_sheet $sheet_counter++;
+    my $curval_sheet = make_sheet;
 
-    my $sheet   = make_sheet $sheet_counter++,
+    my $sheet   = make_sheet
         rows         => $data->{$test},
         multivalues  => $multivalue,
         curval_sheet => $curval_sheet,
@@ -318,8 +318,8 @@ foreach my $multivalue (0..1)
 
 # Set of tests to check behaviour when values start as undefined (as happens,
 # for example, when a new column is created and not added to existing records)
-my $curval_sheet = make_sheet 1;
-my $sheet        = make_sheet 2, curval_sheet => $curval_sheet;
+my $curval_sheet = make_sheet;
+my $sheet        = make_sheet curval_sheet => $curval_sheet;
 
 foreach my $c (keys %$values)
 {   my $column = $columns->{$c};
@@ -350,9 +350,9 @@ foreach my $c (keys %$values)
 
 # Test mandatory fields
 {
-    my $curval_sheet = make_sheet 2;
+    my $curval_sheet = make_sheet;
 
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         optional     => 0,
         rows         => [],
         curval_sheet => $curval_sheet;
@@ -421,7 +421,7 @@ foreach my $c (keys %$values)
 }
 
 # Test setting person field as textual value instead of ID
-{   my $sheet   = test_sheet '2';
+{   my $sheet   = make_sheet;
     my $row     = $sheet->content->row_first;
 
     my $cell0   = $row->cell('person1');
@@ -441,7 +441,7 @@ foreach my $c (keys %$values)
 }
 
 # Final special test for file with only ID number the same (no new content)
-$sheet2 = make_sheet '2',
+$sheet2 = make_sheet
     data => [ { file1 => undef } ] # This will create default dummy file
 );
 

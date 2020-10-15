@@ -12,9 +12,9 @@ my $data = [
     },
 ];
 
-my $curval_sheet = make_sheet 2, rows => [];
+my $curval_sheet = make_sheet rows => [];
 
-my $sheet        = make_sheet 1,
+my $sheet        = make_sheet
    curval_sheet => $curval_sheet,
    rows         => $data;
 

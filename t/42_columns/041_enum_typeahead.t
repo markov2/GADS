@@ -4,7 +4,7 @@
 use Linkspace::Test
     not_ready => 'Waiting for filled test_sheet';
 
-my $sheet   = test_sheet rows => 3;
+my $sheet   = make_sheet rows => 3;
 my $layout  = $sheet->layout;
 
 my $column1 = $layout->column('enum1');

@@ -4,7 +4,7 @@
 use Linkspace::Test
    not_ready => 'waiting for sheet, simple';
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
    columns => [ 'date' ];
 
 my $layout  = $sheet->layout;

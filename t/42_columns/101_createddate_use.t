@@ -6,7 +6,7 @@
 use Linkspace::Test
     not_ready => 'waiting for sheet and calc';
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows      => [],
     columns   => [ 'calc1' ],
     calc_code => "function evaluate (_version_datetime)

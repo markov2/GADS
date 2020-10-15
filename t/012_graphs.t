@@ -47,14 +47,14 @@ foreach my $multivalue (0..1)
         },
     ];
 
-    my $curval_sheet = test_sheet $sheet_nr++ , multivalues => $multivalue;
+    my $curval_sheet = make_sheet multivalues => $multivalue;
 
     # Make an edit to a curval record, to make sure that only the latest
     # version is used in the graphs
 
     $curval_sheet->content->row(2)->cell_update(integer1 => 132);
 
-    my $sheet   = make_sheet 1,
+    my $sheet   = make_sheet
         rows               => $data,
         curval_sheet       => $curval_sheet,
         column_count       => { integer => 2 },
@@ -75,7 +75,7 @@ foreach my $multivalue (0..1)
 
     # Add linked record sheet, which will contain the integer1 value for the first
     # record of the first sheet
-    my $sheet2  = make_sheet 2, rows => [];
+    my $sheet2  = make_sheet rows => [];
     my $layout2 = $sheet2->layout;
 
     # Set link field of first sheet integer1 to integer1 of second sheet
@@ -598,7 +598,7 @@ XXX
 # Test graph of large number of records
 my @data = 
 
-my $sheet = make_sheet 1,
+my $sheet = make_sheet
     rows    => [ map +{ string1 => 'foobar', integer1 => 2}, 1..1000 ],
     columns => [ 'string1', 'integer1' ];
 

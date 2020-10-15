@@ -70,9 +70,9 @@ foreach my $multivalue (0..1)
         },
     ];
 
-    my $curval_sheet = make_sheet 2;
+    my $curval_sheet = make_sheet;
 
-    my $sheet   = make_sheet 1,
+    my $sheet   = make_sheet
         rows           => $data,
         calc_code      => "function evaluate (L1integer1) \n return L1integer1 * 2 \n end",
         curval_sheet   => $curval_sheet,
@@ -150,7 +150,7 @@ foreach my $multivalue (0..1)
 
 # Make sure that correct columns are returned from view
 {
-    my $sheet = make_sheet 1;
+    my $sheet = make_sheet;
     my $view  = $sheet->views->view_create({
         name        => 'Group view',
         columns     => [ 'string1', 'integer1' ],
@@ -187,7 +187,7 @@ foreach my $multivalue (0..1)
         push @data, { string1  => "Foo$id", integer1 => $id * 10 };
     }
 
-    my $sheet = make_sheet 1, rows => \@data;
+    my $sheet = make_sheet rows => \@data;
 
     my $view  = $sheet->views->view_create({
         name        => 'Group view large',

@@ -55,7 +55,7 @@ my @data3 = (
 );
 
 my $curval_sheet = make_sheet data => \@data3;
-my $sheet        = make_sheet,
+my $sheet        = make_sheet
     rows             => \@data2,
     multivalues      => 1,
     curval_sheet     => $curval_sheet,
@@ -98,8 +98,15 @@ cmp_ok @{$curval->all_values}, '==', 4,
 
 # Create a second curval sheet, and check that we can link to first sheet
 # (which links to second)
+<<<<<<< Updated upstream
 my $curval_sheet2 = make_sheet '4',
     curval_sheet => 1;
+=======
+my $curval_sheet2 = make_sheet
+    curval => 1,
+    curval_offset => 12,
+    rows  => 1;
+>>>>>>> Stashed changes
 
 cmp_ok @{$curval_sheet2->column('curval1')->filtered_values}, '==', 2,
     "Correct number of values for curval field";

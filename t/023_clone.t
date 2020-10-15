@@ -1,7 +1,7 @@
 
 use Linkspace::Test;
 
-my $curval_sheet = make_sheet 2;
+my $curval_sheet = make_sheet;
 
 my $data = [ {
     integer1   => 150,
@@ -13,7 +13,7 @@ my $data = [ {
     tree1      => 'tree1',
 } ];
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows             => $data,
     curval_sheet     => $curval_sheet,
     curval_columns   => [ 'string1'],

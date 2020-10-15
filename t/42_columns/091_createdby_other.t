@@ -3,7 +3,7 @@
 use Linkspace::Test
     not_ready => 'waiting for sheet, simple';
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows =>    [{ string1 => 'foobar1' }],
     columns => [ 'string1' ];
 

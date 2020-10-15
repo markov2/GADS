@@ -30,9 +30,9 @@ my %as_string = (
     file1      => 'file.txt',
 );
 
-my $curval_sheet = make_sheet '2';
+my $curval_sheet = make_sheet;
 
-my $sheet   = make_sheet '1', rows => 2,
+my $sheet   = make_sheet rows => 2,
     curval_sheet     => $curval_sheet,
     curval_columns   => [ 'string1' ];
 

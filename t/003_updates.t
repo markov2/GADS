@@ -99,9 +99,9 @@ my @update2 = (
     },
 );
 
-my $curval_sheet = make_sheet 2, rows => $data2;
+my $curval_sheet = make_sheet rows => $data2;
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows         => $data1,
     curval_sheet => $curval_sheet,
     column_count => {
@@ -217,9 +217,9 @@ foreach my $update (@update2)
 
 # Test changes of curval edits
 {
-    my $curval_sheet = make_sheet 2;
+    my $curval_sheet = make_sheet;
 
-    my $sheet   = make_sheet 1,
+    my $sheet   = make_sheet
         rows           => [ { curval1 => [1, 2] }],
         curval_sheet   => $curval_sheet,
         curval_columns => [ 'string1' ];

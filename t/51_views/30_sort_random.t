@@ -9,7 +9,7 @@ my @data = map +{
     enum1   => ($_ % 3) + 1,
 }, 1..1000;
 
-my $sheet = make_sheet 1,
+my $sheet = make_sheet
     columns => [ 'string1', 'enum1' ],
     rows    => \@data;
 

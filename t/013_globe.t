@@ -7,7 +7,7 @@ my $simple_data = [
 
 # Simple test first
 {
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         rows             => $simple_data,
         calc_code        => "function evaluate (L1string1) \n return L1string1 end",
         calc_return_type => 'globe',
@@ -49,7 +49,7 @@ foreach my $withview (qw/none with without/)
           };
     }
 
-    my $sheet = make_sheet 2,
+    my $sheet = make_sheet
         rows             => \@data,
         calc_code        => "function evaluate (L1string1) \n return L1string1 end",
         calc_return_type => 'globe',
@@ -160,7 +160,7 @@ foreach my $withview (qw/none with without/)
             enum1    => [qw/foo2/],
         },
     ];
-    my $curval_sheet = make_sheet 2,
+    my $curval_sheet = make_sheet
         rows        => $data,
         multivalues => 1,
         instance_id => 2,
@@ -179,7 +179,7 @@ foreach my $withview (qw/none with without/)
         { string1 => 'Spain',   curval1 => 4 },
     ];
 
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         rows             => $data,
         curval_sheet     => $curval_sheet,
         multivalues      => 1,
@@ -225,7 +225,7 @@ foreach my $withview (qw/none with without/)
 
 # Invalid columns
 {
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         rows             => $simple_data,
         calc_code        => "function evaluate (L1string1) \n return L1string1 end",
         calc_return_type => 'globe';

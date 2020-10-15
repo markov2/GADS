@@ -1,9 +1,9 @@
 
 use Linkspace::Test;
 
-my $curval_sheet = make_sheet 2, rows => [];
+my $curval_sheet = make_sheet rows => [];
 
-my $sheet   = test_sheet curval_sheet => $curval_sheet, multivalues => 1;
+my $sheet   = make_sheet curval_sheet => $curval_sheet, multivalues => 1;
 my $layout  = $sheet->layout;
 my $user    = $sheet->user_normal1;
 

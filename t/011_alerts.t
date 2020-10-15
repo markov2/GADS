@@ -108,11 +108,11 @@ my $data = [
     },
 ];
 
-my $curval_sheet = make_sheet '2', calc_return_type => 'string';
+my $curval_sheet = make_sheet calc_return_type => 'string';
 $curval_sheet->create_records;
 my $curval_columns = $curval_sheet->columns;
 
-my $sheet = make_sheet '3',
+my $sheet = make_sheet
     rows         => $data,
     curval_sheet => $curval_sheet;
 
@@ -682,7 +682,7 @@ sub _in_alert_send($)
     $::db->resultset(AlertSend => {view_id => $view->id})->count;
 }
 
-$sheet = make_sheet 1, rows => $data;
+$sheet = make_sheet rows => $data;
 
 # First create a view with no filter
 my $view = $views->view_create({
@@ -776,7 +776,7 @@ test_curuser 'string', \@curuser_string_data, 'string1';
 sub test_curuser
 {   my ($curuser_type, $data, $filter_col ) = @_;
 
-    $sheet = make_sheet 1, rows => $data;
+    $sheet = make_sheet rows => $data;
 
     # First create a view with no filter
     my $col_ids = $curuser_type eq 'person'
@@ -900,7 +900,7 @@ sub test_curuser
 }
 
 # Check alerts after update of calc column code
-$sheet = make_sheet 1;
+$sheet = make_sheet;
 
 # First create a view with no filter
 
@@ -963,7 +963,7 @@ cmp_ok _in_alert_send($view), '==', 1,
 # year hard-coded in the Lua code. Years of 2010 and 2014 are used for the tests.
 foreach my $viewtype (qw/normal group global/)
 {
-    $sheet = make_sheet 1,
+    $sheet = make_sheet
         calc_code => "function evaluate (L1daterange1) \nif L1daterange1.from.year < 2010 then return 1 else return 0 end\nend";
 
     # First create a view with no filter
@@ -1018,7 +1018,7 @@ note "About to test alerts for bulk updates. This could take some time...";
 # Some bulk data, almost all matching the filter, but not quite,
 # to test big queries (otherwise current_ids is not searched)
 
-$sheet = make_sheet 1,
+$sheet = make_sheet
     rows => [{ string1 => 'Bar' }, +{ string1 => 'Foo' } x 1000 ) ];
 
 # Check alert count now, same query we perform at end
