@@ -1,7 +1,6 @@
 # Check the Daterange column type
 
-use Linkspace::Test
-    not_ready => 'to be implemented';
+use Linkspace::Test;
 
 my $sheet   = make_sheet 1;
 my $layout  = $sheet->layout;
