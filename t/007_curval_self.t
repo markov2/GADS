@@ -7,7 +7,7 @@ my $data = [
     { string1 => 'foo2' },
 ];
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows => $data;
 
 my $layout  = $sheet->layout;

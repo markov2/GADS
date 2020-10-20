@@ -13,7 +13,7 @@ my $groups = $site->groups;
 ok defined $groups, 'Load user group administrator';
 
 plan skip_all => 'needs filling in test_sheet';
-my $sheet  = test_sheet with_columns => 1;
+my $sheet  = make_sheet with_columns => 1;
 my $user1  = make_user '2';
 my $user2  = make_user '3';
 
@@ -41,7 +41,7 @@ switch_user $user2;
 # user2 to begin with.
 # Group3 is a group with normal read permissions on a field in the table
 
-my $sheet2  = make_sheet '2';
+my $sheet2  = make_sheet;
 my $group3  = $groups->group_create({name => 'group3'});
 my $column2 = $sheet2->layout->column('string1');
 $column2->group_allow($group3, 'read');
@@ -52,7 +52,7 @@ $sheet->access->group_allow($group4, 'layout');
 
 # Finally a third sheet with its own group to check this group is only
 # shown to owner.
-my $sheet3  = make_sheet '3', with_columns => 1;
+my $sheet3  = make_sheet with_columns => 1;
 my $group5  = $groups->group_create({name => 'group5'});
 my $column3 = $sheet3->layout->column('string1');
 $column3->group_allow($group5, 'read');

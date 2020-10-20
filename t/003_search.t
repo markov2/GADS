@@ -57,9 +57,9 @@ my $data = [
 ];
 
 my $group   = test_group;
-my $curval_sheet = make_sheet 2, group => $group;
+my $curval_sheet = make_sheet group => $group;
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows             => $data,
     curval_sheet     => $curval_sheet,
     multivalues      => 1,
@@ -105,7 +105,7 @@ $sheet->content->row(6)->cell_update(enum1 => 8);  #XXX 8?
 $data->[3]->{enum1} = 'foo2';  #XXX ???
 
 # Add another curval field to a new table
-my $curval_sheet2 = make_sheet 3,
+my $curval_sheet2 = make_sheet
     curval_offset    => 12,
     curval_fields    => [ 'integer1' ],
 );
@@ -1172,7 +1172,7 @@ foreach my $multivalue (0..1)
 
 {
     # Test view_limit_extra functionality
-    my $sheet = make_sheet 1, data =>
+    my $sheet = make_sheet data =>
     [ { string1 => 'FooBar', integer1   =>  50 },
       { string1 => 'Bar',    integer1   => 100 },
       { string1 => 'Foo',    integer1   => 150 },

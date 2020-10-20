@@ -4,10 +4,10 @@ use Linkspace::Test
 
 foreach my $delete_not_used (0..1)
 {
-    my $curval_sheet  = make_sheet 2;
+    my $curval_sheet  = make_sheet;
     my $curval_layout = $curval_sheet->layout;
 
-    my $sheet   = make_sheet 1,
+    my $sheet   = make_sheet
         curval_sheet     => $curval_sheet,
         curval_offset    => 6,
         curval_columjs   => [ 'string1' ],

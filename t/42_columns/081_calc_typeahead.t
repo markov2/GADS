@@ -4,7 +4,7 @@
 use Linkspace::Test
     not_ready => 'Waiting for Calc';
 
-my $sheet   = make_sheet 1;
+my $sheet   = make_sheet;
 my $layout  = $sheet->layout;
 
 my $column1 = $layout->column('calc1');

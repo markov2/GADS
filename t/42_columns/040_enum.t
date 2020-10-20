@@ -6,7 +6,7 @@ use List::Util qw(min max);
 
 $::session = test_session;
 
-my $sheet = test_sheet;
+my $sheet = make_sheet;
 my $layout = $sheet->layout;
 
 my $column1 = $layout->column_create({

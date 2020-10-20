@@ -63,7 +63,7 @@ foreach my $format (qw/yyyy-MM-dd dd-MM-yyyy/)
     my $site = make_site ++$site_nr, language => { date_format => $format };
     my $test = $tests->{$format};
 
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         site             => $site,
         rows             => $test->{data},
         calc_code        => "function evaluate (L1daterange1) \n return L1daterange1.from.epoch \n end",

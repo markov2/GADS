@@ -25,11 +25,11 @@ my $row_b = {
     curval1    => 2,
 };
 
-my $curval_sheet = make_sheet 2,
+my $curval_sheet = make_sheet
     no_groups       => 1,
     users_to_create => [ qw/superadmin/ ];
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows         => [ $row_a ],
     curval_sheet => $curval_sheet,
     no_groups    => 1,
@@ -150,7 +150,7 @@ foreach my $user_type (qw/readwrite read limited/)
         "User has access to all curval values after filter";
 
     # First try writing to existing record
-    my $sheet7 = make_sheet 7;
+    my $sheet7 = make_sheet;
 
     my $row7_2 = $sheet7->content->row_create;
 
@@ -188,7 +188,7 @@ my $group2 = make_group '2';
 
 foreach my $test (qw/single all/)
 {
-    my $sheet   = make_sheet 1;
+    my $sheet   = make_sheet;
     my $group1  = $sheet->group;    #XXX overridden version??>
 
     $sheet->layout->column_update(string1 => { permissions => [

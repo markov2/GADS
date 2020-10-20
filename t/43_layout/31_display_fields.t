@@ -8,9 +8,9 @@ plan skip_all => 'Waits for cell handling';
 # Tests to check that fields that depend on another field for their display are
 # blanked if they should not have been shown
 
-my $curval_sheet = make_sheet 2;
+my $curval_sheet = make_sheet;
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     curval_sheet       => $curval_sheet,
     curval_columns     => [ 'string1' ],
     multivalue_columns => [ qw/string tree/ ],

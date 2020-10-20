@@ -18,7 +18,7 @@ my $data = {
     },
 };
 
-my $sheet = make_sheet 1,
+my $sheet = make_sheet
     rows      => [ $data ],
     calc_code => 'function evaluate (L1string1)
         return L1string1

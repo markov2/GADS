@@ -24,9 +24,9 @@ my $data = [
     },
 ];
 
-my $curval_sheet = make_sheet 2;
+my $curval_sheet = make_sheet;
 
-my $sheet    = make_sheet 1
+my $sheet    = make_sheet
     rows         => $data,
     curval_sheet => $curval_sheet;
 my $layout   = $sheet->layout;
@@ -124,7 +124,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
         $start->add(days => 1);
     }
 
-    my $sheet    = make_sheet 3, rows => \@data;
+    my $sheet    = make_sheet rows => \@data;
     my $layout   = $sheet->layout;
 
     # Run 2 tests - sorted by string1 and enum1. string1 will randomise the
@@ -213,7 +213,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
 
 # Test exclusive functionality
 {
-    my $sheet    = make_sheet 1, rows => [
+    my $sheet    = make_sheet rows => [
         { string1 => 'foo1', daterange1 => ['2009-01-01', '2009-06-01'] },
         { string1 => 'foo2', daterange1 => ['2010-01-01', '2010-06-01'] },
         { string1 => 'foo3', daterange1 => ['2011-01-01', '2011-06-01'] },
@@ -271,7 +271,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
         },
     ];
 
-    my $sheet   = make_sheet 1, rows => $data;
+    my $sheet   = make_sheet rows => $data;
     my $layout  = $sheet->layout;
 
     $layout->column_update(string1 => { permissions => [ $sheet->group => [] ] });
@@ -431,7 +431,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
 
 # No records with date fields to display
 {
-    my $sheet    = make_sheet 1;
+    my $sheet    = make_sheet;
     my $layout   = $sheet->layout;
 
     my $records = GADS::Records->new(
@@ -450,7 +450,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
 
 # Calc field as group
 {
-    my $sheet = make_sheet 1, rows => [
+    my $sheet = make_sheet rows => [
         { string1 => 'foo1', daterange1 => ['2009-01-01', '2009-06-01'] },
         { string1 => 'foo2', daterange1 => ['2010-01-01', '2010-06-01'] },
     ];
@@ -479,7 +479,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
 
 # DST. Check that dates which fall on DST changes are okay.
 {
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
        rows => [ { string1 => 'foo1', date1 => '2018-03-26' } ];
 
     my $results = $sheet->content->search(
@@ -497,7 +497,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
 
 # Curval as group field does not show curval items on timeline labels
 {
-    my $curval_sheet = make_sheet 2, rows => [
+    my $curval_sheet = make_sheet rows => [
         { string1    => 'foobar1' },
         { string1    => 'foobar4' }, # Test ordering
         { string1    => 'foobar3' },
@@ -512,7 +512,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
         { string1 => 'Blank curval string', date1 => '2015-04-10', curval1 => 4 },
     ];
 
-    my $sheet    = make_sheet 1,
+    my $sheet    = make_sheet
         rows             => $data,
         curval_sheet     => $curval_sheet,
         curval_columns   => [ 'string1' ],
@@ -562,9 +562,9 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
         { string1 => 'foo1', curval1 => 2 },
     ];
 
-    my $curval_sheet = make_sheet 2;
+    my $curval_sheet = make_sheet;
 
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         rows         => $data,
         curval_sheet => $curval_sheet;
 
@@ -606,9 +606,9 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
         push @data, { string1 => "Bar $count", curval1 => $count + 300 };
     }
 
-    my $curval_sheet = make_sheet 2, rows => => \@curval_data;
+    my $curval_sheet = make_sheet rows => => \@curval_data;
 
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         rows         => \@data,
         curval_sheet => $curval_sheet;
 
@@ -644,7 +644,7 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
 # prompted its inclusion, which was a PostgreSQL error as a result of comparing
 # an integer (current_id field) with a date. Sqlite does not enforce typing.
 {
-    my $sheet    = make_sheet 1;
+    my $sheet    = make_sheet;
     my $layout   = $sheet->layout;
 #   my $showcols = $layout->columns(exclude_internal => 1);  XXX
 
@@ -686,13 +686,13 @@ cmp_ok @{$results4->data_timeline->{items}}, '==', 1,
         $start->subtract(days => 1);
     }
 
-    my $curval_sheet = make_sheet 2,
+    my $curval_sheet = make_sheet
        rows        => \@curval_data,
        multivalues => 1;
 
     $curval_sheet->layout->column_update(date1 => { permissions => {} });
 
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         rows         => \@data,
         curval_sheet => $curval_sheet,
         multivalues  => 1;

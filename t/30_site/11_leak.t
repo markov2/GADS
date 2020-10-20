@@ -5,13 +5,13 @@ use Linkspace::Test
     not_ready => "Needs make_sheet(fill_rows)";
 
 my $site1  = test_site;
-my $sheet1 = make_sheet 1;
+my $sheet1 = make_sheet;
 
 is $sheet1->site, $site1, 'Sheet1 created in site1';
 
 my $site2  = make_site 2;
 
-my $sheet2 = make_sheet 2,
+my $sheet2 = make_sheet
     site             => $site2,
     current_ids_from => 3;
 

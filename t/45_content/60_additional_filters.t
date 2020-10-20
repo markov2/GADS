@@ -29,9 +29,9 @@ my $data = [
     },
 ];
 
-my $curval_sheet = make_sheet 2;
+my $curval_sheet = make_sheet;
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows             => $data,
     curval_sheet     => $curval_sheet,
     curval_columns   => [ 'string1', 'enum1' ],

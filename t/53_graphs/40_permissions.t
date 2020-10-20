@@ -5,7 +5,7 @@ use Linkspace::Test
     not_ready => 'needs support for graphs';
 
 my $site   = test_site;
-my $sheet  = test_sheet with_columns => 1;
+my $sheet  = make_sheet with_columns => 1;
 
 my $owner  = $sheet->owner;
 my $graphs = $sheet->graphs;

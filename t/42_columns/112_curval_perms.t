@@ -4,7 +4,7 @@ use Linkspace::Test
 
 #XXX override should work differently: a temporary flag on the $user
 
-my $curval_sheet = make_sheet 2,
+my $curval_sheet = make_sheet
      user_permission_override => 0,
      columns   => [ qw/string integer date daterange enum/ ],
      rows      => [
@@ -16,7 +16,7 @@ my $curval_sheet = make_sheet 2,
   },
 ];
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows                     => [ { string1 => 'Foo', curval1 => 1 } ],
     columns                  => [ qw/string curval/ ],
     multivalues              => 1,

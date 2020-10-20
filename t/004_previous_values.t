@@ -56,11 +56,11 @@ my @values = (
     },
 );
 
-my $curval_sheet = make_sheet '2';
+my $curval_sheet = make_sheet;
 
 my %data1 = map +( $_->{field}.'1' => $_->{begin_set} ), @values;
 my %data2 = map +( $_->{field}.'2' => $_->{begin_set} ), @values;
-my $sheet = make_sheet '1',
+my $sheet = make_sheet
     rows         => [ \%data1, \%data2 ],
     curval_sheet => $curval_sheet,
     column_count => {
@@ -349,7 +349,7 @@ foreach my $test (@tests)
 {
     set_fixed_time('01/01/2014 01:00:00', '%m/%d/%Y %H:%M:%S');
 
-    my $sheet   = test_sheet
+    my $sheet   = make_sheet
         rows        => [{ integer1 => 10 }],
         multivalues => 1;
 

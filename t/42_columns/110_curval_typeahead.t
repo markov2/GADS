@@ -15,9 +15,9 @@ my $data = [
     },
 ];
 
-my $curval_sheet = test_sheet rows => 2;
+my $curval_sheet = make_sheet rows => 2;
 
-my $sheet   = make_sheet '1', data => $data, curval_sheet => $curval_sheet;
+my $sheet   = make_sheet data => $data, curval_sheet => $curval_sheet;
 my $layout  = $sheet->layout;
 
 ### Curval

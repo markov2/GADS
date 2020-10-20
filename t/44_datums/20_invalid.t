@@ -5,7 +5,7 @@ use Linkspace::Test
 
 #XXX use Datum objects directly
 
-my $sheet = make_sheet 1, rows => [
+my $sheet = make_sheet rows => [
     {
         string1    => 'foobar',
         integer1   => '',

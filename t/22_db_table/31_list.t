@@ -6,7 +6,7 @@ use Linkspace::Test;
 ### We need to fake some things, to avoid building-up complex data structures
 ### with code which is not yet available when implementing these tests.
 
-my $sheet = test_sheet;
+my $sheet = make_sheet;
 isa_ok $sheet, 'Linkspace::Sheet', 'use test sheet';
 
 ### Tried to pick a simple table.

@@ -6,7 +6,7 @@ use Linkspace::Test
 
 #XXX probably falls apart in 3 separate test-files
 
-my $sheet      = make_sheet 1;
+my $sheet      = make_sheet;
 my $layout = $sheet->layout;
 
 my $user_admin = test_user;  # also owns the sheet

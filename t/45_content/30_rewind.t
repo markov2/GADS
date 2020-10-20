@@ -7,7 +7,7 @@ foreach my $multivalue (0..1)
     # We will use 3 dates for the data: all 10th October, but years 2014, 2015, 2016
     set_fixed_time '10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S';
 
-    my $sheet = make_sheet 1,
+    my $sheet = make_sheet
         rows        => [ { string1 => 'Foo1', integer1 => 10 } ],
         multivalues => $multivalue;
 

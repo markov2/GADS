@@ -7,7 +7,7 @@ my $data = [
     { string1 => 'foo2', integer1 => 70, enum1 => 3 },
 ];
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows        => $data,
     multivalues => 1,
     calc_code   => "function evaluate (L1integer1) \n return L1integer1 * 2 \n end",

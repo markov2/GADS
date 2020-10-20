@@ -2,7 +2,7 @@ use Linkspace::Test;
 
 foreach my $num_deleted (0..1)
 {
-    my $sheet   = make_sheet 1;
+    my $sheet   = make_sheet;
     my $layout  = $sheet->layout;
 
     my $enum = $columns->{enum1};

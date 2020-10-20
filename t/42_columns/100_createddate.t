@@ -3,7 +3,7 @@
 use Linkspace::Test
     not_ready => 'to be implemented';
 
-my $sheet = test_sheet;
+my $sheet = make_sheet;
 
 my $column1 = $layout->column_create({
     type          => 'createddate',

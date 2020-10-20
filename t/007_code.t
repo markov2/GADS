@@ -20,9 +20,9 @@ my $data = [
     },
 ];
 
-my $curval_sheet = make_sheet 2, rows => [];
+my $curval_sheet = make_sheet rows => [];
 
-my $sheet         = make_sheet 1,
+my $sheet         = make_sheet
     rows          => $data,
     user_count    => 2,
     curval_sheet  => curval_sheet,
@@ -466,7 +466,7 @@ restore_time();
     # the string value may change but the "changed" status should be false.
     # This is so that when returning a calc based on another multi-value, it
     # doesn't matter if the order of the input changes.
-    my $sheet   = make_sheet '8',
+    my $sheet   = make_sheet
         data      => [],
         calc_code => "
             function evaluate (L1integer1)
@@ -565,7 +565,7 @@ restore_time();
 
 # More "changed" tests
 {
-    my $sheet   = make_sheet '42', rows => 0;
+    my $sheet   = make_sheet rows => 0;
     my $layout  = $sheet->layout;
 
     my $daterange1 = $layout->column('daterange1');
@@ -826,9 +826,9 @@ foreach my $multi (0..1)
         },
     );
 
-    my $curval_sheet = make_sheet 2;
+    my $curval_sheet = make_sheet;
 
-    my $sheet        = make_sheet 1,
+    my $sheet        = make_sheet
         rows             => $data,
         multivalue       => 1,
         curval_sheet     => $curval_sheet,
@@ -856,7 +856,7 @@ foreach my $multi (0..1)
 # Ensure that blank and null string fields in the database are treated the same
 foreach my $test (qw/string_empty string_null calc_empty calc_null/)
 {
-    my $sheet   = make_sheet 1,
+    my $sheet   = make_sheet
         rows             => [ { string1 => '' } ],
         calc_code        => 'function evaluate (_id) return "" end',
         calc_return_type => 'string',

@@ -3,9 +3,9 @@ use Linkspace::Test;
 # Create a recursive calc situation, and check that we don't get caught in a
 # loop (in which case this test will never finish)
 
-my $curval_sheet = make_sheet 2;
+my $curval_sheet = make_sheet;
 
-my $sheet   = make_sheet 1,
+my $sheet   = make_sheet
     rows             => [],
     curval_sheet     => $curval_sheet,
     curval_columns   => [ 'string1' ],
@@ -49,7 +49,7 @@ my $row1b = $sheet->content->row($row1->current_id);
 is $row1b->cell('calc1'), "Test passed", "Calc evaluated correctly";
 is $row1b->cell('curval1'), "Foo", "Curval correct in record";
 
-my $curval_sheet2 = make_sheet 3,
+my $curval_sheet2 = make_sheet
     rows => [{ string1 => 'FooBar1' }];
 
 my $curval = $curval_sheet->layout->column_create({
