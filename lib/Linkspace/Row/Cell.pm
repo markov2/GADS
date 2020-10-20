@@ -107,26 +107,23 @@ sub for_code(%)
     my $datums = $self->values;
     @$values or return undef;
 
-    my @datums = @{$self->datums};
-    my @r = map $_->_value_for_code($self, $_, \%args), @datums;
+    my $datums = $self->datums;
+    my @r = map $_->_value_for_code($self, $_, \%args), @$datums;
 
-    if($datums[0]->isa('Linkspace::Datum::Tree'))
+    if($datums->[0]->isa('Linkspace::Datum::Tree'))
     {   @r or push @r, +{  value => undef, parents => {} };
     }
-    elsif($datums[0]->isa('Linkspace::Datum::Enum'))
+    elsif($datums->[0]->isa('Linkspace::Datum::Enum'))
     {   return $self->column->is_multivalue
             ? +{ text => $self->as_string, values => \@r }
             : $self->as_string;
     }
 
-    #XXX Not smart to pass multival datums in an inconsitent way
+    #XXX Not smart to pass multival datums in an inconsitent way.
+    #XXX Kept for backwards compatibility.
     $self->column->is_multivalue && @r > 1 ? \@r : $r[0];
 }
 
-has is_awaiting_approval => (
-    is      => 'rw',
-    isa     => Bool,
-    default => 0,
-);
+has is_awaiting_approval => ( is  => 'rw', default => 0 );
 
 1;

@@ -44,11 +44,10 @@ sub _all_joins_children
 {   my ($self, $children) = @_;
 	$children && @$children or return ();
 
-    #XXX is the reversed order from _all_joins_recurse() intentional?
-    map +($self->_all_joins_children($_->{children}), $_), @$children;
+    map +($_, $self->_all_joins_children($_->{children})), @$children;
 }
 
-sub _compare_parents
+sub _same_parent
 {   my ($parent1, $parent2) = @_;
     return 1 if !$parent1 && !$parent2;
     return 0 if $parent1 xor $parent2;
@@ -108,7 +107,7 @@ sub _add_jp
         )
         {
             trace __x"Possibly found, checking to see if parents match";
-            if ( _compare_parents($options{parent}, $j->{parent}) )
+            if ( _same_parent($options{parent}, $j->{parent}) )
             {
                 $j->{prefetch} ||= $prefetch;
                 $j->{search}   ||= $options{search};
@@ -549,7 +548,7 @@ sub _find
             }
 
             if( !$options{find_value}
-                && $needle->field eq $key && _compare_parents($options{parent}, $parent))
+                && $needle->field eq $key && _same_parent($options{parent}, $parent))
             {
                 trace "We have a match, returning";
                 return $stash->{$value};
@@ -576,7 +575,7 @@ sub _find
 
         if (!$options{find_value} && $needle->sprefix eq $jp_join)
         {   # Single table join
-            if (_compare_parents($options{parent}, $parent)
+            if(_same_parent($options{parent}, $parent)
                 # Account for autocur joins, in which case only match when
                 # it's the one we need
                 && ($needle->sprefix ne 'current' || $needle->id == $jp->{column}->id))

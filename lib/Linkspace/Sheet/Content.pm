@@ -33,7 +33,7 @@ use Linkspace::Results ();
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
 use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
-with 'GADS::RecordsJoin', 'GADS::Role::Presentation::Records';
+with 'GADS::RecordsJoin';
 
 =head1 NAME
 
@@ -181,42 +181,22 @@ sub _view_limits_search
 }
 
 # Array ref with any additional column IDs requested
-has columns_extra => (
-    is => 'rw',
-);
+has columns_extra => ( is => 'rw' );
 
 # Value containing the actual columns retrieved.
 # In "normal order" as per layout.
-has columns_retrieved_no => (
-    is      => 'lazy',
-    isa     => ArrayRef,
-);
+has columns_retrieved_no => ( is => 'lazy' );
 
 # Value containing the actual columns retrieved.
 # In "dependent order", needed for calcvals
-has columns_retrieved_do => (
-    is      => 'lazy',
-    isa     => ArrayRef,
-);
+has columns_retrieved_do => ( is => 'lazy');
 
 # All the columns that will be rendered for the current view
 # XXX Possibly same as columns_retrieved_no?
-has columns_view => (
-    is      => 'lazy',
-    isa     => ArrayRef,
-);
+has columns_view => ( is => 'lazy');
 
 has max_results => (
     is      => 'rw',
-);
-
-has rows => (
-    is => 'rw',
-);
-
-has count => (
-    is      => 'lazy',
-    isa     => Int,
 );
 
 has has_children => (
@@ -713,7 +693,7 @@ sub _build_standard_results($)
     $self->fetch_multivalues(
         record_ids => \@record_ids,
         retrieved  => \@retrieved,
-        records    => \@all,
+        records    => \@all_rows,
     );
 }
 
@@ -808,7 +788,6 @@ sub fetch_multivalues
         }
     }
 
-    my %multi;
     foreach my $row (@$records)
     {   my $record = $row->record;
 
@@ -973,7 +952,7 @@ sub _build_has_children
 }
 
 sub _build_columns_retrieved_do
-{   my $self = shift;
+{   my ($self, $query) = @_;
 
     my %col_ids;   #XXX get them
     my $layout = $self->layout;
@@ -1026,7 +1005,7 @@ sub _build_columns_retrieved_no
 sub _build_columns_view
 {   my ($self, $query) = @_;
     my $view = $query->{view}
-        or return $sheet->layout->columns_search(user_can_read => 1);
+        or return $self->layout->columns_search(user_can_read => 1);
 
     my $layout = $self->layout;
     my ($main_grouping, @grouping_columns) = @{$view->grouping_columns};
@@ -1268,7 +1247,7 @@ sub order_by
         }
 
         return $limit eq 'from'
-           ? +{ -asc  => $current_rs->helper_least(@order_by) },
+           ? +{ -asc  => $current_rs->helper_least(@order_by) }
            : +{ -desc => $current_rs->helper_greatest(@order_by) };
     }
 
@@ -1307,10 +1286,10 @@ sub _construct_filter($$%)
         if(my $pv = $filter->{previous_values})
         {   my $page  = $self->search_query({
                 %$query,
-                filter => { %$filter, previous_values => 0} ),
+                filter => { %$filter, previous_values => 0 },
                 view_limits     => [], # Don't limit by user's view
                 previous_values => 1,
-            };
+            });
 
             my $match = $pv eq 'negative' ? '-not_in' : '-in';
             return +{ 'me.id' => { $match => $page->_current_ids_rs->as_query } };
@@ -1328,8 +1307,8 @@ sub _construct_filter($$%)
 
     my @permission    = $ignore_perms ? () : (permission => 'read');
     my ($parent_id, $child_id) = $fid =~ /^([0-9]+)_([0-9]+)$/ ? ($1, $2) : (undef, $fid);
-    my $parent_column = $layout->column($parent_id, @permission);
-    my $column        = $layout->column($child_id, @permission);
+    my $parent_column = $self->layout->column($parent_id, @permission);
+    my $column        = $self->layout->column($child_id, @permission);
 
     $column
         or return;
@@ -1558,13 +1537,10 @@ sub _resolve
         my $records = $self->search({
             filter      => \%filter,
             view_limits => [], # Don't limit by view, otherwise recursive loop happens
-        );
+        });
 
-        return (
-            'me.id' => {
-                # We want everything that is *not* those records
-                -not_in => $records->_current_ids_rs->as_query,
-            }
+        return ( # We want everything that is *not* those records
+            'me.id' => { -not_in => $records->_current_ids_rs->as_query }
         );
     }
     elsif($previous_values)
@@ -1745,11 +1721,9 @@ sub _compare_col
 has columns_aggregate => (
     is      => 'lazy',
     builder => sub { [ grep $_->aggregate, @{$_[0]->columns_retrieved_no} ] },
-}
-
-has aggregate_results => (
-    is      => 'lazy',
 );
+
+has aggregate_results => ( is => 'lazy' );
 
 sub _build_aggregate_results
 {   my $self = shift;
@@ -1761,7 +1735,7 @@ sub _build_aggregate_results
         id       => $_->id,
         column   => $_,
         operator => $_->aggregate,
-    } @$aggregate;
+    }, @$aggregate;
 
     my $results = $self->_build_group_results(columns => \@columns, needs_column_grouping => 1, aggregate => 1);
 
@@ -1788,7 +1762,7 @@ sub _build_group_results($%)
     {   @cols = @$cols;
     }
     elsif($view && $view->does_column_grouping && $is_table_group)
-    {   foreach my $column (@{$self->columns_view($query})
+    {   foreach my $column (@{$self->columns_view($query)})
         {   my $has_grouping = $view->grouping_on($column);
             push @cols, +{
                 id       => $column->id,
@@ -1804,13 +1778,14 @@ sub _build_group_results($%)
     %group_cols = map +($_->column_id => 1), @{$view->groupings}
         if $is_table_group && $view && !$aggregate;
 
-    my $dr_col_id = to_id $query->{dr_column} || 0; # Date-range column
+    my $dr_column = $query->{dr_column}; # Date-range column
+    my $dr_col_id = to_id $dr_column; # Date-range column
 
     foreach my $col (@cols)
     {   my $column         = $self->layout->column($col->{id});
         $col->{column}     = $column;
         $col->{operator} ||= 'max';
-        $col->{is_drcol}   = $dr_column == $column->id;
+        $col->{is_drcol}   = $dr_col_id == $column->id;
 
         # Only include full fields as a group column, otherwise all curval
         # sub-fields will be added, which for a multivalue curval will mean
@@ -2062,8 +2037,6 @@ sub _build_group_results($%)
             );
         }
 
-        local $GADS::Schema::Result::Record::REWIND = $query{rewind_formatted};
-
         my ($result) = $self->search(Current =>
             [ -and => $search ],
             {   select => $select,
@@ -2180,7 +2153,8 @@ __CASE_NO_LINK
             );
         }
         else
-        {   if(my $parent = $group->{parent})
+        {   my $parent = $group->{parent};
+            if($parent)
             {   $self->add_group($parent);
                 $self->add_group($col, parent => $parent);
             }
@@ -2213,8 +2187,6 @@ __CASE_NO_LINK
         group_by => \@g,
         result_class => 'HASH',
     };
-
-    local $GADS::Schema::Result::Record::REWIND = $query{rewind_formatted};
 
     my $result = $::db->search(Current =>
         $self->_cid_search_query(sort => 0, aggregate => $aggregate), $select
@@ -2258,7 +2230,7 @@ sub rows_restore($)
 sub row_count() { $_[0]->max_serial }
 
 sub max_serial
-{   $::db->search(Current => { instance_id => $self->sheet_id })
+{   $::db->search(Current => { instance_id => $_[0]->sheet_id })
         ->get_column('serial')->max;
 }
 
@@ -2315,7 +2287,7 @@ sub row($@)
 }
 
 sub row_update($$%)
-{   my ($self, $update) = (shift, shift);
+{   my ($self, $row, $update) = (shift, shift);
 
     ! $self->rewind
         or error __"Unable to edit a row that has been retrieved with rewind";

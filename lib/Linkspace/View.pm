@@ -26,6 +26,7 @@ use List::Util qw(first);
 #use Linkspace::View::Filter;
 #use Linkspace::View::Sorting;
 #use Linkspace::View::Grouping;
+use Linkspace::Util qw/flat/;
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -107,24 +108,22 @@ sub _view_create
     $insert->{name} or error __"Please enter a name for the view";
 
     my $sheet   = $args{sheet} or panic;
-    my $user    = $::session->user;
+    my $col_ids = [ flat delete $insert->{column_ids} ];
 
-    my $col_ids = delete $insert->{column_ids} || [];
-    $col_ids    = [ $col_ids ] if ref $col_ids eq 'ARRAY';
-
-    $insert->{is_global} = 0 unless exists $insert->{is_global};
-    $insert->{is_for_admins}  = 0 unless exists $insert->{is_for_admins};
-    $insert->{owner}   ||= $user unless $insert->{owner_id};
-    $insert->{is_global} = !$insert->{owner} && !$insert->{owner_id};
+    $insert->{is_global}     ||= 0;
+    $insert->{is_for_admins} ||= 0;
+    $insert->{is_global}       = ! $insert->{owner};
 
     my @relations = (
         sortings  => delete $insert->{sortings},
         groupings => delete $insert->{groupings},
-        monitor   => delete $insert->{column_ids},
+        monitor   => delete $insert->{columns},
     );
 
-    my $self = $class->_view_validate($insert)->create($insert, %args);
+    $class->_view_validate($insert);
+    my $self = $class->create($insert, %args);
 
+    my $user    = $::session->user;
     unless($self->is_writable($user))
     {   #XXX We need the object to check for write rights :-(  Maybe simplifications in
         #    in that logic can avoid that.
@@ -152,7 +151,7 @@ sub _view_update
     my @relations = (
         sortings  => delete $update->{sortings},
         groupings => delete $update->{groupings},
-        monitor   => delete $update->{column_ids},
+        monitor   => delete $update->{columns},
     );
 
     $self->_view_validate($update)->update(View => $self->id, $update);
@@ -181,24 +180,24 @@ sub _update_relations(%)
 #---------------
 =head1 METHODS: Attributes
 
-=head2 my $user = $view->owner;
+=head2 my $user  = $view->owner;
+=head2 my $group = $view->group;
 =cut
 
-has owner => (
-    is      => 'lazy',
-    weakref => 1,
-    builder => sub { $_[0]->site->users->user($_[0]->owner_id) },
-);
- 
+sub owner { $_[0]->site->users->user($_[0]->owner_id) }
+sub group { $_[0]->site->groups->group($_[0]->group_id) }
+
 sub has_access_via_global($)
 {   my ($self, $victim) = @_;
-    my $gid = $self->group_id;
-    $gid && $self->is_global ? $victim->is_in_group($gid) : 0;
+    $self->is_global or return 0;
+
+    my $group = $self->group;
+    $group && $group->has_user($victim);
 }
 
 =head2 $view->is_writable($user?)
-Returns true wehn the C<$user> has write rights on the view.  There are a
-view ways to get this rights which are documented here: XXX
+Returns true when the C<$user> has write rights on the view.  There are a
+few ways to get these rights, which are documented here: XXX
 =cut
 
 sub is_writable(;$)

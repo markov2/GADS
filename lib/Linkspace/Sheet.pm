@@ -25,7 +25,7 @@ use Algorithm::Dependency::Ordered ();
 
 use Linkspace::Sheet::Layout   ();
 use Linkspace::Sheet::Access   ();
-#use Linkspace::Sheet::Content ();
+use Linkspace::Sheet::Content ();
 #use Linkspace::Sheet::Views   ();
 #use Linkspace::Sheet::Graphs  ();
 #use Linkspace::Sheet::Dashboards  ();
