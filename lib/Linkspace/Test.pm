@@ -292,7 +292,7 @@ logs_purge;
     $sheet;
 }
 
-sub empty_sheet($)
+sub empty_sheet(@)
 {   make_sheet rows => [], columns => [], @_;
 }
 
