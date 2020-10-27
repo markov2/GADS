@@ -16,6 +16,9 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
+use warnings;
+use strict;
+
 package Linkspace::Datum::Integer;
 
 use Log::Report 'linkspace';
@@ -23,63 +26,29 @@ use Log::Report 'linkspace';
 use Moo;
 extends 'Linkspace::Datum';
 
-after set_value => sub {
-    my ($self, $value) = @_;
-
-    $self->oldvalue($self->clone);
-    $value = $value->[0] if ref $value eq 'ARRAY';
-    $value = undef if defined $value && $value eq ''; # Can be empty string
-
-    if($value && $value =~ m!^\h*\(\h*([\*\+\-/])\h*([0-9]+)\h*\)\h*$!)
-    {   my ($op, $mount) = ($1, $2);
-
-        # Still count as valid written if currently blank
-        if(defined(my $old = $self->value))
-        {   $value = eval "$old $op $amount";
-        }
-        else
-        {   $value = undef;
-        }
-    }
-    else
-    {   $self->column->is_valid_value($value, fatal => 1);
-    }
-
-    $self->changed(1) if (!defined($self->value) && defined $value)
-        || (!defined($value) && defined $self->value)
-        || (defined $self->value && defined $value && $self->value != $value);
-    $self->value($value);
-};
-
-has value => (
-    is      => 'lazy',
-    builder => sub {
-        my $self = shift;
-        $self->has_init_value or return;
-        my $value = $self->init_value->[0];
-        $value = $value->{value} if ref $value eq 'HASH';
-        $self->has_value(1) if defined $value || $self->init_no_value;
-        $value;
-    },
+my %ops = (
+    '*' => sub { $_[0] * $_[1] },
+    '/' => sub { $_[0] / $_[1] },
+    '+' => sub { $_[0] + $_[1] },
+    '-' => sub { $_[0] - $_[1] },
 );
 
-sub is_blank { local $_ = $_[0]->value; defined && length }
+sub _unpack_values($$%)
+{   my ($class, $cell, $values, %args) = @_;
 
-around 'clone' => sub {
-    my $orig = shift;
-    my $self = shift;
-    $orig->($self, value => $self->value, @_);
-};
+    if($cell && @$values==1
+       && $values->[0] =~ m!^\h*\(\h*([*+/-])\h*([+-]?[0-9]+)\h*\)\h*$!)
+    {   my ($op, $amount) = ($ops{$1}, $2);
+        my @old = map $_->value, @{$cell->datums};
+        @old or @old = 0;
 
-sub as_string
-{   my $self = shift;
-    $self->value // "";
+        return [ map $op->($_, $amount), @old ];
+    }
+
+    $values;
 }
 
-sub as_integer
-{   my $self = shift;
-    my $int  = int($self->value // 0);
-}
+sub as_integer { int($_[0]->value // 0) }
 
 sub _value_for_code { int $_[2] }
 

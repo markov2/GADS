@@ -774,12 +774,12 @@ any ['get', 'post'] => '/user/?:id?' => require_any_role [qw/useradmin superadmi
     if (param('submit') && !param('neworganisation') && !param('newdepartment') && !param('newtitle') && !param('newteam'))
     {
         my %values = (
-            firstname        => param('firstname'),
-            surname          => param('surname'),
-            email            => param('email'),
-            view_limits_ids  => [ body_parameters->get_all('view_limits') ],
-            group_ids        => [ body_parameters->get_all('groups') ],
-            permissions      => [ body_parameters->get_all('permission') ],
+            firstname    => param('firstname'),
+            surname      => param('surname'),
+            email        => param('email'),
+            view_limits  => [ body_parameters->get_all('view_limits') ],
+            groups       => [ body_parameters->get_all('groups') ],
+            permissions  => [ body_parameters->get_all('permission') ],
             account_request_notes => param('account_request_notes'),
             is_account_request => 0,
         );
@@ -2405,15 +2405,15 @@ prefix '/:layout_name' => sub {
         }
 
         my $failed;
-        my $data   = $sheet->data;
+        my $content = $sheet->content;
         while(my ($id, $values) = each %$records ) {
-            my $col_id = $values->{column};
-            my $column = $layout->column($col_id);
-            my $row    = $data->find_current_id($values->{current_id});
-            my $datum  = $row->field($col_id);
+            my $from   = $values->{from};
+            my $to     = $values->{to};
+            my $column = $layout->column($values->{column});
+            my $cell   = $content->row($values->{current_id})->cell($column);
 
             if($column->type eq 'date')
-            {   unless(process sub { $datum->set_value($values->{from}) })
+            {   unless(process sub { $cell->set_value($from, source => 'user') })
                 {  $failed = 1;
                     next;
                 }
@@ -2422,8 +2422,8 @@ prefix '/:layout_name' => sub {
             {   # The end date as reported by the timeline will be a day later than
                 # expected (it will be midnight the following day instead.
                 # Therefore subtract one day from it
-                my $to_write = { from => $values->{from}, to => $values->{to} };
-                unless(process sub { $datum->set_value($to_write, subtract_days_end => 1) })
+                my $span = { from => $from, to => $to };
+                unless(process sub { $cell->set_value($span, source => 'user', subtract_days_end => 1) })
                 {   $failed = 1;
                     next;
                 }
@@ -2851,7 +2851,7 @@ sub _data_graph
 }
 
 sub _process_edit
-{   my $id = shift;
+{   my $current_id = shift;
 
     my %params = (
         user                 => $user,
@@ -2859,9 +2859,6 @@ sub _process_edit
         # (otherwise all field values will not be passed to form)
         curcommon_all_fields => 1,
     );
-
-#XXX layout is known by $sheet->layout
-    $params{layout} = var('layout') if var('layout'); # Used when creating a new record
 
 #XXX no: do not create an empty record first
     my $record = GADS::Record->new(%params);
@@ -2892,36 +2889,29 @@ sub _process_edit
         }
     }
 
-    my $layout;
+    my $row;
+    if($current_id)
+    {   $row = $sheet->content->row($current_id);
 
-    if ($id)
-    {
-        my $include_draft = defined(param 'include_draft');
-        $record->find_current_id($id, include_draft => $include_draft);
-        $layout = $record->layout;
-        var 'layout' => $layout;
-    }
-    else {
-        # New record
-        $layout = var 'layout'; # undef for existing record
+        undef $row   #XXX usefull?
+            if $row && $row->is_draft && ! defined(param 'include_draft');
     }
 
-    my $child = param('child') || $record->parent_id;
-
+    my $parent = param('child') || ($row ? $row->parent : undef);
     my $modal = is_valid_id(param 'modal');
     my $oi    = is_valid_id(param 'oi');
-
-    $record->initialise unless $id;
 
     my $validate_only = defined(param 'validate');
     if(param('submit') || param('draft') || $modal || $validate_only)
     {
         my $failed;
 
-        $id || !$child || $sheet->user_can('create_child')
+        $row || !$parent || $sheet->user_can('create_child')
             or error __"You do not have permission to create a child record";
 
-        $record->parent_id($child);
+        my %row_data = (
+            parent => $parent,
+        );
 
         # We actually only need the write columns for this. The read-only
         # columns can be ignored, but if we do write them, an error will be
@@ -2929,7 +2919,7 @@ sub _process_edit
         # just silently ignoring them, IMHO.
         my (@display_on_fields, @validation_errors);
 
-        my $columns = $record->edit_columns(new => !$id);
+        my $columns = $record->edit_columns(new => !$row);
         foreach my $col (@$columns)
         {
             my $newv;
@@ -2942,11 +2932,18 @@ sub _process_edit
                 $newv = [ body_parameters->get_all($col->field_name) ];
             }
 
+#XXX found this in ::Datum::DateRange
+# First is hidden value from form
+#   shift @values if @values % 2 == 1 && !$values[0];
+
             $col->userinput && defined $newv # Not calculated fields
                 or next;
 
             # No need to do anything if the file's just been uploaded
-            my $datum = $record->field($col);
+            $row_data{$column->name_short} = $newv;
+       }
+
+       try { $row->revision_create(\%row_data);
             if($do_validate)
             {
                 try { $datum->set_value($newv) };
@@ -2962,6 +2959,8 @@ sub _process_edit
         # Call this now, to write and blank out any non-displayed values,
         $record->set_blank_dependents;
 
+#XXX at create or update pass     source => 'user'   so dates are interpreted
+#XXX correctly.
         if($validate_only)
         {
             try { $record->write(dry_run => 1) };
@@ -2996,7 +2995,7 @@ sub _process_edit
         {
             if(process sub { $record->write(submission_token => param('submission_token')) })
             {   my $current_id = $record->current_id;
-                my $forward = !$id && $sheet->forward_record_after_create
+                my $forward = !$row && $sheet->forward_record_after_create
                   ? "record/$current_id"
                   : $sheet->identifier.'/data';
 
@@ -3008,7 +3007,7 @@ sub _process_edit
                 if $@ =~ /already.*submitted/;
         }
     }
-    elsif($id)
+    elsif($row)
     {   # Do nothing, record already loaded
     }
     elsif(my $from = is_valid_id(param 'from'))
@@ -3033,8 +3032,8 @@ sub _process_edit
         if $child_rec;
 
     my @breadcrumbs = (Crumb($sheet), Crumb($sheet, '/data' => 'records'));
-    push @breadcrumbs, $id
-      ? Crumb("/edit/$id" => "edit record $id")
+    push @breadcrumbs, $current_id
+      ? Crumb("/edit/$current_id" => "edit $current_id")
       : Crumb($sheet, '/edit/' => 'new record');
 
     my %params = (
@@ -3046,7 +3045,7 @@ sub _process_edit
         clone               => param('from'),
         submission_token    => !$modal && $record->create_submission_token,
         breadcrumbs         => \@breadcrumbs,
-        record_presentation => $record->presentation($sheet, edit => 1, new => !$id, child => $child),
+        record_presentation => $record->presentation($sheet, edit => 1, new => !$current_id, child => $child),
     );
 
     my %options;

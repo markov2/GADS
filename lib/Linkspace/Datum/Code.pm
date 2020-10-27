@@ -28,19 +28,6 @@ use namespace::clean;
 
 extends 'Linkspace::Datum';
 
-after 'set_value' => sub {
-    my $self = shift;
-    $self->_set_has_value(1);
-};
-
-has value => (
-    is      => 'lazy',
-);
-
-has has_value => (
-    is => 'rwp',
-);
-
 has vars => (
     is      => 'lazy',
 );
@@ -54,25 +41,6 @@ sub _build_vars
         level             => $self->already_seen_level,
         names             => [$self->column->params],
     );
-}
-
-around 'clone' => sub {
-    my $orig = shift;
-    my $self = shift;
-    $orig->($self,
-        has_value => $self->has_value,
-        @_,
-    );
-};
-
-sub html_form
-{   my $self = shift;
-    $self->value; # Already array ref
-}
-
-sub text_all
-{   my $self = shift;
-    $self->value; # Already array ref
 }
 
 sub write_cache
@@ -129,22 +97,6 @@ sub re_evaluate
 {   my ($self, %options) = @_;
     return if $options{no_errors} && $self->column->return_type eq 'error';
     my $old = $self->value;
-    # If this is a new value, don't re-evaluate, otherwise we'll just get
-    # exactly the same value and evaluation can be expensive
-    if (!$self->record->new_entry || $options{force})
-    {
-        $self->clear_init_value;
-        $self->clear_value;
-        $self->clear_vars;
-        $self->clear_already_seen_level;
-        $self->clear_already_seen_code;
-    }
-    my $new = $self->value; # Force new value to be calculated
-    $self->changed(1) if !$self->equal($old, $new);
-}
-
-sub values
-{   $_[0]->value;
 }
 
 sub _build_value
@@ -166,12 +118,8 @@ sub _build_value
     {
         # Nothing, $value stays undef
     }
-    else {
-        # Used during tests to check that $original is being set correctly
-        panic "Entering calculation code"
-            if $ENV{GADS_PANIC_ON_ENTERING_CODE};
-
-        my $return;
+    else
+    {   my $return;
         try { $return = $column->eval($column->code, $self->vars) };
         if ($@ || $return->{error})
         {

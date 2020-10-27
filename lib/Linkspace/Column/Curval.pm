@@ -254,6 +254,7 @@ sub import_value
     });
 }
 
+#XXX move (at least partially) to ::Datum
 #XXX move to Curcommon?
 #XXX Unexpected side effects
 sub field_values($$%)
@@ -284,7 +285,7 @@ sub field_values($$%)
             {   my $refers_sheet = $::session->site->sheet($refers->sheet_id);
 
                 my $filter = { rule => {
-                        id       => $refers->id,
+                        column   => $refers,
                         type     => 'string',
                         operator => 'equal',
                         value    => $id_deleted,
@@ -312,7 +313,7 @@ sub field_values($$%)
         @values ? @values : (undef);
 }
 
-sub refers_to_sheet($)
+sub does_refer_to_sheet($)
 {   my ($self, $which) = @_;
     my $sheet_id = blessed $which ? $which->id : $which;
     grep $_->child->sheet_id != $sheet_id, $self->curval_fields_parents;

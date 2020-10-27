@@ -260,9 +260,16 @@ sub make_sheet(@)
     my $seqnr = ++$sheet_seqnr;
     $args{name}  ||= "sheet $seqnr";
 
+my @logs = logs;
+warn "Untested logs: @logs" if @logs;
+
     my $sheet = test_site->document->sheet_create(\%args,
         class => 'Linkspace::Test::Sheet',
     );
+
+logs_purge;
+
+=pod
 
     is logline, "info: Instance created ${\$sheet->id}: ${\$sheet->path}",
         '... logged creation of sheet '.$sheet->path;
@@ -270,6 +277,8 @@ sub make_sheet(@)
     my $internal = $sheet->layout->columns_search(only_internal => 1);
     like logline, qr/^info: Layout created .*=$_/, "... log create column $_"
         for map $_->name_short, @$internal;
+
+=cut
 
 	# The $test_group contains all generated users with superadmin rights
 	$sheet->access->group_allow(test_group, qw/layout view_create/);

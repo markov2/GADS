@@ -60,18 +60,7 @@ sub _remove_column($)
 # Still counts as string storage for search (value field is string)
 sub string_storage { $_[0]->return_type eq 'string' }
 
-has show_datepicker => (
-    is      => 'rw',
-    isa     => Bool,
-    lazy    => 1,
-    coerce  => sub { $_[0] ? 1 : 0 },
-    builder => sub {
-        my $self = shift;
-        return 0 unless $self->has_options;
-        $self->_options->{show_datepicker};
-    },
-    trigger => sub { $_[0]->reset_options },
-);
+sub show_datepicker { $_[0]->_options->{show_datepicker} }
 
 sub _is_valid_value($)
 {   my ($self, $value, %options) = @_;
@@ -94,6 +83,13 @@ sub _is_valid_value($)
             col => $self->name;
 
     +{ from => $from_dt, to => $to_dt };
+}
+
+sub datum_as_string($)
+{   my $self  = shift;
+    my $range = $self->value;
+    my $site  = $self->site;
+    $site->dt2local($range->start) . ' to ' . $site->dt2local($range->end);
 }
 
 sub validate_search
@@ -150,18 +146,6 @@ sub import_value
         to           => iso2datetime($value->{to}),
         value        => $value->{value},
     });
-}
-
-sub field_values($$%)
-{    my ($self, $datum) = @_;
-
-     my @ranges = @{$datum->values};
-     @ranges or return +{ from => undef, to => undef, value => undef };
-
-     my @texts = @{$datum->text_all};
-
-     map +{ from => $_->start, to => $_->end, value => shift @texts },
-        @ranges;
 }
 
 1;

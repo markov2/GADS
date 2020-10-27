@@ -23,6 +23,8 @@ use warnings;
  
 use Log::Report  'linkspace';
 
+use Linkspace::Column ();
+
 use Moo;
 extends 'Linkspace::Sheet';
 
@@ -41,7 +43,8 @@ sub _sheet_create($%)
 }
 
 # Not autocur
-my @default_column_types =  qw/string intgr enums tree date daterange file person curval rag/;
+#my @default_column_types =  qw/string intgr enum tree date daterange file person curval rag/;
+my @default_column_types =  qw/string intgr enum tree date daterange file person/;
 
 my @default_enumvals = qw/foo1 foo2 foo3/;
 
@@ -115,6 +118,8 @@ sub _fill_layout($$)
 
     # Restrict the columns to be created
     my $column_types = delete $args->{columns} || \@default_column_types;
+    Linkspace::Column->type2class($_) or panic "Unsupported column type $_"
+        for @$column_types;
 
     my %mv;
     if(my $mv = $args->{multivalue_columns})
@@ -189,7 +194,7 @@ sub _fill_content($$)
 
     foreach my $row_data (@$data)
     {   my $row = $content->row_create({
-            base_url => undef,   #XXX
+#           base_url => undef,   #XXX
         });
 
         $row_data->{file1} = \%dummy_file_data
@@ -230,7 +235,7 @@ sub set_multivalue
 {   my ($self, $config) = @_;
     my $layout = $self->layout;
 
-    foreach my $col ($self->layout->columns_search(exclude_internal => 1))
+    foreach my $col ($layout->columns_search(exclude_internal => 1))
     {   $layout->column_update($col, { is_multivalue => $config->{$col->type} })
             if exists $config->{$col->type} or next;
     }

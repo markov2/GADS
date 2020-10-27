@@ -154,6 +154,20 @@ sub users_in_org
     [ grep $_->organisation_id==$org_id, @{$self->all_users} ];
 }
 
+=head2 my $user = $users->user_by_fullname($full)
+Try to find a user by the full name.  This is quite fragile.
+=cut
+
+sub user_by_fullname($)
+{   my ($self, $full) = @_;
+
+    # Swap surname/forename if no comma   XXX fragile
+    $full =~ s/(.*)\h+(.*)/$2, $1/ if $full !~ /\,/;
+
+    first { $_->fullname eq $full } @{$self->all_users};
+}
+
+
 =head2 my $victim = $users->user_create(\%insert, %options);
 Returns a newly created user, a L<Linkspace::User::Person> object.
 =cut

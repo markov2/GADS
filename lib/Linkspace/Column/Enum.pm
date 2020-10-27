@@ -22,7 +22,7 @@ use Log::Report     'linkspace';
 use Scalar::Util    qw(blessed);
 use List::Util      qw(first max);
 
-use Linkspace::Util qw(index_by_id normalize_string);
+use Linkspace::Util qw(index_by_id normalize_string is_valid_id);
 
 use Moo;
 extends 'Linkspace::Column';
@@ -114,8 +114,8 @@ has _enumvals => (
     builder => '_build_enumvals',
 );
 
-sub _build_enumvals() {   # sometimes called to rebuild _enumvals
-    index_by_id $::db->search(Enumval => { layout_id => $_[0]->id })->all;
+sub _build_enumvals()   # sometimes called to rebuild _enumvals
+{   index_by_id $::db->search(Enumval => { layout_id => $_[0]->id })->all;
 }
 
 sub enumvals(%)
@@ -131,15 +131,23 @@ sub enumvals(%)
 }
 
 sub enumval($)
-{   my ($self, $id) = @_;
-    $id ? $self->_enumvals->{$id} : undef;
+{   my ($self, $enum_id) = @_;
+    $enum_id ? $self->_enumvals->{$enum_id} : undef;
 }
 
 sub enumval_name($)
-{   my ($self, $id) = @_;
-    my $ev = $id ? $self->_enumvals->{$id} : undef;
-    $ev ? $ev->value : $ev;
+{   my ($self, $enum_id) = @_;
+    my $ev = $enum_id ? $self->_enumvals->{$enum_id} : undef;
+    $ev ? $ev->value : undef;
 }
+
+sub to_ids($)   # translate names into ids
+{   my ($self, $which) = @_;
+    my %evs  = map +($_->value => $_->id), values %{$self->_enumvals};
+    [ map is_value_id($_) // $evs{$_} // panic($_), @$which ];
+}
+
+sub datum_as_string($) { $_[0]->enumval_name($_[1]->value) }
 
 sub enumvals_string(%)
 {   my $self = shift;

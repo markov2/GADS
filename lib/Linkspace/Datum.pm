@@ -19,13 +19,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package Linkspace::Datum;
 use Log::Report 'linkspace';
 
-use HTML::Entities;
-
-use Linkspace::Datum::Autocur;
-use Linkspace::Datum::Calc;
+#use Linkspace::Datum::Autocur;
+#use Linkspace::Datum::Calc;
 use Linkspace::Datum::Count;
-use Linkspace::Datum::Curcommon;
-use Linkspace::Datum::Curval;
+#use Linkspace::Datum::Curcommon;
+#use Linkspace::Datum::Curval;
 use Linkspace::Datum::Date;
 use Linkspace::Datum::Daterange;
 use Linkspace::Datum::Enum;
@@ -39,32 +37,21 @@ use Linkspace::Datum::String;
 use Linkspace::Datum::Tree;
 
 use Moo;
-with 'GADS::Role::Presentation::Datum';
 
 use overload
     bool  => sub { 1 },
     '""'  => 'as_string',
     '0+'  => 'as_integer',
+    'cmp' => 'compare_values',
     fallback => 1;
-
-sub set_value
-{   my ($self, $value, %options) = @_;
-    error __"Cannot set this value as it is a parent value"
-        if !$options{is_parent_value} && !$self->column->can_child
-        && $self->record && $self->record->parent_id;
-}
-
-sub is_blank() { ! @{$_[0]->values} }
 
 # That value that will be used in an edit form to test the display of a
 # display_field dependent field
 
 sub value_regex_test { shift->text_all }
 
-sub text_all     { [ $_[0]->as_string ] }
-sub html         { encode_entities $_[0]->as_string }
-sub html_form    { [ $_[0]->value // ''] }
-sub filter_value { $_[0]->html_form->[0] }
+sub html_form    { $_[0]->value // '' }
+sub filter_value { $_[0]->html_form }
 
 # The values needed to pass to the set_values function of a datum. Normally the
 # same as the HTML fields, but overridden where necessary
@@ -97,5 +84,21 @@ sub _dt_for_code($)
         epoch  => $dt->epoch,
     };
 }
+
+sub _datum_create($$%)
+{   my ($class, $cell, $insert) = @_;
+    $insert->{record_id} = $cell->revision->id;
+    $insert->{layout_id} = $cell->column->id;
+    my $r = $::db->create($class->db_table => $insert);
+    $class->from_id($r->id);
+}
+
+sub field_value() { +{ value => $_[0]->value } }
+
+sub field_value_blank() { +{ value => undef } }
+
+sub as_string($) { $_[1]->datum_as_string($_[0]) }  # $self, $column
+
+sub as_integer   { panic "Not implemented" }
 
 1;

@@ -16,6 +16,9 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
+use warnings;
+use strict;
+
 package Linkspace::Row::Revision;
 
 use Log::Report 'linkspace';
@@ -33,8 +36,6 @@ use DateTime ();
 use Linkspace::Util qw(index_by_id);
 
 use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
-use namespace::clean;
 extends 'Linkspace::DB::Table';
 
 sub db_table { 'Record' }
@@ -68,7 +69,7 @@ sub _revision_create($$%)
     $insert->{created}    ||= DateTime->new;
     $insert->{current}    ||= $row;
     $insert->{needs_approval} ||= 0;
-    $self->insert($insert, @_, row => $row);
+    $class->create($insert, @_, row => $row);
 }
 
 sub _revision_latest(%)
@@ -76,12 +77,12 @@ sub _revision_latest(%)
 
     my %search = { current => $args{row}, needs_approval => 0 };
     if(my $before = delete $args{created_before})
-    {   $search{created}   = { '<=', $rewind };
+    {   $search{created}   = { '<=', $before };
         $args{is_historic} = 1;
     }
 
-    my $latest_id = $self->resultset(\%search)->get_column('created')->max;
-    $self->from_id($latest_id, %args);
+    my $latest_id = $class->resultset(\%search)->get_column('created')->max;
+    $class->from_id($latest_id, %args);
 }
 
 sub _revision_first_id(%)
@@ -149,7 +150,7 @@ Returns true when this revision is not the current revision of the row.
 sub is_historic { $_[0]->row->current->id != $_[0]->id }
 
 sub _build_approval_of_new
-{   my $self = shift;
+{   my ($self, $row) = @_;
 
     # record_id could either be an approval record itself, or
     # a record. If it's an approval record, get its record
@@ -169,10 +170,11 @@ sub _build_approval_of_new
 sub _find
 {   my ($self, %find) = @_;
 
+=pod
     my $is_draft = !! $find{draftuser_id};
     my $record_id = $find{record_id};
 
-    my $page = $self->sheet->content->search(
+    my $results = $self->sheet->content->search(
         curcommon_all_cells => $self->curcommon_all_cells,
         columns             => $self->columns,
         is_deleted          => $find{deleted},
@@ -183,16 +185,18 @@ sub _find
         view_limit_extra_id => undef, # Remove any default extra view
     );
 
-    my $record = {}; my $limit = 10; my $page = 1; my $first_run = 1;
+    my $record = {}; my $limit = 10; my $first_run = 1;
+    my $page = 1;
+
     while (1)
     {
         # No linked here so that we get the ones needed in accordance with this loop (could be either)
-        my @prefetches = $records->jpfetch(prefetch => 1, search => 1, limit => $limit, page => $page); # Still need search in case of view limit
+        my @prefetches = $content->jpfetch(prefetch => 1, search => 1, limit => $limit, page => $page); # Still need search in case of view limit
         last if !@prefetches && !$first_run;
         my $search     = $find{current_id} || $find{draftuser_id}
-            ? $records->search_query(prefetch => 1, linked => 1, limit => $limit, page => $page)
-            : $records->search_query(root_table => 'record', prefetch => 1, linked => 1, limit => $limit, no_current => 1, page => $page);
-        @prefetches = $records->jpfetch(prefetch => 1, search => 1, linked => 0, limit => $limit, page => $page); # Still need search in case of view limit
+            ? $content->search_query(prefetch => 1, linked => 1, limit => $limit, page => $page)
+            : $content->search_query(root_table => 'record', prefetch => 1, linked => 1, limit => $limit, no_current => 1, page => $page);
+        @prefetches = $content->jpfetch(prefetch => 1, search => 1, linked => 0, limit => $limit, page => $page); # Still need search in case of view limit
 
 
         my $root_table;
@@ -202,7 +206,7 @@ sub _find
                 {
                     current => [
                         'deletedby',
-                        $records->linked_hash(prefetch => 1, limit => $limit, page => $page),
+                        $content->linked_hash(prefetch => 1, limit => $limit, page => $page),
                     ],
                 },
             ); # Add info about related current record
@@ -220,7 +224,7 @@ sub _find
             }
 
             @prefetches = (
-                $records->linked_hash(prefetch => 1, limit => $limit, page => $page),
+                $content->linked_hash(prefetch => 1, limit => $limit, page => $page),
                 'deletedby',
                 'currents',
                 {
@@ -236,12 +240,12 @@ sub _find
             panic "record_id or current_id needs to be passed to _find";
         }
 
-        local $GADS::Schema::Result::Record::REWIND = $records->rewind_formatted
-            if $records->rewind;
+        local $GADS::Schema::Result::Record::REWIND = $content->rewind_formatted
+            if $content->rewind;
 
         # Don't specify linked for fetching columns, we will get whatever is needed linked or not linked
-        my @columns_fetch = $records->columns_fetch(search => 1, limit => $limit, page => $page); # Still need search in case of view limit
-        my $has_linked = $records->has_linked(prefetch => 1, limit => $limit, page => $page);
+        my @columns_fetch = $content->columns_fetch(search => 1, limit => $limit, page => $page); # Still need search in case of view limit
+        my $has_linked = $content->has_linked(prefetch => 1, limit => $limit, page => $page);
 
         if($record_id)
         {   push @columns_fetch,
@@ -345,14 +349,18 @@ sub _find
     );
 
     $new_rev;
+
+=cut
+
 }
 
 sub load_remembered_values
 {   my ($self, %options) = @_;
     my $user = $::session->user;
+    my $sheet = $self->sheet;
 
     # First see if there's a draft. If so, use that instead
-    if($user->has_draft($self->sheet))
+    if($user->has_draft($sheet))
     {
         if($self->find_draftuser($user))
         {   #XXX remove current_id, record_id etc.  Why?
@@ -421,7 +429,7 @@ sub _set_record_id
 }
 
 sub _transform_values
-{   my $self = shift;
+{   my ($self, $row) = @_;
 
     my $original = $self->record or panic "Record data has not been set";
 
@@ -488,13 +496,14 @@ sub _transform_values
 
     $self->_set_id_count($original->{id_count});
 
+my ($serial, $oldest_version_created);
     my %cells = (
         _id               => $row->current_id,
         _version_datetime => $original->{created},
-        _version_user     => $original->{createdby} || $orignal->{_version_user},
+        _version_user     => $original->{createdby} || $original->{_version_user},
         _created_user     => $::session->user,
-        _created          => oldest_version_created
-        _serial           => $serial
+        _created          => $oldest_version_created,
+        _serial           => $serial,
     );
 
     $cells;
@@ -537,6 +546,7 @@ sub initialise
     my $all_columns = $self->sheet->layout->columns_search;
     $self->columns_retrieved_do($all_columns);
 
+my $link_parent_row;
     my %cells;
     foreach my $column (@$all_columns)
     {   my $link_parent = $column->link_parent;
@@ -562,7 +572,7 @@ sub approver_can_action_column
 
 sub blank_cells(@)
 {   my $self = shift;
-    $self->cell($_)->set_value('') for @cols;
+    $self->cell($_)->set_value('') for @_;
 }
 
 sub write_linked_id
@@ -639,25 +649,9 @@ has _need_app => (
 #   values. Used in conjunction with missing_not_fatal to only report on some
 #   cells
 
-sub _revision_create($%)
-{   my ($class, $insert, $row, $args) = @_;
-
-    # First check the submission token to see if this has already been
-    # submitted. Do this as quickly as possible to prevent chance of 2 very
-    # quick submissions, and do it before the guard so that the submitted token
-    # is visible as quickly as possible
-    if(my $token = delete $options{submission_token})
-    {   $class->consume_submission_token($token);
-    }
-
-    # Create a new overall record if it's new, otherwise
-    # load the old values
-    $self->layout->user_can('write_new')
-        or error __"No permissions to add a new entry";
-}
-
-sub _revision_update
+sub _revision_update($$%)
 {   my ($self, $update, $row, %args) = @_;
+my $sheet = $row->sheet;
 
     my $update_only = $self->sheet->forget_history || $args{update_only};
 
@@ -667,13 +661,13 @@ sub _revision_update
     $self->set_blank_dependents;
 
     # First loop round: sanitise and see which if any have changed
-    my %allow_update = map +($_ => 1), @{$options{allow_update} || []};
+    my %allow_update = map +($_ => 1), @{$args{allow_update} || []};
     my ($need_app, $need_rec, $child_unique); # Whether a new approval_rs or record_rs needs to be created
     $need_rec = 1 if $self->changed;
 
     # Whether any topics cannot be written because of missing cells in other topics.
     my %no_write_topics;
-    my $cols = $options{submitted_cells}
+    my $cols = $args{submitted_cells}
        || $self->sheet->layout->columns_search(exclude_internal => 1);
 
     foreach my $column (grep $_->is_userinput, @$cols)
@@ -684,8 +678,8 @@ sub _revision_update
         if (   $datum->is_blank
             && (!$row->parent_row_id || $column->can_child)
             && !$row->linked_row_id
-            && !$column->is_optional && !$options{force_mandatory}
-            && !$options{draft}
+            && !$column->is_optional && !$args{force_mandatory}
+            && !$args{draft}
             &&  $column->user_can('write')
 
             # Do not require value if the field has not been shown because of
@@ -701,7 +695,7 @@ sub _revision_update
             }
             elsif($self->new_entry || $datum->changed)
             {   my $msg = __x"'{col.name}' is not optional. Please enter a value.", col => $column;
-                error $msg unless $options{missing_not_fatal};
+                error $msg unless $args{missing_not_fatal};
                 report { is_fatal => 0 }, ERROR => $msg;
             }
             else
@@ -724,7 +718,7 @@ sub _revision_update
             }
             elsif($self->new_entry)
             {   $datum->is_blank || $column->user_can('write_new')
-                    error __x"You do not have permission to add data to field {col.name}", col => $column;
+                    or error __x"You do not have permission to add data to field {col.name}", col => $column;
             }
             elsif($column->user_can('write_existing'))
             {
@@ -744,7 +738,7 @@ sub _revision_update
         }
 
         #  Check for no change option, used by onboarding script
-        if ($options{no_change_unless_blank} && !$self->new_entry && $datum->changed && !$datum->oldvalue->is_blank)
+        if ($args{no_change_unless_blank} && !$self->new_entry && $datum->changed && !$datum->oldvalue->is_blank)
         {
             error __x"Attempt to change {name} from \"{old}\" to \"{new}\" but no changes are allowed to existing data",
                 old => $datum->oldvalue->as_string, new => $datum->as_string, name => $column->name
@@ -789,7 +783,7 @@ sub _revision_update
         elsif ($self->new_entry)
         {
             # New record. Approval needed?
-            if($column->user_can('write_new_no_approval') || $options{draft})
+            if($column->user_can('write_new_no_approval') || $args{draft})
             {
                 # User has permission to not need approval
                 $need_rec = 1;
@@ -820,14 +814,14 @@ sub _revision_update
         $child_unique = 1 if $column->can_child;
     }
 
-    my $created_date = $options{version_datetime} || DateTime->now;
+    my $created_date = $args{version_datetime} || DateTime->now;
 
     $self->cell('_created')->set_value($created_date, is_parent_value => 1)
         if $self->new_entry;
 
     my $user_id = $self->user ? $self->user->id : undef;
 
-    my $createdby = $options{version_userid} || $user_id;
+    my $createdby = $args{version_userid} || $user_id;
     if($update_only)
     {
         # Keep original record values when only updating the record, except
@@ -882,24 +876,25 @@ sub _revision_update
 
     # Anything to update?
     if(   !($need_app || $need_rec || $update_only)
-       || $options{dry_run} )
-    {   $guard->commit;  # commit nothing, just finish guard
+       || $args{dry_run} )
+    {
         return;
     }
 
 my $current_id;
 my $record_id;   # sequential per sheet
 
+my $content = $row->content;
     # New record?
     if($self->new_entry)
     {   # Delete any drafts first, for both draft save and full save
         $self->delete_user_drafts($sheet)
-             unless $options{no_draft_delete};
+             unless $args{no_draft_delete};
 
-        $current_id = $sheet->current->row_create(
+        $current_id = $content->row_create({
             parent_id    => $self->parent_id,
             linked_id    => $self->linked_id,
-            draftuser_id => $options{draft} && $user_id,
+            draftuser_id => $args{draft} && $user_id,
         });
     }
 
@@ -933,7 +928,7 @@ my $record_id;   # sequential per sheet
         $self->update({approval => $row});
     }
 
-    if($self->new_entry && $user_id && !$options{is_draft})
+    if($self->new_entry && $user_id && !$args{is_draft})
     {   # New entry, so save record ID to user for retrieval of previous
         # values if needed for another new entry. Use the approval ID id
         # it exists, otherwise the record ID.
@@ -943,7 +938,6 @@ my $record_id;   # sequential per sheet
 
     $self->_need_rec($need_rec);
     $self->_need_app($need_app);
-    $guard->commit;
 }
 
 sub in_column_specific_tables($)

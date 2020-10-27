@@ -6,7 +6,7 @@ use Linkspace::Test
 ;
 
 my $sheet   = make_sheet
-    columns => [ qw/string integer enum date/ ];
+    columns => [ qw/string intgr enum date/ ];
 
 my $layout  = $sheet->layout;
 my $content = $sheet->content;

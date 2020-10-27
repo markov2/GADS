@@ -30,35 +30,38 @@ has sheet => (
     weakref  => 1,
 );
 
-has _all_views_index => (
-    is        => 'lazy',
-    predicate => 1,
-    builder   => sub {
-        my $sheet_id = $_[0]->sheet->id;
-        index_by_id $::db->search(View => { instance_id => $sheet_id })->all;
+has _views_index => (
+    is      => 'lazy',
+    builder => sub {
+        my $self = shift;
+        index_by_id(Linkspace::View->search_objects({sheet => $self->sheet},
+            views => $self));
     },
 );
 
-sub all_views() { [ map $_[0]->view($_), keys ${$_[0]->_all_views_index} ] } }
+sub all_views() { [ values %{$_[0]->_views_index} ] }
 
+# Group views per visibility, used in the template.
 sub user_views(;$)
 {   my ($self, $victim) = @_;
     $victim ||= $::session->user;
 
     my (@admins, @shared, @personal);
-    foreach my $view ($self->all_views)
+    foreach my $view (@{$self->all_views})
     {   my $set
-          = $view->has_access_via_global($victim) ? \@shared
-          : $user->is_admin ? \@admins
-          :                   \@personal;
-        push @$set, $view;
+          = $view->has_access_via_global($victim)    ? \@shared
+          : $view->is_for_admin ? ($victim->is_admin ? \@admins : undef)
+          : $view->owner->id == $victim->id          ? \@personal
+          : undef;
+
+        push @$set, $view if $set;
     }
 
       +{ admin => \@admins, shared => \@shared, personal => \@personal };
 }
 
 sub user_views_all(;$)
-{   my $self = shift
+{   my $self = shift;
     my $all  = $self->user_views(@_);
     [ @{$all->{shared}}, @{$all->{personal}}, @{$all->{admin}} ];
 }
@@ -112,7 +115,7 @@ sub view_create
         ->_view_validate($insert)
         ->_view_create($insert, sheet => $self->sheet);
 
-    $self->_all_views_index->{$view->id} = $view if $self->_hash_all_views_index;
+    $self->_views_index->{$view->id} = $view if $self->_hash_views_index;
     $self->component_changed;
     $view;
 }

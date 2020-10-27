@@ -16,24 +16,15 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
+use warnings;
+use strict;
+
 package Linkspace::Datum::Rag;
 
 use Log::Report 'linkspace';
+
 use Moo;
-use namespace::clean;
-
 extends 'Linkspace::Datum::Code';
-with 'GADS::Role::Presentation::Datum::Rag';
-
-my %mapping = (
-    a_grey   => 'undefined',
-    b_red    => 'danger',
-    c_amber  => 'warning',
-    c_yellow => 'advisory',
-    d_green  => 'success',
-    e_purple => 'unexpected'
-);
-
 
 sub convert_value
 {   my ($self, $in) = @_;
@@ -59,29 +50,8 @@ sub write_value
     $self->write_cache('ragval');
 }
 
-# Convert the array ref from the generic ::Code to a single scalar.
-sub _value_single
-{   my $self = shift;
-    my @values = @{$self->value}
-        or return undef;
-    pop @values;
-}
-
-sub as_grade { $mapping{ $_[0]->_value_single } }
-
 # XXX Why is this needed? Error when creating new record otherwise
-sub as_integer
-{   my $self = shift;
-    my $value = $self->_value_single;
-       !$value ? 0
-     : $value eq 'a_grey'   ? 1
-     : $value eq 'b_red'    ? 2
-     : $value eq 'c_amber'  ? 3
-     : $value eq 'c_yellow' ? 4
-     : $value eq 'd_green'  ? 5
-     : $value eq 'e_purple' ? -1
-     :                        -2;
-}
+sub as_integer($) { $_[1]->column->code2rag_id($_[0]) }
 
 sub as_string
 {   my $self = shift;
@@ -97,6 +67,13 @@ sub equal
         and return;
     !defined $a && !defined $b and return 1;
     $a eq $b;
+}
+
+#XXX Does not support multivalue: last grade only
+sub presentation($$)
+{   my ($self, $cell, $show) = @_;
+    delete $show->{value};
+    $show->{grade} = $cell->column->as_grade($self);
 }
 
 1;

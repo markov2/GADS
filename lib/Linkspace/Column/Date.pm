@@ -20,6 +20,7 @@ package Linkspace::Column::Date;
 # Extended by ::Createddate
 
 use Log::Report 'linkspace';
+use DateTime         ();
 
 use Linkspace::Util  qw(iso2datetime);
 
@@ -63,12 +64,19 @@ sub _remove_column($)
 ### Instance
 ###
 
+sub datum_as_string($)
+{   my ($self, $datum) = @_;
+    $::session->site->dt2local($datum->value, include_time => $self->include_time);
+}
+
 sub show_datepicker
 {   my $opt = $_[0]->_options;  # option may be missing: then defaults to true
     exists $opt->{show_datepicker} ? $opt->{show_datepicker} : 1;
 }
 
-sub default_today { $_[0]->_options->{default_today} // 0 }
+sub default_today  { $_[0]->_options->{default_today} // 0 }
+
+sub default_values { $_[0]->default_today ? [ DateTime->now ] : [] }
 
 sub _is_valid_value($%)
 {   my ($self, $date, %options) = @_;
@@ -95,15 +103,6 @@ sub import_value
         child_unique => $value->{child_unique},
         value        => iso2datetime($value->{value}),
     });
-}
-
-#XXX move to datum
-sub field_values($;$%)
-{   my ($self, $datum) = @_;
-    my $values = $datum->values;
-
-    map +{ value => $_ },
-        @$values ? @$values : (undef); # No values, but still need to write null value
 }
 
 1;

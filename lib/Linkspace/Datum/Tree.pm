@@ -16,83 +16,24 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
+use warnings;
+use strict;
+
 package Linkspace::Datum::Tree;
 
-use Log::Report;
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
+use Log::Report 'linkspace';
 
+use Moo;
 extends 'Linkspace::Datum';
 
-after set_value => sub {
-    my ($self, $value) = @_;
-    my $clone = $self->clone; # Copy before changing text
-    my @values = sort grep $_, ref $value eq 'ARRAY' ? @$value : ($value);
-    my @old    = sort @{$self->ids};
-    my $changed = "@values" ne "@old";
-
-    my $column  = $self->column;
-    if($changed)
-    {   $column->is_valid_value($_, fatal => 1) for @values;
-        my @text = map $column->node($_)->{value}, @values;
-        $self->text_all(\@text);
-    }
-    $self->changed($changed);
-    $self->oldvalue($clone);
-    $self->ids(\@values);
-};
-
-sub id { panic "id() removed for Tree datum" }
-
-sub values { $_[0]->ids }
-sub ids           { $_[0]->value_hash->{ids} || [] }
-sub ids_as_params { join '&', map "ids=$_", @{$_[0]->ids} }
-
-# Make up for missing predicated value property
-sub has_value     { ! $_[0]->is_blank || $_[0]->init_no_value }
-sub html_form     { [ map $_||'', @{$_[0]->ids} ] }
-
-has value_hash => (
-    is      => 'lazy',
-    builder => sub {
-        my $self = shift;
-        $self->has_init_value or return {};
-
-        my $column = $self->column;
-
-        # XXX - messy to account for different initial values. Can be tidied
-        # once we are no longer pre-fetching multiple records
-
-        my @values = map { ref $_ eq 'HASH' && $_->{record_id} ? $_->{value} : $_ } @{$self->init_value};
-
-        my (@ids, @texts);
-        foreach (@values)
-        {   if(ref $_ eq 'HASH')
-            {   next if !$_->{id};
-                push @ids,   $_->{id};
-                push @texts, $_->{value} || '';
-            }
-            elsif(my $node = $column->node($_))
-            {   push @ids,   $node->{id};
-                push @texts, $node->{value};
-            }
-        }
-
-        +{
-            ids  => \@ids,
-            text => \@texts,
-         };
-    },
-);
+sub hash_value($)
+{   my ($self, $column) = @_;
+    my $node_id = $self->value;
+    +{ id => $node_id, text => $column->node($node_id)->name };
+}
 
 sub full_path { $_[0]->as_string }
 sub value_regex_test { shift->full_path }
-sub as_string  { $_[0]->text // "" }
-sub as_integer { panic "No integer value" }
-
-# Internal text, array ref of all individual text values
-sub text { join ', ', @{$_[0]->text_all} }
-sub text_all { $_[0]->value_hash->{text} || [] }
 
 sub _value_for_code($$$)
 {   my ($self, $column, $node_id) = @_;
@@ -106,9 +47,7 @@ sub _value_for_code($$$)
         $parents{'parent'.++$count} = $parent->id;
     }
 
-     +{ value   => $node->name,
-        parents => \%parents,
-      };
+     +{ value   => $node->name, parents => \%parents };
 }
 
 1;

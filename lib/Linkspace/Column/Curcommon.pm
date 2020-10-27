@@ -333,6 +333,7 @@ sub field_values_for_code
     $return;
 }
 
+#XXX must be moved (partially?) to ::Datum
 sub field_values
 {   my ($self, %params) = @_;
     my $rows       = $params{rows};

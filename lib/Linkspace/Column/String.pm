@@ -33,6 +33,7 @@ sub can_multivalue      { 1 }
 sub db_field_extra_export { [ qw/is_textbox force_regex/ ] }
 sub form_extras         { [ qw/is_textbox force_regex/ ], [] }
 sub has_multivalue_plus { 1 }
+sub string_storage      { 1 }
 
 ###
 ### Class
@@ -75,8 +76,6 @@ sub _as_string()
     @lines ? (join ', ', @lines) : '';
 }
 
-sub string_storage { 1 }
-
 sub resultset_for_values
 {   my $self = shift;
     $::db->search(String => { layout_id => $self->id }, { group_by => 'me.value' });
@@ -92,16 +91,6 @@ sub import_value
         value        => $value->{value},
         value_index  => $value->{value_index},
     });
-}
-
-sub field_values($;$%)
-{   my ($self, $datum) = @_;
-    my $values = $datum->values;
-
-    # No values, but still need to write null value
-    map +{ value => $_, 
-           value_index => defined $_ ? (lc substr $_, 0, 128) : '',
-         }, @$values ? @$values : (undef);
 }
 
 1;

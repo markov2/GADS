@@ -35,15 +35,17 @@ use Log::Report 'linkspace';
 # id         value      layout_id  record_id
 
 my @filter_values = (
-    [ b_red    => 'Red'    ],
-    [ c_amber  => 'Amber'  ],
-    [ c_yellow => 'Yellow' ],
-    [ a_grey   => 'Grey'   ],
-    [ d_green  => 'Green'  ],
-    [ e_purple => 'Purple' ],
+    [  1, a_grey   => 'Grey'   , 'undefined' ],
+    [  2, b_red    => 'Red'    , 'danger'    ],
+    [  3, c_amber  => 'Amber'  , 'warning'   ],
+    [  4, c_yellow => 'Yellow' , 'advisory'  ],
+    [  5, d_green  => 'Green'  , 'success'   ],
+    [ -1, e_purple => 'Purple' , 'unexpected'],
 );
 
-my %rag_id2string = map @$_, @filter_values;
+my %rag_id2string = map +($_->[0] => $_->[2]), @filter_values;
+my %rag_id2grade  = map +($_->[0] => $_->[3]), @filter_values;
+my %code2rag_id   = map +($_->[1] => $_->[0]), @filter_values;
 
 ###
 ### META
@@ -57,7 +59,9 @@ sub form_extras   { [ qw/code_rag no_alerts_rag no_cache_update_rag/ ], [] }
 
 ### for Rag presentation only
 
-sub _filter_values { @filter_values }
+sub _filter_values { [ map +[ $_->[1] => $_->[2] ], @filter_values ] }
+sub as_grade($) { $rag_id2grade{$code2rag_id{$_[0]->value} || -1} || $rag_id2grade{-1}}
+sub code2rag_id { $code2rag_id{$_[0]->value} || -2 }
 
 ###
 ### Class
@@ -78,9 +82,8 @@ has _rag => (
     lazy    => 1,
     builder => sub { $::db->get_record(Rag => { layout_id => $_[0]->id }) },
 );
-sub amber { panic 'Legacy' }
-sub green { panic 'Legacy' }
-sub code  { $_[0]->_rag->code }
+
+sub code  { $_[0]->_rag->code } #XXX
 
 sub _column_extra_update($)
 {   my ($self, $update) = @_;
@@ -99,12 +102,6 @@ sub _column_extra_update($)
         $reload_id = $result->id;
     }
     $self->_rag($::db->get_record(Rag => $reload_id));
-}
-
-sub id_as_string
-{   my ($self, $id) = @_;
-    $id or return '';
-    $rag_id2string{$id} or panic "Unknown RAG ID $id";
 }
 
 1;

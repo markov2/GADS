@@ -7,7 +7,8 @@ use Log::Report 'linkspace';
 use Scalar::Util qw/blessed/;
 use Clone        qw/clone/;
 
-use Linkspace::Sheet::Access::Permission;
+use Linkspace::Sheet::Access::Permission ();
+use Linkspace::Util   qw/to_id/;
 use Moo;
 
 =head1 NAME
@@ -85,12 +86,15 @@ sub set_permissions
 
 sub group_allow($$)
 {   my ($self, $group, @perms) = @_;
-    my $group_id = blessed $group ? $group->id : defined $group ? $group : return;
-    my $can      = $self->_permission_index->{$group_id};
+    my $group_id = to_id $group ? $group->id : return;
+    my $index    = $self->_permission_index;
+    my $can      = $index->{$group_id};
     my @mine     = (sheet_id => $self->sheet->id, group_id => $group_id);
 
-    Linkspace::Sheet::Access::Permission->_permission_create({ @mine, permission => $_ })
-        for grep !$can->{$_}, @perms;
+    foreach my $perm (grep !$can->{$_}, @perms)
+    {   my $p = Linkspace::Sheet::Access::Permission->_permission_create({ @mine, permission => $perm });
+        $index->{$group_id}{$perm} = $p;
+    }
 }
 
 =head2 $access->group_deny($group, @permissions);

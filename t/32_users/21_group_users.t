@@ -64,14 +64,14 @@ my $group3 = make_group '3';
 my $group4 = make_group '4';
 my $group5 = make_group '5';
 
-ok $user2->_set_group_ids([$group2->id, $group3->id, $group4->id, $group5->id]),
+ok $user2->_set_groups([$group2, $group3, $group4, $group5]),
     'Group-id bulk update';
 
 my $ug1 = $user2->groups;
 cmp_ok scalar @$ug1, '==', 4, '... user added to 4 groups';
 cmp_ok scalar logs, '==', 4+1, '... logging'; # 4x add + remove test_group
 
-ok $user2->_set_group_ids([$group3->id, $group5->id]), '... remove 2 groups';
+ok $user2->_set_groups([$group3, $group5]), '... remove 2 groups';
 
 my $ug2 = $user2->groups;
 cmp_ok scalar @$ug2, '==', 2, '... user now in 2 groups';

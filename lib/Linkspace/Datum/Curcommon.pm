@@ -29,10 +29,8 @@ use Linkspace::Util qw/list_diff is_valid_id/;
 use Moo;
 extends 'Linkspace::Datum';
 
-with 'GADS::Role::Presentation::Datum::Curcommon';
-
 after set_value => sub {
-    my ($self, $value, %options) = @_;
+    my ($self, $values, %options) = @_;
 
     # Ensure we don't accidentally set an autocur
     panic "Records passed to autocur set_value"
@@ -41,21 +39,18 @@ after set_value => sub {
     my $clone   = $self->clone; # Copy before changing text
 
     my (@records, @ids, @queries);
-    foreach my $value (grep $_, ref $value eq 'ARRAY' ? @$value : $value)
+    foreach my $value (flat $values)
     {   my $q = blessed $value && $value->isa('GADS::Record') ? \@records
               : is_valid_id($value) ? \@ids
               : \@queries;
         push @$q, $value;
     }
 
-    @ids = sort @ids;  #XXX needed?
+    @ids = sort @ids;
     my @old_ids = sort @{$self->ids};
 
     panic "Records cannot be mixed with other set values"
         if @records && (@ids || @queries);
-
-    my $changed;
-    $self->clear_values_as_records;
 
     if(@records)
     {   $self->_set_values_as_records(\@records);
@@ -64,8 +59,7 @@ after set_value => sub {
         my @queries = map $_->as_query(exclude_curcommon => 1),
             grep $_->is_new_entry, @records;
 
-        $self->_set_values_as_query(\@queries);
-        $self->clear_values_as_query_records; # Rebuild for new queries
+        $self->_set_values_as_query([]);
     }
 
     if (@queries)
@@ -100,10 +94,7 @@ after set_value => sub {
 
 # Hash with various values built from init_value. Used to populate
 # specific value properties
-has _init_value_hash => (
-    is      => 'lazy',
-    isa     => HashRef,
-);
+has _init_value_hash => ( is => 'lazy');
 
 sub _build__init_value_hash
 {   my $self = shift;
@@ -201,17 +192,14 @@ sub is_blank
 has id_hash => (
     is      => 'lazy',
     builder => sub { +{ map +($_ => 1), @{$_[0]->ids} } },
-}
+);
 
 has ids => (
     is      => 'lazy',
     builder => sub { $_[0]->_init_value_hash->{ids} || [] },
 );
 
-has ids_removed => (
-    is  => 'lazy',
-    isa => ArrayRef,
-);
+has ids_removed => ( is  => 'lazy' );
 
 # The IDs of any records removed from this field's value
 sub _build_ids_removed
@@ -230,7 +218,6 @@ sub _build_ids_removed
 # calculated and set when writing the record.
 has ids_deleted => (
     is      => 'rw',
-    isa     => ArrayRef,
     default => sub { [] },
 );
 
@@ -269,15 +256,12 @@ sub purge_drafts
 # records
 has values_as_query => (
     is      => 'rwp',
-    isa     => ArrayRef,
     default => sub { [] },
 );
 
 # The above values as queries, converted to records
 has values_as_query_records => (
     is      => 'lazy',
-    isa     => ArrayRef,
-    clearer => 1,
 );
 
 sub _build_values_as_query_records
@@ -397,22 +381,22 @@ sub set_values
 }
 
 sub html_form
-{   my $self = shift;
+{   my ($self, $cell) = @_;
+
     return $self->ids
         unless $self->column->value_selector eq 'noshow';
 
-    my $record = $val->{record};
     my @return;
     foreach my $val (@{$self->values})
     {
-        if ($val->{record}->is_draft)
-        {
-            $val->{as_query} = $val->{record}->as_query;
-        }
+        my $record = $val->{record};
+        $val->{as_query} = $record->as_query
+            if $record->is_draft;
+
         # New entries may have a current ID from a failed database write, but
         # don't use
         delete $val->{id} if $record->new_entry || $record->is_draft;
-        $val->{presentation} = $record->presentation($sheet, curval_fields => $self->column->curval_fields);
+        $val->{presentation} = $record->presentation($cell->sheet, curval_fields => $self->column->curval_fields);
         push @return, $val;
     }
     return \@return;
@@ -423,11 +407,13 @@ sub _values_for_code($$$)
 
     # Get all field data in one chunk
     my %options = (
-        already_seen_code => $args{already_seen_code}, 
-        level => $args{already_seen_level},
+        already_seen_code => $args->{already_seen_code}, 
+        level => $args->{already_seen_level},
     );
 
 #XXX rewrite to call for 1
+my $field_values;
+    my $column = $cell->column;
     $self->_records
         ? $column->field_values_for_code(rows => $self->_records, %options)
         : $column->field_values_for_code(ids => $self->ids, %options);
@@ -438,5 +424,19 @@ sub _values_for_code($$$)
         value        => $value->{value},
         field_values => $field_values->{$value->{id}},
       };
+}
+
+sub presentation
+{   my ($self, $cell, $show) = @_;
+
+    $show->{text}  = $self->value;
+    $show->{links} = [ map +{
+        id              => $_->{id},
+        href            => $_->{value},
+        refers_to_sheet => $cell->column->related_sheet,
+        values          => $_->{values},
+        presentation    => $cell->row->presentation($cell->sheet, curval_fields => $self->column->curval_fields),
+    }, @{$self->values} ];
+}
 
 1;

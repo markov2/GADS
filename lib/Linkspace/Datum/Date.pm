@@ -16,110 +16,61 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
+use warnings;
+use strict;
+
 package Linkspace::Datum::Date;
 
-use DateTime;
-use DateTime::Format::DateManip;
 use Log::Report 'linkspace';
+use DateTime ();
+
 use Linkspace::Util qw/parse_duration flat/;
 
 use Moo;
 extends 'Linkspace::Datum';
 
-after set_value => sub {
-    my ($self, $all, %options) = @_;
-    my @all = flat $all;
-    shift @all if @all % 2 == 1 && !$all[0]; # First is hidden value from form XXX
+#XXX for data which has an external origin needs: $column->parse_date($_)
 
-    my @values    = map $self->_to_dt($_, source => 'user', %options), @all;
-    my @text_all  = sort map $self->_as_string($_), @values;
-    my $old_texts = $self->text_all;
+sub _unpack_values($$%)
+{   my ($class, $cell, $values, %args) = @_;
 
-    if("@text_all" ne "@$old_texts")
-    {   $self->changed(1);
-        $self->_set_values(\@values);
-        $self->_set_text_all(\@text_all);
+    if($args{bulk} && @$values==1)
+    {   if(my $step = parse_duration $values->[0])
+        {   my @dates = map $_->value->clone, @{$cell->datums};
+            push @dates, DateTime->now unless @dates;
+            return [ map $_->add_duration($step), @dates ];
+        }
     }
 
-    my $clone = $self->clone;
-    $self->oldvalue($clone);
-};
+    my $to_dt;
+    if(($args{source} // 'db') eq 'user')
+    {   my $site = $::session->site;
+        $to_dt = sub { blessed $_[0] && $_[0]->isa('DateTime') ? $_[0]
+          : $site->local2dt(auto => $_[0])
+          };
+    }
+    else
+    {   $to_dt = sub { blessed $_[0] && $_[0]->isa('DateTime') ? $_[0]
+          : $_[0] =~ / / ? $::db->parse_datetime($_[0])
+          :                $::db->parse_date($_[0])
+          };
+    }
 
-
-has values => (
-    is      => 'rwp',
-    lazy    => 1,
-    coerce  => sub {
-        my $values = shift;
+    my @dates;
+    foreach my $value (@$values)
+    {   my $dt = $to_dt->($value);
 
         # If the timezone is floating, then assume it is UTC (e.g. from MySQL
         # database which do not have timezones stored). Set it as UTC, as
         # otherwise any changes to another timezone will not make any effect
-        $_->time_zone->is_floating && $_->set_time_zone('UTC') for @$values;
+        $dt->set_time_zone('UTC') if $dt->time_zone->is_floating;
 
-        #XXX May want to support other timezones in the future
-        $_->set_time_zone('Europe/London') for @$values;
-        $values;
-    },
-    builder => sub {
-        my $self = shift;
-
-        return [ DateTime->now ]
-            if $self->record && $self->record->new_entry
-            && $self->column->default_today;
-
-        my $iv = $self->init_value or return [];
-        my @values = map $self->_to_dt($_, source => 'db'), @$iv;
-
-        $self->has_value(!!@values);
-        \@values;
-    },
-);
-
-sub _to_dt
-{   my ($self, $value, %options) = @_;
-    my $source = $options{source};
-    $value = $value->{value} if ref $value eq 'HASH';
-    $value or return;
-
-    return $value->clone
-        if ref $value eq 'DateTime';
-
-    return $value =~ / / ? $::db->parse_datetime($value) : $::db->parse_date($value)
-        if $source eq 'db';
-
-    # Assume 'user'
-    my $column = $self->column;
-
-    if(!$column->is_valid_value($value) && $options{bulk}) # Only allow duration during bulk update
-    {
-        # See if it's a duration and return that instead if so
-        if(my $duration = parse_duration $value)
-        {   return map $_->clone->add_duration($duration), @{$self->values};
-        }
-
-        # Will bork below
+        $dt->set_time_zone($::session->site->timezone);
     }
 
-    $column->is_valid_value($value, fatal => 1);
-    $column->parse_date($value);
-}
-
-has text_all => (
-    is      => 'lazy',
-    builder => sub { [ map $self->_as_string($_), @{$self->values} ] },
-);
-
-sub as_integer { panic "Not implemented" }
-sub as_string { join ', ', @{$_[0]->text_all} }
-sub html_form { $_[0]->text_all }
-
-sub _as_string
-{   my ($self, $column, $value) = @_;
-    $::session->site->dt2local($value, include_time => $column->include_time) || '';
+    \@dates;
 }
 
 sub _value_for_code { $_[0]->_dt_for_code($_[2]) }
 
 1;
-

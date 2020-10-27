@@ -196,7 +196,7 @@ sub _validate($)
 
 sub _column_create
 {   my ($base_class, $insert, %args) = @_;
-    my $class = $type2class{$insert->{type}}  or panic;
+    my $class = $type2class{$insert->{type}} or panic;
     $insert->{name} //= $insert->{name_short};
 
     $insert->{options} = $class->option_defaults;  # modified in validate()
@@ -214,7 +214,7 @@ sub _column_create
     my $self = $class->create($insert, sheet => $insert->{sheet});
 
     $self->_column_extra_update($extra, %args);
-    $self->_column_perms_update($perms) if $perms;
+#   $self->_column_perms_update($perms) if $perms;
     $self->_display_field_update($df)   if $df;
     $self;
 }
@@ -525,7 +525,7 @@ has permissions => (
     builder => sub { ... },
 );
 
-sub column_perms_update($)
+sub _column_perms_update($)
 {   my ($self, $new_perms) = @_;
     defined $new_perms or return;
 
@@ -690,23 +690,6 @@ sub how_to_link_to_record
       } );
 }
 
-=head2 my @entries = $column->field_values($datum, $row, %options);
-Returns entries to be written to the database for $datum.
-Fields C<child_unique> and C<layout_id> are added later.
-
-The C<$row> and C<%options> are only used for Curval.
-=cut
-#XXX %options are used by Curval.  For which purpose?
-#XXX For Curvals this has weird side effects
-sub field_values($$%)
-{   my ($self, $datum) = @_;
-
-    my @values = $self->can('ids') ? $datum->ids : $datum->value;
-    @values or @values = (undef);
-
-    map +{ value => $_ }, @values;
-}
-
 #---------------
 =head2 METHODS: DisplayField
 The Layout records contain a few DisplayField columns, which have been
@@ -780,5 +763,8 @@ sub datum_create($%)
 {   my ($self, $values, %args) = @_;
     $self->datum_class->datum_create($values, column => $self);
 }
+
+# What will be inserted when a cell is created without values.
+sub default_values() { [] }
 
 1;

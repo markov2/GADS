@@ -18,165 +18,89 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package Linkspace::Datum::Daterange;
 
-use DateTime;
-use DateTime::Span;
 use Log::Report 'linkspace';
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 
+use DateTime        ();
+use DateTime::Span  ();
+use Scalar::Util    qw/blessed/;
 use Linkspace::Util qw/parse_duration/;
 
+use Moo;
 extends 'Linkspace::Datum';
 
-# Set datum value with value from user
-after set_value => sub {
-    my ($self, $all, %options) = @_;
-    $all ||= [];
-    my @all = @$all; # Take a copy first
-    my $clone = $self->clone;
-    shift @all if @all % 2 == 1 && !$all[0]; # First is hidden value from form
-    my @values;
-    while (@all)
-    {
-        # Allow multiple sets of dateranges to be submitted in array ref blocks
-        # or as one long array, 2 elements per range
-        my $first = shift @all;
-        my ($start, $end) = ref $first eq 'ARRAY' ? @$first : ($first, shift @all);
-        my @dt = $self->_parse_dt([$start, $end], source => 'user', %options);
-        push @values, @dt if @dt;
-    }
-    my @text_all = sort map $self->_as_string($_), @values;
-    if("@text_all" ne "@{$self->text_all}")
-    {   $self->changed(1);
-        $self->_set_values(\@values);
-        $self->_set_text_all(\@text_all);
-    }
-    $self->oldvalue($clone);
-};
+sub _datum_create($$%)
+{   my ($class, $cell, $value) = (shift, shift, shift);
+    my $span = $value->{value};
+    $value->{start} = $span->start;
+    $value->{end}   = $span->end;
+    $value->{value} = $span->as_string;
+    $class->SUPER::_datum_create($cell, $value, @_);
+}
 
-has values => (
-    is      => 'rwp',
-    isa     => ArrayRef,
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        my $iv = $self->init_value or return [];
-        my @values = map $self->_parse_dt($_, source => 'db'), @$iv;
-        $self->has_value(!!@values);
-        \@values;
-    },
-);
+# Dateranges can be specified as
+#   . DateTime::Span objects
+#   . list of [ $from, $to ]
+#   . list of pairs $from => $to
+#   . duration wrt the current datums
 
-has text_all => (
-    is      => 'rwp',
-    isa     => ArrayRef,
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        [ map $self->_as_string($_), @{$self->values} ];
-    },
-);
-
-sub is_blank { ! grep $_->start && $_->end, @{$_[0]->values} }
-
-# Can't use predicate, as value may not have been built on
-# second time it's set
-has has_value => (
-    is => 'rw',
-);
-
-around 'clone' => sub {
-    my $orig = shift;
-    my $self = shift;
-    $orig->(
-        $self,
-        values => $self->values,
-        @_,
+sub _add_to_span($$$)
+{   my ($span, $add_start, $add_end) = @_;
+    DateTime::Span->from_datetimes(
+        start => $span->start->clone->add_duration($add_start),
+        end   => $span->end->clone->add_duration($add_end),
     );
-};
+}
 
-sub _parse_dt
-{   my ($self, $original, %options) = @_;
-    my $source = $options{source};
+sub _unpack_values($%)
+{   my ($class, $cell, $values, %args) = @_;
+    my $subtract = $args{subtract_days_end} || 0;
 
-    $original or return;
-
-    # Array ref will be received from form
-    if (ref $original eq 'ARRAY')
-    {
-        $original = {
-            from => $original->[0],
-            to   => $original->[1],
-        };
-    }
-    elsif (!ref $original)
-    {
-        # XXX Nasty hack. Would be better to pull both values from DB
-        $original =~ /^([-0-9]+) to ([-0-9]+)$/;
-        $original = {
-            from => $1,
-            to   => $2,
-        };
-    }
-    # Otherwise assume it's a hashref: { from => .., to => .. }
-
-    $original->{from} || $original->{to}
-        or return;
-
-    my $column = $self->column;
-    my ($from, $to);
-    if($source eq 'db')
-    {   $from = $::db->parse_date($original->{from});
-        $to   = $::db->parse_date($original->{to});
-    }
-    # Assume 'user'. If it's not a valid value, see if it's a duration instead (only for bulk)
-    elsif($column->is_valid_value($original, fatal => !$options{bulk}))
-    {   $from = $column->parse_date($original->{from});
-        $to   = $column->parse_date($original->{to});
-    }
-    elsif($options{bulk})
-    {   my $from_duration = parse_duration $original->{from};
-        my $to_duration   = parse_duration $original->{to};
-
-        if($from_duration || $to_duration)
-        {   # Don't bork as we might be bulk updating, with some blank values
-            @{$self->values} or return;
-
-            my @return;
-            foreach my $value (@{$self->values})
-            {   ($from, $to) = ($value->start, $value->end);
-                $from->add_duration($from_duration) if $from_duration;
-                $to->add_duration($to_duration)     if $to_duration;
-                push @return, DateTime::Span->from_datetimes(start => $from, end => $to);
-            }
-            return @return;
+    my @values = @$values;
+    if($cell && $args{bulk})
+    {   my ($from, $to) = @values==1 && ref $values[0] eq 'ARRAY' ? @{$values[0]} : @values;
+        if(my $begin_step = parse_duration $from)
+        {   my $end_step  = parse_duration $to;
+            return [ map _add_to_span($_, $begin_step, $end_step), @{$cell->values} ];
         }
-
-        # Nothing fits, raise fatal error
-        $column->is_valid_value($original, fatal => 1);
     }
 
-    $to->subtract(days => $options{subtract_days_end} ) if $options{subtract_days_end};
-    (DateTime::Span->from_datetimes(start => $from, end => $to));
+    my $to_dt;
+    if(($args{source} // 'db') eq 'user')
+    {   my $site = $::session->site;
+        $to_dt = sub { blessed $_[0] && $_[0]->isa('DateTime') ? $_[0] : $site->local2dt(date => $_[0]) };
+    }
+    else
+    {   $to_dt = sub { blessed $_[0] && $_[0]->isa('DateTime') ? $_[0] : $::db->parse_date($_[0]) };
+    }
+
+    my @ranges;
+    while(@values)
+    {   my $value = shift @values;
+        my $range;
+        if(blessed $value && $value->isa('DateTime::Span'))
+        {   $range = $value;
+        }
+        elsif(ref $value eq 'ARRAY')
+        {   $range = DateTime::Span->from_datetimes(
+                start => $to_dt->($value->[0]),
+                end   => $to_dt->($value->[1]),
+            );
+        }
+        else
+        {   $range = DateTime::Span->from_datetimes(
+                start => $to_dt->($value),
+                end   => $to_dt->(shift @values),
+            );
+        };
+
+        $range->end->subtract(days => $subtract) if $subtract;
+        push @ranges, $range;
+    }
+
+    \@ranges;
 }
 
-# XXX Why is this needed? Error when creating new record otherwise
-sub as_integer
-{   my $self = shift;
-    $self->value; # Force update of values
-    $self->value && $self->value->start ? $self->value->start->epoch : 0;
-}
-
-sub as_string { join ', ', @{$_[0]->text_all} }
-
-sub _as_string
-{   my ($self, $range) = @_;
-    $range && (my $start = $range->start) && (my $end = $range->end)
-        or return '';
-
-    my $site   = $::session->site;
-    $site->dt2local($start) . ' to ' . $site->dt2local($end);
-}
+sub as_integer { $_[0]->value->start->epoch }
 
 has html_form => (
     is      => 'lazy',
@@ -198,6 +122,13 @@ sub _value_for_code
         value => $self->_as_string($cell, $value),
       };
 }
+
+sub field_value($)
+{   my $self = shift;
+    +{ from => $self->start, to => $self->end, value => $self->as_string };
+}
+
+sub field_value_blank() { +{ from => undef, to => undef, value => undef } }
 
 1;
 

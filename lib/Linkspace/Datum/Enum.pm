@@ -16,177 +16,26 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 =cut
 
+use warnings;
+use strict;
+
 package Linkspace::Datum::Enum;
 
 use Log::Report 'linkspace';
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-use namespace::clean;
 
+use Moo;
 extends 'Linkspace::Datum';
 
-after set_value => sub {
-    my ($self, $value) = @_;
-    my $clone = $self->clone; # Copy before changing text
-    my @values = sort grep {$_} ref $value eq 'ARRAY' ? @$value : ($value);
-    my @old    = sort ref $self->id eq 'ARRAY' ? @{$self->id} : $self->id ? $self->id : ();
-    my $changed = "@values" ne "@old";
-    if ($changed)
-    {
-        my @text; my @deleted;
-        foreach (@values)
-        {   $self->column->is_valid_value($_, fatal => 1);
-            push @text, $self->column->enumval($_)->{value};
-            push @deleted, $self->column->enumval($_)->{deleted};
-        }
-        $self->value_hash({
-            ids     => \@values,
-            text    => \@text,
-            deleted => \@deleted,
-        });
-    }
-    $self->changed($changed);
-    $self->oldvalue($clone);
-    $self->id($self->column->is_multivalue ? \@values : $values[0]);
-};
-
-# Internal text, array ref of all individual text values
-sub text_all { $_[0]->value_hash->{text} || [] }
-sub text     { join ', ', @{$_[0]->text_all} }
-
-has id => (
-    is      => 'rw',
-    isa     => sub {
-        my $value = shift;
-        !defined $value and return;
-        ref $value ne 'ARRAY' && $value =~ /^[0-9]+/ and return;
-        my @values = @$value;
-        my @remain = grep { !defined $_ || $_ !~ /^[0-9]+$/ } @values
-           and panic "Invalid value for ID";
-    },
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        $self->column->is_multivalue
-        ? [ grep defined, @{$self->value_hash->{ids}} ]
-        : $self->value_hash->{ids}->[0];
-    },
-);
-
-sub ids {
-    my $self = shift;
-    $self->column->is_multivalue ? $self->id : [ $self->id ];
+sub _unpack_values($$%)
+{   my ($class, $cell, $values, %args) = @_;
+    $cell->column->to_ids($values);
 }
 
-sub is_blank
-{   my $self = shift;
-    $self->column->is_multivalue ? @{$self->id}==0 : ! defined $self->id;
+sub value_hash($)
+{   my ($self, $column) = @_;
+    my $ev = $column->enumval($self->value);
+    +{ id => $ev->id, text => $ev->name, deleted => $ev->deleted };
 }
-
-has value_hash => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub {
-        my $self = shift;
-        # XXX - messy to account for different initial values. Can be tidied once
-        # we are no longer pre-fetching multiple records
-        my @init_value = $self->has_init_value ? @{$self->init_value} : ();
-        my @values     = map { ref $_ eq 'HASH' && exists $_->{record_id} ? $_->{value} : $_ } @init_value;
-        my (@ids, @texts, @deleted);
-        foreach (@values)
-        {
-            if (ref $_ eq 'HASH')
-            {
-                push @ids, $_->{id};
-                push @texts, $_->{value} || '';
-                push @deleted, $_->{deleted};
-            }
-            else {
-                my $e = $self->column->enumval($_)
-                    or next;
-                push @ids, $e && $e->{id};
-                push @texts, $e && $e->{value};
-                push @deleted, $e && $e->{deleted};
-            }
-        }
-        $self->has_id(1) if (grep { defined $_ } @ids) || $self->init_no_value;
-        +{
-            ids     => \@ids,
-            text    => \@texts,
-            deleted => \@deleted, # Whether it is a value that has since been deleted
-        };
-    },
-);
-
-has has_id => (
-    is  => 'rw',
-    isa => Bool,
-);
-
-has id_hash => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_id_hash
-{   my $self = shift;
-    return $self->id ? { $self->id => 1 } : {} if !$self->column->is_multivalue;
-    return {} if !$self->id;
-    +{ map { $_ => 1 } @{$self->id} };
-}
-
-has deleted_values => (
-    is      => 'lazy',
-    clearer => 1,
-);
-
-sub _build_deleted_values
-{   my $self = shift;
-    my @ids     = @{$self->value_hash->{ids}};
-    my @deleted = @{$self->value_hash->{deleted}};
-    my @text    = @{$self->value_hash->{text}};
-    my @return;
-    foreach my $id (@ids)
-    {
-        my $text = shift @text;
-        next unless shift @deleted;
-        push @return, {
-            id    => $id,
-            value => $text,
-        };
-    }
-    return \@return;
-}
-
-sub value { $_[0]->id }
-
-# Make up for missing predicated value property
-sub has_value { $_[0]->has_id }
-
-sub html_form
-{   my $self = shift;
-    [ map { $_ || '' } $self->column->is_multivalue ? @{$self->id} : $self->id ];
-}
-
-around 'clone' => sub {
-    my $orig = shift;
-    my $self = shift;
-    $orig->($self, id => $self->id, text => $self->text, @_);
-};
-
-sub as_string
-{   my $self = shift;
-    $self->text // "";
-}
-
-sub as_integer
-{   my $self = shift;
-    panic "No integer value for multivalue"
-        if $self->column->is_multivalue;
-    $self->id // 0;
-}
-
-sub values { $_[0]->{ids} }
 
 sub _value_for_code
 {   my ($self, $cell, $enum_id) = @_;

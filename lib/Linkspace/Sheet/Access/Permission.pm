@@ -52,7 +52,7 @@ my %is_valid_permission = map +($_ => 1), @sheet_permissions;
 
 sub _no_permission($$)
 {   my ($class, $sheet, $group) = @_;
-    $::db->delete($class->db_table => {
+    $class->delete({
         instance_id => $sheet->id,
         group_id    => $group->id,
     });

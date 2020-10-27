@@ -370,7 +370,7 @@ sub column_create($%)
     my $all    = $self->all_columns;  # be sure to have all before new created
 
     my $name   = $insert->{name_short} or panic;
-    ! $self->column($name)
+    ! $self->_column_index->{$name}
         or error __x"Attempt to create a second column with the same short name '{name}'",
              name => $name;
 

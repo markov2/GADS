@@ -88,9 +88,9 @@ sub _user_create($%)
     $insert->{session_settings} ||= {};
 
     my @relations = (
-        group_ids       => delete $insert->{group_ids},
-        permissions     => delete $insert->{permissions},
-        view_limits_ids => delete $insert->{view_limits_ids},
+        groups      => delete $insert->{groups},
+        permissions => delete $insert->{permissions},
+        view_limits => delete $insert->{view_limits},
     );
 
     my $self = $class->create($insert, %args);
@@ -108,9 +108,9 @@ sub _user_update($)
     }
 
     my @relations = (
-        group_ids       => delete $update->{group_ids},
-        permissions     => delete $update->{permissions},
-        view_limits_ids => delete $update->{view_limits_ids},
+        groups      => delete $update->{groups},
+        permissions => delete $update->{permissions},
+        view_limits => delete $update->{view_limits},
     );
 
     $self->update($update) if keys %$update;
@@ -121,14 +121,9 @@ sub _user_update($)
 sub _update_relations(%)
 {   my ($self, %args) = @_;
 
-    $self->_set_group_ids($args{group_ids})
-         ->_set_permissions($args{permissions});
-
-    if(my $view_limits = $args{view_limits_ids})
-    {   my @view_limits = grep /\S/,
-           ref $view_limits eq 'ARRAY' ? @$view_limits : $view_limits;
-        $self->_set_view_limits(\@view_limits);
-    }
+    $self->_set_groups($args{groups});
+    $self->_set_permissions($args{permissions});
+    $self->_set_view_limits($args{view_limits});
 }
 
 sub _user_delete(%)
@@ -155,14 +150,10 @@ sub retire(%)
         return;
     }
 
-    $self->_update_relations(
-        group_ids       => [],
-        permissions     => [],
-        view_limits_ids => [],
-    );
+    $self->_update_relations(groups => [], permissions => [], view_limits => []);
     $self->_graphs_delete;
     $self->_alerts_delete;
-    $self->_views_delete;
+    $::db->delete(View => { user_id => $self->id });
 #   $self->_dashboards_delete;
     $self->update({ last_view_id => undef, deleted => DateTime->now });
     $self;
@@ -275,18 +266,20 @@ Returns group records.
 
 sub groups { [ sort {$a->name cmp $b->name} values %{$_[0]->_in_group} ] }
 
-# $user->_set_group_ids(\@group_ids);
-sub _set_group_ids
-{   my ($self, $group_ids) = @_;
-    defined $group_ids or return $self;
+# $user->_set_groups(\@groups);
+sub _set_groups
+{   my ($self, $new_groups) = @_;
+    defined $new_groups or return;
+
+    my $groups     = $self->site->groups;
+    my @new_groups = map $groups->group($_), @$new_groups;
 
     my $in_group   = $self->_in_group;
     my %old_groups = map +($_ => $in_group->{$_}), keys %$in_group;
-    my $groups     = $self->site->groups;
 
-    foreach my $gid (@$group_ids)
-    {   next if delete $old_groups{$gid};
-        $groups->group_add_user($groups->group($gid), $self);
+    foreach my $new_group (@$new_groups)
+    {   next if delete $old_groups{$new_group->id};
+        $groups->group_add_user($new_group, $self);
     }
 
     $groups->group_remove_user($_, $self) for values %old_groups;
@@ -294,9 +287,35 @@ sub _set_group_ids
 }
 
 #-----------------------
-=head1 METHODS: Views
+=head1 METHODS: View Limits
 
-=head2 $user->view_limits_with_blank
+The view limits are configured by the user, not to be overfed with information
+in sheets: a voluntary restriction on information.
+=cut
+
+### 2020-10-22: columns in GADS::Schema::Result::ViewLimit
+# id         user_id    view_id
+
+has _view_limits => (
+    is      => 'lazy',
+    builder => sub {
+        my $self = shift;
+        my $limits = $::db->search(ViewLimit => { user_id => $self->id });
+        my @views  = map Linkspace::View->from_id($_->view_id), $limits->all;
+        +{ map +($_->view_id => $_), @views };   # not by record id!!
+    },
+);
+
+=head2 \@limits = $user->view_limits;
+Returns all View objects which describe restrictions set by the user.
+=cut
+
+sub view_limits()
+{   sort { $a->id <=> $b->id }  #XXX is this the optimal ordering?
+       values %{$_[0]->_view_limits};
+}
+
+=head2 \@limits = $user->view_limits_with_blank;
 Used to ensure an empty selector is available in the user edit page.
 =cut
 
@@ -305,28 +324,31 @@ sub view_limits_with_blank
     $view_limits->count ? $view_limits : [ undef ];
 }
 
-# $user->_set_view_limits(\@view_ids);
 # $user->_set_view_limits(\@views);
-
 sub _set_view_limits
 {   my ($self, $views) = @_;
     defined $views or return;
-    my @view_ids = map +(blessed $_ ? $_->id : $_), @$views;
 
-    $self->find_or_create_related(view_limits => { view_id => $_ })
-        for @view_ids;
+    my $user_id  = $self->id;
+    my @view_ids = map to_id($_), @$views;
 
-    # Delete any groups that no longer exist
-    my %search;
-    $search{view_id} = { -not_in => @view_ids }
-        if @view_ids;
+    my $index    = $self->_view_limits;
+    my %old      = map +($_ => 1), keys %$index;
 
-    $self->_record->search_related(view_limits => \%search)->delete;
-}
+    foreach my $view_id (@view_ids)
+    {   next if delete $old{$view_id};
 
-sub _views_delete()
-{   my $self = shift;
-    $::db->delete(View => { user_id => $self->id });
+        $::db->create(ViewLimit => { user_id => $user_id, view_id => $view_id });
+        my $view = Linkspace::View->from_id($view_id);
+        $index->{$view->id} = $view;
+    }
+
+    foreach my $view_id (keys %old)
+    {   $::db->delete(ViewLimit => { user_id => $user_id, view_id => $view_id});
+        delete $index->{$view_id};
+    }
+
+    $self;
 }
 
 #-----------------------

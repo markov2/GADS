@@ -29,6 +29,7 @@ use Text::CSV::Encoded;
 use Linkspace::Util    qw(to_id flat);
 use Linkspace::View    ();
 use Linkspace::Results ();
+use Linkspace::Row     ();
 
 use Moo;
 use MooX::Types::MooseLike::Base qw(:all);
@@ -46,6 +47,8 @@ Linkspace::Sheet::Content - maintain the data, part of a sheet
 =head1 DESCRIPTION
 =head1 METHODS: Constructors
 =cut
+
+has sheet => ( is => 'ro', required => 1);
 
 #----------------
 =head1 METHODS: Attributes
@@ -2230,8 +2233,8 @@ sub rows_restore($)
 sub row_count() { $_[0]->max_serial }
 
 sub max_serial
-{   $::db->search(Current => { instance_id => $_[0]->sheet_id })
-        ->get_column('serial')->max;
+{   $::db->search(Current => { instance_id => $_[0]->sheet->id })
+        ->get_column('serial')->max || 0;
 }
 
 =head2 my $rows = $content->rows(%options);
@@ -2255,9 +2258,7 @@ sub rows(%)
 
 sub row_create($%)
 {   my ($self, $insert, %args) = @_;
-    $insert->{created}    ||= DateTime->now;
-    $insert->{created_by} ||= $::session->user;
-    $insert->{serial}     ||= $self->max_serial +1;
+    $insert->{serial} ||= $self->max_serial +1;
 
     if(my $pid = $insert->{parent_id} || to_id $insert->{parent})
     {   # Attempt to create a child of a child row?
@@ -2265,7 +2266,20 @@ sub row_create($%)
            or error __"Cannot create a nested child row";
     }
 
-    Linkspace::Row->_row_create($insert, content => $self, sheet => $self->sheet);
+    # First check the submission token to see if this has already been
+    # submitted. Do this as quickly as possible to prevent chance of 2 very
+    # quick submissions, and do it before the guard so that the submitted token
+    # is visible as quickly as possible
+#XXX
+    if(my $token = delete $args{submission_token})
+    {   $self->consume_submission_token($token);
+    }
+
+    my $sheet = $self->sheet;
+#   $sheet->user_can('write_new')
+#       or error __"No permissions to add a new row to sheet";
+
+    Linkspace::Row->_row_create($insert, content => $self, sheet => $sheet);
 }
 
 sub row_by_serial($%)

@@ -154,6 +154,9 @@ sub site_delete()
 
 sub path { substr $_[0]->name // $_[0]->hostname, 0, 12 }
 
+#XXX May want to support other timezones in the future
+sub timezone { 'Europe/London' }
+
 #-------------------------
 =head1 METHODS: Caching
 We like to cache as much information as possible between requests,

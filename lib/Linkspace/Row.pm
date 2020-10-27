@@ -6,6 +6,7 @@ use strict;
 use Log::Report 'linkspace';
 use DateTime ();
 
+#use Linkspace::Row::Revision     ();
 use Linkspace::Row::Cell         ();
 use Linkspace::Row::Cell::Orphan ();
 
@@ -50,11 +51,13 @@ The constructors may pass a 'content' with a 'sheet'-object, only a 'sheet' obje
 or neither.  It will break due to recursion when only a 'content' is provided.
 =cut
 
+sub path { $_[0]->sheet->path . '/row=' . $_[0]->id }
+
 sub from_record(@)
 {   my $class = shift;
     my $self = $class->SUPER::from_record(@_);
 
-    error __"You do not have access to this deleted record"
+    error __"You do not have access to this deleted row"
         if $self->deleted && !$self->layout->user_can('purge');
 
     $self;
@@ -70,24 +73,13 @@ sub from_revision_id($@)
 
 sub row_by_serial($%)
 {   my ($class, $serial) = (shift, shift);
-    defined $serial ? $self->from_search({serial => $serial}) : undef;
+    defined $serial ? $class->from_search({serial => $serial}) : undef;
 }
 
 sub _row_create($%)
 {   my ($class, $insert, %args) = @_;
-
-    my $guard  = $::db->begin_work;
-    my $revision;
-    if(my $data = delete $insert->{revision}) 
-    {   # May cast validation errors
-        $revision = $class->_revision_prepare($data);
-    }
-
-    my $row = $self->insert($insert, content => $args{content});
-    Linkspace::Row::Revision->_revision_create($revision, $row, @_);
-
-    $guard->commit;
-    $row;
+    my $sheet = $args{sheet};
+    $class->create($insert, content => $args{content}, sheet => $sheet);
 }
 
 sub _row_update()
@@ -143,7 +135,7 @@ sub purge
     my $revisions = $self->revisions;
     $_->_revision_delete for @$revisions;
 
-    my $which = +{ current_id => $id };
+    my $which = +{ current_id => $self->id };
     $::db->delete(AlertCache => $which);
     $::db->delete(Record     => $which);
     $::db->delete(AlertSend  => $which);
@@ -162,7 +154,9 @@ has content => (
 
 has sheet => (
     is      => 'ro',
-    builder => sub { $::session->site->document->sheet($_[0]->sheet_id) },
+    builder => sub {
+warn "BUILD SHEET ",$_[0]->sheet_id;
+ $::session->site->document->sheet($_[0]->sheet_id) },
 );
 
 #XXX MO: No idea yet what being "linked" means.
@@ -183,14 +177,16 @@ sub deleted_when
     $::db->parse_datetime($date);
 }
 
-sub is_deleted   { !! $self->deleted }   # deleted is a date
+sub is_deleted   { !! $_[0]->deleted }   # deleted is a date
 
 sub nr_rows()
 {   # query to count rows which are not deleted
+    ...
 }
 
 sub first_row()
 {   # Used in test-scripts: current_id does not need to start at 1
+    ...
 }
 
 #-----------------
@@ -198,6 +194,7 @@ sub first_row()
 A row has seen one or more revisions.
 
 =head2 my $revision = $row->revision($search, %options);
+
 Collect a specific revision which related to this row.  The C<$search>
 may by a (revision record, table 'Record') id, a constant C<'latest'>
 (same as calling the C<current()> method), C<'first'> (the original
@@ -216,8 +213,8 @@ sub revision($%)
 
     my $class = 'Linkspace::Row::Revision';
     if(ref $search)
-    {   if(my $before = $search{last_before})
-        {   my $hist = $class->_revision_latest(created_before => $before);
+    {   if(my $before = $search->{last_before})
+        {   my $hist = $self->_revision_latest(created_before => $before);
             return $hist->id==$current->id ? $current : $hist;
         }
         panic(join '#', %$search);
@@ -239,13 +236,19 @@ sub revision($%)
 =head2 my $revision = $row->revision_create($insert, %options);
 =cut
 
+sub _revision_prepare($%)
+{   my ($self, $data, %args) = @_
+    # take_defaults
+    # check_required
+    # check_permissions
+}
+
 sub revision_create($%)
 {   my ($self, $revision) = (shift, shift);
-    my $guard  = $::db->begin_work;
-    my $insert = $self->revision_prepare($revision);
-    my $rev    = Linkspace::Row::Revision->_revision_create($insert, $self, @_);
-    $guard->commit;
-    $rev;
+    my $insert = $self->_revision_prepare($revision, take_defaults => 1, @_);
+#   my $rev    = Linkspace::Row::Revision->_revision_create($insert, $self, @_);
+#   $rev;
+undef;
 }
 
 =head2 my $revision = $row->revision_update($revision, $update, %options);
@@ -260,10 +263,10 @@ sub revision_update($$%)
 Get the latest revision of the row: the non-draft with the highest id.
 =cut
 
-has current = (
+has current => (
      is      => 'rw',
      lazy    => 1,
-     builder => sub { Linkspace::Row::Revision->_revision_latest(row => $self) },
+     builder => sub { Linkspace::Row::Revision->_revision_latest(row => $_[0]) },
 );
 
 =head2 $row->set_current($revision);
@@ -334,7 +337,7 @@ all sheets to find these cells.
 sub curval_cells_pointing_to_me()
 {   my $self    = shift;
     my $results = $::db->search(Current =>
-        { 'curvals.value' => $row->current_id },
+        { 'curvals.value' => $self->current_id },
         { prefetch => { records => 'curvals' } }
     );
     my @datums = map $_->curvals, map $_->records, $results->all;
