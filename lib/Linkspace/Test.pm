@@ -21,7 +21,7 @@ our @EXPORT = qw/
    make_site    test_site
    make_user    test_user
    make_group   test_group
-   make_sheet
+   make_sheet   empty_sheet
 /;
 
 sub test_site(@);    sub make_site($@);   my $test_site;
@@ -290,6 +290,10 @@ logs_purge;
         '... test_user can view_create';
 
     $sheet;
+}
+
+sub empty_sheet($)
+{   make_sheet rows => [], columns => [], @_;
 }
 
 1;
