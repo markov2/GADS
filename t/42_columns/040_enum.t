@@ -6,7 +6,7 @@ use List::Util qw(min max);
 
 $::session = test_session;
 
-my $sheet = make_sheet;
+my $sheet = empty_sheet;
 my $layout = $sheet->layout;
 
 my $column1 = $layout->column_create({
@@ -306,6 +306,7 @@ process_test_cases($column5, @test_cases5);
 #
 
 my $column6 = initial_column 'column6';
+use Data::Dumper;
 my %expected_value6 = (
   aggregate => undef,
   can_child => 0,
@@ -326,7 +327,7 @@ my %expected_value6 = (
   options => '{}',
   ordering => undef,
   permissions => {},
-  position => 11,
+  position => $column6->position,
   related_field => undef,
   remember => 0,
   textbox => 0,

@@ -1,3 +1,7 @@
+## This file is part of Linkspace.  Copyright Ctrl O Ltd, UK.
+## See https://www.ctrlo.com/linkspace.html
+## Licensed under GPLv3 or newer, https://spdx.org/licenses/GPL-3.0-or-later
+
 =pod
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

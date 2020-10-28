@@ -2,7 +2,7 @@
 
 use Linkspace::Test;
 
-my $sheet   = make_sheet;
+my $sheet   = empty_sheet;
 my $layout  = $sheet->layout;
 
 my $column1 = $layout->column_create({

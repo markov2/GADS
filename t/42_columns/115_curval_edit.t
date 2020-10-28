@@ -4,7 +4,7 @@ use Linkspace::Test
 
 foreach my $delete_not_used (0..1)
 {
-    my $curval_sheet  = make_sheet;
+    my $curval_sheet  = empty_sheet;
     my $curval_layout = $curval_sheet->layout;
 
     my $sheet   = make_sheet

@@ -5,7 +5,7 @@ use Linkspace::Test
 
 set_fixed_time '10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S';
 
-my $sheet   = make_sheet;
+my $sheet   = empty_sheet;
 my $content = $sheet->content;
 
 ### Check quick search matches
