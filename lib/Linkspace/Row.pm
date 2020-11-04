@@ -10,7 +10,8 @@ use strict;
 use Log::Report 'linkspace';
 use DateTime ();
 
-#use Linkspace::Row::Revision     ();
+use Linkspace::Row::Revision     ();
+use Linkspace::Row::Revision::Approval ();
 use Linkspace::Row::Cell         ();
 use Linkspace::Row::Cell::Orphan ();
 
@@ -47,7 +48,8 @@ of them.  Structural:
    ::Row
       has many ::Row::Revision
          has many ::Row::Cell
-             has ::Datum, ::Column
+             has many ::Datum,
+             has ::Column
 
 =head1 METHODS: Constructors
 
@@ -58,21 +60,26 @@ or neither.  It will break due to recursion when only a 'content' is provided.
 sub path { $_[0]->sheet->path . '/row=' . $_[0]->id }
 
 sub from_record(@)
-{   my $class = shift;
-    my $self = $class->SUPER::from_record(@_);
+{   my ($class, $record) = (shift, shift);
+
+    return Linkspace::Row::Draft->from_record($record, @_)
+        if __PACKAGE__ eq $class && $record->draftuser_id;
+
+    my $self  = $class->SUPER::from_record($record, @_);
 
     error __"You do not have access to this deleted row"
-        if $self->deleted && !$self->layout->user_can('purge');
+        if $self->deleted && !$self->sheet->user_can('purge');
 
     $self;
 }
 
 sub from_revision_id($@)
 {   my ($class, $rev_id) = (shift, shift);
-    $::db->get_object(
+    my $rec = $::db->search(Current =>
       { 'record.id' => $rev_id, current_id => 'record.current_id',  },
-      { join => 'record' },
-      @_);
+      { join => 'record' })->single;
+
+    $class->from_record($rec, @_);
 }
 
 sub row_by_serial($%)
@@ -88,8 +95,8 @@ sub _row_create($%)
 
 sub _row_update()
 {   my ($self, $update, %args) = @_;
-    delete $self->{_linked_to} if $update->{linked_row_id} || $update->{linked_row};
-    delete $self->{_parent}    if $update->{parent_row_id} || $update->{parent_row};
+    delete $self->{_linked_to} if $update->{linked_row};
+    delete $self->{_parent}    if $update->{parent_row};
     $self->update($update);
     $self;
 }
@@ -100,6 +107,13 @@ sub _row_delete()
         deleted    => DateTime->now,
         deleted_by => $::session->user,
     });
+}
+
+sub _draft_rows($@)
+{   my ($class, $sheet, $user) = (shift, shift, shift);
+    Linkspace::Row::Draft->search_objects({ sheet => $sheet, draftuser => $user },
+       @_, sheet => $sheet,
+    );
 }
 
 =head1 $row->restore;
@@ -113,11 +127,8 @@ Delete the record entirely from the database, plus its parent current (entire
 row) along with all related revisions.
 =cut
 
-sub purge
+sub _row_purge
 {   my $self = shift;
-
-    $self->sheet->user_can('purge')
-        or error __"You do not have permission to purge records";
 
     my $curvals = $self->sheet->document->curval_cells_pointing_to_row($self);
 
@@ -134,7 +145,7 @@ sub purge
             using => \@use;
     }
 
-    $_->purge for @{$self->child_rows};
+    $_->_row_purge for @{$self->child_rows};
 
     my $revisions = $self->revisions;
     $_->_revision_delete for @$revisions;
@@ -163,8 +174,6 @@ warn "BUILD SHEET ",$_[0]->sheet_id;
  $::session->site->document->sheet($_[0]->sheet_id) },
 );
 
-#XXX MO: No idea yet what being "linked" means.
-
 sub linked_to_row
 {   my $self = shift;
     $self->{_linked_to} ||= $self->content->row($self->linked_row_id);
@@ -192,6 +201,8 @@ sub first_row()
 {   # Used in test-scripts: current_id does not need to start at 1
     ...
 }
+
+sub is_draft { 0 }
 
 #-----------------
 =head1 METHODS: Manage row revisions
@@ -240,19 +251,16 @@ sub revision($%)
 =head2 my $revision = $row->revision_create($insert, %options);
 =cut
 
-sub _revision_prepare($%)
-{   my ($self, $data, %args) = @_
-    # take_defaults
-    # check_required
-    # check_permissions
-}
-
 sub revision_create($%)
-{   my ($self, $revision) = (shift, shift);
-    my $insert = $self->_revision_prepare($revision, take_defaults => 1, @_);
-#   my $rev    = Linkspace::Row::Revision->_revision_create($insert, $self, @_);
-#   $rev;
-undef;
+{   my ($self, $insert) = (shift, shift);
+
+    ! $self->content->rewind
+        or error __x"You cannot create revisions on an old table view";
+
+    my $kill = $self->sheet->forget_history ? $self->all_revisions : [];
+    my $rev  = Linkspace::Row::Revision->_revision_create($self, $insert, @_);
+    $self->revision_delete($_) for @$kill;
+    $rev;
 }
 
 =head2 my $revision = $row->revision_update($revision, $update, %options);
@@ -263,14 +271,41 @@ sub revision_update($$%)
     $rev->_revision_update($update, @_);
 }
 
+=head2 \@revisions = $row->all_revisions;
+Returns all revisions (before the content rewind), newest first.
+=cut
+
+sub all_revisions(%)
+{   my $self = shift;
+    my $before = $self->content->rewind_formatted;
+    Linkspace::Row::Revision->_find($self, created_before => $before);
+}
+
+=head2 $row->revision_purge($revision);
+Remove revision from the database.  The usual C<< $revision->delete >> only
+flags the revision as being deleted.
+=cut
+
+sub revision_purge($)
+{   my ($self, $revision) = @_;
+
+    $self->sheet->user_can('purge')
+        or error __"You do not have permission to purge sheet content";
+
+    $revision->_revision_delete;
+}
+
+#---------------------
+=head1 METHODS: current revision
+
 =head2 my $revision = $row->current;
 Get the latest revision of the row: the non-draft with the highest id.
 =cut
 
 has current => (
-     is      => 'rw',
-     lazy    => 1,
-     builder => sub { Linkspace::Row::Revision->_revision_latest(row => $_[0]) },
+    is      => 'rw',
+    lazy    => 1,
+    builder => sub { Linkspace::Row::Revision->_revision_latest(row => $_[0]) },
 );
 
 =head2 $row->set_current($revision);
@@ -287,9 +322,22 @@ in the '_created_user' column in every revision.
 
 sub created_by() { $_[0]->current->cell('_created_user')->datum }
 
+=head2 my $count = $row->revision_count;
+Returns the number of revisions available for this row.
+=cut
+
+sub revision_count
+{   my $self = shift;
+    $self->_record->search_related('records')->count;
+}
+
 #-----------------
 =head1 METHODS: Parent/Child relation between rows
-XXX No idea what this exactly means.
+
+When row has a parent, then it will copy some of the cells from the parent,
+but can change other fields.
+
+Multi-level parenthood does not exist: a parent cannot be a child itself.
 =cut
 
 sub parent_row
@@ -301,7 +349,7 @@ sub has_parent_row { !! $_[0]->parent_row_id }
 
 sub child_rows()
 {   my $self = shift;
-    return [] if $self->parent_row_id;  # no multilevel parental relations
+    return [] if $self->parent_row_id;
 
     $self->search_objects({
         parent_row   => $self,
@@ -314,15 +362,6 @@ sub child_row_create()
 {   my ($self, %args) = @_;
     $self->content->row_create(%args, parent_row => $self);
 }
-
-#---------------------
-=head1 METHODS: Draft row
-=cut
-
-sub is_draft { !! $_[0]->draftuser_id }
-
-#XXX must start a new row
-sub draft_create() {...}
 
 #---------------------
 =head1 METHODS: Approvals

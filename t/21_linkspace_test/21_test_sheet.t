@@ -17,7 +17,7 @@ my $sheet2 = make_sheet columns => [ 'intgr' ];
 ok defined $sheet2, 'Create sheet with one column';
 
 my $cols2 = $sheet1->layout->columns_search(exclude_internal => 1);
-cmp_ok @$cols2, '==', 1, '... no columns';
+cmp_ok @$cols2, '==', 1, '... one column';
 is $cols2->[0]->name_short, 'integer1', '... column = integer1';
 cmp_ok $sheet1->content->row_count, '==', 2, '... two rows';
 

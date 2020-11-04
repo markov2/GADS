@@ -2,20 +2,23 @@
 ## See https://www.ctrlo.com/linkspace.html
 ## Licensed under GPLv3 or newer, https://spdx.org/licenses/GPL-3.0-or-later
 
-package GADS::Safe;
+#XXX Not used?  Was called of ::Code, but probably when the code was in Perl, not
+#XXX in Lua.
+
+package Linkspace::Safe;
 
 use Safe;
 use Moo;
 with 'MooX::Singleton';
 
-has cpt => (
+has _cpt => (
     is => 'lazy',
 );
 
 sub _build_cpt
 {   my $self = shift;
 
-    my($cpt) = new Safe;
+    my $cpt = Safe->new;
 
     #Basic variable IO and traversal
     $cpt->permit_only(qw(null scalar const padany lineseq leaveeval rv2sv pushmark list return enter stub));
@@ -46,15 +49,10 @@ sub _build_cpt
 
 sub eval
 {   my ($self, $expr) = @_;
-    my($ret) = $self->cpt->reval($expr);
+    my ($ret) = $self->_cpt->reval($expr);
+    die $@ if @$;
 
-    if($@)
-    {
-        die $@;
-    }
-    else {
-        return $ret;
-    }
+    $ret;
 }
 
 1;

@@ -2,27 +2,28 @@
 ## See https://www.ctrlo.com/linkspace.html
 ## Licensed under GPLv3 or newer, https://spdx.org/licenses/GPL-3.0-or-later
 
-use warnings;
-use strict;
-
 package Linkspace::Datum::Date;
 
 use Log::Report 'linkspace';
 use DateTime ();
 
-use Linkspace::Util qw/parse_duration flat/;
+use Scalar::Util    qw(blessed);
+use Linkspace::Util qw(parse_duration flat);
 
 use Moo;
 extends 'Linkspace::Datum';
 
 #XXX for data which has an external origin needs: $column->parse_date($_)
 
-sub _unpack_values($$%)
-{   my ($class, $cell, $values, %args) = @_;
+#!!! The DBIx background accepts raw DateTime objects, so we do not need to
+#!!! treat the 'value'.
+
+sub _unpack_values($$$%)
+{   my ($class, $column, $old_datums, $values, %args) = @_;
 
     if($args{bulk} && @$values==1)
     {   if(my $step = parse_duration $values->[0])
-        {   my @dates = map $_->value->clone, @{$cell->datums};
+        {   my @dates = map $_->value->clone, @$old_datums;
             push @dates, DateTime->now unless @dates;
             return [ map $_->add_duration($step), @dates ];
         }

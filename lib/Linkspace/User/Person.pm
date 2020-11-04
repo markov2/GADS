@@ -16,7 +16,7 @@ use Scalar::Util qw/blessed weaken/;
 use JSON         qw/decode_json/;
 
 use Linkspace::Util qw/index_by_id to_id/;
-use Linkspace::Row::Cursor ();
+use Linkspace::User::Cursor ();
 
 sub db_table { 'User' }
 
@@ -724,7 +724,7 @@ has _can_column => (
                 user_groups => { group => { layout_groups => 'layout' } }
             },
             result_class => 'HASH',
-        })->single;
+        })->next;
 
 #XXX needs more work: we already know the groups of the user, so may simply
 #XXX get it from the groups.
@@ -756,7 +756,7 @@ disappeared, however.
 
 sub row_cursor($)
 {   my ($self, $sheet) = @_;
-    Linkspace::Row::Cursor->for_user($self, $sheet);
+    Linkspace::User::Cursor->for_user($self, $sheet);
 }
 
 =head2 my $cursor = $user->row_cursor_create($sheet, $revision);
@@ -764,7 +764,7 @@ sub row_cursor($)
 
 sub row_cursor_create($$)
 {   my ($self, $sheet, $revision) = @_;
-    Linkspace::Row::Cursor->_cursor_create({ user => $self, sheet => $sheet });
+    Linkspace::User::Cursor->_cursor_create({ user => $self, sheet => $sheet });
 }
 
 =head2 my $cursor = $user->row_cursor_point($sheet, $revision);

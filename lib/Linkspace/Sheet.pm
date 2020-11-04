@@ -218,7 +218,7 @@ sub user_can($;$)
     $user ||= $::session->user;
 
        $self->allow_everything
-    || $self->access->group_can($permission, $user->group_id)
+    || $self->access->group_can($permission, $user->group)
     || $user->has_permission($permission);
 }
 

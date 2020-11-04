@@ -26,6 +26,7 @@ my @person_properties = qw/
 
 __PACKAGE__->register_type;
 
+sub datum_class      { 'Linkspace::Datum::Person' }
 sub has_filter_typeahead { 1 }
 sub has_fixedvals   { 1 }
 sub option_defaults { shift->SUPER::option_defaults(@_, @options) }

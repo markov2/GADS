@@ -15,13 +15,13 @@ extends 'Linkspace::Column::Person';
 
 __PACKAGE__->register_type;
 
-sub is_hidden    { 1 }
+sub is_hidden        { 1 }
 sub is_internal_type { 1 }
-sub is_userinput { 0 }
-sub sprefix      { 'current' }
-sub tjoin        { 'deletedby' }
-sub value_field  { 'deletedby' }
-sub value_table  { 'Current' }
+sub is_userinput     { 0 }
+sub sprefix          { 'current' }
+sub tjoin            { 'deletedby' }
+sub value_field      { 'deletedby' }
+sub value_table      { 'Current' }
 
 ###
 ### Class

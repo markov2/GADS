@@ -22,13 +22,14 @@ my @options = (
 
 __PACKAGE__->register_type;
 
-sub addable        { 1 }
-sub can_multivalue { 1 }
+sub datum_class      { 'Linkspace::Datum::Daterange' }
+sub addable          { 1 }
+sub can_multivalue   { 1 }
 sub has_multivalue_plus { 1 }
 sub option_defaults  { shift->SUPER::option_defaults(@_, @options) }
-sub retrieve_fields{ [ qw/from to/ ] }
-sub return_type    { 'daterange' }
-sub sort_field     { 'from' }
+sub retrieve_fields  { [ qw/from to/ ] }
+sub return_type      { 'daterange' }
+sub sort_field       { 'from' }
 
 ###
 ### Class

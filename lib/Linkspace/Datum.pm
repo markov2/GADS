@@ -5,31 +5,88 @@
 package Linkspace::Datum;
 use Log::Report 'linkspace';
 
-#use Linkspace::Datum::Autocur;
-#use Linkspace::Datum::Calc;
-use Linkspace::Datum::Count;
-#use Linkspace::Datum::Curcommon;
-#use Linkspace::Datum::Curval;
-use Linkspace::Datum::Date;
-use Linkspace::Datum::Daterange;
-use Linkspace::Datum::Enum;
-use Linkspace::Datum::File;
-use Linkspace::Datum::ID;
-use Linkspace::Datum::Integer;
-use Linkspace::Datum::Person;
-use Linkspace::Datum::Rag;
-use Linkspace::Datum::Serial;
-use Linkspace::Datum::String;
-use Linkspace::Datum::Tree;
+use Linkspace::Util  qw(to_id);
+
+#!!! We cannot load the ::Datums packages here, because Moo will not be able to
+#    inherit methods.  Booh!
 
 use Moo;
+
+my @cache_tables = qw/Ragval Calcval/;
+my @value_tables = qw/Enum String Intgr Daterange Date Person File Curval/;
 
 use overload
     bool  => sub { 1 },
     '""'  => 'as_string',
     '0+'  => 'as_integer',
-    'cmp' => 'compare_values',
+    'cmp' => 'compare_as_string',
+    '<=>' => 'compare_as_integer',
     fallback => 1;
+
+#--------------------
+=head1 METHODS: Constructors
+
+=head2 \@datums = $class->datums_prepare($column, \@values, $old);
+Creating new cells is a two phase process: first the new cell in created have,
+the it gets written.
+=cut
+
+sub datums_prepare($$$%)
+{   my ($class, $column, $raw_values, $old_datums) = @_;
+    my $values = $class->_unpack_values($column, $old_datums, $raw_values);
+    [ map $class->new(column => $column, value => $_), @$values ];
+}
+
+=head2 $datum->write($revision, %args);
+=cut
+
+sub _create_insert(@) { shift; +{ @_ } }
+
+sub write($%)
+{    my ($self, $revision, %args) = @_;
+     my $column = $self->column;
+
+     my $insert = $self->_create_insert(
+         record_id    => $revision->id,
+         layout_id    => $column->id,
+         child_unique => $args{child_unique} ? 1 : 0,
+         value        => $self->value,
+     );
+
+     my $r = $::db->create($self->db_table, $insert);
+     (ref $self)->from_id($r->id, revision => $revision, column => $column);
+}
+
+sub from_record($%)
+{   my ($self, $rec) = (shift, shift);
+    $self->new(value => $rec->value, child_unique => $rec->child_unique, @_);
+}
+
+sub from_id($%)
+{   my ($self, $datum_id) = (shift, shift);
+    my $rec = $::db->search($self->db_table => { id => $datum_id})->next or return;
+    $self->from_record($rec, @_);
+}
+
+#--------------------
+=head1 METHODS: Attributes
+=cut
+
+has column => ( is => 'ro', required => 1 );
+has value  => ( is => 'ro', required => 1 );
+
+has child_unique => ( is => 'ro', default => 0 );
+has revision => ( is => 'rw' );
+
+
+#--------------------
+=head1 METHODS: Other
+=cut
+
+sub as_string  { $_[0]->column->datum_as_string($_[0]) }
+sub as_integer { panic "Not implemented" }
+sub compare_as_string($)  { $_[0]->as_string cmp $_[1]->as_string }
+sub compare_as_integer($) { $_[0]->as_integer cmp $_[1]->as_integer }
 
 # That value that will be used in an edit form to test the display of a
 # display_field dependent field
@@ -38,10 +95,6 @@ sub value_regex_test { shift->text_all }
 
 sub html_form    { $_[0]->value // '' }
 sub filter_value { $_[0]->html_form }
-
-# The values needed to pass to the set_values function of a datum. Normally the
-# same as the HTML fields, but overridden where necessary
-sub set_values   { shift->html_form }
 
 # The value to search for unique values
 sub search_values_unique { $_[0]->html_form }
@@ -83,8 +136,19 @@ sub field_value() { +{ value => $_[0]->value } }
 
 sub field_value_blank() { +{ value => undef } }
 
-sub as_string($) { $_[1]->datum_as_string($_[0]) }  # $self, $column
+sub has_values_stored_for($)
+{   my ($self, $revision) = @_;
+    my $search = { record_id => to_id $revision };
+    foreach my $table (@value_tables)
+    {   return 1 if $::db->search($table => $search)->count;
+    }
+    0;
+}
 
-sub as_integer   { panic "Not implemented" }
+sub remove_values_stored_for($)
+{   my ($self, $revision) = @_;
+    my $search = { record_id => to_id $revision };
+    $::db->delete($_ => $search) for @value_tables, @cache_tables;
+}
 
 1;

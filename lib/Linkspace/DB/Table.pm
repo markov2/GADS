@@ -141,6 +141,10 @@ sub from_id($%)
 =head2 my $object = $class->from_search(\%search, %options);
 Create the C<$object> which manages a database record.  The search must
 result in at most one record.
+
+The C<%search> may only be simple: no joins, etc.  The field names
+to be used are the renamed (external) names.  For complex searches,
+use C<< $::db->search >>
 =cut
 
 sub from_search($%)

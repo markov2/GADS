@@ -14,6 +14,7 @@ use GADS::Helper::BreadCrumbs qw(Crumb);
 
 use Linkspace::Audit  ();
 use Linkspace::Util   qw(is_valid_email);
+use Linkspace::Website::SubmissionToken;
 
 use HTML::Entities;
 use HTML::FromText qw(text2html);
@@ -481,8 +482,8 @@ any ['get', 'post'] => '/login' => sub {
 };
 
 any ['get', 'post'] => '/edit/:id' => require_login sub {
-    my $id = is_valid_id(param 'id');
-    _process_edit($id) if $id;
+    my $current_id = is_valid_id(param 'id');
+    _process_edit($current_id) if $current_id;
 };
 
 any ['get', 'post'] => '/myaccount/?' => require_login sub {
@@ -1060,7 +1061,7 @@ get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
 
     if(defined param('pdf'))
     {   return send_file(
-            \($row->pdf->content),
+            \($row->current->pdf->content),
             content_type => 'application/pdf',
             filename     => "Record-$current_id.pdf"
         );
@@ -1073,7 +1074,7 @@ get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
     my $output = template 'record' => {
         page           => 'record',
         record         => $row->presentation($sheet),
-        versions       => [ $row->versions ],
+        versions       => $row->all_revisions,
         all_columns    => $row->columns_view,
         has_rag_column => $row->has_rag_column,
         is_history     => $action eq 'history',
@@ -1358,7 +1359,7 @@ prefix '/:layout_name' => sub {
         # Check for bulk delete
         if (param 'modal_delete')
         {
-            $sheet->user_can("delete")
+            $sheet->user_can('delete')
                or error __"You do not have permission to delete records";
 
             my %params = (
@@ -2570,8 +2571,6 @@ prefix '/:layout_name' => sub {
     };
 
     any ['get', 'post'] => '/edit/?' => require_login sub {
-
-        my $layout = var('layout') or pass;
         _process_edit();
     };
 
@@ -2838,6 +2837,7 @@ sub _data_graph
 
 sub _process_edit
 {   my $current_id = shift;
+    my $content = $sheet->content;
 
     my %params = (
         user                 => $user,
@@ -2846,31 +2846,23 @@ sub _process_edit
         curcommon_all_fields => 1,
     );
 
-#XXX no: do not create an empty record first
-    my $record = GADS::Record->new(%params);
-
-    if (my $delete_id = param 'delete')
-    {
-        $sheet->user_can("delete")
+    if(my $current_id = param 'delete')
+    {   $sheet->user_can('delete')
             or error __"You do not have permission to delete records";
 
-#XXX    $sheet->content->delete_current_record;
-        if (process( sub { $record->delete_current($sheet) }))
+        if(process( sub { $content->row_delete($current_id) }))
         {
             return forwardHome(
-                { success => 'Record has been deleted successfully' }, $record->layout->identifier.'/data' );
+                { success => 'Record has been deleted successfully' }, $sheet->identifier.'/data' );
         }
     }
 
-    if (param 'delete_draft')
-    {
-        $sheet->user_can("delete")
+    if(param 'delete_draft')
+    {   $sheet->user_can('delete')
             or error __"You do not have permission to delete records";
 
-#XXX    $sheet->content->delete_drafts
-        if (process( sub { $record->delete_user_drafts($sheet) }))
-        {
-            return forwardHome(
+        if(process( sub { $content->draft_delete }))
+        {   return forwardHome(
                 { success => 'Draft has been deleted successfully' }, $sheet->identifier.'/data' );
         }
     }
@@ -2883,9 +2875,9 @@ sub _process_edit
             if $row && $row->is_draft && ! defined(param 'include_draft');
     }
 
-    my $parent = param('child') || ($row ? $row->parent : undef);
-    my $modal = is_valid_id(param 'modal');
-    my $oi    = is_valid_id(param 'oi');
+    my $parent = is_valid_id(param 'child') || ($row ? $row->parent : undef);
+    my $modal  = is_valid_id(param 'modal');
+    my $oi     = is_valid_id(param 'oi');
 
     my $validate_only = defined(param 'validate');
     if(param('submit') || param('draft') || $modal || $validate_only)
@@ -2962,13 +2954,16 @@ sub _process_edit
                 values  => +{ map +($_->field => $record->field($_)->as_string), @{$layout->all_columns},
             });
         }
-        elsif ($modal)
+        elsif($modal)
         {
             # Do nothing, just a live edit, no write required
         }
-        elsif (param 'draft')
+        elsif(param 'draft')
         {
-            if(process sub { $record->write(draft => 1, submission_token => param('submission_token')) })
+            if(process sub {
+                consume_submission_token param 'submission_token';
+                $record->write(draft => 1);
+            })
             {
                 return forwardHome(
                     { success => 'Draft has been saved successfully'}, $sheet->identifier.'/data' );
@@ -2979,7 +2974,10 @@ sub _process_edit
         }
         elsif (!$failed)
         {
-            if(process sub { $record->write(submission_token => param('submission_token')) })
+            if(process sub {
+                consume_submission_token param 'submission_token';
+                $record->write;
+            })
             {   my $current_id = $record->current_id;
                 my $forward = !$row && $sheet->forward_record_after_create
                   ? "record/$current_id"
@@ -2996,22 +2994,24 @@ sub _process_edit
     elsif($row)
     {   # Do nothing, record already loaded
     }
-    elsif(my $from = is_valid_id(param 'from'))
-    {   my $toclone = $sheet->content->row(current_id => $from, curcommon_all_fields => 1);
-        $record = $toclone->clone;
+
+    $current_id ||= is_valid_id(param 'from');
+
+    my $values;
+    if($current_id)
+    {   $values = $sheet->content->search(
+            limit_current_ids => [ $current_id ],
+            curcommon_all_fields => 1,
+        )->row(1);
     }
     else
-    {   $record->load_remembered_values;
+    {   #XXX returns a Result::Row
+        $values = $sheet->content->row_initial_values;
     }
 
-    # Clear all fields which we may write but not read.
-    $record->field($_)->set_value("")
-        for grep ! $_->user_can('read'),
-               @{$sheet->layout->columns_search(user_can_write => 1)};
-
-    my $child_rec = $child && $sheet->user_can('create_child')
-        ? is_valid_id(param 'child')
-        : $record->parent_id;
+    my $child_rec = $parent && $sheet->user_can('create_child')
+        ? $parent
+        : $row->parent;
 
     notice __"Values entered on this page will have their own value in the child "
       . "record. All other values will be inherited from the parent."
@@ -3029,14 +3029,14 @@ sub _process_edit
         child               => $child_rec,
         layout_edit         => $layout,
         clone               => param('from'),
-        submission_token    => !$modal && $record->create_submission_token,
+        submission_token    => !$modal && create_submission_token,
         breadcrumbs         => \@breadcrumbs,
         record_presentation => $record->presentation($sheet, edit => 1, new => !$current_id, child => $child),
     );
 
     my %options;
     if($modal)
-    {   my $cols = $sheet->layout->column($modal)->curval_columns;
+    {   my $cols = $layout->column($modal)->curval_columns;
         $params{modal_field_ids} = encode_json [ map $_->id, @$cols ];
         $options{layout} = undef;
     }

@@ -322,29 +322,6 @@ sub columns_link_child_of($)
 }
 
 #--------------
-=head1 METHODS: Find rows
-Rows (records) are referenced by many different id's.
-
-=head2 my $row = $doc->row($kind, $id, %options);
-Option C<rewind> says XXX.
-=cut
-
-sub row($$%)
-{   my ($self, $kind, $id, %args) = @_;
-    $id or return;
-
-=pod
-    if(my $sheet = $args{sheet}) ...
-    #XXX see old GADS::Record->find...
-      'pointer_id'
-      'record_id'
-      'deleted_currentid'
-      'deleted_recordid'
-      'current_id';
-=cut
-}
-
-#--------------
 =head1 METHODS: Other
 
 =head2 $doc->column_unuse($column);

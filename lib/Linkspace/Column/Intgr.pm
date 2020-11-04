@@ -22,12 +22,13 @@ my @options = (
 
 __PACKAGE__->register_type;
 
-sub addable        { 1 }
-sub can_multivalue { 1 }
-sub is_numeric      { 1 }
-sub option_defaults { shift->SUPER::option_defaults(@_, @options) }
-sub return_type    { 'integer' }
-sub value_table    { 'Intgr' }
+sub datum_class      { 'Linkspace::Datum::Integer' }
+sub addable          { 1 }
+sub can_multivalue   { 1 }
+sub is_numeric       { 1 }
+sub option_defaults  { shift->SUPER::option_defaults(@_, @options) }
+sub return_type      { 'integer' }
+sub value_table      { 'Intgr' }
 
 ###
 ### Class

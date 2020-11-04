@@ -31,14 +31,26 @@ Linkspace::Sheet::Content - maintain the data, part of a sheet
   my $content = $sheet->content;
 
 =head1 DESCRIPTION
+
+Maintains the (raw) data of the sheet: a set of rows with cells.  There are potentially
+a huge number of rows, so we do not cache them.  The sheet may have many columns, to
+potentially each row has many cells... which are treated lazy as well.
+
 =head1 METHODS: Constructors
 =cut
-
-has sheet => ( is => 'ro', required => 1);
 
 #----------------
 =head1 METHODS: Attributes
 =cut
+
+has sheet => ( is => 'ro', required => 1);
+
+has rewind => ( is => 'ro' );
+
+sub rewind_formatted()
+{   my $r = $_[0]->rewind;
+    $r ? $::db->format_datetime($r) : undef;
+}
 
 #-----------------
 =head1 METHODS: Search
@@ -46,19 +58,32 @@ has sheet => ( is => 'ro', required => 1);
 =head2 my $results = $content->search(%options);
 This expensive function will produce a L<Linkspace::Page> object which can be
 used to retrieve the results.
+
+=head1 my $results = $content->search(%query);
 =cut
 
-sub _build_query(%)
+sub search(%)
+{   my $self = shift;
+    my ($query, $args) = $_->_interpret_query(@_);
+
+    my $results = $query->{needs_column_grouping}
+       ? $self->_grouping_search($query)
+       : $self->_standard_search($query);
+}
+
+sub _interpret_query(%)
 {   my ($self, %args) = @_;
+
+    my $columns = delete $args{columns} || $self->columns_retrieved_no;
 
     my $include_children = exists $args{include_children}
       ? delete $args{include_children}
-      : first { $_->can_child } @{$self->columns_retrieved_no};
+      : first { $_->can_child } @$columns;
 
     my $only_drafts = delete $args{only_drafts};
     my $user        = exists $args{user} ? delete $args{user} : $::session->user;
-    my $view_limits = delete $args{view_limits};
 
+    my $view_limits = delete $args{view_limits};
     my @view_limits
        = $only_drafts ? ()
        : $view_limits ? flat $view_limits
@@ -66,6 +91,10 @@ sub _build_query(%)
        :                ();
 
     my $current_ids = delete $args{limit_current_ids};
+    if(my $rows = delete $args{rows} || $args{row})
+    {   push @$current_ids, map to_id($_), flat @$rows;
+    }
+
     $current_ids    = map +($_ => 1), @$current_ids if ref $current_ids eq 'ARRAY';
     my $filter      = $self->sheet->filter_prepare(delete $args{filter});
 
@@ -75,7 +104,10 @@ sub _build_query(%)
         $grouping = $view->has_grouping;
     }
 
+# rewind moved to $sheet->content($rewind)
+
     my %query = (
+        columns          => $columns,
         filter           => $filter,
         include_approval => delete $args{include_approval},
         include_children => $include_children,
@@ -91,20 +123,10 @@ sub _build_query(%)
         view_limit_extra => delete $args{view_limit_extra},
         view_limits      => \@view_limits,
         needs_column_grouping => $grouping,
+
+        # also collect all cells required fo curcommon
+        curcommon_all_fields => delete $args{curcommon_all_fields},
     );
-
-#       curcommon_all_fields => $self->curcommon_all_fields,
-#       columns              => $self->columns,
-
-    ### Rewind
-    # Whether to take results from some previous point in time.  During a search,
-    # the formatted value is put in $GADS::Schema::Result::Record::REWIND, which
-    # is part of a closure configuration for a filter rule.
-
-    if(my $rewind = delete $args{rewind})
-    {   $query{rewind} = $rewind;
-        $query{rewind_formatted} = $::db->format_datetime($rewind);
-    }
 
     ### Date boundaries
 
@@ -134,17 +156,6 @@ sub _build_query(%)
     }
 
     (\%query, \%args);
-}
-
-sub search(%)
-{   my $self = shift;
-    my ($query, $args) = $_->_build_query(@_);
-
-my $hits;
-    Linkspace::Results->new(
-        query => $query,
-        hits  => $hits,
-    );
 }
 
 # Whether to build all fields for any curvals. This is needed when producing a
@@ -243,7 +254,7 @@ sub search_query
         $self->common_search($query, $current),
         $self->record_later_search(%options, is_linked => $is_linked);
 
-    if(my $rewind = $self->content->rewind_formatted)
+    if(my $rewind = $self->rewind_formatted)
     {   push @search, { "$record_single.created" => { '<' => $rewind } };
     }
 
@@ -252,7 +263,6 @@ sub search_query
 
 has _plus_select => (
     is      => 'rw',
-    isa     => ArrayRef,
     default => sub { [] },
 );
 
@@ -260,14 +270,12 @@ has _plus_select => (
 # of setting a sort, or returns default if required
 has _sorts => (
     is      => 'lazy',
-    isa     => ArrayRef,
     builder => '_sort_builder',
 );
 
 # The sorts for a limit_time query
 has _sorts_limit => (
     is      => 'lazy',
-    isa     => ArrayRef,
     builder => sub
     {   my $self = shift;
         $self->time_bounded_by ? $self->_sort_builder(limit_time => 1) : $self->_sorts;
@@ -277,12 +285,6 @@ has _sorts_limit => (
 # The first sort of the calculated list of sorts
 sub sort_first { $_[0]->_sorts->[0] }
 
-sub results($)
-{   my ($self, $query) = @_;
-    $query->{needs_column_grouping} ? $self->_build_group_results($query) : $self->_build_standard_results($query);
-}
-
-sub _construct_filter;
 
 # Shortcut to generate the required joining hash for a DBIC search
 sub linked_hash
@@ -593,8 +595,10 @@ sub _cid_search_query
     $search;
 }
 
-sub _build_standard_results($)
+sub _standard_search($)
 {   my ($self, $query) = @_;
+
+    my $results = Linkspace::Results->new(query => $query);
 
     # Need to call first to build joins
     my $search_query = $self->search_query(search => 1, sort => 1, linked => 1);
@@ -684,6 +688,8 @@ sub _build_standard_results($)
         retrieved  => \@retrieved,
         records    => \@all_rows,
     );
+
+    $results;
 }
 
 sub fetch_multivalues
@@ -1685,12 +1691,10 @@ has dr_interval => (
 
 has dr_from => (
     is  => 'rwp',
-    isa => DateAndTime,
 );
 
 has dr_to => (
     is  => 'rwp',
-    isa => DateAndTime,
 );
 
 has dr_y_axis_id => (
@@ -1721,21 +1725,21 @@ sub _build_aggregate_results
 	@$aggregate or return;
 
     my @columns = map +{
-        id       => $_->id,
         column   => $_,
         operator => $_->aggregate,
     }, @$aggregate;
 
-    my $results = $self->_build_group_results(columns => \@columns, needs_column_grouping => 1, aggregate => 1);
+    my $results = $self->_grouping_search(columns => \@columns, needs_column_grouping => 1, aggregate => 1);
 
     panic "Unexpected number of aggregate results"
-        if @$results > 1;
+        if $results->count > 1;
 
-    $results->[0];
+    $results->row(1);
 }
 
-sub _build_group_results($%)
+sub _grouping_search($%)
 {   my ($self, $query, %options) = @_;
+
     my $aggregate = $query->{aggregate};
 
     # Build the full query first, to ensure that all join numbers etc are
@@ -1748,13 +1752,12 @@ sub _build_group_results($%)
     my $is_table_group = !$self->isa('GADS::RecordsGraph') && !$self->isa('GADS::RecordsGlobe');
 
     if(my $cols = $query->{columns})
-    {   @cols = @$cols;
+    {   @cols = map +{ column => $_ }, @$cols;
     }
     elsif($view && $view->does_column_grouping && $is_table_group)
     {   foreach my $column (@{$self->columns_view($query)})
         {   my $has_grouping = $view->grouping_on($column);
             push @cols, +{
-                id       => $column->id,
                 column   => $column,
                 operator => $column->is_numeric ? 'sum' : $has_grouping ? 'max' : 'distinct',
                 group    => $has_grouping,
@@ -1768,11 +1771,10 @@ sub _build_group_results($%)
         if $is_table_group && $view && !$aggregate;
 
     my $dr_column = $query->{dr_column}; # Date-range column
-    my $dr_col_id = to_id $dr_column; # Date-range column
+    my $dr_col_id = to_id $dr_column;
 
     foreach my $col (@cols)
-    {   my $column         = $self->layout->column($col->{id});
-        $col->{column}     = $column;
+    {   my $column = $col->{column};
         $col->{operator} ||= 'max';
         $col->{is_drcol}   = $dr_col_id == $column->id;
 
@@ -1785,8 +1787,7 @@ sub _build_group_results($%)
 
         # If it's got a parent curval, then add that too
         if(my $parent = $col->{parent} = $column->parent)
-        {   push @parents, {
-                id       => $parent->id,
+        {   push @parents, +{
                 column   => $parent,
                 operator => $col->{operator},
                 group    => $col->{group},
@@ -1798,7 +1799,6 @@ sub _build_group_results($%)
         if($column->type eq 'curval' && !$is_table_group)
         {   foreach my $curval (@{$column->curval_fields})
             {   push @cols, {
-                    id       => $curval->id,
                     column   => $curval,
                     operator => $col->{operator},
                     parent   => $column,
@@ -1827,14 +1827,14 @@ sub _build_group_results($%)
         next if $column->is_internal;
 
         my $parent = $col->{parent};
+
         # If the column is a curcommon, then we need to make sure that it is
         # included even if it is a multivalue (when it would normally be
         # excluded). The reason is that it will otherwise not cause the related
         # record_later searches to be generated when the curval sub-field is
         # retrieved in the same query
         if($col->{is_drcol})
-        {
-            if(my $parent = $self->dr_column_parent)
+        {   if(my $parent = $self->dr_column_parent)
             {   $self->add_drcol($parent);
                 $self->add_drcol($column, parent => $parent);
             }
@@ -1862,8 +1862,8 @@ sub _build_group_results($%)
 
         my $select;
         my $as = $column->field;
-        $as = $as.'_count' if $op eq 'count';
-        $as = $as.'_sum' if $op eq 'sum';
+        $as = $as.'_count'    if $op eq 'count';
+        $as = $as.'_sum'      if $op eq 'sum';
         $as = $as.'_distinct' if $op eq 'distinct' && !$col->{group};
 
         # The select statement to get this column's value varies depending on
@@ -2181,34 +2181,32 @@ __CASE_NO_LINK
         $self->_cid_search_query(sort => 0, aggregate => $aggregate), $select
     );
 
-    return [ $result->all ]
-        if $self->isa('GADS::RecordsGraph') || $self->isa('GADS::RecordsGlobe');
+    my $is_grouping = $options{is_group} || $query->{needs_column_grouping};
+
+    my $results = Linkspace::Results->new(
+        query                => $query,
+        group_cols           => \%group_cols,
+    );
 
     my @all;
+    my $columns = grep !$_->is_internal, @{$self->columns_retrieved_do};
+
     while(my $rec  = $result->next)
-    {
-        push @all, GADS::Record->new(
-            record                  => $rec,
-            # is_group affects what key is used by GADS::Record for the result
-            # (e.g. _sum). This is a bit messy and should be defined better. We
-            # force is_group to be 1 if calculating total aggregates, which
-            # will then force the sum. At the moment the only aggregate is sum,
-            # but that may change in the future
-            is_grouping          => $options{is_group} || $query->{needs_column_grouping},
-            group_cols           => \%group_cols,
-            columns_retrieved_no => $self->columns_retrieved_no,
-            columns_retrieved_do => $self->columns_retrieved_do,
-            columns_view         => $self->columns_view,
-            curcommon_all_fields => $self->curcommon_all_fields,
-        );
+    {   my $row = Linkspace::Result::Row->new;
+        foreach my $column (@$columns)
+        {   my $key = ($column->link_parent || $column)->field_name;
+
+my $datums;
+            $row->add_cell(name => $column->name_short, datums => $datums, column => $column, is_grouping => $is_grouping);
+        }
     }
 
     return \@all;
 }
 
-sub rows_purge($)
+sub purge($)
 {   my ($self, $current_ids) = @_;
-    $_->purge for $self->rows($current_ids, is_deleted => 1);
+    $self->row_purge($_) for $self->rows($current_ids, is_deleted => 1);
 }
 
 sub rows_restore($)
@@ -2246,26 +2244,16 @@ sub row_create($%)
 {   my ($self, $insert, %args) = @_;
     $insert->{serial} ||= $self->max_serial +1;
 
-    if(my $pid = $insert->{parent_id} || to_id $insert->{parent})
-    {   # Attempt to create a child of a child row?
-        ! $self->row($pid)->parent_id
-           or error __"Cannot create a nested child row";
-    }
-
-    # First check the submission token to see if this has already been
-    # submitted. Do this as quickly as possible to prevent chance of 2 very
-    # quick submissions, and do it before the guard so that the submitted token
-    # is visible as quickly as possible
-#XXX
-    if(my $token = delete $args{submission_token})
-    {   $self->consume_submission_token($token);
+    if(my $pid = $insert->{parent})
+    {   error __"Cannot create a nested child row"
+            if $self->row(to_id $pid)->parent_id;
     }
 
     my $sheet = $self->sheet;
-#   $sheet->user_can('write_new')
-#       or error __"No permissions to add a new row to sheet";
+    $sheet->user_can('write_new')
+        or error __"No permissions to add a new row to sheet";
 
-    Linkspace::Row->_row_create($insert, content => $self, sheet => $sheet);
+    Linkspace::Row->_row_create($insert, %args, content => $self, sheet => $sheet);
 }
 
 sub row_by_serial($%)
@@ -2297,7 +2285,25 @@ sub row_update($$%)
 
 sub row_delete($%)
 {   my ($self, $row) = (shift, shift);
-    $row->_row_delete($row, @_);
+
+    if($row->is_draft && $row->draftuser eq $::session->user)
+    {   $row->_row_purge(@_);
+        return;
+    }
+
+    $self->sheet->user_can('delete')
+        or error __x"You cannot remove rows from this sheet";
+
+    $row->_row_delete(@_);
+}
+
+sub row_purge($%)
+{   my ($self, $row, %args) = @_;
+
+    $self->sheet->user_can('purge')
+        or error __"You do not have permission to purge records";
+
+    $row->_row_purge(%args);
 }
 
 sub row_unique
@@ -2330,6 +2336,36 @@ sub row_unique
     $page->row(1);
 }
 
+sub row_initial_values
+{   my ($self, %args) = @_;
+    my $result = Linkspace::Result::Row->new;
+    my $user   = delete $args{user} || $::session->user;
+    
+    if(my $draft = $self->draft_row(draftuser => $user))
+    {    #XXX here we need to filter visible columns.  Probably via search()
+         $result->add_cell($_) for @{$draft->current->all_cells};
+    }
+
+    my $columns = $self->layout->columns_search(
+        user_can_read => 1,
+        is_userinput  => 1,
+    );
+
+    my $previous;    # Where is the user's view at the moment
+    if(my $cursor = $user->row_cursor($self->sheet))
+    {   $previous = $cursor->row_revision;
+    }
+
+    foreach my $column (@$columns)
+    {    my $values
+           = $previous && $column->do_remember ? $previous->cell($column)->values
+           : $column->default_values;
+         $result->add_cell($column, $values) if @$values;
+    }
+
+    $result;
+}
+
 #--------------------------
 =head1 METHODS: Draft rows
 =cut
@@ -2338,8 +2374,13 @@ sub draft_create($%)
 {   my ($self, $insert, %args) = @_;
     $insert->{is_draft}    = 1;
     $insert->{draftuser} ||= $::session->user;
-
     $self->row_create($insert, %args) = @_;
+}
+
+sub draft_rows(%)
+{   my ($self, %args) = @_;
+    my $draftuser = delete $args{draftuser} || $::session->user;
+    Linkspace::Row->_draft_rows($self->sheet, $draftuser, %args);
 }
 
 #--------------------------

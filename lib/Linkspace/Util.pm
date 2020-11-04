@@ -74,9 +74,9 @@ sub is_valid_email($)
 {   $_[0] =~ m/^[=+\'a-z0-9._-]+\@[a-z0-9.-]+\.[a-z]{2,10}$/i;
 }
 
-=head2 my $index = index_by_id @objects;
+=head2 my $index = index_by_id @objects, ...;
 
-=head2 my $index = index_by_id \@objects;
+=head2 my $index = index_by_id \@objects, ...;
 Create a HASH which maps ids to their objects.  This is used very ofter to
 speed-up access to objects by id reference.
 

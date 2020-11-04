@@ -16,6 +16,10 @@ extends 'Linkspace::Sheet';
 
 sub _sheet_create($%)
 {   my ($class, $config, %args) = @_;
+
+    # By default no permission checking
+    $args{allow_everything} = 1 unless exists $args{allow_everything};
+
     my $self = $class->SUPER::_sheet_create({
           name => delete $config->{name},
        },
@@ -137,11 +141,12 @@ sub _fill_layout($$)
     foreach my $type (@$column_types)
     {
         foreach my $count (1.. ($cc->{$type} || 1))
-        {
+        {   my $ref = $type eq 'intgr' ? 'integer' : $type;   # Grrrr
+
             my %insert = (
                 type          => $type,
-                name          => $type . $count,
-                name_short    => 'L' . $sheet_id . $type . $count,
+                name          => 'L' . $sheet_id . $ref . $count,
+                name_short    => $ref . $count,
                 is_optional   => $all_optional,
                 is_multivalue => $mv{$type},
                 permissions   => $permissions,
@@ -176,7 +181,15 @@ next;
 sub _fill_content($$)
 {   my ($sheet, $config) = @_;
     my $content = $sheet->content;
-    my $data    = delete $config->{rows} || \@default_sheet_rows;
+    my $data    = delete $config->{rows};
+
+    unless($data)
+    {   my @colnames = map $_->name_short, @{$sheet->layout->columns_search(userinput => 1)};
+        foreach my $raw_data (@default_sheet_rows)
+        {   my %row; @row{@colnames} = @{$raw_data}{@colnames};
+            push @$data, \%row;
+        }
+    }
 
     foreach my $row_data (@$data)
     {   my $row = $content->row_create({
@@ -186,7 +199,7 @@ sub _fill_content($$)
         $row_data->{file1} = \%dummy_file_data
             if exists $row_data->{file1} && ref $row_data->{file1} ne 'HASH';
 
-        my $revision = $row->revision_create($row_data, no_alerts => 1);
+        my $revision = $row->revision_create({ cells => $row_data }, no_alerts => 1);
     }
 
     1;

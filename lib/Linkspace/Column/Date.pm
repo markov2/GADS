@@ -27,15 +27,16 @@ my @options = (
 
 __PACKAGE__->register_type;
 
-sub addable        { 1 }
-sub can_multivalue { 1 }
+sub datum_class      { 'Linkspace::Datum::Date' }
+sub addable          { 1 }
+sub can_multivalue   { 1 }
 sub has_multivalue_plus { 0 }
-sub option_defaults { shift->SUPER::option_defaults(@_, @options) }
-sub return_type    { 'date' }
+sub option_defaults  { shift->SUPER::option_defaults(@_, @options) }
+sub return_type      { 'date' }
 
 ### only for dates
 
-sub include_time   { 0 }
+sub include_time     { 0 }
 
 ###
 ### Class

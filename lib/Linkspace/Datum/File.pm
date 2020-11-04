@@ -22,8 +22,8 @@ sub _create_file($)
     $::db->create(Fileval => $insert)->id;
 }
 
-sub _unpack_values($%)
-{   my ($class, $cell, $values, %args) = @_;
+sub _unpack_values($$$%)
+{   my ($class, $column, $old_datums, $values, %args) = @_;
 
     # Files should normally only be submitted by IDs. Allow submission by
     # hashref for tests etc

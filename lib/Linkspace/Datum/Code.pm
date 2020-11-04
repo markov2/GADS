@@ -4,14 +4,13 @@
 
 package Linkspace::Datum::Code;
 
-use Data::Dumper;
-use GADS::Safe;
-use String::CamelCase qw(camelize); 
 use Log::Report 'linkspace';
+
+use Data::Dumper;
+use String::CamelCase qw(camelize); 
+
 use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
-use namespace::clean;
-
 extends 'Linkspace::Datum';
 
 has vars => (
@@ -22,11 +21,40 @@ sub _build_vars
 {   my $self = shift;
     # Ensure recurse-prevention information is passed onto curval/autocurs
     # within code values
-    $self->record->values_by_shortname(
+    $self->values_by_shortname($self->record,
         already_seen_code => $self->already_seen_code,
         level             => $self->already_seen_level,
-        names             => [$self->column->params],
+        names             => [ $self->column->params ],
     );
+}
+
+sub values_by_shortname
+{   my ($self, $row, %args) = @_;
+    my $names = $args{names};
+
+    my %index;
+    foreach my $name (@$names)
+    {   my $col   = $self->layout->column($name) or panic $name;
+        my $cell  = $row->cell($col);
+        my $linked = $col->link_parent;
+
+        my $cell_base
+           = $cell->is_awaiting_approval ? $cell->old_values
+           : $linked && $cell->old_values # linked, and value overwritten
+           ? $cell->oldvalue
+           : $cell;
+
+        # Retain and provide recurse-prevention information. See further
+        # comments in Linkspace::Column::Curcommon
+        my $already_seen_code = $args{already_seen_code};
+        $already_seen_code->{$col->id} = $args{level};
+
+        $index{$name} = $cell_base->for_code(
+           already_seen_code  => $already_seen_code,
+           already_seen_level => $args{level} + ($col->is_curcommon ? 1 : 0),
+        );
+    };
+    \%index;
 }
 
 sub write_cache
@@ -55,28 +83,26 @@ sub write_cache
     {
         my $row = $rs->next;
 
-        if ($row)
+        if($row)
         {
-            if (!$self->equal($row->$vfield, $value))
-            {
-                my %blank = %{$self->column->blank_row};
+            if(!$self->equal($row->$vfield, $value))
+            {   my %blank = %{$self->column->blank_row};
                 $row->update({ %blank, $vfield => $value });
             }
         }
-        else {
-            $self->schema->resultset($tablec)->create({
+        else
+        {   $self->schema->resultset($tablec)->create({
                 record_id => $self->record_id,
                 layout_id => $self->column->{id},
                 $vfield   => $value,
             });
         }
     }
-    while (my $row = $rs->next)
-    {
-        $row->delete;
+    while(my $row = $rs->next)
+    {   $row->delete;
     }
     $guard->commit;
-    return \@values;
+    \@values;
 }
 
 sub re_evaluate

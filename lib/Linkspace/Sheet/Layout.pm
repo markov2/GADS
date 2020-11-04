@@ -16,34 +16,31 @@ use Moo;
 use MooX::Types::MooseLike::Base qw/:all/;
 
 use Linkspace::Column              ();
+#use Linkspace::Column::Autocur     ();
+#use Linkspace::Column::Calc        ();
+use Linkspace::Column::Createdby   ();
+use Linkspace::Column::Createddate ();
+#use Linkspace::Column::Curval      ();
 use Linkspace::Column::Date        ();
+use Linkspace::Column::Daterange   ();
+use Linkspace::Column::Deletedby   ();
 use Linkspace::Column::Enum        ();
 use Linkspace::Column::File        ();
 use Linkspace::Column::Id          ();
 use Linkspace::Column::Intgr       ();
+use Linkspace::Column::Person      ();
 use Linkspace::Column::Serial      ();
 use Linkspace::Column::String      ();
 use Linkspace::Column::Tree        ();
-use Linkspace::Column::Createddate ();
-use Linkspace::Column::Daterange   ();
-use Linkspace::Column::Person      ();
-
-=pod
-use Linkspace::Column::Autocur     ();
-use Linkspace::Column::Calc        ();
-use Linkspace::Column::Createdby   ();
-use Linkspace::Column::Curval      ();
-use Linkspace::Column::Deletedby   ();
-use Linkspace::Column::Rag         ();
-=cut
+#use Linkspace::Column::Rag         ();
 
 my @internal_columns = (
     [ _id               => id          => 1, 'ID' ],
-#XXX[ _version_datetime => createddate => 0, 'Last edited time' ],
-#   [ _version_user     => createdby   => 0, 'Last edited by' ],
-#   [ _created_user     => createdby   => 0, 'Created by' ],
-#   [ _deleted_by       => deletedby   => 0, 'Deleted by' ],
-#   [ _created          => createddate => 0, 'Created time' ],
+    [ _version_datetime => createddate => 0, 'Last edited time' ],
+    [ _version_user     => createdby   => 0, 'Last edited by' ],
+    [ _created_user     => createdby   => 0, 'Created by' ],
+    [ _deleted_by       => deletedby   => 0, 'Deleted by' ],
+    [ _created          => createddate => 0, 'Created time' ],
     [ _serial           => serial      => 1, 'Serial' ],
 );
 
@@ -376,7 +373,8 @@ Change the content of a column.
 =cut
 
 sub column_update($%)
-{   my ($self, $column, $update, %args) = @_;
+{   my ($self, $which, $update, %args) = @_;
+    my $column = $self->column($which) or panic $which;
 
     my $old_name = $column->name_short;
     my $new_name = $update->{name_short};

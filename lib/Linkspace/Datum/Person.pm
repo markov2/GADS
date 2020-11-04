@@ -8,22 +8,40 @@ use strict;
 package Linkspace::Datum::Person;
 use Log::Report 'linkspace';
 
-use DateTime;
-use HTML::Entities;
-
+use Scalar::Util     qw(blessed);
 use Linkspace::Util  qw(is_valid_id);
+
+### 2020-11-04: columns in GADS::Schema::Result::Person
+# id           value        child_unique layout_id    record_id
 
 use Moo;
 extends 'Linkspace::Datum';
 
-sub _unpack_values($$%)
-{   my ($class, $cell, $values, %args) = @_;
-    my $users = $::db->session->site->users;
+sub db_table { 'Person' }
+
+around BUILDARGS => sub {
+    my ($orig, $class) = (shift, shift);
+    my $args = @_==1 ? shift : { @_ };
+    my $v = $args->{value} or panic;
+
+    if(blessed $v && $v->isa('Linkspace::User'))
+    {   $args->{value}  = $v->id;
+        $args->{person} = $v;
+    }
+    $class->$orig($args);
+};
+
+sub _unpack_values($$$%)
+{   my ($class, $column, $old_datums, $values, %args) = @_;
+    my $users = $::session->site->users;
 
     my @people;
     foreach my $value (@$values)
     {   my $person;
-        if(my $user_id = is_valid_id $value)
+        if(blessed $value && $value->isa('Linkspace::User'))
+        {   $person = $value;
+        }
+        elsif(my $user_id = is_valid_id $value)
         {   $person = $users->user($user_id);
         }
         else
@@ -38,6 +56,7 @@ sub _unpack_values($$%)
     \@people;
 }
 
+sub compare_values { panic }
 sub search_values_unique { [ shift->text ] }
 
 sub person_id  { $_[0]->value }

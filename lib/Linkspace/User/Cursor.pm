@@ -2,7 +2,7 @@
 ## See https://www.ctrlo.com/linkspace.html
 ## Licensed under GPLv3 or newer, https://spdx.org/licenses/GPL-3.0-or-later
 
-package Linkspace::Row::Cursor;
+package Linkspace::User::Cursor;
 
 use Log::Report 'linkspace';
 
@@ -11,6 +11,10 @@ extends 'Linkspace::DB::Table';
 
 sub db_table { 'UserLastrecord' }
 
+sub db_rename { +{
+    record_id => 'revision_id'
+}}
+
 __PACKAGE__->db_accessors;
 
 ### 2020-08-25: columns in GADS::Schema::Result::UserLastrecord
@@ -18,13 +22,13 @@ __PACKAGE__->db_accessors;
 
 =head1 NAME
 
-Linkspace::Row::Cursor - points in the sheet to where the user is
+Linkspace::User::Cursor - points in the sheet to where the user is
 
 =head1 SYNOPSIS
 
-  my $cursor = $user->row_cursor($sheet);
-  my $row    = $sheet->content->row_revision($cursor->revision);
-  my $row    = $cursor->row_revision;   # same
+  my $cursor   = $user->row_cursor($sheet);
+  my $revision = $sheet->content->row_revision($cursor->revision);
+  my $revision = $cursor->row_revision;   # same
 
 =head1 DESCRIPTION
 
@@ -35,12 +39,12 @@ user was active.  This cursor points to a revision of a row.
 =cut
 
 sub _cursor_create($%)
-{   my ($class, $insert, %options) = @_;
+{   my ($class, $insert, %args) = @_;
     $class->create($insert, sheet => $insert->{sheet});
 }
 
 sub _cursor_update($%)
-{   my ($self, $update, %options) = @_;
+{   my ($self, $update, %args) = @_;
     $self->update($update);
 }
 
@@ -76,9 +80,9 @@ The C<%options> are passed to the construction of the C<Linkspace::Row::Revision
 object which is returned.
 =cut
 
-sub row_revision()
+sub row_revision(@)
 {   my $self = shift;
-    $self->sheet->content->row_revision($self->revision, @_)
+    $self->sheet->content->row_revision($self->revision_id, @_)
 }
 
 1;

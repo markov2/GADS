@@ -25,7 +25,7 @@ sub db_field_rename { +{
     filter        => 'filter_json',
     internal      => 'is_internal',
     isunique      => 'is_unique',
-    link_parent   => 'link_parent_id',
+    link_parent   => 'link_column_id',
     multivalue    => 'is_multivalue',
     optional      => 'is_optional',
     options       => 'options_json',
@@ -89,7 +89,7 @@ my %type2class;
 sub register_type(%)
 {   my ($class, %args) = @_;
     my $type = $args{type} || lc($class =~ s/.*:://r);
-    $type2class{$type}   = $class;
+    $type2class{$type} = $class;
 }
 
 sub type2class($)  { $type2class{$_[1]} }
@@ -123,7 +123,6 @@ sub has_multivalue_plus  { 0 }
 sub is_hidden      { 0 }       # column not shown by default (only deletedBy)
 sub is_internal_type { 0 }     # the type is internal, see is_internal() on objects
 sub is_curcommon   { 0 }
-sub meta_tables    { [ qw/String Date Daterange Intgr Enum Curval File Person/ ] }
 sub option_defaults{ shift;  +{ @_ } }
 sub option_names   { [ keys %{$_[0]->option_defaults} ] }
 sub retrieve_fields{ [ $_[0]->value_field ] }
@@ -182,7 +181,7 @@ sub _validate($)
 
 sub _column_create
 {   my ($base_class, $insert, %args) = @_;
-    my $class = $type2class{$insert->{type}} or panic;
+    my $class = $type2class{$insert->{type}} or panic $insert->{type};
     $insert->{name} //= $insert->{name_short};
 
     $insert->{options} = $class->option_defaults;  # modified in validate()
@@ -262,7 +261,7 @@ sub string_storage { 0 }
 
 sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
 sub field_name     { "field".($_[0]->id) }
-sub datum_class    { ref $_[0] =~ s/::Column/::Datum/r }
+sub datum_class    { panic }
 
 # my $v = $self->is_valid_value($value)
 sub is_valid_value($)
@@ -283,7 +282,7 @@ sub is_valid_value($)
 }
 
 sub topic       { $_[0]->sheet->topic($_[0]->topic_id) }
-sub link_parent { $_[0]->column($_[0]->link_parent_id) };
+sub link_column { $_[0]->column($_[0]->link_column_id) };
 sub _options    { decode_json($_[0]->options_json) }
 
 #### query build support
@@ -454,12 +453,12 @@ sub collect_form($$$)
         $changes{name} or error __"Please enter a name for item";
     }
 
-    if(my $link_parent = $layout->column($params->{link_parent_id}))
+    if(my $link_column = $layout->column($params->{link_column_id}))
     {    # Check whether the parent linked field goes to a sheet that has a curval
          # back to the current layout: no reference loop
-         ! $link_parent->refers_to_sheet($sheet)
+         ! $link_column->refers_to_sheet($sheet)
             or error __x"Cannot link to column '{col}' which contains columns from this sheet",
-                col => $link_parent->name;
+                col => $link_column->name;
     }
 
     delete $changes{topic_id}
@@ -493,7 +492,7 @@ sub user_can
             if $user->can_column($self, 'write_new')
             || $user->can_column($self, 'write_existing');
     }
-    elsif($user->can_column($permission))
+    elsif($user->can_column($self, $permission))
     {   return 1;
     }
 
@@ -745,12 +744,12 @@ sub related_sheet_id() {
 ### Datums
 ###
 
-sub datum_create($%)
-{   my ($self, $values, %args) = @_;
-    $self->datum_class->datum_create($values, column => $self);
-}
+# $self, $values, $old_datums, %args
+sub values2datums($;$%) { $_[0]->datum_class->datums_prepare(@_) }
 
 # What will be inserted when a cell is created without values.
 sub default_values() { [] }
+
+sub datum_as_string { $_[1]->value }
 
 1;

@@ -19,13 +19,12 @@ my %ops = (
     '-' => sub { $_[0] - $_[1] },
 );
 
-sub _unpack_values($$%)
-{   my ($class, $cell, $values, %args) = @_;
+sub _unpack_values($$$%)
+{   my ($class, $column, $old_datums, $values, %args) = @_;
 
-    if($cell && @$values==1
-       && $values->[0] =~ m!^\h*\(\h*([*+/-])\h*([+-]?[0-9]+)\h*\)\h*$!)
+    if(@$values==1 && $values->[0] =~ m!^\h*\(\h*([*+/-])\h*([+-]?[0-9]+)\h*\)\h*$!)
     {   my ($op, $amount) = ($ops{$1}, $2);
-        my @old = map $_->value, @{$cell->datums};
+        my @old = map $_->value, @$old_datums;
         @old or @old = 0;
 
         return [ map $op->($_, $amount), @old ];

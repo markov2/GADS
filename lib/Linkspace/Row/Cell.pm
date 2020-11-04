@@ -10,7 +10,25 @@ use strict;
 use Log::Report 'linkspace';
 use HTML::Entities    qw(encode_entities);
 
-use Linkspace::Datum  ();
+use Linkspace::Datum;
+
+#!!! Moo does not want these in ::Datum
+#use Linkspace::Datum::Autocur;
+#use Linkspace::Datum::Calc;
+use Linkspace::Datum::Count;
+#use Linkspace::Datum::Curcommon;
+#use Linkspace::Datum::Curval;
+use Linkspace::Datum::Date;
+use Linkspace::Datum::Daterange;
+use Linkspace::Datum::Enum;
+use Linkspace::Datum::File;
+use Linkspace::Datum::ID;
+use Linkspace::Datum::Integer;
+use Linkspace::Datum::Person;
+use Linkspace::Datum::Rag;
+use Linkspace::Datum::Serial;
+use Linkspace::Datum::String;
+use Linkspace::Datum::Tree;
 
 #XXX This really needs to be fast: I do not use Moo
 
@@ -47,59 +65,7 @@ sub new($%)
     bless \%args, $class;
 }
 
-sub _cell_create($%)
-{   my ($class, $insert, %args) = @_;
-    my $column = $args{column} or panic;
-
-    my $raw_values = delete $insert->{datums} || $column->default_values;
-    $raw_values or return;
-
-    my $datum_class = $column->datum_class;
-    my $values = $datum_class->_unpack_values(undef, $raw_values, %args);
-
-    my @datums;
-    foreach my $value (@$values)
-    {
-    }
-
-    $class->new(%args);
-}
-
-sub set_value($%)
-{   my ($class, $raw_value) = (shift, shift);
-    $class->set_values([ $raw_value ], @_);
-}
-
-sub set_values($%)
-{   my ($self, $raw_values, %args) = @_;
-
-    # An empty ARRAY means 'clean', missing means: no change.
-    my $column = $self->column;
-
-    error __"Cannot set this value as it is a parent value"
-        if !$args{is_parent_value} && ! $column->can_child
-        && $self->row->parent_id;
-
-    my $datum_class = $column->datum_class;
-    my @old_datums = @{$self->datums};
-    my $values     = $datum_class->_unpack_values($self, $raw_values, %args);
-    my @new_datums;
-
-    foreach my $value (@$values)
-    {   my $old = shift @old_datums;
-        if($old && $old->value eq $value)    # reuse datum
-        {   push @new_datums, $old;
-            next;
-        }
-        push @new_datums, $datum_class->_datum_create($self, $value);
-    }
-
-    unless(@new_datums)
-    {   #XXX do we really want to write blanks?  Blank is nothing so why store it?
-        my $blank = $datum_class->field_value_blank;
-        push @new_datums, $datum_class->_datum_create($self, $blank);
-    }
-}
+sub is_linked { 0 }
 
 sub text_all
 {   my $self = shift;

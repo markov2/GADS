@@ -15,12 +15,12 @@ use Moo;
 extends 'Linkspace::Datum';
 
 sub _datum_create($$%)
-{   my ($class, $cell, $value) = (shift, shift, shift);
+{   my ($class, $old_datums, $value) = (shift, shift, shift);
     my $span = $value->{value};
     $value->{start} = $span->start;
     $value->{end}   = $span->end;
     $value->{value} = $span->as_string;
-    $class->SUPER::_datum_create($cell, $value, @_);
+    $class->SUPER::_datum_create($old_datums, $value, @_);
 }
 
 # Dateranges can be specified as
@@ -37,16 +37,16 @@ sub _add_to_span($$$)
     );
 }
 
-sub _unpack_values($%)
-{   my ($class, $cell, $values, %args) = @_;
+sub _unpack_values($$$%)
+{   my ($class, $column, $old_values, $values, %args) = @_;
     my $subtract = $args{subtract_days_end} || 0;
 
     my @values = @$values;
-    if($cell && $args{bulk})
+    if($args{bulk})
     {   my ($from, $to) = @values==1 && ref $values[0] eq 'ARRAY' ? @{$values[0]} : @values;
         if(my $begin_step = parse_duration $from)
         {   my $end_step  = parse_duration $to;
-            return [ map _add_to_span($_, $begin_step, $end_step), @{$cell->values} ];
+            return [ map _add_to_span($_, $begin_step, $end_step), @$old_values ];
         }
     }
 

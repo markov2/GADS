@@ -7,10 +7,13 @@ package Linkspace::Result::Row;
 use warnings;
 use strict;
 
-use Moo;
-extends 'Linkspace::DB::Table';
+package Linkspace::Result::Row;
 
 use Log::Report 'linkspace';
+
+use Linkspace::Result::Cell;
+
+use Moo;
 
 =head1 NAME
 Linkspace::Result::Row - manage a row, within a result page
@@ -18,7 +21,19 @@ Linkspace::Result::Row - manage a row, within a result page
 =head1 SYNOPSIS
 
 =head1 DESCRIPTION
+
+  ::Result::Row
+     has many ::Result::Cell
+
+=head1 METHODS
 =cut
 
+sub add_cell(%)
+{   my $self = shift;
+    my $cell = Linkspace::Result::Cell->new(@_);
+    $self->{cells}{$cell->name} = $cell;
+}
+
+sub cells() { [ values %{$_[0]->{cells}} ] }
 
 1;

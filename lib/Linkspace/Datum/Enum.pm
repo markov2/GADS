@@ -12,9 +12,9 @@ use Log::Report 'linkspace';
 use Moo;
 extends 'Linkspace::Datum';
 
-sub _unpack_values($$%)
-{   my ($class, $cell, $values, %args) = @_;
-    $cell->column->to_ids($values);
+sub _unpack_values($$$%)
+{   my ($class, $column, $old_datums, $values, %args) = @_;
+    $column->to_ids($values);
 }
 
 sub value_hash($)

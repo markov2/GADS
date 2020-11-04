@@ -2,55 +2,54 @@
 ## See https://www.ctrlo.com/linkspace.html
 ## Licensed under GPLv3 or newer, https://spdx.org/licenses/GPL-3.0-or-later
 
-=pod
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-=cut
-
 package Linkspace::Row::Cell::Orphan;
 use parent 'Linkspace::Row::Cell';
 
+use Linkspace::Util   qw(to_id);
+
 =head1 DESCRIPTION
 
-Curval cells can spring into existence without any build-up for parential
-structural elements: no row-revision, no row, no sheet... nothing.  But
-they must be made available.  This can also be used for other kinds of cells.
+Curval and Linked cells can spring into existence without any
+build-up for parential structural elements: no row-revision, no row,
+no sheet... nothing.  But they must be made available.  This can also
+be used for other kinds of cells.
 
 This implementation caches a lot more than its base class, in an
 attempt to simplify the execution path.
 
 =cut
 
-sub from_record($%)
-{   my ($class, $record, %args) = @_;
-    $class->new(datum_record => $record);
+sub from_results($%)
+{   my ($class, $results, %args) = @_;
+
+    # For instance, search may hit a datum record.  But we need to revive
+    # the whole cell, probably more than one datum in it.  We're not keeping
+    # the single datum result (for now).
+
+    $class->new(
+        revision_id => to_id $args{revision} || $results->{record_id},
+        column_id   => to_id $args{column}   || $results->{layout_id},
+        %args,
+    );
 }
 
 sub sheet() { $_[0]->{sheet} ||= $_[0]->row->sheet }
 
 sub row
 {   my $self = shift;
-    $self->{row} ||= Linkspace::Row->from_revision_id($self->{datum_record}{record_id});
+    $self->{row}      ||= $self->{row_id}
+      ? Linkspace::Row->from_id($self->{row_id})
+      : Linkspace::Row->from_revision_id($self->{revision_id});
 }
 
 sub revision
 {   my $self = shift;
-    $self->{revision} = $self->row->revision($self->{datum_record}{record_id});
+    $self->{revision} ||= $self->row->revision($self->{revision_id});
 }
 
 sub column
 {   my $self = shift;    # does not need sheet
-    $self->{column} ||= $::session->site->document->column($self->{datum_record}{layout_id});
+    $self->{column} ||= $::session->site->document->column($self->{column_id});
 }
 
 1;
