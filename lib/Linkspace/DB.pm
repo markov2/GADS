@@ -5,7 +5,8 @@
 package Linkspace::DB;
 
 use Log::Report 'linkspace';
-use Scalar::Util qw/blessed/;
+use Scalar::Util    qw(blessed);
+use Text::Table     ();
 
 use GADS::Schema ();
 
@@ -159,6 +160,22 @@ sub delete
       : blessed $which ? +{ id => $which->id }
       :                  $which;
     $self->resultset($table)->search($search)->delete;
+}
+
+=head2 my $string = $db->dump($result);
+Produce a clean table with results from some query.
+=cut
+
+sub dump($)
+{   my $self   = shift;
+    my $first  = $_[0] or return '';
+    my @cols   = $first->result_source->columns;
+    my @seps   = (' | ') x @cols;
+    my $table  = Text::Table->new('==+', @cols);
+    foreach my $row (@_)
+    {   $table->add('  |', map $row->get_column($_), @cols);
+    }
+    $table;
 }
 
 #-------------------------

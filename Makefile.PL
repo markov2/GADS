@@ -57,6 +57,7 @@ our %prereq_pm = (
     'Test::More'                                => 0,
     'Text::Autoformat'                          => 0,
     'Text::CSV::Encoded'                        => 0,
+    'Text::Table'                               => 0,
     'Tie::Cache'                                => 0,
     'WWW::Form::UrlEncoded::XS'                 => 0,
     'WWW::Mechanize::PhantomJS'                 => 0,
