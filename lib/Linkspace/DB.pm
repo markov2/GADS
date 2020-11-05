@@ -6,8 +6,10 @@ package Linkspace::DB;
 
 use Log::Report 'linkspace';
 use Scalar::Util    qw(blessed);
+use List::MoreUtils qw(zip);
 use Text::Table     ();
 
+use Linkspace::DB::Guard();
 use GADS::Schema ();
 
 # Close to all records in the database are restricted to a site.  However,
@@ -52,6 +54,7 @@ has schema => (
     required => 1,
 );
 
+#---------------------
 =head1 METHODS: Processing
 
 =head2 my $guard = $db->begin_work;
@@ -64,18 +67,7 @@ finish working.
   $guard->rollback;
 =cut
 
-sub begin_work() { shift->schema->storage->txn_scope_guard }
-
-{ #XXX Why does the scope-guard not implement explicit rollback?
-  use DBIx::Class::Storage::TxnScopeGuard;
-  package DBIx::Class::Storage::TxnScopeGuard;
-  sub rollback() {
-     my $guard = $_[0];
-     $guard->{storage}->txn_rollback;
-     $guard->{inactivated} = 1;
-     undef $_[0];   # try kill guard object from caller
-   }
-}
+sub begin_work() { Linkspace::DB::Guard->new($_[0]) }
 
 =head2 my $rs = $db->resultset($table);
 =cut
@@ -162,20 +154,23 @@ sub delete
     $self->resultset($table)->search($search)->delete;
 }
 
-=head2 my $string = $db->dump($result);
+=head2 my $string = $db->dump(@results);
 Produce a clean table with results from some query.
 =cut
 
 sub dump($)
-{   my $self   = shift;
-    my $first  = $_[0] or return '';
-    my @cols   = $first->result_source->columns;
-    my @seps   = (' | ') x @cols;
-    my $table  = Text::Table->new('==+', @cols);
-    foreach my $row (@_)
-    {   $table->add('  |', map $row->get_column($_), @cols);
+{   my $self = shift;
+    my @tables;
+    foreach my $result (@_)
+    {   my @cols   = $result->result_source->columns;
+        my @seps   = (' | ') x @cols;
+        my $table  = Text::Table->new(zip @cols, @seps);
+        while (my $row = $result->next)
+        {   $table->add(map $row->get_column($_), @cols);
+        }
+        push @tables, $table;
     }
-    $table;
+    @tables;
 }
 
 #-------------------------
