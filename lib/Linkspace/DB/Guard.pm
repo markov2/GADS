@@ -4,16 +4,41 @@ package Linkspace::DB::Guard;
 use Log::Report 'linkspace';
 use Devel::GlobalDestruction 'in_global_destruction';
 
-# Implement nested guards via savepoints.  Normal nested transactions
-# are not supported by Postgres, but savepoints are supported by most
-# databases.  Savepoints are more flexible: they can clean-up any number
-# of steps.
+=head1 NAME
+Linkspace::DB::Guard - nested transactions
+
+=head1 SYNOPSYS
+
+  {
+    my $guard = Linkspace::DB::Guard->new; # protection until block completes
+    # ... run grouped database actions
+    $guard->commit;    # need to explicitly accept results
+    $guard->rollback;  # explicitly reject changes
+
+    # at block-end without commit, do rollback
+  }
+   
+=head1 DESCRIPTION
+Implement nested guards via savepoints.  The outer guard will be a transaction,
+but the nested guards are implemented as savepoints.  Savepoints are more
+flexible: they can clean-up any number of steps... however, this module
+restricts them to clean nesting behavior.
+
+Nested transactions are not supported by Postgres, so to be able to make it work
+under Postgres, we need to use savepoints.  Gladly savepoints are supported by
+most databases.
+
+=head1 METHODS
+
+=head2 my $guard = 
+=cut
 
 my $transaction;
 my $savepoint_name = 'aaaa';
 
 sub new($)
 {   my ($class, $db) = @_;
+    defined wantarray or panic "Need to catch the transaction guard";
 
     unless($transaction)
     {   return $transaction = $db->schema->storage->txn_scope_guard;
@@ -24,7 +49,7 @@ sub new($)
     bless { savepoint => $name, active => 1 }, $class;
 }
 
-{ #XXX Why does the scope-guard not implement explicit rollback?
+{ #XXX Why does the scope-guard of DBIx::Class not provide an explicit rollback?
   use DBIx::Class::Storage::TxnScopeGuard;
   package DBIx::Class::Storage::TxnScopeGuard;
   sub rollback() {

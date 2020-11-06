@@ -57,8 +57,9 @@ short-cuts are taken which break abstraction for the sake of performance.
 # from the database.
 
 use overload
-    '""' => 'as_string',
-    bool => sub { ! $_[0]->is_blank };
+    '""'     => 'as_string',
+    bool     => sub { !! @{$_[0]->datums} },
+    fallback => 1;
 
 sub new($%)
 {   my ($class, %args) = @_;

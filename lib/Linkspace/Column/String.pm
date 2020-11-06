@@ -16,6 +16,7 @@ extends 'Linkspace::Column';
 __PACKAGE__->register_type;
 
 sub can_multivalue      { 1 }
+sub datum_class         { 'Linkspace::Datum::String' }
 sub db_field_extra_export { [ qw/is_textbox force_regex/ ] }
 sub form_extras         { [ qw/is_textbox force_regex/ ], [] }
 sub has_multivalue_plus { 1 }

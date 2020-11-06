@@ -30,6 +30,7 @@ extends 'Linkspace::Column';
 __PACKAGE__->register_type;
 
 sub can_multivalue       { 1 }
+sub datum_class          { 'Linkspace::Datum::Enum' }
 sub db_field_extra_export { [ qw/ordering/ ] }
 sub form_extras          { [ 'ordering' ], [ qw/enumvals enumval_ids/ ] }
 sub has_filter_typeahead { 1 }
@@ -130,7 +131,7 @@ sub enumval_name($)
 sub to_ids($)   # translate names into ids
 {   my ($self, $which) = @_;
     my %evs  = map +($_->value => $_->id), values %{$self->_enumvals};
-    [ map is_value_id($_) // $evs{$_} // panic($_), @$which ];
+    [ map is_valid_id($_) // $evs{$_} // panic($_), @$which ];
 }
 
 sub datum_as_string($) { $_[0]->enumval_name($_[1]->value) }

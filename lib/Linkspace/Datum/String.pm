@@ -13,22 +13,29 @@ use Log::Report 'linkspace';
 use Moo;
 extends 'Linkspace::Datum';
 
-sub _datum_create($$%)
-{   my ($class, $cell, $value) = (shift, shift, shift);
-    my $string = ($value->{string} // '') =~ s/\h+/ /gr =~ s/^ //r =~ s/ $//r;
-    $value->{value}       = $string;
-    $value->{value_index} = lc substr $string, 0, 128;
-    $class->SUPER::_datum_create($cell, $value, @_);
+sub db_table { 'String' }
+
+has value_index => ( is => 'ro' );
+
+sub _unpack_values($$$%)
+{   my ($class, $column, $old_datums, $values, %args) = @_;
+    my @strings;
+    foreach (grep defined, @$values)
+    {   s/\h+/ /g;
+        s/^ //;
+        s/ $//;
+        push @strings, $_ if length;
+    }
+    \@strings;
 }
 
-# By default we return empty strings. These make their way to grouped
-# display as the value to filter for, so this ensures that something
-# like "undef" doesn't display
-sub html_form  { [ map $_ // '', @{$_[0]->values} ] }
+sub _create_insert(%)
+{   my $self  = shift;
+    $self->SUPER::_create_insert(@_, value_index => lc(substr $self->value, 0, 128));
+}
 
 sub html_withlinks
-{   my $string = $_[0]->as_string;
-    text2html $string, urls => 1, email => 1, metachars => 1;
+{   text2html $_[0]->as_string, urls => 1, email => 1, metachars => 1;
 }
 
 # Consistently return undef for empty string, so that the variable can be

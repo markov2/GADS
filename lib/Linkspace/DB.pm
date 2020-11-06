@@ -9,8 +9,8 @@ use Scalar::Util    qw(blessed);
 use List::MoreUtils qw(zip);
 use Text::Table     ();
 
-use Linkspace::DB::Guard();
-use GADS::Schema ();
+use Linkspace::DB::Guard ();
+use GADS::Schema         ();
 
 # Close to all records in the database are restricted to a site.  However,
 # only the top-level elements contain a direct reference to the site.  Other
@@ -97,10 +97,8 @@ sub search
 }
 
 =head2 my $result = $db->get_record($table, $which);
-
-=head2 my $result = $db->get_record($table, %which);
-Returns one result HASH.  C<$which> can be an id, a reference to a search
-or a LIST for search.
+Returns one result HASH.  C<$which> can be an id, a reference (C<\%search>)
+or a LIST for C<%search>.
 =cut
 
 sub get_record($$@)
@@ -163,10 +161,9 @@ sub dump($)
     my @tables;
     foreach my $result (@_)
     {   my @cols   = $result->result_source->columns;
-        my @seps   = (' | ') x @cols;
-        my $table  = Text::Table->new(zip @cols, @seps);
+        my $table  = Text::Table->new('==+', @cols);
         while (my $row = $result->next)
-        {   $table->add(map $row->get_column($_), @cols);
+        {   $table->add('  |', map $row->get_column($_), @cols);
         }
         push @tables, $table;
     }

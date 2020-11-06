@@ -18,10 +18,8 @@ use List::Util    qw(max);
 use DateTime      ();
 
 use Linkspace::Row::Cell ();
-use Linkspace::Util      qw(index_by_id to_id);
-use Linkspace::Row::Cell ();
 use Linkspace::Row::Cell::Linked ();
-
+use Linkspace::Util      qw(index_by_id to_id);
 
 use Moo;
 extends 'Linkspace::DB::Table';
@@ -62,39 +60,40 @@ datums exist, the C<needs_approval> attribute is set.
 
 sub _revision_create($$%)
 {   my ($class, $row, $insert, %args) = @_;
+    my %insert      = %$insert;
+
     $args{timestamp} ||= DateTime->now;
     $args{user}      ||= $::session->user;
-    my $user_cells = delete $insert->{cells} || [];
+    my $user_cells = delete $insert{cells} || [];
     my $previous   = delete $args{is_initial} ? undef : $row->current;
 
-    my $cells      = $class->_complete_cells($row, $previous, delete $args{cells}, %args);
+    my $cells      = $class->_complete_cells($row, $previous, $user_cells, %args);
     my $grouped_cells = $class->_group_cells($row, $previous, $cells);
 
     if(@{$grouped_cells->{need_approval}})
     {   $class .= '::Approval';
-        $insert->{needs_approval} = 1;
-        $insert->{approval_base}  = $previous;
+        $insert{needs_approval} = 1;
+        $insert{approval_base}  = $previous;
     }
 
     if($previous)
-    {   $insert->{created_by} ||= $previous->created_by;
-        $insert->{created}    ||= $previous->created;
+    {   $insert{created_by} ||= $previous->created_by;
+        $insert{created}    ||= $previous->created;
     }
     else
-    {   $insert->{created_by} ||= $args{user};
-        $insert->{created}    ||= $args{timestamp};
+    {   $insert{created_by} ||= $args{user};
+        $insert{created}    ||= $args{timestamp};
     }
 
-    $insert->{current_id}     ||= $row->id;
-    $insert->{needs_approval} ||= 0;
+    $insert{current_id}     ||= $row->id;
+    $insert{needs_approval} ||= 0;
 
-    my $self = $class->create($insert, %args,
+    my $self = $class->create(\%insert, %args,
         row        => $row,
         is_initial => ! $previous,
     );
 
     $self->_create_cells($grouped_cells);
-
     $self;
 }
 
@@ -126,7 +125,7 @@ sub _complete_cells($$$%)
         @$datums or next;
 
         ! $datums{$column->id}
-            or error __x"Column {col.name_short} specified twice", col => $column;
+            or error __x"Column '{col.name_short}' specified twice", col => $column;
 
         $datums{$column->id} = $datums;
     }
@@ -135,18 +134,20 @@ sub _complete_cells($$$%)
     my $columns = $row->layout->columns_search;
     my $allow_incomplete = $row->is_draft;
 
+    # Actually, these produced errors are more internal errors than user errors:
+    # the GUI should keep people from doing the wrong thing.
+
     foreach my $column (@$columns)
     {   my $datums = delete $datums{$column->id} || [];
-
         if($column->is_userinput)
         {   @$datums || $allow_incomplete || $column->is_optional
-                or error __x"Column {col.name} requires a value.", col => $column;
+                or error __x"Column '{col.name}' requires a value.", col => $column;
 
             @$datums < 2 || $column->is_multivalue
-                or error __x"Column {col.name} can only contain one value.", col => $column;
+                or error __x"Column '{col.name}' can only contain one value.", col => $column;
         }
         elsif(@$datums && ! $column->is_internal)
-        {   error __x"Column {col.name} has a computed value.", col => $column;
+        {   error __x"Column '{col.name}' has a computed value.", col => $column;
         }
 
         push @cells, [ $column, $datums ] if @$datums;
@@ -179,6 +180,7 @@ sub _group_cells($%)
           : ! $column->is_userinput     ? $compute
           : $row_is_linked && $column->linked_column_id ? $linked
           : $row_is_draft               ? $writable
+: 1 ? $writable
           : $column->user_can($write) || $column->user_can($approve)    ? $writable
           : $previous && $previous->cell($column)->same_values($datums) ? $writable
           :                               $need_approve;
@@ -222,11 +224,11 @@ sub _revision_latest(%)
         $args{is_historic} = 1;
     }
 
-    my $rec = $::db->resultset(Record => \%search, { order => { -desc => 'created', limit => 1 } })->next;
-    $class->from_record($rec, is_historic => 0, %args);
+    #XXX expensive
+    my $rec = $::db->resultset(Record => \%search,
+        { order => { -desc => 'created', limit => 1 } })->next or return;
 
-#   my $latest_id = $::db->resultset(Record => \%search, {)->get_column('created')->max;
-#   $class->from_id($latest_id, is_historic => 0, %args);
+    $class->from_record($rec, is_historic => 0, %args);
 }
 
 sub _revision_first_id(%)
@@ -306,7 +308,7 @@ has _cells => (
 
 sub cell($)
 {   my ($self, $which) = @_;
-    my $column = $self->column($which) or return;
+    my $column = $self->row->column($which) or return;
     my $cell   = $self->_cells->{$column->id};
     return $cell if $cell;
 
@@ -321,6 +323,24 @@ sub cell($)
     );
 
     $self->_cells->{$column->id} = $cell;
+}
+
+has _recs => ( is => 'ro', default => sub { +{} } );
+
+sub datums($)
+{   my ($self, $column) = @_;
+    my $index  = $self->_recs;
+    my $recs   = $index->{$column->id};
+    my $datum_class = $column->datum_class;
+
+    unless($recs)
+    {   # pick up collateral loads
+        push @{$index->{$_->layout_id}}, $_
+            for @{$datum_class->records_for_revision($self)};
+        $recs  = $index->{$column->id} ||= [];
+    }
+
+    [ map $datum_class->from_record($_, column => $column), @$recs ];
 }
 
 # Croaks on multivalue fields
@@ -1297,4 +1317,5 @@ sub pdf
 
     $pdf;
 }
+
 1;

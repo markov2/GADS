@@ -14,13 +14,30 @@ use Linkspace::Util qw/parse_duration/;
 use Moo;
 extends 'Linkspace::Datum';
 
-sub _datum_create($$%)
-{   my ($class, $old_datums, $value) = (shift, shift, shift);
-    my $span = $value->{value};
-    $value->{start} = $span->start;
-    $value->{end}   = $span->end;
-    $value->{value} = $span->as_string;
-    $class->SUPER::_datum_create($old_datums, $value, @_);
+sub db_table { 'Daterange' }
+
+### 2020-11-06: columns in GADS::Schema::Result::Daterange
+# id           child_unique layout_id    to
+# value        from         record_id
+
+has from => ( is => 'ro' );
+has to   => ( is => 'ro' );
+
+sub _create_insert(%)
+{   my ($self, %insert) = @_;
+    my $span = delete $insert{value};
+    $self->SUPER::_create_insert(%insert,
+        from  => $span->start,
+        to    => $span->end,
+        value => $self->as_string,
+    );
+}
+
+sub span()
+{   my $self = shift;
+    my $from = $self->from or return;
+    my $to   = $self->to   or return;
+    DateTime::Span->from_datetimes(start => $from, end => $to);
 }
 
 # Dateranges can be specified as
@@ -86,16 +103,12 @@ sub _unpack_values($$$%)
     \@ranges;
 }
 
-sub as_integer { $_[0]->value->start->epoch }
+sub as_integer { $_[0]->start->epoch }
 
-has html_form => (
-    is      => 'lazy',
-);
-
-sub _build_html_form
+sub html_form
 {   my $self = shift;
     my $site = $::session->site;
-    [ map +($site->dt2local($_->start), $site->dt2local($_->end)), @{$self->values} ];
+    [ $site->dt2local($self->start), $site->dt2local($self->end) ] 
 }
 
 sub filter_value   { $_[0]->text_all->[0] }

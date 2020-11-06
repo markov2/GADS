@@ -12,6 +12,8 @@ use Log::Report 'linkspace';
 use Moo;
 extends 'Linkspace::Datum';
 
+sub db_table { 'Enum' }
+
 sub _unpack_values($$$%)
 {   my ($class, $column, $old_datums, $values, %args) = @_;
     $column->to_ids($values);

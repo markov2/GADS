@@ -18,8 +18,6 @@ use Linkspace::Results ();
 use Linkspace::Row     ();
 
 use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
-use MooX::Types::MooseLike::DateTime qw/DateAndTime/;
 with 'GADS::RecordsJoin';
 
 =head1 NAME
@@ -41,6 +39,10 @@ potentially each row has many cells... which are treated lazy as well.
 
 #----------------
 =head1 METHODS: Attributes
+
+=head2 my $date = $content->rewind;
+Specifies whether the the content on a certain moment of time is requested.  You
+may have content objects with different time-stamps in your program in parallel.
 =cut
 
 has sheet => ( is => 'ro', required => 1);
@@ -201,7 +203,6 @@ has max_results => (
 
 has has_children => (
     is      => 'lazy',
-    isa     => Bool,
 );
 
 # Common search parameters used across different queries
@@ -372,7 +373,6 @@ sub search_views($)
 
 has _search_all_fields => (
     is      => 'lazy',
-    isa     => HashRef,
 );
 
 sub _build__search_all_fields
@@ -508,15 +508,9 @@ sub _build__search_all_fields
      };
 }
 
-has search_limit_reached => (
-    is  => 'lazy',
-    isa => Maybe[Int],
-);
-
-sub _build_search_limit_reached
+sub search_limit_reached ()
 {   my $self = shift;
     if(my $lr = $self->_search_all_fields->{limit_reached}) { return $lr }
-
 my $max;
     $max && $max < $self->count ? $max : undef;
 }
@@ -831,7 +825,6 @@ sub fetch_multivalues
 # are edited different chunks will be retrieved
 has _all_cids_store => (
     is      => 'lazy',
-    isa     => ArrayRef,
     builder => sub { $_[0]->current_ids },
 );
 
@@ -839,13 +832,11 @@ has _all_cids_store => (
 # same as page(), which directly affects the page of the database row retrieval
 has _single_page => (
     is      => 'rw',
-    isa     => Int,
     default => 0,
 );
 
 has _next_single_id => (
     is      => 'rwp',
-    isa     => Maybe[Int],
     default => 0,
 );
 
@@ -1669,7 +1660,6 @@ sub _min_max_date
 
 has group_values_as_index => (
     is      => 'ro',
-    isa     => Bool,
     default => 1,
 );
 
@@ -1677,7 +1667,6 @@ has group_values_as_index => (
 # daterange, interpolating as required
 has dr_column => (
     is  => 'rw',
-    isa => Maybe[Int],
 );
 
 has dr_column_parent => (
@@ -1686,7 +1675,6 @@ has dr_column_parent => (
 
 has dr_interval => (
     is  => 'rw',
-    isa => Maybe[Str],
 );
 
 has dr_from => (
@@ -2242,18 +2230,25 @@ sub rows(%)
 
 sub row_create($%)
 {   my ($self, $insert, %args) = @_;
+
+    my $guard = $::db->begin_work;
+
     $insert->{serial} ||= $self->max_serial +1;
+    $insert->{sheet}    = my $sheet = $self->sheet;
 
     if(my $pid = $insert->{parent})
     {   error __"Cannot create a nested child row"
             if $self->row(to_id $pid)->parent_id;
     }
 
-    my $sheet = $self->sheet;
     $sheet->user_can('write_new')
         or error __"No permissions to add a new row to sheet";
 
-    Linkspace::Row->_row_create($insert, %args, content => $self, sheet => $sheet);
+    my $row = Linkspace::Row->_row_create($insert,
+        %args, content => $self, sheet => $sheet);
+
+    $guard->commit;
+    $row;
 }
 
 sub row_by_serial($%)

@@ -199,7 +199,7 @@ sub _fill_content($$)
         $row_data->{file1} = \%dummy_file_data
             if exists $row_data->{file1} && ref $row_data->{file1} ne 'HASH';
 
-        my $revision = $row->revision_create({ cells => $row_data }, no_alerts => 1);
+        my $revision = $row->revision_create({ cells => $row_data });
     }
 
     1;

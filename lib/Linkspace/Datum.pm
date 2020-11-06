@@ -58,14 +58,26 @@ sub write($%)
 }
 
 sub from_record($%)
-{   my ($self, $rec) = (shift, shift);
-    $self->new(value => $rec->value, child_unique => $rec->child_unique, @_);
+{   my ($class, $rec) = (shift, shift);
+    $class->new($rec->get_columns, @_);
 }
 
 sub from_id($%)
-{   my ($self, $datum_id) = (shift, shift);
-    my $rec = $::db->search($self->db_table => { id => $datum_id})->next or return;
-    $self->from_record($rec, @_);
+{   my ($class, $datum_id) = (shift, shift);
+    my $rec = $::db->search($class->db_table => { id => $datum_id })->next;
+    $rec ? $class->from_record($rec, @_) : undef;
+}
+
+=head2 \@recs = $column->records_for_revision($revision);
+Load the records for this column which is on the C<$revision>.
+
+For performance reasons, this will also return records of other columns
+in the same row.  The caller must take them apart.
+=cut
+
+sub records_for_revision($%)
+{   my ($class, $revision) = (shift, shift);
+    [ $::db->search($class->db_table => { record_id => to_id $revision })->all ];
 }
 
 #--------------------
@@ -77,7 +89,6 @@ has value  => ( is => 'ro', required => 1 );
 
 has child_unique => ( is => 'ro', default => 0 );
 has revision => ( is => 'rw' );
-
 
 #--------------------
 =head1 METHODS: Other

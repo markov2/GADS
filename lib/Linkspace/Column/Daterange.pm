@@ -73,10 +73,9 @@ sub _is_valid_value($)
 }
 
 sub datum_as_string($)
-{   my $self  = shift;
-    my $range = $self->value;
+{   my ($self, $datum) = @_;
     my $site  = $self->site;
-    $site->dt2local($range->start) . ' to ' . $site->dt2local($range->end);
+    $site->dt2local($datum->from) . ' to ' . $site->dt2local($datum->to);
 }
 
 sub validate_search

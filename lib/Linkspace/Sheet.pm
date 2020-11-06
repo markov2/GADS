@@ -174,24 +174,22 @@ has layout => (
 
 #--------------------
 =head1 METHODS: Sheet Content, Keeping records
-Each Sheet has a Content object to maintain it's data.  It does not have it's
-own table but maintains the 'Records' table.
+Each Sheet has a Content object to maintain it's data.
 
-=head2 my $content = $sheet->content;
+=head2 my $content = $sheet->content(%options);
+Returns a L<Linkspace::Sheet::Content> object.  When not a single option is given, it
+will each time return the same object.  However, with some C<%option> (especially the
+C<rewind>) it will return a dedicated object.
 =cut
 
-has content => (
+has _content => (
     is      => 'lazy',
     builder => sub { Linkspace::Sheet::Content->new(sheet => $_[0]) },
 );
 
-=head2 $sheet->blank_fields(%search);
-Find columns which match the C<%search>, and set those values to blank ('').
-=cut
-
-sub blank_records(%)
+sub content(%)
 {   my $self = shift;
-    $self->content->blank_fields($self->columns_search(@_));
+    @_ ? Linkspace::Sheet::Content->new(sheet => $self, @_) : $self->_content;
 }
 
 #----------------------

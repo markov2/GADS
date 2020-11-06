@@ -12,6 +12,8 @@ use Log::Report 'linkspace';
 use Moo;
 extends 'Linkspace::Datum';
 
+sub db_table { 'Intgr' }
+
 my %ops = (
     '*' => sub { $_[0] * $_[1] },
     '/' => sub { $_[0] / $_[1] },

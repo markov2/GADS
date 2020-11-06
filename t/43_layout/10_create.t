@@ -18,21 +18,17 @@ is $sheet->layout, $layout, '... cache layout object';
 cmp_ok @{$layout->columns_search(exclude_internal => 1)}, '==', 0, '... no own columns';
 my $internals = $layout->columns_search;
 
-TODO: {
-    local $TODO = 'not all initial columns supported yet';
+cmp_ok @$internals, '==', 7, '... found all expected internals';
 
-    cmp_ok @$internals, '==', 7, '... found all expected internals';
-
-    is $layout->as_string(exclude_internal => 0), <<'__INTERNALS', '... as string';
+is $layout->as_string(exclude_internal => 0), <<'__INTERNALS', '... as string';
  1 id          I  U _id
  2 createddate I    _version_datetime
- 3 createdby   I    _version_user
- 4 createdby   I    _created_user
+ 3 createdby   I O  _version_user
+ 4 createdby   I O  _created_user
  5 deletedby   I    _deleted_by
  6 createddate I    _created
  7 serial      I  U _serial
 __INTERNALS
-}
 
 like logline, qr/Layout create.*=_/, '... internal creation logged'
      for @$internals;

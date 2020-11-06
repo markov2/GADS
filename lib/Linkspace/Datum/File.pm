@@ -17,10 +17,7 @@ extends 'Linkspace::Datum';
 # id             content        is_independent
 # name           edit_user_id   mimetype
 
-sub _create_file($)
-{   my ($thing, $insert) = @_;
-    $::db->create(Fileval => $insert)->id;
-}
+sub db_table { 'File' }
 
 sub _unpack_values($$$%)
 {   my ($class, $column, $old_datums, $values, %args) = @_;
@@ -31,6 +28,14 @@ sub _unpack_values($$$%)
         flat $values;
 
     [ sort { $a <=> $b } @file_ids ];
+}
+
+### 2020-11-06: columns in GADS::Schema::Result::File
+# id           value        child_unique layout_id    record_id
+
+sub _create_file($)
+{   my ($thing, $insert) = @_;
+    $::db->create(Fileval => $insert)->id;
 }
 
 sub file_id { $_[0]->value }

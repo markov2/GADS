@@ -92,7 +92,7 @@ sub _db_rename(;$)
     my %rename = %{$thing->db_field_rename};
     $rename{instance_id} = 'sheet_id'    if $info->{instance_id};
     $rename{layout_id}   = 'column_id'   if $info->{layout_id};
-    $rename{record_id}   = 'revision_id' if $info->{record_id};
+    $rename{record_id} ||= 'revision_id' if $info->{record_id};
     \%rename;
 }
 
@@ -228,7 +228,7 @@ has sheet => (
     weakref => 1,
     builder => sub
     {   my $self = shift;
-        $self->can('sheet_id') or panic "Object is not related to a sheet";
+        $self->can('sheet_id') or panic "$self is not related to a sheet";
         $self->site->sheet($self->sheet_id);
     },
 );
@@ -505,7 +505,7 @@ sub _record_converter
     my $converter = sub {
         my $in  = shift;
         my $out = {};
-        ($run{$_} or panic "Unusable $_")->($in->{$_}, $out) for keys %$in;
+        ($run{$_} or panic "Unusable $_ for $thing")->($in->{$_}, $out) for keys %$in;
         $out;
     };
 

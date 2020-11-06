@@ -13,6 +13,8 @@ use Linkspace::Util qw(parse_duration flat);
 use Moo;
 extends 'Linkspace::Datum';
 
+sub db_table { 'Date' }
+
 #XXX for data which has an external origin needs: $column->parse_date($_)
 
 #!!! The DBIx background accepts raw DateTime objects, so we do not need to
@@ -53,6 +55,7 @@ sub _unpack_values($$$%)
         $dt->set_time_zone('UTC') if $dt->time_zone->is_floating;
 
         $dt->set_time_zone($::session->site->timezone);
+        push @dates, $dt;
     }
 
     \@dates;

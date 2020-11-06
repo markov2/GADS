@@ -64,7 +64,6 @@ my @simple_import_attributes =
    qw/name name_short optional remember isunique can_child position description
       aggregate width filter helptext multivalue group_display/;
 
-
 __PACKAGE__->db_accessors;
 
 ### 2020-04-14: columns in GADS::Schema::Result::Layout
@@ -269,14 +268,14 @@ sub is_valid_value($)
     my @v = grep defined, flat $values;
     unless(@v)
     {   return $self->is_multivalue ? [] : undef if $self->is_optional;
-        error __x"Column \'{name}\' requires a value.", name => $self->name;
+        error __x"Column \'{col.name}\' requires a value.", col => $self;
     }
 
     return $self->_is_valid_value($v[0])
         if @v==1;
 
     $self->is_multivalue
-        or error __x"Column \'{name}\' is not a multivalue.", name => $self->name;
+        or error __x"Column \'{col.name}\' is not a multivalue.", col => $self;
 
     [ map $self->_is_valid_value($_), @v ];
 }
