@@ -121,7 +121,7 @@ sub _complete_cells($$$%)
             if ref $values ne 'ARRAY';
 
         my $old    = $previous ? $previous->cell($column)->datums : [];
-        my $datums = $column->values2datums($values, $old);
+        my $datums = $column->datum_class->datums_prepare($values, $old);
         @$datums or next;
 
         ! $datums{$column->id}
@@ -218,12 +218,13 @@ sub _create_cells($@)
 sub _revision_latest(%)
 {   my ($class, %args) = @_;
 
-    my %search = ( current => $args{row}, needs_approval => 0 );
+    my %search = ( current_id => $args{row}->id, needs_approval => 0 );
     if(my $before = delete $args{created_before})
     {   $search{created}   = { '<=', $before };
         $args{is_historic} = 1;
     }
 
+warn $::db->dump($::db->resultset(Record => {}));
     #XXX expensive
     my $rec = $::db->resultset(Record => \%search,
         { order => { -desc => 'created', limit => 1 } })->next or return;
@@ -647,6 +648,7 @@ sub delete_user_drafts($)
 
 sub _revision_update($$%)
 {   my ($self, $update, $row, %args) = @_;
+}
 
 =pod
 
@@ -919,12 +921,7 @@ my $content = $row->content;
 
     $self->_need_rec($need_rec);
     $self->_need_app($need_app);
-
-=cut
-
 }
-
-=pod
 
 sub write_values
 {   my ($self, $row, %options) = @_;

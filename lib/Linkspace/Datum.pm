@@ -34,6 +34,9 @@ the it gets written.
 sub datums_prepare($$$%)
 {   my ($class, $column, $raw_values, $old_datums) = @_;
     my $values = $class->_unpack_values($column, $old_datums, $raw_values);
+
+    #XXX column->is_valid_value() is doing too much
+    my @values = map $column->_is_valid_value($_), @$values;
     [ map $class->new(column => $column, value => $_), @$values ];
 }
 

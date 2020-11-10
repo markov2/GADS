@@ -263,11 +263,13 @@ sub revision_create($%)
 
     my $guard = $::db->begin_work;
     my $kill  = $self->sheet->forget_history ? $self->all_revisions : [];
+
     my $rev   = Linkspace::Row::Revision->_revision_create($self, $insert, @_);
+    $self->set_current($rev);
+
     $self->revision_delete($_) for @$kill;
     $guard->commit;
 
-    $self->current($rev);
     $rev;
 }
 
@@ -310,25 +312,31 @@ sub revision_purge($)
 Get the latest revision of the row: the non-draft with the highest id.
 =cut
 
-has current => (
-    is      => 'rw',
-    lazy    => 1,
-    builder => sub { Linkspace::Row::Revision->_revision_latest(row => $_[0]) },
-);
+# Moo breaks here
+sub current()
+{    my $self = shift;
+warn "GET CURRENT WAS ", $self->{_current};
+my $x =
+     $self->{_current} ||= Linkspace::Row::Revision->_revision_latest(row => $self);
+warn "GET CURRENT BECAME $x";
+$x;
+}
 
 =head2 $row->set_current($revision);
 Make the C<$revision> the new latest version.
 =cut
 
 #XXX more work expected
-sub set_current($) { $_[0]->current($_[0]) }
+sub set_current($) {
+warn "SET CURRENT $_[1]";
+$_[0]->{_current} = $_[1] }
 
 =head2 my $cell = $row->created_by;
 Returns the Person who created the initial revisions of this row.  This is kept
 in the '_created_user' column in every revision.
 =cut
 
-sub created_by() { $_[0]->current->cell('_created_user')->datum }
+sub created_by() { $_[0]->current->cell('_created_user')->datum->person }
 
 =head2 my $count = $row->revision_count;
 Returns the number of revisions available for this row.

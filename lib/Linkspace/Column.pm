@@ -743,9 +743,6 @@ sub related_sheet_id() {
 ### Datums
 ###
 
-# $self, $values, $old_datums, %args
-sub values2datums($;$%) { $_[0]->datum_class->datums_prepare(@_) }
-
 # What will be inserted when a cell is created without values.
 sub default_values() { [] }
 

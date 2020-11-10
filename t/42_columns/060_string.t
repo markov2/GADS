@@ -115,11 +115,13 @@ string       MO  column3
     is textbox, match: [0-9a-m\s:]*
 __STRING
 
-is $column3->is_valid_value("abc 0123"),                      "abc 0123\n" ,                  '... match regex';
+is $column3->is_valid_value('abc 0123'), "abc 0123\n" , '... match regex';
 
-try { $column3->is_valid_value('invalid pattern'); };
-is $@->wasFatal->message, "Invalid value 'invalid pattern\n' for required pattern of column3 (long)", '... match regex failed';
+try { $column3->is_valid_value('invalid pattern') };
+is $@->wasFatal->message, "Invalid value 'invalid pattern\n' for required pattern of column3 (long)",
+    '... match regex failed';
 
-is $column3->is_valid_value("  abc: d\te\xA0f\ng :hij\n\nklm\n\n"), "  abc: d\te f\ng :hij\n\nklm\n",   '... combination of previous';
+is $column3->is_valid_value("  abc: d\te\xA0f\ng :hij\n\nklm\n\n"), "  abc: d\te f\ng :hij\n\nklm\n",
+    '... combination of previous';
 
 done_testing;

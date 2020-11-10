@@ -201,10 +201,6 @@ has max_results => (
     is      => 'rw',
 );
 
-has has_children => (
-    is      => 'lazy',
-);
-
 # Common search parameters used across different queries
 sub common_search($)
 {   my ($self, $query, $current) = @_;
@@ -229,7 +225,7 @@ sub search_query
 
     # Only used by record_later_search(). Will pull wrong query_params
     # if left in %options
-    my $is_linked     = delete $options{is_linked};
+    my $is_linked     = delete $options{linked};
     my @search        = $self->_query_params(%options);
     my $root_table    = $options{root_table} || 'current';
     my $current       = $options{alias} || ($root_table eq 'current' ? 'me' : 'current');
@@ -246,14 +242,14 @@ sub search_query
     }
 
     # Current IDs from quick search if used
-    push @search, { "$current.id" => $self->_search_all_fields->{cids} } if $self->search;
-    push @search, { "$current.id" => $self->limit_current_ids }
-        if $self->limit_current_ids; # $self->has_current_ids && $self->current_ids;
+    push @search, { "$current.id" => $self->_search_all_fields->{cids} } if $query->{search};
+    push @search, { "$current.id" => $query->{limit_current_ids} }
+        if $query->{limit_current_ids}; # $self->has_current_ids && $self->current_ids;
 
     push @search,
         +{ "$current.instance_id" => $self->sheet->id },
         $self->common_search($query, $current),
-        $self->record_later_search(%options, is_linked => $is_linked);
+        $self->record_later_search(%options, linked => $is_linked);
 
     if(my $rewind = $self->rewind_formatted)
     {   push @search, { "$record_single.created" => { '<' => $rewind } };
@@ -915,6 +911,8 @@ sub _build_count
     })->count;
 }
 
+
+has has_children => ( is => 'lazy');
 sub _build_has_children
 {   my $self = shift;
 
@@ -2209,7 +2207,7 @@ sub max_serial
         ->get_column('serial')->max || 0;
 }
 
-=head2 my $rows = $content->rows(%options);
+=head2 \@rows = $content->rows(%options);
 Returns the rows, each as L<Linkspace::Row> instance.  Unless C<include_deleted>
 is given, the deleted rows are ignored.
 
@@ -2222,6 +2220,19 @@ sub rows(%)
 #XXX
 }
 
+=head2 \@row_ids = $content->row_ids(%options);
+Returns the ids which are used for the rows in the sheet.  They are ordered by
+creating date.
+=cut
+
+sub row_ids(%)
+{   my ($self, %args) = @_;
+    my %attrs = (order => $args{order} || 'created');
+    $attrs{limit} = $args{limit} if defined $args{limit};
+    [ $::db->search(Current => { instance_id => $_[0]->sheet->id }, \%attrs)
+         ->get_column('id')->all ];
+}
+
 #--------------------------
 =head1 METHODS: Single rows
 
@@ -2232,7 +2243,6 @@ sub row_create($%)
 {   my ($self, $insert, %args) = @_;
 
     my $guard = $::db->begin_work;
-
     $insert->{serial} ||= $self->max_serial +1;
     $insert->{sheet}    = my $sheet = $self->sheet;
 
@@ -2257,12 +2267,12 @@ sub row_by_serial($%)
 }
 
 sub row($@)
-{   my ($self, $current_id, %args) = @_;
+{   my ($self, $row_id, %args) = @_;
     my $include_deleted = $args{include_deleted};
-    my $row = Linkspace::Row->from_id($current_id, %args, content => $self, sheet => $self->sheet);
+    my $row = Linkspace::Row->from_id($row_id, %args, content => $self, sheet => $self->sheet);
 
     if(! $include_deleted && $row->is_deleted)
-    {   warning "Access to deleted row $current_id refused";
+    {   warning "Access to deleted row $row_id refused";
         return;
     }
 

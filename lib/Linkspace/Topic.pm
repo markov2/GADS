@@ -24,18 +24,16 @@ sub db_also_bools { [ qw/click_to_edit/ ] }
 
 Linkspace::Topic - Topic of discussion
 
-=head1 SYNOPSIS
-
 =head1 DESCRIPTION
 
-=head1 METHODS: constructors
-=cut
+Field C<initial_state> can be either C<expanded> or C<collapsed>, expressing
+the initial state of the topic fields when editing.  XXX???
 
-has sheet => (
-    is       => 'ro',
-    required => 1,
-    weakref  => 1,
-);
+C<prevent_edit_topic> says: blank mandatory fields allowed, but the prevent
+editing some other top.  May be blank.
+
+=head1 METHODS: Constructors
+=cut
 
 #--------------
 =head1 METHODS: Related topics
@@ -43,7 +41,7 @@ has sheet => (
 
 sub need_completed_topics
 {   my $self = shift;
-    (ref $self)->search_objects({prevent_edit_topic_id => $self->id}, sheet => $self->sheet);
+    (ref $self)->search_objects({ prevent_edit_topic => $self }, sheet => $self->sheet);
 }
 
 sub show_need()
@@ -51,6 +49,7 @@ sub show_need()
     make_wordlist(map $_->name, @$topics);
 }
 
+#XXX useful?
 sub report_changes($)
 {   my ($self, $update) = @_;
     my $name = $self->name;

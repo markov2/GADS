@@ -2,7 +2,7 @@
 # Was t/016_site.t
 
 use Linkspace::Test
-    not_ready => "Needs make_sheet(fill_rows)";
+    not_ready => 'Cannot easily switch between sites';
 
 my $site1  = test_site;
 my $sheet1 = make_sheet;
@@ -10,10 +10,7 @@ my $sheet1 = make_sheet;
 is $sheet1->site, $site1, 'Sheet1 created in site1';
 
 my $site2  = make_site 2;
-
-my $sheet2 = make_sheet
-    site             => $site2,
-    current_ids_from => 3;
+my $sheet2 = make_sheet site => $site2;
 
 is $sheet2->site, $site2, 'Sheet2 created in site2';
 

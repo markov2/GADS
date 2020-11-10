@@ -34,7 +34,7 @@ sub _remove_column($) {}
 ### Instance
 ###
 
-sub _is_valid_value
+sub _is_valid_value($)
 {   my ($self, $value) = @_;
     return $1 if $value =~ /^\s*([0-9]+)\s*$/ && $1 != 0;
     error __x"'{id}' is not a valid ID", id => $value;

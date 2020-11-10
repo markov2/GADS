@@ -63,6 +63,8 @@ sub new($)
 sub rollback()
 {   my ($self) = @_;
 
+warn "ROLLBACK!!!";
+
     if(my $sp = $self->{savepoint})
     {   undef $_[0];   # attempt to remove external guard reference
         $self->{active} or return;
@@ -83,12 +85,14 @@ sub commit()
     if(my $sp = $self->{savepoint})
     {   undef $_[0];   # attempt to remove external guard reference
         $self->{active} or return;
+warn "COMMIT SAVEPOINT '$sp'";
 
         $transaction->{dbh}->pg_release($sp);
         $self->{active} = 0;
     }
     elsif($transaction)
     {   $transaction->commit;
+warn "COMMIT TRANSACTION";
         undef $transaction;
     }
     else { panic "Commit without transaction" }
@@ -96,7 +100,7 @@ sub commit()
 
 sub DESTROY
 {   my $self = shift;
-    return if in_global_destruction;
+    return if in_global_destruction || ! $self->{active};
 
     if($self->{savepoint})
     {   undef $_[0];   # attempt to remove external guard reference

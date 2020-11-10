@@ -1,0 +1,36 @@
+# Test integer datu,s
+  
+use Linkspace::Test;
+
+my @tests = (
+   { value => 42 },
+   { value => '43' },
+);
+
+my $sheet = make_sheet
+    columns => [ 'intgr' ],
+    rows    => [ map +{ integer1 => $_->{value} }, @tests ];
+
+ok defined $sheet, 'Create a sheet';
+my $content = $sheet->content;
+
+my $row_ids = $content->row_ids;
+cmp_ok scalar @$row_ids, '==', scalar @tests, '... found all rows';
+
+foreach my $row_id (@$row_ids)
+{   my $test = shift @tests;
+
+    my $row  = $content->row($row_id);
+    ok defined $row, "Checking row $row_id";
+    isa_ok $row, 'Linkspace::Row', '... ';
+
+    my $rev  = $row->current;
+    isa_ok $rev, 'Linkspace::Row::Revision', '... ';
+
+    my $cell = $rev->cell('integer1');
+    ok defined $cell, '... found the cell';
+
+    is $cell->value, $test->{value};
+}
+
+done_testing;
