@@ -5,12 +5,12 @@
 package Linkspace::Column::Person;
 # Extended by ::CreatedBy ::Deletedby
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-extends 'Linkspace::Column';
-
 use Log::Report 'linkspace';
-use Linkspace::Util qw/flat/;
+use Linkspace::Util qw(flat);
+use Scalar::Util    qw(blessed);
+
+use Moo;
+extends 'Linkspace::Column';
 
 my @options = (
     default_to_login => 0,
@@ -86,6 +86,9 @@ sub import_value
 
 sub _is_valid_value($)
 {   my ($self, $value) = @_;
+
+    return $value->id
+        if blessed $value && $value->isa('Linkspace::User');
 
     (my $person_id) = $value =~ /^\s*([0-9]+)\s*$/
         or error __x"'{int}' is not a valid id of a person for '{col.name}'",

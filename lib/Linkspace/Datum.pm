@@ -80,6 +80,9 @@ in the same row.  The caller must take them apart.
 
 sub records_for_revision($%)
 {   my ($class, $revision) = (shift, shift);
+#use Data::Dumper;
+#warn "READ TABLE=".($class->db_table)." REVID=".(to_id $revision);
+#warn $::db->dump($::db->search($class->db_table => {}));
     [ $::db->search($class->db_table => { record_id => to_id $revision })->all ];
 }
 

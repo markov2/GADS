@@ -122,7 +122,7 @@ sub _complete_cells($$$%)
             if ref $values ne 'ARRAY';
 
         my $old    = $previous ? $previous->cell($column)->datums : [];
-        my $datums = $column->datum_class->datums_prepare($values, $old);
+        my $datums = $column->datum_class->datums_prepare($column, $values, $old);
         @$datums or next;
 
         ! $datums{$column->id}
@@ -307,7 +307,7 @@ has _cells => (
 
 sub cell($)
 {   my ($self, $which) = @_;
-    my $column = $self->row->column($which) or return;
+    my $column = $self->row->column($which) or panic $which;
     my $cell   = $self->_cells->{$column->id};
     return $cell if $cell;
 
