@@ -47,7 +47,7 @@ has _sheets_by_id => (
     is      => 'lazy',
     builder => sub
     {   my $self   = shift;
-        my $sheets = Linkspace::Sheet->search_objects({site => $self->site},
+        my $sheets = Linkspace::Sheet->search_objects({site => $self->site}, {},
             document => $self,
         );
         index_by_id @$sheets;

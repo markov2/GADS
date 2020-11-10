@@ -20,7 +20,7 @@ has _views_index => (
     is      => 'lazy',
     builder => sub {
         my $self = shift;
-        index_by_id(Linkspace::View->search_objects({sheet => $self->sheet},
+        index_by_id(Linkspace::View->search_objects({sheet => $self->sheet}, {},
             views => $self));
     },
 );

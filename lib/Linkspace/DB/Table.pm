@@ -154,24 +154,24 @@ sub from_search($%)
     $record ? $class->from_record($record, @_) : undef;
 }
 
-=head2 \@records = $class->search_records(\%search);
+=head2 \@records = $class->search_records(\%search, [ \%attrs]);
 Returns records (Schema::Result objects).  The search query should use
 the renamed field, and cannot be complex (for the moment).
 =cut
 
-sub search_records($)
-{   my ($thing, $search) = @_;
-    [ $::db->search($thing->db_table, $thing->_record_converter->($search))->all ];
+sub search_records($;$)
+{   my ($thing, $search, $attrs) = @_;
+    [ $::db->search($thing->db_table, $thing->_record_converter->($search), $attrs)->all ];
 }
 
-=head2 \@objects = $class->search_objects(\%search, %options);
+=head2 \@objects = $class->search_objects([\%search, [ \%attrs, %options ]]);
 Uses C<search_records()> to find records, and than converts them into
 the related objects.
 =cut
 
 sub search_objects($%)
-{   my ($thing, $search) = (shift, shift);
-    my $records = $thing->search_records($search || {});
+{   my ($thing, $search, $attrs) = (shift, shift, shift);
+    my $records = $thing->search_records($search || {}, $attrs || {});
     [ map $thing->from_record($_, @_), @$records ];
 }
 

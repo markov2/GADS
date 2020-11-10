@@ -39,7 +39,7 @@ sub current($$%)
 
 sub for_user($%)
 {   my ($class, $user, %args) = @_;
-    $class->search_objects({user => $user}, %args);
+    $class->search_objects({user => $user}, {}, %args);
 }
 
 sub _alert_validate($)

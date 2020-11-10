@@ -215,8 +215,7 @@ Returns a L<Linkspace::Site> object per defined site.
 sub all_sites()
 {   my $self = shift;
     my $index = $self->{L_sites} ||= {};
-    $index->{lc $_->hostname} ||= $_
-         for @{Linkspace::Site->search_objects};
+    $index->{lc $_->hostname} ||= $_ for @{Linkspace::Site->search_objects};
     [ values %$index ];
 }
     

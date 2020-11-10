@@ -43,7 +43,7 @@ has _permission_index => (
     {   my $self  = shift;
         my $sheet = $self->sheet;
         my $perms = Linkspace::Sheet::Access::Permission->search_objects(
-               { sheet => $sheet }, sheet => $sheet);
+               { sheet => $sheet }, {}, sheet => $sheet);
         my %perms = map +($_->group_id => $_->permission), @$perms;
         \%perms;
     },

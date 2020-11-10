@@ -29,8 +29,9 @@ foreach my $row_id (@$row_ids)
 
     my $cell = $rev->cell('integer1');
     ok defined $cell, '... found the cell';
+    is "$cell", $test->{value};
 
-    is $cell->value, $test->{value};
+#   is_deeply $cell->values, [ $test->{value} ];
 }
 
 done_testing;

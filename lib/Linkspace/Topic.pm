@@ -41,7 +41,7 @@ editing some other top.  May be blank.
 
 sub need_completed_topics
 {   my $self = shift;
-    (ref $self)->search_objects({ prevent_edit_topic => $self }, sheet => $self->sheet);
+    (ref $self)->search_objects({ prevent_edit_topic => $self }, {}, sheet => $self->sheet);
 }
 
 sub show_need()

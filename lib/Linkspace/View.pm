@@ -218,7 +218,7 @@ has _view_groupings => (
     is      => 'lazy',
     builder => sub {
         my $self = shift;
-        Linkspace::View::Grouping->search_objects({ view => $self }, view => $self);
+        Linkspace::View::Grouping->search_objects({ view => $self }, {}, view => $self);
     },
 );
 

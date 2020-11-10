@@ -31,6 +31,7 @@ sub db_field_rename { +{
     approvedby => 'approved_by_id',
     createdby  => 'created_by_id',
     record_id  => 'approval_base_id',
+    current_id => 'row_id',
 } };
 
 __PACKAGE__->db_accessors;
@@ -85,7 +86,7 @@ sub _revision_create($$%)
         $insert{created}    ||= $args{timestamp};
     }
 
-    $insert{current_id}     ||= $row->id;
+    $insert{row_id}         ||= $row->id;
     $insert{needs_approval} ||= 0;
 
     my $self = $class->create(\%insert, %args,
@@ -218,17 +219,14 @@ sub _create_cells($@)
 sub _revision_latest(%)
 {   my ($class, %args) = @_;
 
-    my %search = ( current_id => $args{row}->id, needs_approval => 0 );
+    my %search = ( row => $args{row}, needs_approval => 0 );
     if(my $before = delete $args{created_before})
     {   $search{created}   = { '<=', $before };
         $args{is_historic} = 1;
     }
 
-warn $::db->dump($::db->resultset(Record => {}));
     #XXX expensive
-    my $rec = $::db->resultset(Record => \%search,
-        { order => { -desc => 'created', limit => 1 } })->next or return;
-
+    my $rec = $class->search_records(\%search, { order => { -desc => 'created', limit => 1 } })->[0];
     $class->from_record($rec, is_historic => 0, %args);
 }
 
@@ -239,7 +237,7 @@ sub _revision_first_id(%)
 
 sub _find($%)
 {   my ($class, $row, %args) = @_;
-    my %search = (current => $row, needs_approval => 0);
+    my %search = (row => $row, needs_approval => 0);
 
     if(my $before = $args{created_before})
     {   $search{created} = { '<' => $before };

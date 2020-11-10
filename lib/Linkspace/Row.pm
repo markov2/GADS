@@ -116,7 +116,7 @@ sub _row_delete()
 sub _draft_rows($@)
 {   my ($class, $sheet, $user) = (shift, shift, shift);
     Linkspace::Row::Draft->search_objects({ sheet => $sheet, draftuser => $user },
-       @_, sheet => $sheet,
+       {}, @_, sheet => $sheet,
     );
 }
 
@@ -151,7 +151,7 @@ sub _row_purge
 
     $_->_row_purge for @{$self->child_rows};
 
-    my $revisions = $self->revisions;
+    my $revisions = $self->all_revisions;
     $_->_revision_delete for @$revisions;
 
     my $which = +{ current_id => $self->id };
@@ -315,11 +315,7 @@ Get the latest revision of the row: the non-draft with the highest id.
 # Moo breaks here
 sub current()
 {    my $self = shift;
-warn "GET CURRENT WAS ", $self->{_current};
-my $x =
      $self->{_current} ||= Linkspace::Row::Revision->_revision_latest(row => $self);
-warn "GET CURRENT BECAME $x";
-$x;
 }
 
 =head2 $row->set_current($revision);
@@ -327,9 +323,7 @@ Make the C<$revision> the new latest version.
 =cut
 
 #XXX more work expected
-sub set_current($) {
-warn "SET CURRENT $_[1]";
-$_[0]->{_current} = $_[1] }
+sub set_current($) { $_[0]->{_current} = $_[1] }
 
 =head2 my $cell = $row->created_by;
 Returns the Person who created the initial revisions of this row.  This is kept

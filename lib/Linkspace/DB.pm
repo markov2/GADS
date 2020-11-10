@@ -87,7 +87,7 @@ Simply use C<results_class = 'HASH'> in C<%attrs> when you mean
 C<DBIx::Class::ResultClass::HashRefInflator>.
 =cut
 
-sub search
+sub search($;$$)
 {   my ($self, $table, $cond, $attrs) = @_;
 
     $attrs->{result_class} = 'DBIx::Class::ResultClass::HashRefInflator'
