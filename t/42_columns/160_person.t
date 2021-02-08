@@ -50,12 +50,10 @@ my $column2 = $layout->column_create({
 logline;
 
 my $test_user_id = test_user->id; 
-is $column2->is_valid_value($test_user_id), $test_user_id, '... check user id';
-
-try { $column2->is_valid_value('0'); } ;
-is $@->wasFatal->message, 'Person 0 is not found for \'column2 (long)\'', '... user id not found';
-
-try { $column2->is_valid_value('invalid user id'); } ;
-is $@->wasFatal->message, '\'invalid user id\' is not a valid id of a person for \'column2 (long)\'', '... invalid user id';
+test_valid_values $column2, [
+  [ 1, 'user id',           $test_user_id, $test_user_id ],
+  [ 0, 'user id not found', 0, "Person 0 is not found for 'column2 (long)'" ],
+  [ 0, 'invalid user id',   'invalid user id', "'invalid user id' is not a valid id of a person for 'column2 (long)'" ],
+];
 
 done_testing;

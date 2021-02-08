@@ -84,7 +84,7 @@ sub import_value
     });
 }
 
-sub _is_valid_value($)
+sub is_valid_value($)
 {   my ($self, $value) = @_;
 
     return $value->id
@@ -101,7 +101,4 @@ sub _is_valid_value($)
     $person_id;
 }
 
-
-
 1;
-

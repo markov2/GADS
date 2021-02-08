@@ -18,9 +18,6 @@ sub hash_value($)
     +{ id => $node_id, text => $column->node($node_id)->name };
 }
 
-sub full_path { $_[0]->as_string }
-sub value_regex_test { shift->full_path }
-
 sub _value_for_code($$$)
 {   my ($self, $column, $node_id) = @_;
     my $node = $column->node($node_id) or panic;

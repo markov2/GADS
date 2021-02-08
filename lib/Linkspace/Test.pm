@@ -25,6 +25,7 @@ our @EXPORT = qw/
    make_user    test_user
    make_group   test_group
    make_sheet   empty_sheet
+   test_valid_values
 /;
 
 sub test_site(@);    sub make_site($@);   my $test_site;
@@ -32,6 +33,7 @@ sub test_user(@);    sub make_user($@);   my $test_user;
 sub test_group(@);   sub make_group($@);  my $test_group;
 sub test_session(@); sub make_session(@); my $test_session;
 sub make_sheet(@);
+sub test_valid_values($$);
 
 our $guard;  # visible for guard test only
 
@@ -297,6 +299,22 @@ logs_purge;
 
 sub empty_sheet(@)
 {   make_sheet rows => [], columns => [], @_;
+}
+
+sub test_valid_values($$)
+{   my ($column, $tests) = @_;
+    my $name = $column->name;
+    ok defined $column, "Running ".@$tests." tests for on column $name";
+
+    foreach my $test (@$tests)
+    {   my ($expected_valid, $case_description, $input_value, $expected_value) = @$test;
+
+        my $result = try { $column->is_valid_value($input_value) };
+        my $error  = $@ ? $@->wasFatal->message : undef;
+
+        ok !!$expected_valid == !$error, "... validate $case_description";
+        is_deeply $error || $result // '<undef>', $expected_value, '... ... correct value';
+    }
 }
 
 1;

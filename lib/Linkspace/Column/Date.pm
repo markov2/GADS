@@ -65,7 +65,7 @@ sub default_today  { $_[0]->_options->{default_today} // 0 }
 
 sub default_values { $_[0]->default_today ? [ DateTime->now ] : [] }
 
-sub _is_valid_value($%)
+sub is_valid_value($%)
 {   my ($self, $date, %options) = @_;
 
     $self->site->local2dt('auto',$date)

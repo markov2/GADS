@@ -38,32 +38,16 @@ isnt $column1d, $column1, 'recreated object';
 ok defined $column1d, 'Reload via id, avoiding cache';
 isa_ok $column1d, 'Linkspace::Column::Daterange', '...';
 
-#
-# is_valid_value
-#
+#### is_valid_value
 
-sub is_valid_value_test {
-    my ($column, $values,$result_value) = @_;
-    my $result = try { $column->is_valid_value($values) };
-    my $done = $@ ? $@->wasFatal->message : $result;
-    $$result_value = $@ ? $@->wasFatal->message : $result;
-    ! $@;
-}
+my $column2 = $layout->column_create({
+    type          => 'daterange',
+    name          => 'column2 (long)',
+    name_short    => 'column2',
+});
+logline;
 
-sub process_test_cases {
-    my ($column,@test_cases) = @_;
-    my $name=$column->name_short;
-    foreach my $test_case (@test_cases) {
-        my ($expected_valid,$case_description, $col_intgr_value, $expected_value) = @$test_case;
-        my $col_intgr_value_s = $col_intgr_value // '<undef>';
-        my $result_value;
-        ok $expected_valid == is_valid_value_test($column, $col_intgr_value,\$result_value),
-            "... $name validate  $case_description";
-        is_deeply $result_value , $expected_value, "... $name value for $case_description";
-    }
-}
-
-my @test_cases2 = (
+test_valid_values $column2, [
     [1, 'simple date',            { from => '2020-09-29',to => '2020-09-30' }, 
      { from => '2020-09-29T00:00:00',to => '2020-09-30T00:00:00' }                               ],
     [0, 'invalid from date',      { from => '2020x09-29',to => '2020-09-30' }, 
@@ -84,15 +68,6 @@ my @test_cases2 = (
      'Start date must be before the end date for \'column2 (long)\''                             ],
     [0, 'invalid datetime order', { from => '2020-09-29 14:37:03', to => '2020-09-29 14:37:02' },
      'Start date must be before the end date for \'column2 (long)\''                             ],
-    );
-
-my $column2 = $layout->column_create({
-    type          => 'daterange',
-    name          => 'column2 (long)',
-    name_short    => 'column2',
-});
-logline;
-
-process_test_cases($column2, @test_cases2);
+];
 
 done_testing;

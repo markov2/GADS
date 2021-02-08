@@ -111,9 +111,20 @@ column, it still returns an ARRAY.
 sub datums() { $_[0]->{datums} }
 
 =head2 $cell->is_blank;
+Returns true when there not a single useful value written to this cell. Be warned
+that an empty value (like a blank string) is a useful value.
 =cut
 
 sub is_blank { ! @{$_[0]->{datums}} }
+
+=head2 my $value = $cell->value;
+Returns the only value which in this cell.
+
+Only use this when you are sure that the column cannot be a multipart, like for
+internal columns, otherwise you will get a (planned) panic.
+=cut
+
+sub value  { my $d = $_[0]->datum; $d ? $d->value : undef }
 
 =head2 \@values = $cell->values;
 Returns the values in all of the datums.
@@ -139,8 +150,8 @@ sub for_code(%)
     }
     elsif($datums->[0]->isa('Linkspace::Datum::Enum'))
     {   return $self->column->is_multivalue
-            ? +{ text => $self->as_string, values => \@r }
-            : $self->as_string;
+          ? +{ text => $self->as_string, values => \@r }
+          : $self->as_string;
     }
 
     #XXX Not smart to pass multival datums in an inconsitent way.

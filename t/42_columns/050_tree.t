@@ -3,15 +3,13 @@
 use Linkspace::Test;
 
 $::session = test_session;
-my $sheet = empty_sheet;
+my $sheet  = empty_sheet;
 my $layout = $sheet->layout;
 
 my $column1 = $layout->column_create({
     type          => 'tree',
     name          => 'column1 (long)',
     name_short    => 'column1',
-    is_multivalue => 0,
-    is_optional   => 0,
 });
 
 ok defined $column1, 'Created column1';

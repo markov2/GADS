@@ -216,7 +216,7 @@ sub id_as_string($)
     my $enum = $id ? $self->_enumvals->{$id} : undef;
 }
 
-sub _is_valid_value($)
+sub is_valid_value($)
 {   my ($self, $value) = @_;
     if($value !~ /\D/)
     {   $self->_enumvals->{$value}

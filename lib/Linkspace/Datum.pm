@@ -34,9 +34,7 @@ the it gets written.
 sub datums_prepare($$$%)
 {   my ($class, $column, $raw_values, $old_datums) = @_;
     my $values = $class->_unpack_values($column, $old_datums, $raw_values);
-
-    #XXX column->is_valid_value() is doing too much
-    my @values = map $column->_is_valid_value($_), @$values;
+    my @values = map $column->is_valid_value($_), @$values;
     [ map $class->new(column => $column, value => $_), @$values ];
 }
 
@@ -80,9 +78,6 @@ in the same row.  The caller must take them apart.
 
 sub records_for_revision($%)
 {   my ($class, $revision) = (shift, shift);
-#use Data::Dumper;
-#warn "READ TABLE=".($class->db_table)." REVID=".(to_id $revision);
-#warn $::db->dump($::db->search($class->db_table => {}));
     [ $::db->search($class->db_table => { record_id => to_id $revision })->all ];
 }
 
@@ -94,7 +89,7 @@ has column => ( is => 'ro', required => 1 );
 has value  => ( is => 'ro', required => 1 );
 
 has child_unique => ( is => 'ro', default => 0 );
-has revision => ( is => 'rw' );
+has revision     => ( is => 'rw' );
 
 #--------------------
 =head1 METHODS: Other
@@ -104,11 +99,6 @@ sub as_string  { $_[0]->column->datum_as_string($_[0]) }
 sub as_integer { panic "Not implemented" }
 sub compare_as_string($)  { $_[0]->as_string cmp $_[1]->as_string }
 sub compare_as_integer($) { $_[0]->as_integer cmp $_[1]->as_integer }
-
-# That value that will be used in an edit form to test the display of a
-# display_field dependent field
-
-sub value_regex_test { shift->text_all }
 
 sub html_form    { $_[0]->value // '' }
 sub filter_value { $_[0]->html_form }

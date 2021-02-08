@@ -69,7 +69,7 @@ sub value_field_as_index
     !$value || $value =~ /^[0-9]+$/ ? 'id' : $self->value_field;
 }
 
-sub _is_valid_value($)
+sub is_valid_value($)
 {   my ($self, $value) = @_;
 
     (my $file_id) = $value =~ /^\s*([0-9]+)\s*$/

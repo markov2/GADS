@@ -122,7 +122,7 @@ sub resultset_for_values
     $::db->(Calcval => { layout_id => $self->id }, { group_by  => 'me.value_text' });
 }
 
-sub _is_valid_value
+sub is_valid_value
 {   my ($self, $value) = @_;
     my $rt = $self->return_type;
       $rt eq 'date'    ? ($self->parse_date($value) ? $value : undef)

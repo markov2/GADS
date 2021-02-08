@@ -131,8 +131,6 @@ sub initial_column($) {
         type          => 'enum',
         name          => $name.' (long)',
         name_short    => $name,
-        is_multivalue => 0,
-        is_optional   => 0,
     });
     logline;
 
@@ -156,13 +154,12 @@ like logline, qr/add enum '\Q$_\E'/, "... log creation of $_"
 
 ### delete 'tic'
 
-my $column2a = initial_column 'column2a';
+my $column2a         = initial_column 'column2a';
 my @expected_value2a = enum_delete_by_value 'tic', enum_from_column $column2a;
 ok $layout->column_update($column2a, enum_to_vals_ids(@expected_value2a), keep_unused => 1),
-    'Withdraw enum \'tic\'';
-like logline, qr/withdraw option 'tic'/, '... log withdrawal of \'tic\'';
-my @result_value2a = enum_from_column $column2a;
-is_deeply \@result_value2a, \@expected_value2a, '... result of withdrawal \'tic\'';
+    "Withdraw enum 'tic'";
+like logline, qr/withdraw option 'tic'/, "... log withdrawal of 'tic'";
+is_deeply [ enum_from_column $column2a ], \@expected_value2a, "... result of withdrawal 'tic'";
 
 is $column2a->as_string, <<'__STRING', '... as string';
 enum             column2a
@@ -189,9 +186,8 @@ my $column2c = initial_column 'column2c';
 my @expected_value2c = enum_rename_by_value 'tic', 'other', enum_from_column $column2c;
 ok $layout->column_update($column2c, enum_to_vals_ids( @expected_value2c), keep_unused => 1),
     'Rename enum \'tic\' to \'other\'';
-like logline, qr/rename enum 'tic' to 'other'/, '... log rename of \'tic\'';
-my @result_value2c = enum_from_column $column2c;
-is_deeply \@result_value2c, \@expected_value2c, '... result of rename \'tic\' to \'other\'';
+like logline, qr/rename enum 'tic' to 'other'/, "... log rename of 'tic'";
+is_deeply [ enum_from_column $column2c ], \@expected_value2c, "... result of rename 'tic' to 'other'";
 
 is $column2c->as_string, <<'__STRING', '... show';
 enum             column2c
@@ -216,26 +212,30 @@ enum             column2d
       3 D tic
 __STRING
 
-like logline, qr/withdraw option 'tic'/, '... log withdrawal of \'tic\'';
+like logline, qr/withdraw option 'tic'/, "... log withdrawal of 'tic'";
 ok $layout->column_update($column2d, enum_to_vals_ids(@expected_value2d), keep_unused => 1),
     'Revive deleted \'tic\'';
-like logline, qr/deleted enum 'tic' revived/, '... log revivication of \'tic\'';
-my @result_value2d = enum_from_column $column2d;
-is_deeply \@result_value2a, \@expected_value2a, '... result of reuse of deleted \'tic\'';
+like logline, qr/deleted enum 'tic' revived/, "... log revivication of 'tic'";
+
+is_deeply [ enum_from_column $column2d ], \@expected_value2d,
+    "... result of reuse of deleted 'tic'";
 
 #
 # enumvals(include_deleted)   when Enum datun can be created
 #
 
-my $column3 = initial_column 'column3';
+my $column3        = initial_column 'column3';
 my @initial_value3 = enum_from_column $column3;
 ok $layout->column_update($column3,
    enum_to_vals_ids(enum_delete_by_value 'tac', @initial_value3), keep_unused => 1),
    'Withdraw enum \'tac\'';
-like logline, qr/withdraw option 'tac'/, '... log withdrawal of \'tac\'';
-my @expected_value3 = enum_reorder [0,2,1],  @initial_value3;
-my @result_value3 = enum_from_records $column3->enumvals(include_deleted => 1);
-is_deeply \@result_value3, \@expected_value3, '... \'tac\' visible';
+
+like logline, qr/withdraw option 'tac'/, "... log withdrawal of 'tac'";
+
+is_deeply
+    [ enum_from_records $column3->enumvals(include_deleted => 1) ],
+    [ enum_reorder [0,2,1],  @initial_value3 ],
+    "... 'tac' visible";
 
 #
 # sorting with enumvals: default, 'asc', 'desc', 'error'
@@ -246,67 +246,41 @@ my @enumvals4 = enum_from_column $column4;
 
 ### order asc
 
-my @expected_value4_asc = enum_reorder [ 1, 0, 2 ], @enumvals4;
-my @result_value4_asc = enum_from_records $column4->enumvals(order => 'asc');
-is_deeply \@result_value4_asc, \@expected_value4_asc, '... result of enumvals sort asc';
+is_deeply
+    [ enum_from_records $column4->enumvals(order => 'asc') ],
+    [ enum_reorder [ 1, 0, 2 ], @enumvals4 ],
+    '... result of enumvals sort asc';
 
 ### order desc
 
-my @expected_value4_desc = enum_reorder [ 2, 0, 1 ], @enumvals4;
-my @result_value4_desc = enum_from_records $column4->enumvals(order => 'desc');
-is_deeply \@result_value4_desc, \@expected_value4_desc, '... result of enumvals sort desc';
+is_deeply 
+   [ enum_from_records $column4->enumvals(order => 'desc') ],
+   [ enum_reorder [ 2, 0, 1 ], @enumvals4 ],
+    '... result of enumvals sort desc';
 
 ### incorrect order specification
 
-eval {
-    my @result_value4_error = $column4->enumvals(order => 'error');
-};
+my @result_value4_error = eval { $column4->enumvals(order => 'error') };
 like $@, qr/"order", "error"/, "... is incorrect order specification";
 
-### _is_valid_value()
-
-sub is_valid_value_test {
-    my ($column, $values, $result_value) = @_;
-    my $result = try { $column->is_valid_value($values) };
-    $$result_value = $@ ? $@->wasFatal->message : $result;
-    ! $@;
-}
-
-sub process_test_cases {
-    my ($column, @test_cases) = @_;
-    my $name=$column->name_short;
-    foreach my $test_case (@test_cases) {
-        my ($expected_valid, $case_description, $col_id_value, $expected_value) = @$test_case;
-        my $col_id_value_s = $col_id_value // '<undef>';
-        my $result_value;
-        ok $expected_valid == is_valid_value_test($column, $col_id_value, \$result_value),
-            "... $name validate  $case_description";
-        is_deeply $result_value , $expected_value, "... $name value for $case_description";
-    }
-}
-my $column5 = initial_column 'column5';
-
-my @enumvals5 = enum_from_column $column5;
+### is_valid_value()
+my $column5        = initial_column 'column5';
+my @enumvals5     = enum_from_column $column5;
 my $invalid_value = max(map $_->{id}, @enumvals5) + 1;
 
-my @test_cases5 = (
-    [1, 'valid enum',   'tac',           "$enumvals5[1]{id}"                                     ],
+test_valid_values $column5, [
+    [1, 'valid enum',   'tac',        $enumvals5[1]{id}                                      ],
     [0, 'valid id, but invalid enum', $invalid_value,
-                                     "Enum ID '$invalid_value' is not known for 'column5 (long)'"],
-    [0, 'invalid enum', 'invalid',       "Enum name 'invalid' is not known for 'column5 (long)'" ],
-    [0, 'empty enum',   '',              "Enum ID '' is not known for 'column5 (long)'"          ],
-    [0, 'undef enum',   undef,           "Column 'column5 (long)' requires a value."             ],
-    [0, 'multivalue',   ['tac','toe'],   "Column 'column5 (long)' is not a multivalue."          ],
-    );
-
-process_test_cases($column5, @test_cases5);
+                                 "Enum ID '$invalid_value' is not known for 'column5 (long)'"],
+    [0, 'invalid enum', 'invalid',   "Enum name 'invalid' is not known for 'column5 (long)'" ],
+    [0, 'empty enum',   '',          "Enum ID '' is not known for 'column5 (long)'"          ],
+];
 
 #
 # export_hash
 #
 
 my $column6 = initial_column 'column6';
-use Data::Dumper;
 my %expected_value6 = (
   aggregate => undef,
   can_child => 0,
@@ -336,6 +310,7 @@ my %expected_value6 = (
   typeahead => 0,
   width => 50
 );
+
 is_deeply $column6->export_hash, \%expected_value6, '... result of export_hash';
 
 #
@@ -344,8 +319,8 @@ is_deeply $column6->export_hash, \%expected_value6, '... result of export_hash';
 
 my $column7 = initial_column 'column7';
 is_deeply $column7->additional_pdf_export,
-          [ 'Select values' => 'tic, tac, toe' ],
-          '... result of additional_pdf_export';
+    [ 'Select values' => 'tic, tac, toe' ],
+    '... result of additional_pdf_export';
 
 done_testing;
 

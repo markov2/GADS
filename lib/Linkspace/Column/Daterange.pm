@@ -49,7 +49,7 @@ sub string_storage { $_[0]->return_type eq 'string' }
 
 sub show_datepicker { $_[0]->_options->{show_datepicker} }
 
-sub _is_valid_value($)
+sub is_valid_value($)
 {   my ($self, $value, %options) = @_;
     my $from = $value->{from};
     my $to   = $value->{to};
@@ -89,7 +89,7 @@ sub validate_search
 
     if($options{full_only})
     {   if(my $hash = $self->split($value))
-        {   return $self->_is_valid_value($hash, %options);
+        {   return $self->is_valid_value($hash, %options);
         }
         # Unable to split
         return 0 unless $options{fatal};
@@ -101,7 +101,7 @@ sub validate_search
     return 1 if $self->parse_date($value);
 
     my $split = $self->split($value);
-    return 1 if $split && $self->_is_valid_value($split);
+    return 1 if $split && $self->is_valid_value($split);
 
     error "Invalid format {value} for {name}",
         value => $value, name => $self->name;

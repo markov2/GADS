@@ -261,24 +261,7 @@ sub string_storage { 0 }
 sub returns_date   { $_[0]->return_type =~ /date/ }   #XXX ^date ?
 sub field_name     { "field".($_[0]->id) }
 sub datum_class    { panic }
-
-# my $v = $self->is_valid_value($value)
-sub is_valid_value($)
-{   my ($self, $values) = @_;
-    my @v = grep defined, flat $values;
-    unless(@v)
-    {   return $self->is_multivalue ? [] : undef if $self->is_optional;
-        error __x"Column \'{col.name}\' requires a value.", col => $self;
-    }
-
-    return $self->_is_valid_value($v[0])
-        if @v==1;
-
-    $self->is_multivalue
-        or error __x"Column \'{col.name}\' is not a multivalue.", col => $self;
-
-    [ map $self->_is_valid_value($_), @v ];
-}
+sub is_valid_value($) { panic }
 
 sub topic       { $_[0]->sheet->topic($_[0]->topic_id) }
 sub link_column { $_[0]->column($_[0]->link_column_id) };

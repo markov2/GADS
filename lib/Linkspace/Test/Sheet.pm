@@ -35,8 +35,7 @@ sub _sheet_create($%)
 # Not autocur
 #my @default_column_types =  qw/string intgr enum tree date daterange file person curval rag/;
 my @default_column_types =  qw/string intgr enum tree date daterange file person/;
-
-my @default_enumvals = qw/foo1 foo2 foo3/;
+my @default_enumvals     = qw/foo1 foo2 foo3/;
 
 my @default_trees    =
   ( { text => 'tree1' },
@@ -205,7 +204,7 @@ sub _fill_content($$)
     1;
 }
 
-# Add an autocur column to this sheet    ### should not be used anymore
+# Add an autocur column to this sheet    XXX should not be used anymore
 my $autocur_count = 50;
 sub add_autocur
 {   my ($self, $seqnr, $config) = @_;
@@ -236,7 +235,7 @@ sub set_multivalue
 
     foreach my $col ($layout->columns_search(exclude_internal => 1))
     {   $layout->column_update($col, { is_multivalue => $config->{$col->type} })
-            if exists $config->{$col->type} or next;
+            if exists $config->{$col->type};
     }
 }
 

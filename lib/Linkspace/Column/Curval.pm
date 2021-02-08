@@ -153,14 +153,14 @@ sub write_special
     return ();
 };
 
-sub _is_valid_value($)
+sub is_valid_value($)
 {   my ($self, $value) = @_;
 
     $value =~ /^[0-9]+$/)
         or error __x"Value for {column} must be an integer", column => $self->name;
 
     $self->sheet->content->row($id)
-        or error __x"Current {id} is not a valid record ID for {column}",
+        or error __x"Current {id} is not a valid row-id for {column}",
         id => $value, column => $self->name;
 
     $value;

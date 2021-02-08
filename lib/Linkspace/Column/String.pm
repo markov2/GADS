@@ -38,7 +38,7 @@ sub _remove_column($)
 
 sub must_match { my $re = $_[0]->force_regex; $re ? qr/\A${re}\Z/ms : undef }
 
-sub _is_valid_value($)
+sub is_valid_value($)
 {   my ($self, $value) = @_;
 
     my $clean = $self->is_textbox

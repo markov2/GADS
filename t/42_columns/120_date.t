@@ -99,9 +99,11 @@ my $col3_id = $column3->id;
 logline;
 
 ok !$column3->default_today,"default default_today";
+
 $sheet->layout->column_update($column3, { default_today => 0 });
 is logline, "info: Layout $col3_id='$path3' changed fields: options", 'reset default_today logged';
 ok !$column3->default_today,"value after reset default_today";
+
 $sheet->layout->column_update($column3, { default_today => 1 });
 is logline, "info: Layout $col3_id='$path3' changed fields: options", 'set default_today logged';
 ok $column3->default_today,"value after set default_today";
@@ -131,41 +133,9 @@ my $column3b = $sheet->layout->column_create({
 my $path3b   = $column3b->path;
 my $col3b_id = $column3b->id;
 is logline, "info: Layout created $col3b_id: $path3b", 'creation logged with explicit clear default_today';
-ok !$column3b->default_today,"creation with explicitly cleared default_today";
+ok !$column3b->default_today, "creation with explicitly cleared default_today";
 
-#
-# is_valid_value
-#
-
-sub is_valid_value_test
-{   my ($column, $values, $result_value) = @_;
-    my $result = try { $column->is_valid_value($values) };
-    $$result_value = $@ ? $@->wasFatal->message : $result;
-    ! $@;
-}
-
-sub process_test_cases($@)
-{   my ($column, @test_cases) = @_;
-    my $name = $column->name_short;
-
-    foreach my $test_case (@test_cases) {
-        my ($expected_valid, $case_description, $col_intgr_value, $expected_value) = @$test_case;
-        my $col_intgr_value_s = $col_intgr_value // '<undef>';
-
-        my $result_value;
-        ok $expected_valid == is_valid_value_test($column, $col_intgr_value,\$result_value),
-            "... $name validate  $case_description";
-
-        is_deeply $result_value , $expected_value, "... $name value for $case_description";
-    }
-}
-
-my @test_cases4 = (
-    [1, 'simple date',     '2020-09-29',          '2020-09-29'                                                           ],
-    [1, 'simple datetime', '2020-09-29 14:37:03', '2020-09-29 14:37:03'                                                  ],
-    [0, 'invalid date',    '1234',                'Invalid date \'1234\' for column4 (long). Please enter as yyyy-MM-dd.'],
-    [0, 'multivalue date', [1,2],                 'Column \'column4 (long)\' is not a multivalue.'                       ],
-    );
+#### is_valid_value
 
 my $column4 = $sheet->layout->column_create({
     type          => 'date',
@@ -175,6 +145,10 @@ my $column4 = $sheet->layout->column_create({
 });
 logline;
 
-process_test_cases($column4, @test_cases4);
+test_valid_values $column4, [
+    [1, 'simple date',     '2020-09-29',          '2020-09-29'          ],
+    [1, 'simple datetime', '2020-09-29 14:37:03', '2020-09-29 14:37:03' ],
+    [0, 'invalid date',    '1234', "Invalid date '1234' for column4 (long). Please enter as yyyy-MM-dd."],
+];
 
 done_testing;

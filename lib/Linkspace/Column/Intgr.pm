@@ -45,7 +45,7 @@ sub _remove_column($)
 
 sub show_calculator { $_[0]->_options->{show_calculator} }
 
-sub _is_valid_value($)
+sub is_valid_value($)
 {   my ($self, $value) = @_;
     return $1 if $value =~ /^\s*([+-]?[0-9]+)\s*$/;
 

@@ -71,7 +71,7 @@ sub _column_extra_update($%)
     $self;
 }
 
-sub _is_valid_value($)
+sub is_valid_value($)
 {   my ($self, $value) = @_;
 
     my $node = $self->node($value)
