@@ -105,13 +105,9 @@ sub _column_extra_update($)
 }
 
 sub resultset_for_values
-{   my $self = shift;
-    $::db->search(Fileval => {
-        'files.layout_id' => $self->id,
-    }, {
-        join => 'files',
-        group_by => 'me.name',
-    });
+{   my %files = map +($_->name => $_),
+        $::db->search(Fileval => { 'files.layout_id' => $_[0]->id }, { join => 'files' });
+    [ sort { $a->name cmp $b->name } values %files ];
 }
 
 sub export_hash
@@ -120,6 +116,10 @@ sub export_hash
     $h->{filesize} = $self->max_file_size;
     $h;
 }
+
+# This is a bit off the usual track: file name can only be found indirectly
+# We could add a column-based cache for FileVal objects, but probably rarely used.
+sub datum_as_string($) { $_[1]->name }
 
 1;
 

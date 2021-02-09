@@ -13,9 +13,13 @@ use Linkspace::Util  qw(flat);
 use Moo;
 extends 'Linkspace::Datum';
 
+### 2020-11-06: columns in GADS::Schema::Result::File
+# id           value        child_unique layout_id    record_id
+
 ### 2020-09-03: columns in GADS::Schema::Result::Fileval
 # id             content        is_independent
 # name           edit_user_id   mimetype
+my @cheap_fields = qw/id name edit_user_id is_independent mimetype/;
 
 sub db_table { 'File' }
 
@@ -30,23 +34,37 @@ sub _unpack_values($$$%)
     [ sort { $a <=> $b } @file_ids ];
 }
 
-### 2020-11-06: columns in GADS::Schema::Result::File
-# id           value        child_unique layout_id    record_id
-
 sub _create_file($)
 {   my ($thing, $insert) = @_;
     $::db->create(Fileval => $insert)->id;
 }
 
-sub file_id { $_[0]->value }
-sub file    { $::db->get_record(Fileval => { id => $_[0]->value }) }
-sub file_meta  # content is expensive
-{   $::db->get_record(Fileval => { id => $_[0]->value },
-        { columns => [ qw/id name mimetype/ ] });
+=head2 METHODS: Accessors
+=cut
+
+sub file_id        { $_[0]->value }
+sub name           { $_[0]->file_meta->name }
+sub is_independent { $_[0]->file_meta->is_independent }
+sub edit_user_id   { $_[0]->file_meta->edit_user_id }
+sub mimetype       { $_[0]->file_meta->mimetype }
+sub content        { $_[0]->file->content }
+
+sub edit_user
+{   my $user_id = $_[1] or return;
+    $::session->site->users->user($user_id);
 }
 
-sub content    { $_[0]->file->content }
-sub as_string  { $_[0]->file_meta->{name} }
+# This one is not cached, because it may contain a huge content.
+# Returned is a database object, which does not easy can be translated to the
+# object for file_meta.  So for efficiency, either use file_meta() or file(),
+# not both.
+
+sub file { $::db->get_record(Fileval => { id => $_[0]->value }) }
+
+sub file_meta  # content is expensive
+{   $_[0]->{LDF_meta} ||=
+        $::db->search(Fileval => { id => $_[0]->value }, { column => \@cheap_fields })->next;
+}
 
 sub presentation($$)
 {   my ($self, $cell, $show) = @_;
