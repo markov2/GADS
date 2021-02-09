@@ -66,12 +66,7 @@ sub value_field_as_index
 
 sub people { $_[0]->site->users->all_users }
 sub resultset_for_values { $_[0]->people }
-
-sub id_as_string
-{   my ($self, $user_id) = @_;
-    my $person = $self->site->users->user($user_id) or return '';
-    $person->fullname;
-}
+sub datum_as_string { my $p = $_[1]->person; $p ? $p->fullname : undef }
 
 sub import_value
 {   my ($self, $value) = @_;

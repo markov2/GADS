@@ -74,10 +74,10 @@ sub _value_for_code
         email        => $person->email,
         freetext1    => $person->freetext1,
         freetext2    => $person->freetext2,
-        organisation => $person->organisation,
-        department   => $person->department,
-        team         => $person->team,
-        title        => $person->title,
+        organisation => do { my $o = $person->organisation; $o ? $o->name : undef },
+        department   => do { my $d = $person->department; $d ? $d->name : undef },
+        team         => do { my $t = $person->team; $t ? $t->name : undef },
+        title        => do { my $t = $person->title; $t ? $t->name : undef },
         text         => $person->fullname,
     };
 }
