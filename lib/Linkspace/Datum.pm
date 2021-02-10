@@ -60,7 +60,9 @@ sub write($%)
 
 sub from_record($%)
 {   my ($class, $rec) = (shift, shift);
-    $class->new($rec->get_columns, @_);
+    my %data = $rec->get_columns;
+    $data{column_id} = delete $data{layout_id};
+    $class->new(%data, @_);
 }
 
 sub from_id($%)
@@ -69,25 +71,27 @@ sub from_id($%)
     $rec ? $class->from_record($rec, @_) : undef;
 }
 
-=head2 \@recs = $column->records_for_revision($revision);
-Load the records for this column which is on the C<$revision>.
+=head2 \@datums = $column->datums_for_revision($revision);
+Load the datums for this column which is on the C<$revision>.
 
-For performance reasons, this will also return records of other columns
-in the same row.  The caller must take them apart.
+For performance reasons, this will also return datums of other columns in
+the same row which have the same type.  The caller must take them apart.
 =cut
 
-sub records_for_revision($%)
+sub datums_for_revision($%)
 {   my ($class, $revision) = (shift, shift);
-    [ $::db->search($class->db_table => { record_id => to_id $revision })->all ];
+    [ map $class->from_record($_, revision => $revision),
+         $::db->search($class->db_table => { record_id => to_id $revision })->all ];
 }
 
 #--------------------
 =head1 METHODS: Attributes
 =cut
 
-has column => ( is => 'ro', required => 1 );
-has value  => ( is => 'ro', required => 1 );
+has column_id => ( is => 'rw' );
+has column => ( is => 'rw' );  # only empty during construction
 
+has value        => ( is => 'ro', required => 1 );
 has child_unique => ( is => 'ro', default => 0 );
 has revision     => ( is => 'rw' );
 

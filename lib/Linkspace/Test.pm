@@ -5,6 +5,7 @@
 package Linkspace::Test;
 use warnings;
 use strict;
+use open ':encoding(utf-8)';
 
 use Log::Report    'linkspace';
 

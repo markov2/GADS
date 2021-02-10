@@ -36,15 +36,9 @@ sub db_field_rename { +{
 
 __PACKAGE__->db_accessors;
 
-### 2020-10-28: columns in GADS::Schema::Result::Current
-# id           deleted      draftuser_id parent_id
-# instance_id  deletedby    linked_id    serial
-
 ### 2020-06-30: columns in GADS::Schema::Result::Record
 # id         approvedby createdby  record_id
 # approval   created    current_id
-#XXX The created and createdby fields should have been part of the Current
-#XXX table.  Now they get copied all the time.
 
 #---------------
 =head1 NAME
@@ -77,17 +71,10 @@ sub _revision_create($$%)
         $insert{approval_base}  = $previous;
     }
 
-    if($previous)
-    {   $insert{created_by} ||= $previous->created_by;
-        $insert{created}    ||= $previous->created;
-    }
-    else
-    {   $insert{created_by} ||= $args{user};
-        $insert{created}    ||= $args{timestamp};
-    }
-
     $insert{row_id}         ||= $row->id;
     $insert{needs_approval} ||= 0;
+    $insert{created}        ||= DateTime->now;
+    $insert{created_by}     ||= $::session->user;
 
     my $self = $class->create(\%insert, %args,
         row        => $row,
@@ -100,20 +87,17 @@ sub _revision_create($$%)
 
 sub _complete_cells($$$%)
 {   my ($self, $row, $previous, $pairs, %args) = @_;
-    my @pairs  = ref $pairs eq 'HASH' ? %$pairs : @{$pairs || []};
-    my $layout = $row->layout;
+    my $fields = ref $pairs eq 'HASH' ? $pairs : defined $pairs ? +{ @$pairs } : {};
 
     # We do not need to create datums for the other internals
-    unshift @pairs,
-        _version_user     => $args{user},
-        _version_datetime => $args{timestamp};
+    $fields->{_created_user} ||= $previous ? $previous->created_by : $::session->user;
+    $fields->{_created}      ||= $previous ? $previous->created    : DateTime->now;
 
     my %datums;
 
-    while(@pairs)
-    {   my $name   = shift @pairs;
-        my $column = $layout->column($name) or panic $name;
-        my $values = shift @pairs;
+    my $layout = $row->layout;
+    while(my ($name, $values) = each %$fields)
+    {   my $column = $layout->column($name) or panic "Unknown column $name";
 
         $values    = $values->values     # I value this line
             if blessed $values && $values->isa('Linkspace::Row::Cell');
@@ -300,46 +284,55 @@ has is_historic => (
 =head2 METHODS: Handling Cells
 =cut
 
-has _cells => (
-    is      => 'lazy',
-    builder => sub { +{} },
-);
+has _cells  => ( is => 'lazy', builder => sub { +{} } );
+has _datums => ( is => 'ro', default => sub { +{} } );
+has _dc     => ( is => 'ro', default => sub { +{} } );
+
+my %special_data =
+  ( _id         => sub { $_[0]->id }
+  , _serial     => sub { $_[0]->row->serial }
+  , _deleted_by => sub { $_[0]->row->deleted_by_id }
+  , _version_datetime => sub { $_[0]->created }
+  , _version_user     => sub { $_[0]->created_by_id }
+  # _created and _createdby are normal fields
+  );
 
 sub cell($)
 {   my ($self, $which) = @_;
-    my $column = $self->row->column($which) or panic $which;
-    my $cell   = $self->_cells->{$column->id};
+    my ($column, $col_id) = blessed $which ? ( $which, $which->id )
+       : ( ($self->row->column($which) or panic $which), $which);
+
+    my $cell   = $self->_cells->{$col_id};
     return $cell if $cell;
 
     my $cell_class = $column->link_column_id
        ? 'Linkspace::Row::Cell::Linked'
        : 'Linkspace::Row::Cell';
 
-    $cell = $cell_class->new(
-        revision => $self,
-        column   => $column,
-        datums   => $self->datums($column),
-    );
-
-    $self->_cells->{$column->id} = $cell;
-}
-
-has _recs => ( is => 'ro', default => sub { +{} } );
-
-sub datums($)
-{   my ($self, $column) = @_;
-    my $index  = $self->_recs;
-    my $recs   = $index->{$column->id};
+    my $index       = $self->_datums;
     my $datum_class = $column->datum_class;
+    my $datums;
 
-    unless($recs)
-    {   # pick up collateral loads
-        push @{$index->{$_->layout_id}}, $_
-            for @{$datum_class->records_for_revision($self)};
-        $recs  = $index->{$column->id} ||= [];
+    if(my $special  = $special_data{$column->name_short})
+    {   my $value = $special->($self);
+        $datums = [ $datum_class->new(value => $value, column => $column) ] if defined $value;
+    }
+    else
+    {   unless($self->_dc->{$datum_class}++)
+        {   # When the first column of a certain datum_class gets loaded, all other datums
+            # of that class will get loaded as well.  This helps performance al lot.
+            push @{$index->{$_->column_id}}, $_
+                for @{$datum_class->datums_for_revision($self)};
+        }
+        $datums     = delete $index->{$col_id};
+        $_->column($column) for @$datums;
     }
 
-    [ map $datum_class->from_record($_, column => $column), @$recs ];
+    $self->_cells->{$col_id} = $cell_class->new(
+        revision => $self,
+        column   => $column,
+        datums   => $datums,
+    );
 }
 
 # Croaks on multivalue fields

@@ -5,9 +5,9 @@
 package Linkspace::Column::Id;
 
 use Log::Report 'linkspace';
+use Linkspace::Datum::Integer ();
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::Column::Intgr';
 
 ###
@@ -39,7 +39,6 @@ sub is_valid_value($)
     return $1 if $value =~ /^\s*([0-9]+)\s*$/ && $1 != 0;
     error __x"'{id}' is not a valid ID", id => $value;
 }
-
 
 1;
 

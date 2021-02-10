@@ -4,13 +4,16 @@
 
 package Linkspace::Column::Daterange;
 
-use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
-extends 'Linkspace::Column';
+use Log::Report 'linkspace';
 
 use DateTime;
-use Log::Report 'linkspace';
+use DateTime::Span;
+use Scalar::Util    qw(blessed);
+
 use Linkspace::Util qw(iso2datetime);
+
+use Moo;
+extends 'Linkspace::Column';
 
 my @options = (
     show_datepicker => 0,
@@ -51,6 +54,8 @@ sub show_datepicker { $_[0]->_options->{show_datepicker} }
 
 sub is_valid_value($)
 {   my ($self, $value, %options) = @_;
+    return $value if blessed $value && $value->isa('DateTime::Span');
+
     my $from = $value->{from};
     my $to   = $value->{to};
 
@@ -69,7 +74,7 @@ sub is_valid_value($)
         or error __x"Start date must be before the end date for '{col}'",
             col => $self->name;
 
-    +{ from => $from_dt, to => $to_dt };
+    DateTime::Span->new(start => $from_dt, end => $to_dt);
 }
 
 sub datum_as_string($)

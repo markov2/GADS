@@ -2254,8 +2254,7 @@ sub row_create($%)
     $sheet->user_can('write_new')
         or error __"No permissions to add a new row to sheet";
 
-    my $row = Linkspace::Row->_row_create($insert,
-        %args, content => $self, sheet => $sheet);
+    my $row = Linkspace::Row->_row_create($insert, %args, content => $self, sheet => $sheet);
 
     $guard->commit;
     $row;

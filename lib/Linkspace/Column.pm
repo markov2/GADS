@@ -713,8 +713,8 @@ sub widthcols
 {   my $self = shift;
     my $multiplus = $self->is_multivalue && $self->has_multivalue_plus;
     $self->layout->max_width == 100 && $self->width == 50
-    ? ( $multiplus ?  4 :  6)
-    : ( $multiplus ? 10 : 12);
+      ? ( $multiplus ?  4 :  6)
+      : ( $multiplus ? 10 : 12);
 }
 
 sub related_sheet_id() {

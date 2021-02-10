@@ -90,10 +90,10 @@ sub row_by_serial($%)
 sub _row_create($%)
 {   my ($class, $insert, %args) = @_;
     my %insert   = %$insert;
-    my $sheet    = $args{sheet};
     my $revision = delete $insert{revision};
-    my $self     = $class->create(\%insert, content => $args{content}, sheet => $sheet);
-    $self->revision_create($revision) if $revision;
+
+    my $self     = $class->create(\%insert, content => $args{content}, sheet => $args{sheet});
+    $self->revision_create($revision, is_initial => 1) if $revision;
     $self;
 }
 
@@ -257,13 +257,11 @@ sub revision($%)
 
 sub revision_create($%)
 {   my ($self, $insert) = (shift, shift);
-
     ! $self->content->rewind
         or error __x"You cannot create revisions on an old table view";
 
     my $guard = $::db->begin_work;
     my $kill  = $self->sheet->forget_history ? $self->all_revisions : [];
-
     my $rev   = Linkspace::Row::Revision->_revision_create($self, $insert, @_);
     $self->set_current($rev);
 

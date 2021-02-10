@@ -6,6 +6,7 @@ package Linkspace::Test::Sheet;
 
 use strict;
 use warnings;
+use utf8;
  
 use Log::Report  'linkspace';
 
@@ -88,6 +89,7 @@ my @default_sheet_rows = (   # Don't change these: many tests depend on them
         date1      => '2014-10-10',
         enum1      => 'foo1',
         daterange1 => ['2012-02-10', '2013-06-15'],
+        person1    => undef,  # can only be filled runtime
     },
     {
         string1    => 'Bar',
@@ -95,6 +97,7 @@ my @default_sheet_rows = (   # Don't change these: many tests depend on them
         date1      => '2009-01-02',
         enum1      => 'foo2',
         daterange1 => ['2008-05-04', '2008-07-14'],
+        person1    => undef,  # can only be filled runtime
     },
 );
 
@@ -152,10 +155,10 @@ sub _fill_layout($$)
             );
 
             if($type eq 'enum')
-            {   $insert{enumvals} = \@default_enumvals;
+            {   $insert{enumvals}   = \@default_enumvals;
             }
             elsif($type eq 'tree')
-            {   $insert{tree}     = \@default_trees;
+            {   $insert{tree}       = \@default_trees;
             }
             elsif($type eq 'curval')
             {   $insert{refers_to_sheet} = $curval_sheet;
@@ -163,11 +166,11 @@ sub _fill_layout($$)
 next;
             }
             elsif($type eq 'rag')
-            {   $insert{code} = $rag_code || _default_rag_code($sheet_id);
+            {   $insert{code}        = $rag_code || _default_rag_code($sheet_id);
 next;
             }
             elsif($type eq 'calc')
-            {   $insert{return_type} = $calc_rt || 'integer';
+            {   $insert{return_type} = $calc_rt   || 'integer';
                 $insert{code}        = $calc_code || _default_calc_code($sheet_id);
 next;
             }
@@ -195,8 +198,11 @@ sub _fill_content($$)
 #           base_url => undef,   #XXX
         });
 
-        $row_data->{file1} = \%dummy_file_data
+        local $row_data->{file1} = \%dummy_file_data
             if exists $row_data->{file1} && ref $row_data->{file1} ne 'HASH';
+
+        local $row_data->{person1} ||= $::session->user
+            if exists $row_data->{person1};
 
         my $revision = $row->revision_create({ cells => $row_data });
     }
@@ -237,6 +243,80 @@ sub set_multivalue
     {   $layout->column_update($col, { is_multivalue => $config->{$col->type} })
             if exists $config->{$col->type};
     }
+}
+
+=head2 my $text =  $sheet->debug(%options);
+With option C<show_internal> (default true) you can disable the display
+of the internal columns.  You may use C<show_header> (default true)
+and C<show_layout> (default false), C<show_revisions> (default false)
+to control which components are shown.  With C<all> set to true, you
+make sure all components are shown.
+
+=cut
+
+sub debug(%)
+{   my ($self, %config) = @_;
+    my $layout    = $self->layout;
+    my $content   = $self->content;
+
+    my $show_all  = $config{all};
+    my $max_width = $config{max_column_width} // 16;
+
+    my $nr_intern = @{$layout->internal_columns_show_names};
+    my $nr_data   = @{$layout->all_columns} - $nr_intern;
+    my $row_ids   = $content->row_ids;
+
+    my $internal  = exists $config{show_internal} ? $config{show_internal} : 1;
+    my $columns   = $config{colums} || $layout->columns_search(exclude_internal => ! $internal);
+    my @col_ids   = map $_->id, @$columns;
+
+    my $short     = $self->name eq $self->name_short ? '' : " (".$self->name_short.")";
+    my @out = sprintf "Sheet %d=%s%s, %d rows with %d data columns\n",
+        $self->id, $self->name, $short, scalar @$row_ids, $nr_data
+        if $show_all || (exists $config{show_header} ? $config{show_header} : 1);
+
+    push @out, $layout->as_string(columns => $columns)
+        if $show_all || $config{show_layout};
+
+    my %col_width = map +($_ => 2), @col_ids;
+    my @rows;
+    foreach my $row_id (@$row_ids)
+    {   my $row  = $content->row($row_id) or panic $row_id;
+        my @revs = $show_all || $config{show_revisions} ? @{$row->all_revisions} : $row->current;
+        foreach my $revision (@revs)
+        {   my @row;
+            foreach my $col_id (@col_ids)
+            {   my $val = $revision->cell($col_id)->as_string // '<undef>';
+                substr($val, $max_width-1) = '⋮' if $max_width && length $val > $max_width;
+                push @row, $val;
+                $col_width{$col_id} = length $val if length $val > $col_width{$col_id};
+            }
+            push @rows, \@row;
+        }
+    }
+
+    if(@rows)
+    {   my $format = "|" . join('|', map " \%-$col_width{$_}s ", @col_ids) . "|\n";
+        push @out, sprintf +($format =~ s/\|/=/gr), map $_->position, @$columns;
+        push @out, sprintf $format, @$_ for @rows;
+    }
+
+    join '', @out;
+}
+
+=head2 my $cell = $sheet->cell($row, $column);
+Returns the cell which is in the sheet on C<$row> (might be row object or row by object
+or row_id) in the C<$column> (by object or name).
+
+We probably do not need this in the normal sheet, but testing is seriously simplified
+with this method.
+=cut
+
+sub cell($$)
+{   my $self = shift;
+    my $row    = $self->content->row(shift)   or return;
+    my $column = $self->layout->column(shift) or return;
+    $row->current->cell($column);
 }
 
 1;

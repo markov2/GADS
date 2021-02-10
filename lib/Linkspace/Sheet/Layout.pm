@@ -95,11 +95,11 @@ has has_children => (
 );
 
 sub as_string(%)
-{   my $self = shift;
-    my $columns = $self->columns_search(
+{   my ($self, %args) = @_;
+    my $columns = $args{columns} || $self->columns_search(
         exclude_internal => 1,
         sort_by_position => 1,
-        @_,
+        %args,
     );
     join '', map sprintf("%2d %s", $_->position, $_->as_string), @$columns;
 }

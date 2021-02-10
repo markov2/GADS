@@ -108,7 +108,7 @@ Returns all datums in this cell.  Also when this is not a multivalue
 column, it still returns an ARRAY.
 =cut
 
-sub datums() { $_[0]->{datums} }
+sub datums() { $_[0]->{datums} || [] }
 
 =head2 $cell->is_blank;
 Returns true when there not a single useful value written to this cell. Be warned
