@@ -458,4 +458,6 @@ sub ancestors()
     $parent->is_root ? () : ($parent->ancestors, $parent);
 }
 
+sub datum_as_string($) { $_[0]->node($_[1]->value)->name }
+
 1;

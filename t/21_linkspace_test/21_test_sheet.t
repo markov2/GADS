@@ -45,8 +45,9 @@ __SIMPLE_SHEET
 
 ### sheet with all currently supported columns
 
-my $sheet3 = make_sheet rows => [];
-ok defined $sheet3, 'Create sheet with all columns';
+my $sheet3 = make_sheet rows => [],
+   columns => [ qw/string intgr enum tree date daterange file person/ ];
+ok defined $sheet3, 'Create sheet with most columns';
 is $sheet3->debug(show_layout => 1, show_internal => 0), <<__ALL_COLUMNS, '... debug sheet columns';
 Sheet ${\$sheet3->id}=sheet 3, 0 rows with 8 data columns
  8 string        O  string1
@@ -69,11 +70,11 @@ __ALL_COLUMNS
 ### sheet with all currently supported values
 my $sheet4 = make_sheet;
 ok defined $sheet4, 'Create sheet with all values';
-is $sheet4->debug(show_layout => 1, show_internal => 1), <<__ALL_VALUES, '... debug sheet values';
+is $sheet4->debug(show_layout => 0, show_internal => 0), <<__ALL_VALUES, '... debug sheet values';
 Sheet ${\$sheet4->id}=sheet 4, 2 rows with 8 data columns
-= 8   = 9  = 10   = 11 = 12         = 13               = 14 = 15 =
-| Foo | 50 | foo1 |    | 2021-02-08 | 2021-02-08 to 2⋮ | 53 |    |
-| Bar | 99 | foo2 |    | 2021-02-08 | 2021-02-08 to 2⋮ | 54 |    |
+= 8   = 9  = 10   = 11 = 12         = 13               = 14         = 15        =
+| Foo | 50 | foo1 |    | 2021-02-09 | 2021-02-09 to 2⋮ | myfile.txt | Doe, John |
+| Bar | 99 | foo2 |    | 2021-02-09 | 2021-02-09 to 2⋮ | myfile.txt | Doe, John |
 __ALL_VALUES
 
 done_testing;

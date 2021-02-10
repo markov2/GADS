@@ -14,8 +14,7 @@ extends 'Linkspace::Datum';
 
 sub hash_value($)
 {   my ($self, $column) = @_;
-    my $node_id = $self->value;
-    +{ id => $node_id, text => $column->node($node_id)->name };
+    +{ id => $self->value, text => $column->datum_as_string($self) };
 }
 
 sub _value_for_code($$$)

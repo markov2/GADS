@@ -7,7 +7,7 @@ package Linkspace::Test::Sheet;
 use strict;
 use warnings;
 use utf8;
- 
+
 use Log::Report  'linkspace';
 
 use Linkspace::Column ();

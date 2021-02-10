@@ -1,8 +1,6 @@
 
 use Linkspace::Test;
 
-use JSON qw(encode_json);
-
 set_fixed_time '10/10/2014 01:00:00', '%m/%d/%Y %H:%M:%S';
 
 # A bunch of records that will be used for the alert tests - mainly different

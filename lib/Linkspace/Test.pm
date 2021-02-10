@@ -13,11 +13,13 @@ use Test::More;
 use Import::Into;
 use Importer       ();
 use Data::Dumper   qw/Dumper/;
-use Test::MockTime (); # Load before DateTime
+use Test::MockTime qw/set_fixed_time/; # Load before DateTime
 use DateTime       ();
 
 use Linkspace      ();
 use Linkspace::Test::Sheet ();
+
+set_fixed_time '2021/02/09 04:05:06', '%Y/%m/%d %H:%M:%S';
 
 our @EXPORT = qw/
    logline logs logs_purge
