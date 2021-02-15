@@ -136,27 +136,17 @@ sub _construct_filter($)
         my $match  = $rule->value    // panic;
         my $other  = $rule->monitor  // panic;
 
-warn "MATCH($match) $op ", ref $other;
+#warn "MATCH($match) $op ", ref $other;
         unless(length $match)
         {   # special case: equal 'blank' means: no values
             return sub {   $_[0]->cell($other)->is_blank } if $op eq 'equal';
             return sub { ! $_[0]->cell($other)->is_blank } if $op eq 'not_equal';
         }
 
-        if($other->type eq 'tree')
-        {   
-            if($op =~ /contains$/)
-            {   # tree2#tree3 --> tree2#tree3|tree3
-                $match =~ s/(.*#(\w+))/$1|$2/;
-            }
-        }
-
         my $checker
           = $op eq 'equal'        ? sub { !! first { $_ eq  $match   } @{$_[0]} }
           : $op eq 'not_equal'    ? sub {  ! first { $_ eq  $match   } @{$_[0]} }
-          : $op eq 'contains'     ? sub {
-warn "  search @{$_[0]} in $match: ", ($_[0][0] =~ /$match/ ? 'YES' : 'NO');
- !! first { $_ =~ /$match/ } @{$_[0]} }
+          : $op eq 'contains'     ? sub { !! first { $_ =~ /$match/ } @{$_[0]} }
           : $op eq 'not_contains' ? sub {  ! first { $_ =~ /$match/ } @{$_[0]} }
           : panic "Unsupported operation '$op'";
 
@@ -203,5 +193,16 @@ has monitor => (
 );
 
 sub cleanup($) { $::db->delete($_[0]->db_table => { layout_id => to_id $_[1] } ) }
+
+=head2 my \@column_ids = $class->monitoring($target);
+Returns the column_ids which are monitoring the C<$target> column: columns which
+have a rule which refer to that target.
+=cut
+
+sub monitoring($)
+{   my ($self, $target) = @_;
+    my $rules = $self->search_objects({monitor => $target});
+    [ map $_->column_id, @$rules ];
+}
 
 1;

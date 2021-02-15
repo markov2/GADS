@@ -31,6 +31,7 @@ extends 'Linkspace::Column::Enum';
 __PACKAGE__->register_type;
 
 sub db_field_extra_export { [ 'end_node_only' ] }
+sub datum_class     { 'Linkspace::Datum::Tree' }
 sub form_extras     { [ qw/end_node_only tree/ ], [] }
 sub retrieve_fields { [ qw/id value/ ] }
 sub sprefix         { 'value' }
@@ -85,7 +86,7 @@ sub is_valid_value($)
     ! $self->end_node_only || $node->is_leaf
         or error __x"Node '{node.name}' cannot be used: not a leaf node", node => $node;
 
-    $value;
+    $node->id;
 }
 
 sub _as_string(%)
@@ -143,13 +144,28 @@ to get to its database record.  Node names are only unique per parent, so names 
 be used globally.
 =cut
 
-sub node($)
-{   my ($self, $node_id) = @_;
-    my $result;
-    $self->tree->walk(
-       sub { !$_[0]->is_root && $_[0]->id==$node_id or return 1; $result = $_[0]; 0 });
-    $result;
-}
+has _id2node => ( is => 'lazy', builder => sub {
+    my %index;
+    $_->walk(sub { $index{$_[0]->enumval->id} = $_[0]; 1 } )
+        for $_[0]->_tops;
+    \%index;
+});
+
+sub node($) { $_[0]->_id2node->{$_[1]} }
+
+=head2 my $node = $column->node_by_name($name);
+Returns the Node which contains the name.
+=cut
+
+# Names are unique, otherwise DisplayFilter has an issue
+has _name2node => ( is => 'lazy', builder => sub {
+    my %index;
+    $_->walk(sub { $index{$_[0]->enumval->value} = $_[0]; 1 } )
+        for $_[0]->_tops;
+    \%index;
+});
+
+sub node_by_name($) { $_[0]->_name2node->{$_[1]} }
 
 =head2 \%h = $column->to_hash(%options);
 Returns the structure the tree as nested HASHes.
@@ -358,6 +374,8 @@ sub export_hash
     $h;
 }
 
+sub datum_as_string($) { $_[0]->node($_[1]->value)->name }
+
 #======================
 # A simple, dedicated, tree implementation.
 
@@ -446,9 +464,5 @@ sub ancestors()
 {   my $parent = $_[0]->parent or return;
     $parent->is_root ? () : ($parent->ancestors, $parent);
 }
-
-sub datum_as_string($) {
-warn "V=", $_[1]->value, ' N=', $_[0]->node($_[1]->value);
- $_[0]->node($_[1]->value)->path }
 
 1;

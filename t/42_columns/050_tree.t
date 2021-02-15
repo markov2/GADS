@@ -78,6 +78,12 @@ ok   $node_b1->is_leaf, '... is leaf';
 
 ok ! $column1->tree->find('b', 'error'), '... not found unknown';
 
+### Find node via index
+my $node_b2 = $column1->node_by_name('b');
+ok defined $node_b2, 'Find via index';
+is $node_b2, $node_b, '... expected node';
+ok ! $column1->node_by_name('x'), '... missing node';
+
 ### Get node
 
 my $n1 = $column1->node($node_b1->id);
@@ -182,19 +188,19 @@ ok logline, "Created column2";
 my $top_node = $column2->tree->find('abc');
 is $column2->is_valid_value($top_node->id), $top_node->id, 'valid top node';
 my $intermediate_node = $column2->tree->find('abc', 'abc1');
-is $intermediate_node->path, 'abc/abc1/', 'intermediate node path';
+is $intermediate_node->path, 'abc#abc1#', 'intermediate node path';
 is $intermediate_node->as_string, 'abc#abc1', '... as_string';
 
 is $column2->is_valid_value($intermediate_node->id), $intermediate_node->id, 'valid intermediate';
 
-is_deeply $column2->values_beginning_with('a'), ['aa', 'ab/', 'abc/'], '... find top nodes';
+is_deeply $column2->values_beginning_with('a'), ['aa', 'ab#', 'abc#'], '... find top nodes';
 is_deeply $column2->values_beginning_with('aa'), ['aa'], '... full match';
-is_deeply $column2->values_beginning_with('aa/'), [ ], '... non-leaf node only';
-is_deeply $column2->values_beginning_with('ab/'), ['ab/ab1', 'ab/ab2'], '... all leaf nodes';
-is_deeply $column2->values_beginning_with('ab/a'), ['ab/ab1', 'ab/ab2'], '... some leaf nodes';
-is_deeply $column2->values_beginning_with('ab/c'), [ ], '... no match';
+is_deeply $column2->values_beginning_with('aa#'), [ ], '... non-leaf node only';
+is_deeply $column2->values_beginning_with('ab#'), ['ab#ab1', 'ab#ab2'], '... all leaf nodes';
+is_deeply $column2->values_beginning_with('ab#a'), ['ab#ab1', 'ab#ab2'], '... some leaf nodes';
+is_deeply $column2->values_beginning_with('ab#c'), [ ], '... no match';
 is_deeply $column2->values_beginning_with('e'), [ ], '... no match';
-is_deeply $column2->values_beginning_with(''), ['aa','ab/','abc/'], '... all tops';
+is_deeply $column2->values_beginning_with(''), ['aa','ab#','abc#'], '... all tops';
 
 
 try { $column1->is_valid_value($valid_id) };
@@ -378,6 +384,6 @@ is $column6->as_string, <<'__STRING', 'Unused enumvals removed';
 tree             column6
 __STRING
 
-diag 'need to test keeping used enumvals';
+diag 'TODO: test keeping used enumvals';
 
 done_testing;

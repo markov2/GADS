@@ -45,7 +45,7 @@ sub value_field_as_index { 'id' }
 
 sub _remove_column($)
 {   my $col_id = $_[1]->id;
-    my %col_ref = (layout_id => $_[0]->id);
+    my %col_ref = (layout_id => $col_id);
 
     # erase internal references when ::Tree
     $::db->update(Enumval => \%col_ref, {parent => undef});

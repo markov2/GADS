@@ -531,15 +531,15 @@ sub column_delete($)
     my $column = $self->column($which) or panic;
     my $doc   = $self->sheet->document;
 
-=pod
-
     # First see if any views are conditional on this field
-    my $disps = $column->display_filter;
-    if(@$disps)
-    {   my @names = map $_->name, @$disps;   #XXX???
-        error __x"The following fields are conditional on this field: {dep}.
-            Please remove these conditions before deletion.", dep => \@names;
+    my $monitoring = Linkspace::Column::DisplayFilter::Rule->monitoring($column);
+    if(@$monitoring)
+    {   my @names = map $_->name, @{$self->columns($monitoring)};
+        error __x"The following columns are conditional on this field: {dep}.
+            Please remove these display rules first.", dep => \@names;
     }
+
+=pod
 
     my $depending = $doc->columns($column->depends_on);
     if(@$depending)

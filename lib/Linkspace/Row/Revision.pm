@@ -325,6 +325,7 @@ sub cell($)
     {   unless($self->{LRR_dc}{$datum_class}++)
         {   # When the first column of a certain datum_class gets loaded, all other datums
             # of that class will get loaded as well.  This helps performance al lot.
+            # Shared tables (like for Enum and Tree) will also (accidentally) work ;-)
             push @{$index->{$_->column_id}}, $_
                 for @{$datum_class->datums_for_revision($self)};
         }
