@@ -6,12 +6,10 @@
 package Linkspace::Column::Code;
 
 use Log::Report        'linkspace';
-use DateTime;
-use Date::Holidays::GB qw/is_gb_holiday gb_holidays/;
 use List::Utils        qw/uniq/;
 
-use Linkspace::Util    qw/index_by_id/;
-use linkspace::Column::Code::DependsOn;
+use Linkspace::Util    qw/index_by_id working_days_diff working_days_add/;
+use linkspace::Column::Code::DependsOn ();
 
 use Moo;
 extends 'Linkspace::Column';
@@ -33,10 +31,14 @@ sub is_userinput   { 0 }
 ### Instance
 ###
 
+has write_cache => ( is => 'rw', default => 1 );
+
 has depends_on => (
     is      => 'lazy',
     builder => sub { Linkspace::Column::Code::DependsOn->new(column => $_[0]) },
 );
+
+sub depends_on_column_ids { ... }
 
 # Ignores field in Layout record  #XXX
 sub can_child { $_[0]->depends_on->count }
@@ -130,20 +132,6 @@ use Inline 'Lua' => q{
     end
 };
 
-has code => (
-    is      => 'lazy',
-    builder => sub {
-        my $self = shift;
-        my $code = $self->_rset_code && $self->_rset_code->code;
-        $code || '';
-    },
-);
-
-has write_cache => (
-    is      => 'rw',
-    default => 1,
-);
-
 sub params
 {   my $self = shift;
     $self->_params_from_code($self->code);
@@ -210,7 +198,7 @@ sub _params_from_code
 
 sub _parse_code
 {   my ($self, $code) = @_;
-    !$code || $code =~ /^\s*function\s+evaluate\s*\(([A-Za-z0-9_,\s]+)\)(.*?)end\s*$/s
+    !$code || $code =~ /^\s*function\s+evaluate\s*\(([\w\s,]+)\)(.*?)end\s*$/s
         or error "Invalid code definition: must contain function evaluate(...)";
 
     +{
@@ -219,73 +207,9 @@ sub _parse_code
      };
 }
 
-sub _is_workday($$)
-{   my ($dt, $region) = @_;
-    return 0 if $dt->day_of_week >= 6;  # Sat or Sun
-
-    is_gb_holiday year => $dt->year, month => $dt->month, day => $dt->day,
-        regions => [ $region ];
-}
-
 # XXX These functions can raise exceptions - further investigation needed as to
 # whether this causes problems when called from Lua. Initial experience
 # suggests it might do.
-sub working_days_diff
-{   my ($start_epoch, $end_epoch, $country, $region) = @_;
-
-    $country eq 'GB' or error "Only country GB is currently supported";
-    $start_epoch     or error "Start date missing for working_days_diff";
-    $end_epoch       or error "End date missing for working_days_diff";
-
-    my $start = DateTime->from_epoch(epoch => $start_epoch);
-    my $end   = DateTime->from_epoch(epoch => $end_epoch);
-
-    # Check that we have the holidays for the years requested
-    my $min = $start < $end ? $start->year : $end->year;
-    my $max = $end > $start ? $end->year : $start->year;
-
-    foreach my $year ($min..$max)
-    {   error __x"No bank holiday information available for year {year}", year => $year
-            if !%{gb_holidays(year => $year, regions => [$region])};
-    }
-
-    my $workdays = 0;
-    if($end > $start)
-    {   my $marker = $start->clone->add(days => 1);
-        while($marker <= $end)
-        {   $workdays++ if _is_workday $marker, $region;
-            $marker->add(days => 1);
-        }
-    }
-    else
-    {   my $marker = $start->clone->subtract(days => 1);
-        while($marker >= $end)
-        {   $workdays-- if _is_workday $marker, $region;
-            $marker->subtract(days => 1);
-        }
-    }
-
-    $workdays;
-}
-
-sub working_days_add
-{   my ($start_epoch, $days, $country, $region) = @_;
-
-    $country eq 'GB' or error "Only country GB is currently supported";
-    $start_epoch or error "Date missing for working_days_add";
-
-    my $start = DateTime->from_epoch(epoch => $start_epoch);
-
-    error __x"No bank holiday information available for year {year}", year => $start->year
-        if !%{gb_holidays(year => $start->year, regions => [$region])};
-
-    while($days)
-    {   $start->add(days => 1);
-	    $days-- if _is_workday $start, $region;
-    }
-
-    $start->epoch;
-}
 
 sub eval
 {   my ($self, $code, $vars) = @_;

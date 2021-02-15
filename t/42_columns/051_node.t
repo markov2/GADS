@@ -94,7 +94,7 @@ $r->add_child($nb);
 
 my @strings;
 $r->walk(sub { push @strings, $_[0]->path; 1 });
-is_deeply \@strings, [ '', qw# b/ b/a b/c b/d # ], 'Path of nodes';
+is_deeply \@strings, [ '', 'b#', 'b#a', 'b#c', 'b#d' ], 'Path of nodes';
 
 ok $r->find('b'), 'Find top';
 ok $r->find('b', 'a'), '... leaf';

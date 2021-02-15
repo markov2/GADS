@@ -53,6 +53,19 @@ sub value_selector  { $_[0]->_options->{value_selector} // 'dropdown' }
 sub show_add        { $_[0]->_options->{show_add} // 0 }
 sub delete_not_used { $_[0]->_options->{delete_not_used} // 0 }
 
+sub is_valid_value($)
+{   my ($self, $value) = @_;
+
+    my $row_id = is_valid_id $value
+        or error __x"Value for {column} must be an integer", column => $self->name;
+
+    $self->refers_to_sheet->content->row($row_id)
+        or error __x"Row-id {id} is not a valid row-id for {column.name_short}",
+        id => $row_id, column => $self;
+
+    $row_id;
+}
+
 # Whether this field has subbed in values from other parts of the record in its
 # filter
 sub has_subvals { $_[0]->filter->has_subvals }
@@ -86,18 +99,7 @@ sub _column_extra_update($%)
     $self;
 }
 
-sub is_valid_value($)
-{   my ($self, $value) = @_;
-
-    my $row_id = is_valid_id $value
-        or error __x"Value for {column} must be an integer", column => $self->name;
-
-    $self->refers_to_sheet->content->row($row_id)
-        or error __x"Row-id {id} is not a valid row-id for {column.name_short}",
-        id => $row_id, column => $self;
-
-    $row_id;
-}
+=pod
 
 sub fetch_multivalues
 {   my ($self, $record_ids, %options) = @_;
@@ -148,8 +150,6 @@ sub fetch_multivalues
 
     @return;
 }
-
-=pod
 
 #XXX move (at least partially) to ::Datum
 #XXX move to Curcommon?

@@ -210,7 +210,8 @@ has _column_admin => (
     builder => sub
     {   my $self = shift;
           $self->isa('Linkspace::Sheet') ? $self->layout
-        : $self->can('sheet_id') || $self->can('sheet') ? $self->sheet->layout
+        : $self->can('sheet_id')         ? $self->sheet->layout
+        : $self->can('sheet') != \&sheet ? $self->sheet->layout
         : $::session->site->document;
     },
 );

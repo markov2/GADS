@@ -58,29 +58,18 @@ my $curval_sheet = make_sheet data => \@data3;
 my $sheet        = make_sheet
     rows             => \@data2,
     multivalues      => 1,
-    curval_sheet     => $curval_sheet,
-    curval_columns   => [ 'string1' ],
-    calc_code        => "function evaluate (L1string1)
-        if type(L1string1) == \"table\" then
-            L1string1 = L1string1[1]
-        end
-        return L1string1
-    end",
+    curval_columns   => [ $curval_sheet->column('string1') ],
     calc_return_type => 'string',
-);
-
-
-# Various tests for field types
-#
-# Code
-
-try { my $calc = $layout->column_update(calc1 => {
-   code => 'function evaluate (_id) return "test“test" end'
-})  };
-ok $@->wasFatal, "Failed to write calc code with invalid character";
+    calc_code        => <<'__CODE';
+function evaluate (L1string1)
+    if type(L1string1) == "table" then
+        L1string1 = L1string1[1]
+    end
+    return L1string1
+end
+__CODE
 
 # Curval tests
-#
 # First check that we cannot delete a record that is referred to
 
 try { $sheet->content->row(1)->purge };
@@ -98,15 +87,9 @@ cmp_ok @{$curval->all_values}, '==', 4,
 
 # Create a second curval sheet, and check that we can link to first sheet
 # (which links to second)
-<<<<<<< Updated upstream
-my $curval_sheet2 = make_sheet '4',
-    curval_sheet => 1;
-=======
-my $curval_sheet2 = make_sheet
-    curval => 1,
-    curval_offset => 12,
-    rows  => 1;
->>>>>>> Stashed changes
+
+my $curval_sheet2 = make_sheet 4,
+    curval_sheet => $sheet;
 
 cmp_ok @{$curval_sheet2->column('curval1')->filtered_values}, '==', 2,
     "Correct number of values for curval field";
@@ -450,14 +433,6 @@ foreach my $test (qw/string1 enum1 calc1 multi negative nomatch invalid calcmult
     cmp_ok @{$curval_filter->filtered_values}, '==', $count,
         "Correct number of values for curval field with $field filter, test $test";
 
-    # Check that we can create a new record with the filtered curval field in
-    $layout->clear;
-    my $record_new = GADS::Record->new(
-        user     => $sheet->user,
-        layout   => $layout,
-        schema   => $schema,
-    );
-    $record_new->initialise;
     my $cv = $layout->column($curval_filter->id);
     $count
       = $test eq 'multi'            ? 1

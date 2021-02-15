@@ -4,41 +4,36 @@ use Linkspace::Test;
 # Fix all tests for _version_datetime calc
 set_fixed_time '10/22/2014 01:00:00', '%m/%d/%Y %H:%M:%S';
 
-my $data = [
-    {
-        daterange1 => ['2000-10-10', '2001-10-10'],
+my $curval_sheet  = make_sheet rows => [];
+
+my $sheet         = make_sheet
+    user_count    => 2,
+    curval_columns => [ $curval_sheet->column('string1'), $curval_sheet->column('date1') ],
+    calc_return_type => 'date',
+    calc_code     => "function evaluate (L1daterange1) \n return L1daterange1.from.epoch \n end",
+    rows          => [
+      { daterange1 => ['2000-10-10', '2001-10-10'],
         curval1    => 1,
         tree1      => 'tree1',
         integer1   => 10,
         date1      => '2016-12-20',
-    },
-    {
+      },
+      {
         daterange1 => ['2012-11-11', '2013-11-11'],
         curval1    => 2,
         tree1      => 'tree1',
         integer1   => 10,
-    },
-];
+      },
+   ];
 
-my $curval_sheet = make_sheet rows => [];
-
-my $sheet         = make_sheet
-    rows          => $data,
-    user_count    => 2,
-    curval_sheet  => curval_sheet,
-    curval_fields => [ 'string1', 'date1' ],
-    calc_code     => "function evaluate (L1daterange1) \n return L1daterange1.from.epoch \n end",
-    calc_return_type => 'date',
-);
 my $layout       = $sheet->layout;
 my $colperms     = [ $sheet->group => $sheet->default_permissions ];
 
 my $autocur1 = $curval_sheet->layout->columns_create({
-    type             => 'autocur',
-    curval_columns   => [ 'daterange1' ],
-    refers_to_sheet  => $sheet,
-    related_column   => 'curval1';
-);
+    type           => 'autocur',
+    curval_columns => $layout->column('daterange1'),
+    related_column => $layout->column('curval1'),
+});
 
 # Check that numeric return type from calc can be used in another calc
 my $calc_integer = $layout->column_create({
@@ -55,7 +50,7 @@ my $calc_numeric = $layout->column_create({
     return_type => 'numeric',
     code        => "function evaluate (L1string1) \n return 10.56 \nend",
     permissions => $colperms,
-);
+});
 
 my @tests = (
     {
@@ -120,8 +115,8 @@ my @tests = (
                 return working_days_diff(L1date1.epoch, 1483488000, 'GB', 'EAW')
             end
         ", # 1483488000 is 4th Jan 2017
-        before => '8',
-        after  => '8',
+        before => 8,
+        after  => 8,
     },
     {
         name => 'working days add',
@@ -132,8 +127,8 @@ my @tests = (
                 return working_days_add(L1date1.epoch, 4, 'GB', 'EAW')
             end
         ",
-        before => '1482883200', # 28th Dec 2016
-        after  => '1482883200',
+        before => 1482883200, # 28th Dec 2016
+        after  => 1482883200,
     },
     {
         name           => 'decimal calc',
@@ -656,81 +651,64 @@ restore_time();
     like( $@, qr/Unknown short column name/, "Failed to write calc field with invalid short names" );
 
     # Then with short name from other table (invalid)
-    $calc2_col = GADS::Column::Calc->new(
-        schema => $schema,
-        user   => undef,
-        layout => $layout,
-        name   => 'calc2',
-        code   => "function evaluate (L2string1) \n return L2string1\nend",
-    );
-    try { $calc2_col->write };
-    like( $@, qr/It is only possible to use fields from the same table/, "Failed to write calc field with short name from other table" );
+    $calc2_col = try { $layout->column_create({ 
+        type => 'calc',
+        name => 'calc2',
+        code => "function evaluate (L2string1) \n return L2string1\nend",
+    ) };
+    like $@, qr/It is only possible to use fields from the same table/,
+         "Failed to write calc field with short name from other table";
 
     # Create a calc field that has something invalid in the nested code
-    my $calc_inv_string = GADS::Column::Calc->new(
-        schema => $schema,
-        user   => undef,
-        layout => $layout,
-        name   => 'calc3',
-        code   => "function evaluate (L1curval1) \n adsfadsf return L1curval1.field_values.L2daterange1.from.year \nend",
-    );
-    try { $calc_inv_string->write } hide => 'ALL';
+    my $calc_inv_string = try { $layout->column_create({
+        type => 'calc',
+        name => 'calc3',
+        code => "function evaluate (L1curval1) \n adsfadsf return L1curval1.field_values.L2daterange1.from.year \nend",
+    ) } hide => 'ALL';
     my ($warning) = grep { $_->reason eq 'WARNING' } $@->exceptions;
-    like($warning, qr/syntax error/, "Warning received for syntax error in calc");
+    like $warning, qr/syntax error/, "Warning received for syntax error in calc";
 
     # Invalid Lua code with return value not string
-    my $calc_inv_int = GADS::Column::Calc->new(
-        schema      => $schema,
-        user        => undef,
-        layout      => $layout,
-        name        => 'calc3',
+    try { $layout->column_create({
+        type => 'calc',
+        name => 'calc3',
         return_type => 'integer',
-        code        => "function evaluate (L1curval1) \n adsfadsf return L1curval1.field_values.L2daterange1.from.year \nend",
-    );
-    try { $calc_inv_int->write } hide => 'ALL';
-    ($warning) = grep { $_->reason eq 'WARNING' } $@->exceptions;
-    like($warning, qr/syntax error/, "Warning received for syntax error in calc");
+        code => "function evaluate (L1curval1) \n adsfadsf return L1curval1.field_values.L2daterange1.from.year \nend",
+    ) } hide => 'ALL';
+    ($warning) = grep $_->reason eq 'WARNING', $@->exceptions;
+    like $warning, qr/syntax error/, "Warning received for syntax error in calc";
 
     # Test missing bank holidays
-    my $calc_missing_bh = GADS::Column::Calc->new(
-        schema      => $schema,
-        user        => undef,
-        layout      => $layout,
-        name        => 'calc3',
-        code        => "function evaluate (_id) \n return working_days_diff(2051222400, 2051222400, 'GB', 'EAW') \nend", # Year 2035
-    );
-    try { $calc_missing_bh->write } hide => 'ALL';
+    try { $layout->column_create({
+        type => 'calc',
+        name => 'calc3',
+        code => "function evaluate (_id) \n return working_days_diff(2051222400, 2051222400, 'GB', 'EAW') \nend", # Year 2035
+    ) } hide => 'ALL';
+    ($warning) = grep $_->reason eq 'WARNING', $@->exceptions;
+    like $warning, qr/No bank holiday information available for year 2035/,
+         "Missing bank holiday information warnings for working_days_diff";
+
+    try { $layout->column_create({ 
+        type => 'calc',
+        name => 'calc4',
+        code => "function evaluate (_id) \n return working_days_add(2082758400, 1, 'GB', 'EAW') \nend", # Year 2036
+    ) } hide => 'ALL';
+
     ($warning) = grep { $_->reason eq 'WARNING' } $@->exceptions;
-    like($warning, qr/No bank holiday information available for year 2035/, "Missing bank holiday information warnings for working_days_diff");
-    $calc_missing_bh = GADS::Column::Calc->new(
-        schema      => $schema,
-        user        => undef,
-        layout      => $layout,
-        name        => 'calc3',
-        code        => "function evaluate (_id) \n return working_days_add(2082758400, 1, 'GB', 'EAW') \nend", # Year 2036
-    );
-    try { $calc_missing_bh->write } hide => 'ALL';
-    ($warning) = grep { $_->reason eq 'WARNING' } $@->exceptions;
-    like($warning, qr/No bank holiday information available for year 2036/, "Mising bank holiday information warnings for working_days_add");
-    $calc_missing_bh->delete;
+    like $warning, qr/No bank holiday information available for year 2036/,
+        "Mising bank holiday information warnings for working_days_add";
 
     # Same for RAG
-    my $rag3 = GADS::Column::Rag->new(
-        schema => $schema,
-        user   => undef,
-        layout => $layout,
-        name   => 'rag2',
-        code   => "
+    try { $layout->column_create({ 
+        type => 'rag',
+        name => 'rag2',
+        code => __CODE }) } hider => 'ALL';
             function evaluate (L1daterange1)
                 foobar
             end
-        ",
-    );
-    try { $rag3->write } hide => 'ALL';
-    ($warning) = grep { $_->reason eq 'WARNING' } $@->exceptions;
-    like($warning, qr/syntax error/, "Warning received for syntax error in rag");
-    $rag3->delete;
-
+__CODE
+    ($warning) = grep $_->reason eq 'WARNING', $@->exceptions;
+    like $warning, qr/syntax error/, "Warning received for syntax error in rag";
 }
 
 # Set of tests for multivalue fields (with multiple values) that have been

@@ -57,4 +57,10 @@ my $column2 = $layout->column_create({
 logline;
 
 
+try { my $calc = $layout->column_update(calc1 => {
+   code => 'function evaluate (_id) return "test“test" end'
+})  };
+ok $@->wasFatal, "Failed to write calc code with invalid character";
+
+
 done_testing;

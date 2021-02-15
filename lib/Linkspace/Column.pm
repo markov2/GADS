@@ -679,11 +679,8 @@ sub _display_filter_create($)
     $df;
 }
 
-sub dependencies_ids
-{   my $self = shift;
-    my $df = $self->display_field;
-    $df ? $df->column_ids : $self->depends_on_ids;
-}
+# Overruled by Code
+sub dependencies_ids { $_[0]->display_filter->monitor_ids }
 
 # $column->is_displayed_in($revision)
 sub is_displayed_in($) { $_[0]->display_filter->column_is_selected($_[1]) }

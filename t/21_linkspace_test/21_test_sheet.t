@@ -79,8 +79,8 @@ is $sheet4->debug(show_layout => 0, show_internal => 0, show_revid => 0, show_ro
    <<__ALL_VALUES, '... debug sheet values';
 Sheet ${\$sheet4->id}=sheet 4, 2 rows with 8 data columns
 = 8   = 9  = 10   = 11 = 12         = 13               = 14         = 15        =
-| Foo | 50 | foo1 |    | 2021-02-09 | 2021-02-09 to 2⋮ | myfile.txt | Doe, John |
-| Bar | 99 | foo2 |    | 2021-02-09 | 2021-02-09 to 2⋮ | myfile.txt | Doe, John |
+| Foo | 50 | foo1 |    | 2014-10-10 | 2012-02-10 to 2⋮ | myfile.txt | Doe, John |
+| Bar | 99 | foo2 |    | 2009-01-02 | 2008-05-04 to 2⋮ | myfile.txt | Doe, John |
 __ALL_VALUES
 
 done_testing;

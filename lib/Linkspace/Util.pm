@@ -8,23 +8,30 @@ use strict;
 package Linkspace::Util;
 use parent 'Exporter';
 
+use Log::Report 'linkspace';
+
 our @EXPORT_OK = qw/
     flat
     is_valid_email
     index_by_id
-    iso2datetime
     is_valid_id
     list_diff
     make_wordlist
     normalize_string
-    parse_duration
     scan_for_plugins
     to_id
     uniq_objects
+
+    iso2datetime
+    parse_duration
+    working_days_diff
+    working_days_add
 /;
 
+use DateTime                    ();
 use DateTime::Format::ISO8601   ();
 use DateTime::Format::DateManip ();
+use Date::Holidays::GB qw/is_gb_holiday gb_holidays/;
 
 use Scalar::Util  qw(weaken blessed);
 use List::Util    qw(first);
@@ -88,15 +95,6 @@ sub index_by_id(@)
 {   +{ map +($_->id => $_), flat @_ };
 }
 
-=head2 my $dt = iso2datetime $string;
-Convert a date represented as ISO8601 string to a L<DateTime> object.
-=cut
-
-sub iso2datetime($)
-{   my $stamp = shift or return;
-    DateTime::Format::ISO8601->parse_datetime($stamp);
-}
-
 
 =head2 my $is_valid = is_valid_id $string;
 Returns the database 'id', which is always numeric and larger than zero.
@@ -106,13 +104,6 @@ Surrounding blanks are skipped.  For
 sub is_valid_id($)
 {   defined $_[0] && $_[0] =~ /^\s*([0-9]+)\s*$/ && $1 != 0 ? $1 : undef;
 }
-
-=head2 my $duration = parse_duration $string;
-Returns a L<DateTime::Duration> object.
-=cut
-
-sub parse_duration($) { DateTime::Format::DateManip->parse_duration($_[0]) }
-
 
 =head2 my $plugins = scan_for_plugins $subpkg, %options;
 Search the C<@INC> path (set by 'use lib' and the PERL5LIB environment
@@ -210,6 +201,93 @@ beginning and the end.
 
 sub normalize_string($)
 {   $_[0] =~ s/\xA0/ /gr =~ s/\s{2,}/ /gr =~ s/^\s+//r =~ s/\s+$//r;
+}
+
+#-----
+
+=head1 METHODS: Date and time related
+
+=head2 my $dt = iso2datetime $string;
+Convert a date represented as ISO8601 string to a L<DateTime> object.
+=cut
+
+sub iso2datetime($)
+{   my $stamp = shift or return;
+    DateTime::Format::ISO8601->parse_datetime($stamp);
+}
+
+=head2 my $duration = parse_duration $string;
+Returns a L<DateTime::Duration> object.
+=cut
+
+sub parse_duration($) { DateTime::Format::DateManip->parse_duration($_[0]) }
+
+sub _is_workday($$)
+{   my ($dt, $region) = @_;
+    return 0 if $dt->day_of_week >= 6;  # Sat or Sun
+
+    is_gb_holiday year => $dt->year, month => $dt->month, day => $dt->day,
+        regions => [ $region ];
+}
+
+# XXX These functions can raise exceptions - further investigation needed as to
+# whether this causes problems when called from Lua. Initial experience
+# suggests it might do.
+sub working_days_diff
+{   my ($start_epoch, $end_epoch, $country, $region) = @_;
+
+    $country eq 'GB' or error "Only country GB is currently supported";
+    $start_epoch     or error "Start date missing for working_days_diff";
+    $end_epoch       or error "End date missing for working_days_diff";
+
+    my $start = DateTime->from_epoch(epoch => $start_epoch);
+    my $end   = DateTime->from_epoch(epoch => $end_epoch);
+
+    # Check that we have the holidays for the years requested
+    my $min = $start < $end ? $start->year : $end->year;
+    my $max = $end > $start ? $end->year : $start->year;
+
+    foreach my $year ($min..$max)
+    {   error __x"No bank holiday information available for year {year}", year => $year
+            if !%{gb_holidays(year => $year, regions => [$region])};
+    }
+
+    my $workdays = 0;
+    if($end > $start)
+    {   my $marker = $start->clone->add(days => 1);
+        while($marker <= $end)
+        {   $workdays++ if _is_workday $marker, $region;
+            $marker->add(days => 1);
+        }
+    }
+    else
+    {   my $marker = $start->clone->subtract(days => 1);
+        while($marker >= $end)
+        {   $workdays-- if _is_workday $marker, $region;
+            $marker->subtract(days => 1);
+        }
+    }
+
+    $workdays;
+}
+
+sub working_days_add
+{   my ($start_epoch, $days, $country, $region) = @_;
+
+    $country eq 'GB' or error "Only country GB is currently supported";
+    $start_epoch or error "Date missing for working_days_add";
+
+    my $start = DateTime->from_epoch(epoch => $start_epoch);
+
+    error __x"No bank holiday information available for year {year}", year => $start->year
+        if !%{gb_holidays(year => $start->year, regions => [$region])};
+
+    while($days)
+    {   $start->add(days => 1);
+        $days-- if _is_workday $start, $region;
+    }
+
+    $start->epoch;
 }
 
 1;

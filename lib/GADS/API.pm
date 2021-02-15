@@ -306,8 +306,7 @@ prefix '/:sheet_name' => sub {
                 push @datums, $column->datum_create($col, \@vals, validate => 1);
             }
 
-            $sheet->content->add_row(\@datums,
-                validate          => 1,
+            $sheet->content->row_create(cells => \@datums,
                 missing_not_fatal => 1,
                 submitted_fields  => $required_columns,
             );

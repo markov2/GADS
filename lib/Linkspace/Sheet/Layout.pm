@@ -415,7 +415,7 @@ my %filters_compare = (
 
 # Order the columns in the order that the calculated values depend
 # on other columns
-sub _order_dependencies
+sub _ordered_dependencies
 {   my ($self, @columns) = @_;
     @columns or return;
 
@@ -466,7 +466,7 @@ sub columns_search
 
     my $columns;
     if(delete $args{order_dependencies})
-    {   $columns = $self->_order_dependencies(@columns);
+    {   $columns = $self->_ordered_dependencies(@columns);
     }
     elsif(delete $args{sort_by_topics})
     {

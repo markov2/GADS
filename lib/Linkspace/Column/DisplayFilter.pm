@@ -81,7 +81,9 @@ has _rule_rows => (
     builder => sub { $rule_class->search_objects({ column => shift->on_column }) },
 );
 
-sub is_active() { scalar @{$_[0]->_rule_rows} }
+sub is_active()   { scalar @{$_[0]->_rule_rows} }
+
+sub monitor_ids() { [ map $_->monitor_id, @{$_[0]->_rule_rows} ] }
 
 #----------------------
 =head1 METHODS: Other
@@ -187,10 +189,7 @@ sub db_field_rename { +{
 
 __PACKAGE__->db_accessors;
 
-has monitor => (
-   is      => 'lazy',
-   builder => sub { $::session->site->document->column($_[0]->monitor_id) },
-);
+has monitor => ( is => 'lazy', builder => sub { $_[0]->column($_[0]->monitor_id) } );
 
 sub cleanup($) { $::db->delete($_[0]->db_table => { layout_id => to_id $_[1] } ) }
 

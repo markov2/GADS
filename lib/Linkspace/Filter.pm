@@ -21,10 +21,7 @@ use Moo;
 Linkspace::Filter - Generic filter object
 
 =head1 DESCRIPTION
-Used by Columns, Views, and DisplayFields. They behave slightly different.
-
-A column's display-field filter has it's rules in the 'DisplayField' table,
-which implies a flat rule-set.
+Used by Columns and Views. They behave slightly different.
 
 Filters require B<backwards compatibility> require to maintain compatibility
 with older storage format.  This is mainly solved by the parameter transform
