@@ -7,6 +7,7 @@ package Linkspace::Column::Date;
 
 use Log::Report 'linkspace';
 use DateTime         ();
+use Scalar::Util     qw(blessed);
 
 use Linkspace::Util  qw(iso2datetime);
 
@@ -53,7 +54,7 @@ sub _remove_column($)
 
 sub datum_as_string($)
 {   my ($self, $datum) = @_;
-    $::session->site->dt2local($datum->value, include_time => $self->include_time);
+    $::session->site->dt2local($datum->date, include_time => $self->include_time);
 }
 
 sub show_datepicker
@@ -68,28 +69,18 @@ sub default_values { $_[0]->default_today ? [ DateTime->now ] : [] }
 sub is_valid_value($%)
 {   my ($self, $date, %options) = @_;
 
-    $self->site->local2dt('auto',$date)
+    return $date if blessed $date && $date->isa('DateTime');
+
+    my $dt = $self->site->local2dt(auto => $date)
         or error __x"Invalid date '{value}' for {col.name}. Please enter as {format}.",
              value => $date, col => $self, format => $self->site->locale->{date_pattern};
 
-    $date;
+    $dt;
 }
 
 sub validate_search
 {   my ($self, $date, %args) = @_;
     !! $self->parse_date($date) && $self->SUPER::validate_search($date, %args);
-}
-
-#XXX move to datum
-sub import_value
-{   my ($self, $value) = @_;
-
-    $::db->create(Date => {
-        record_id    => $value->{record_id},
-        layout_id    => $self->id,
-        child_unique => $value->{child_unique},
-        value        => iso2datetime($value->{value}),
-    });
 }
 
 1;

@@ -1228,19 +1228,19 @@ foreach my $multivalue (0..1)
 {   # First check default_sort functionality
 
     # ASC
-    $sheet->sheet_update({sort_column => $layout->column('_id'), sort_type => 'asc'});
+    $sheet->sheet_update({sort_column => $layout->column('_id'), sort_order => 'asc'});
     my $results1 = $sheet->content->search;
     is $results1->row(0)->current_id, 3, "Correct first record for default_sort (asc)";
     is $results1->row(-1)->current_id, 9, "Correct last record for default_sort (asc)";
 
     # DESC
-    $sheet->sheet_update({sort_column => $layout->column('_id'), sort_type => 'desc'});
+    $sheet->sheet_update({sort_column => $layout->column('_id'), sort_order => 'desc'});
     my $results2 = $sheet->content->search;
     is $results2->row(0)->current_id, 9, "Correct first record for default_sort (desc)";
     is $results2->row(-1)->current_id, 3, "Correct last record for default_sort (desc)";
 
     # Column from view
-    $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_type => 'asc'});
+    $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_order => 'asc'});
     my $results3 = $sheet->content->search;
     is $results3->row(0)->current_id, 6, "Correct first record for default_sort (column in view)";
     is $results3->row(-1)->current_id, 7, "Correct last record for default_sort (column in view)";
@@ -1255,7 +1255,7 @@ foreach my $multivalue (0..1)
     # Standard sort parameter for search() with invalid column. This can happen if the
     # user switches tables and there is still a sort parameter in the session. In this
     # case, it should revert to the default search.
-    $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_type => 'desc' });
+    $sheet->sheet_update({sort_column => $layout->column('integer1'), sort_order => 'desc' });
     my $results5 = $sheet->content->search(sort => { type => 'desc', id => -1000 });
     is $results5->row(0)->current_id, 6, "Correct first record for standard sort";
     is $results5->row(-1)->current_id, 7, "Correct last record for standard sort";
@@ -1266,7 +1266,7 @@ my @sorts = (
         name         => 'Sort by ID descending',
         show_columns => [qw/string1 enum1/],
         sort_by      => [undef],
-        sort_type    => ['desc'],
+        sort_order    => ['desc'],
         first        => qr/^9$/,
         last         => qr/^3$/,
     },
@@ -1274,7 +1274,7 @@ my @sorts = (
         name         => 'Sort by single column in view ascending',
         show_columns => [qw/string1 enum1/],
         sort_by      => [qw/enum1/],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(8|9)$/,
         last         => qr/^(6|7)$/,
     },
@@ -1282,7 +1282,7 @@ my @sorts = (
         name         => 'Sort by single column not in view ascending',
         show_columns => [qw/string1 tree1/],
         sort_by      => [qw/enum1/],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(8|9)$/,
         last         => qr/^(6|7)$/,
     },
@@ -1290,7 +1290,7 @@ my @sorts = (
         name         => 'Sort by single column not in view descending',
         show_columns => [qw/string1 tree1/],
         sort_by      => [qw/enum1/],
-        sort_type    => ['desc'],
+        sort_order    => ['desc'],
         first        => qr/^(6|7)$/,
         last         => qr/^(8|9)$/,
     },
@@ -1298,7 +1298,7 @@ my @sorts = (
         name         => 'Sort by single column not in view ascending (opposite enum columns)',
         show_columns => [qw/string1 enum1/],
         sort_by      => [qw/tree1/],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(8|9)$/,
         last         => qr/^(4)$/,
     },
@@ -1306,7 +1306,7 @@ my @sorts = (
         name         => 'Sort by two columns, one in view one not in view, asc then desc',
         show_columns => [qw/string1 tree1/],
         sort_by      => [qw/enum1 daterange1/],
-        sort_type    => ['asc', 'desc'],
+        sort_order    => ['asc', 'desc'],
         first        => qr/^(8|9)$/,
         last         => qr/^(7)$/,
     },
@@ -1314,7 +1314,7 @@ my @sorts = (
         name         => 'Sort with filter on enums',
         show_columns => [qw/enum1 curval1 tree1/],
         sort_by      => [qw/enum1/],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(3)$/,
         first_string => { curval1 => '' },
         last         => qr/^(6)$/,
@@ -1335,7 +1335,7 @@ my @sorts = (
         name         => 'Sort with filter on enums - opposite filter/sort combo',
         show_columns => [qw/enum1 curval1 tree1/],
         sort_by      => [qw/tree1/],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(3)$/,
         last         => qr/^(4)$/,
         max_id       => 5,
@@ -1353,7 +1353,7 @@ my @sorts = (
         name         => 'Sort by enum that is after another enum in the fetched column',
         show_columns => [qw/enum1 curval1 tree1/],
         sort_by      => [qw/tree1/],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(8|9)$/,
         last         => qr/^(4)$/,
     },
@@ -1361,7 +1361,7 @@ my @sorts = (
         name         => 'Sort by enum with filter on curval',
         show_columns => [qw/enum1 curval1 tree1/],
         sort_by      => [qw/enum1/],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(4|5)$/,
         last         => qr/^(7)$/,
         max_id       => 7,
@@ -1384,7 +1384,7 @@ my @sorts = (
         name         => 'Sort by curval with filter on curval',
         show_columns => [ qw/enum1 curval1 curval2/ ],
         sort_by      => [ qw/curval1/ ],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(4|5)$/,
         last         => qr/^(3)$/,
         max_id       => 5,
@@ -1410,7 +1410,7 @@ my @sorts = (
         show_columns   => [qw/enum1 curval1 curval2/],
         sort_by        => [qw/string1/],
         sort_by_parent => [qw/curval1/],
-        sort_type      => ['asc'],
+        sort_order      => ['asc'],
         first          => qr/^(6|7|8|9)$/,
         last           => qr/^(3)$/,
         max_id         => 9,
@@ -1421,7 +1421,7 @@ my @sorts = (
         name         => 'Sort by curval without curval in view',
         show_columns => [qw/string1/],
         sort_by      => [qw/curval1/],
-        sort_type    => ['asc'],
+        sort_order    => ['asc'],
         first        => qr/^(6|7|8|9)$/,
         last         => qr/^(3)$/,
         max_id       => 9,
@@ -1433,7 +1433,7 @@ my @sorts = (
         show_columns   => [qw/integer1/],
         sort_by        => [qw/string1/],
         sort_by_parent => [qw/curval1/],
-        sort_type      => ['asc'],
+        sort_order      => ['asc'],
         first          => qr/^(6|7|8|9)$/,
         last           => qr/^(3)$/,
         max_id         => 9,
@@ -1449,7 +1449,7 @@ foreach my $multivalue (0..1)
     my $cid_adjust = 9; # For some reason database restarts at same ID second time
 
     foreach my $sort (@sorts)
-    {   my @sort_types = @{$sort->{sort_type}};
+    {   my @sort_orders = @{$sort->{sort_order}};
         my $sort_by    = $sort->{sort_by};
         my $filter     = $sort->{filter};
 
@@ -1471,15 +1471,15 @@ foreach my $multivalue (0..1)
             name     => 'Test view',
             columns  => $sort->{show_columns},
             filter   => $filter,
-            sortings => [ [ \@sort_by, $sort_type ] ],
+            sortings => [ [ \@sort_by, $sort_order ] ],
         });
 
         foreach my $pass (1..$passes)
-        {    my $sort_type  = @sort_types==1 && $pass==3
-              ? [ $sort_types[0] eq 'asc' ? 'desc' : 'asc' ]
-              : \@sort_types;
+        {    my $sort_order  = @sort_orders==1 && $pass==3
+              ? [ $sort_orders[0] eq 'asc' ? 'desc' : 'asc' ]
+              : \@sort_orders;
 
-            $view->view_update({ sortings => [ [ \@sort_by, $sort_type ] ] });
+            $view->view_update({ sortings => [ [ \@sort_by, $sort_order ] ] });
             my $results = $sheet->content->search(
                 view     => $view,
                 sortings => $sorting,
@@ -1582,10 +1582,10 @@ foreach my $multivalue (0..1)
 
         ### Reverse sorting     XXX was pass3
 
-        if(@sort_types==1)
+        if(@sort_orders==1)
         {   ok 1, "testing sort $sort->{name}, sort reversed by view";
 
-            my $rev = $sort_types[0] eq 'asc' ? 'desc' : 'asc';
+            my $rev = $sort_orders[0] eq 'asc' ? 'desc' : 'asc';
             $view->view_update({ sortings => [ [ \@sort_by, $rev ] ] });
 
             my $results = $sheet->content->search(view => $view);

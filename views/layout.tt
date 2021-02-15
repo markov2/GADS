@@ -271,13 +271,13 @@
                 </select>
             </div>
             [% FOREACH other_sheet IN all_sheets %]
-                <div id="instance_fields_[% other_sheet.id %]" class="instance_fields"
+                <div id="sheet_fields_[% other_sheet.id %]" class="sheet_fields"
                     [% IF (rti AND other_sheet.id != rti) OR NOT rti %]
                         style="display:none"
                     [% END %]
                     >
                     <div class="form-group">
-                        <label for="curval_instance">Show these fields:</label>
+                        <label for="curval_sheet">Show these fields:</label>
                         [% FOREACH c IN layout.all_columns %]
                             [% NEXT IF c.type == "curval" %]
                             [% checked = "" %]
@@ -451,26 +451,27 @@
     </div>
     <div class="field-options autocur">
         <h4>Auto-value field options</h4>
-        [% IF layout.referred_by.size %]
+        [% referred_by_sheets = layout.referred_by %]
+        [% IF referred_by_sheet.size %]
             <div class="form-group">
-                <label for="related_field_id">Fields referring to this field:</label>
-                <select class="form-control" id="related_field_id" name="related_field_id">
-                    [% IF NOT column.related_field_id %]
+                <label for="related_column_id">Fields referring to this field:</label>
+                <select class="form-control" id="related_column_id" name="related_column_id">
+                    [% IF NOT column.related_column_id %]
                         <option></option>
                     [% END %]
-                    [% FOREACH referring IN layout.referred_by %]
-                        <option data-instance_id=[% referring.sheet.id %] value="[% referring.id %]" [% IF column.related_field_id == referring.id %]selected[% END %]>[% referring.name | html_entity %]</option>
+                    [% FOREACH referring IN referred_by_sheets %]
+                        <option data-sheet_id=[% referring.sheet.id %] value="[% referring.id %]" [% IF column.related_column_id == referring.id %]selected[% END %]>[% referring.name | html_entity %]</option>
                     [% END %]
                 </select>
             </div>
-            [% FOREACH other_sheet IN layout.referred_by %]
-                <div id="autocur_instance_[% other_sheet.id %]" class="autocur_instance"
+            [% FOREACH other_sheet IN referred_by_sheets %]
+                <div id="autocur_sheet_[% other_sheet.id %]" class="autocur_sheet"
                     [% IF !column.related_sheet_id OR column.related_sheet_id != other_sheet.id %]
                         style="display:none"
                     [% END %]
                     >
                     <div class="form-group">
-                        <label for="curval_instance">Columns to show:</label>
+                        <label for="curval_sheet">Columns to show:</label>
                         [% FOREACH c IN other_sheet.layout.all_columns %]
                             [% NEXT IF c.type == "curval" %]
                             [% checked = "" %]
@@ -707,14 +708,14 @@
                     $('.sortable').sortable('refresh');
                 });
                 $('#related_sheet_id').change(function(){
-                    var divid = '#instance_fields_' + $(this).val();
-                    $('.instance_fields').hide();
+                    var divid = '#sheet_fields_' + $(this).val();
+                    $('.sheet_fields').hide();
                     $(divid).show();
                 });
-                $('#related_field_id').change(function(){
-                    var divid = $(this).find(':selected').data('instance_id');
-                    $('.autocur_instance').hide();
-                    $('#autocur_instance_' + divid).show();
+                $('#related_column_id').change(function(){
+                    var divid = $(this).find(':selected').data('sheet_id');
+                    $('.autocur_sheet').hide();
+                    $('#autocur_sheet_' + divid).show();
                 });
 
                 [% fiilter    = column.filter %]
@@ -723,7 +724,7 @@
                     [% PROCESS builder.tt builder_id = other_sheet.id builder_layout = other_sheet.layout filter_normal = filter filter_base64 = filter_b64 override_permissions = 1 %]
                 [% END %]
                 [% IF column.filter.has_value %]
-                    var data = base64.decode('[% filte_rb64 %]');
+                    var data = base64.decode('[% filter_b64 %]');
                     $('#builder[% column.related_sheet_id %]').queryBuilder('setRules',
                         JSON.parse(data)
                     );
@@ -731,10 +732,10 @@
 
                 $('#displayConditionsBuilder').queryBuilder({
                     filters: [
-                        [% FOR field IN all_columns %]
+                        [% FOR column IN all_columns %]
                             {
-                                id: '[% field.id %]',
-                                label: '[% field.name | html_entity %]',
+                                id: '[% column.id %]',
+                                label: '[% column.name | html_entity %]',
                                 type: 'string',
                             },
                         [% END %]

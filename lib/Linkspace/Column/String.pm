@@ -68,17 +68,5 @@ sub resultset_for_values
     $::db->search(String => { layout_id => $self->id }, { group_by => 'me.value' });
 }
 
-sub import_value
-{   my ($self, $value) = @_;
-
-    $::db->create(String => {
-        record_id    => $value->{record_id},
-        layout_id    => $self->id,
-        child_unique => $value->{child_unique},
-        value        => $value->{value},
-        value_index  => $value->{value_index},
-    });
-}
-
 1;
 

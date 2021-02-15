@@ -43,7 +43,6 @@ my @default_trees    =
     { text => 'tree2', children => [ { text => 'tree3' } ] },
   );
 
-my @can_multivalue_columns = qw/calc curval date daterange enum file string tree/;
 my @default_permissions    = qw/read write_new write_existing write_new_no_approval
     write_existing_no_approval/;
 
@@ -114,9 +113,9 @@ sub _fill_layout($$)
         for @$column_types;
 
     my %mv;
-    if(my $mv = $args->{multivalue_columns})
+    if(my $mv = delete $args->{multivalue_columns})
     {   foreach my $type (@$mv)
-        {   Linkspace::Column->type2class($mv)->can_multivalue or panic $mv;
+        {   Linkspace::Column->type2class($type)->can_multivalue or panic $type;
             $mv{$type} = 1;
         }
     }
@@ -125,15 +124,13 @@ sub _fill_layout($$)
 
     my $all_optional = exists $args->{all_optional} ? $args->{all_optional} : 1;
 
-    my ($curval_sheet, @curval_columns);
-    if($curval_sheet = $args->{curval_sheet})
-    {   if(my $cols = $args->{curval_columns})
-        {   @curval_columns = @{$curval_sheet->layout->columns($cols)};
-        }
-        else
-        {   @curval_columns = grep ! $_->is_internal && !$_->type eq 'autocur',
-                @{$curval_sheet->all_columns};
-        }
+    my $curval_columns;
+    if($curval_columns = delete $args->{curval_columns})
+    {
+    }
+    elsif(my $curval_sheet = delete $args->{curval_sheet})
+    {   $curval_columns = [ grep ! $_->is_internal && !$_->type eq 'autocur',
+           @{$curval_sheet->all_columns} ];
     }
 
     my $rag_code  = delete $args->{rag_code};
@@ -141,9 +138,10 @@ sub _fill_layout($$)
     my $calc_code = delete $args->{calc_code};
 
     foreach my $type (@$column_types)
-    {
-        foreach my $count (1.. ($cc->{$type} || 1))
-        {   my $ref = $type eq 'intgr' ? 'integer' : $type;   # Grrrr
+    {   my $ref = $type eq 'intgr' ? 'integer' : $type;   # Grrrr
+
+        foreach my $count (1.. ($cc->{$ref} || $cc->{$type} || 1))
+        {
 
             my %insert = (
                 type          => $type,
@@ -161,8 +159,7 @@ sub _fill_layout($$)
             {   $insert{tree}       = \@default_trees;
             }
             elsif($type eq 'curval')
-            {   $insert{refers_to_sheet} = $curval_sheet;
-                $insert{curval_columns}  = \@curval_columns;
+            {   $insert{curval_columns}  = $curval_columns;
 next;
             }
             elsif($type eq 'rag')
@@ -260,14 +257,25 @@ sub debug(%)
     my $content   = $self->content;
 
     my $show_all  = $config{all};
+    my $show_hist = $show_all || $config{show_history};
     my $max_width = $config{max_column_width} // 16;
+
+    # We do not want to include the row-id and rev-id when the output is locked in a test
+    my $show_rowid= exists $config{show_rowid} ? $config{show_rowid} : 1;
+    my $show_revid= exists $config{show_revid} ? $config{show_revid} : 1;
 
     my $nr_intern = @{$layout->internal_columns_show_names};
     my $nr_data   = @{$layout->all_columns} - $nr_intern;
     my $row_ids   = $content->row_ids;
 
-    my $internal  = exists $config{show_internal} ? $config{show_internal} : 1;
-    my $columns   = $config{colums} || $layout->columns_search(exclude_internal => ! $internal);
+    my $columns   = $config{colums};
+    if($show_all || $config{show_internal})
+    {   $columns = $layout->all_columns;
+    }
+    else
+    {   $columns = $layout->columns_search(exclude_internal => 1);
+        unshift @$columns, $layout->column('_id') if $show_revid;
+    }
     my @col_ids   = map $_->id, @$columns;
 
     my $short     = $self->name eq $self->name_short ? '' : " (".$self->name_short.")";
@@ -278,27 +286,42 @@ sub debug(%)
     push @out, $layout->as_string(columns => $columns)
         if $show_all || $config{show_layout};
 
-    my %col_width = map +($_ => 2), @col_ids;
-    my @rows;
+    my %col_width   = map +($_ => 2), @col_ids;
+    my $rowid_width = 5;  # 'rowid'
+    my @lines;
+
     foreach my $row_id (@$row_ids)
     {   my $row  = $content->row($row_id) or panic $row_id;
-        my @revs = $show_all || $config{show_revisions} ? @{$row->all_revisions} : $row->current;
+        my @revs = $show_hist ? @{$row->all_revisions} : $row->current;
+        my @block;
         foreach my $revision (@revs)
-        {   my @row;
+        {   my @rev;
+            if($show_rowid)
+            {   my $lead = ! $show_hist ? '' : $revision->is_current ? '*' : ' ';
+                push @rev, $lead . (@block ? '' : $row_id);
+                $rowid_width = length $rev[-1] if length $rev[-1] > $rowid_width;
+            }
+     
             foreach my $col_id (@col_ids)
             {   my $val = $revision->cell($col_id)->as_string // '<undef>';
                 substr($val, $max_width-1) = '⋮' if $max_width && length $val > $max_width;
-                push @row, $val;
+                push @rev, $val;
                 $col_width{$col_id} = length $val if length $val > $col_width{$col_id};
             }
-            push @rows, \@row;
+            push @block, \@rev;
         }
+        push @lines, @block;
     }
 
-    if(@rows)
-    {   my $format = "|" . join('|', map " \%-$col_width{$_}s ", @col_ids) . "|\n";
-        push @out, sprintf +($format =~ s/\|/=/gr), map $_->position, @$columns;
-        push @out, sprintf $format, @$_ for @rows;
+    if(@lines)
+    {   my $format = '|' . join('|', map " \%-$col_width{$_}s ", @col_ids) . "|\n";
+        my @header = map $_->position, @$columns;
+        if($show_rowid)
+        {   $format    = "| %-${rowid_width}s $format" if $show_rowid;
+            unshift @header, 'rowid';
+        }
+        push @out, sprintf +($format =~ s/\|/=/gr), @header;
+        push @out, sprintf $format, @$_ for @lines;
     }
 
     join '', @out;

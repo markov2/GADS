@@ -4,12 +4,15 @@
 
 package Linkspace::Site::Document;
 
+use v5.16;  # fc
+
 use Log::Report  'linkspace';
 use Scalar::Util     qw(blessed);
 use List::Util       qw(first);
 
 use Linkspace::Util  qw(index_by_id);
 use Linkspace::Sheet ();
+
 use Moo;
 
 =head1 NAME

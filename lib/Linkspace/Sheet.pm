@@ -98,9 +98,10 @@ sub _validate($)
     ! defined $slid || is_valid_id $slid
         or error __x"Invalid sheet sort_layout_id '{id}'", id => $slid;
 
-    my $st = $insert->{sort_type};
-    ! defined $st || $st eq 'asc' || $st eq 'desc'
-        or error __x"Invalid sheet sort type {type}", type => $st;
+    if(my $st = $insert->{sort_type})
+    {   $st eq 'asc' || $st eq 'desc' || $st eq 'none'
+            or error __x"Invalid sheet sort type {type}", type => $st;
+    }
 
     $insert;
 }
@@ -311,12 +312,6 @@ sub topic_delete($)
 }
 
 #----------------------
-=head1 METHODS: Visualization
-=cut
-
-sub hide_blanks { ! $_[0]->sheet->no_hide_blank }
-
-#----------------------
 =head1 METHODS: Other
 
 =head2 $sheet->column_unuse($column);
@@ -329,12 +324,12 @@ sub column_unuse($)
     $::db->update(Instance => { sort_layout_id => $col_id }, {sort_layout_id => undef});
 
     $self->layout->column_unuse($column);
-    $self->views->column_unuse($column);
+#   $self->views->column_unuse($column);
 }
 
 =head2 \%h = $self->default_sort;
-Returns a HASH which contains the default values to sort row displays.  It returns
-a HASH with a column C<id> and a direction (C<type>).
+Returns a HASH which contains the default values to sort row displays.
+It returns a HASH with a column C<id> and a direction (C<type>).
 =cut
 
 sub default_sort()

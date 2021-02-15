@@ -1,17 +1,20 @@
 # Check the Curval column type
 
-use Linkspace::Test
-    not_ready => 'to be implemented';
+use Linkspace::Test;
 
-my $sheet = empty_sheet;
+my $sheet   = make_sheet rows => [], columns => [];
+my $layout  = $sheet->layout;
+
+my $curval_sheet = make_sheet columns => [ 'intgr' ],
+  rows => [ { intgr1 => 42 }, { intgr1 => 43 } ];
 
 my $column1 = $layout->column_create({
-    type          => 'curval',
-    name          => 'column1 (long)',
-    name_short    => 'column1',
-    is_multivalue => 0,
-    is_optional   => 0,
+    type           => 'curval',
+    name           => 'column1 (long)',
+    name_short     => 'column1',
+    related_column => $curval_sheet->layout->column('intgr1'),
 });
+
 ok defined $column1, 'Created column1';
 my $col1_id = $column1->id;
 
@@ -21,6 +24,10 @@ is logline, "info: Layout created $col1_id: $path1", '... creation logged';
 
 isa_ok $column1, 'Linkspace::Column', '...';
 isa_ok $column1, 'Linkspace::Column::Curval', '...';
+
+is $column1->as_string, <<'__STRING', '... as string';
+curval           column1
+__STRING
 
 ### by short_name from cache
 my $column1b = $layout->column('column1');
@@ -38,22 +45,11 @@ isnt $column1d, $column1, 'recreated object';
 ok defined $column1d, 'Reload via id, avoiding cache';
 isa_ok $column1d, 'Linkspace::Column::Curval', '...';
 
+is $sheet->debug, <<__SHEET, '... debug';
+__SHEET
+
 #
 # is_valid_value
 #
-
-#
-# optional and multivalue
-#
-
-my $column2 = $layout->column_create({
-    type          => 'curval',
-    name          => 'column2 (long)',
-    name_short    => 'column2',
-    is_multivalue => 1,
-    is_optional   => 1,
-});
-logline;
-
 
 done_testing;

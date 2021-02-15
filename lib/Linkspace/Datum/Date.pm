@@ -15,10 +15,16 @@ extends 'Linkspace::Datum';
 
 sub db_table { 'Date' }
 
+sub to_dt_user   { $::session->site->local2dt(auto => $_[0]) }
+
+sub to_dt_intern { $_[0] =~ /[ T]/ ? $::db->parse_datetime($_[0]) : $::db->parse_date($_[0]) }
+
 #XXX for data which has an external origin needs: $column->parse_date($_)
 
 #!!! The DBIx background accepts raw DateTime objects, so we do not need to
 #!!! treat the 'value'.
+
+has date => ( is => 'lazy', builder => sub { to_dt_intern $_[0]->value } );
 
 sub _unpack_values($$$%)
 {   my ($class, $column, $old_datums, $values, %args) = @_;
@@ -31,23 +37,12 @@ sub _unpack_values($$$%)
         }
     }
 
-    my $to_dt;
-    if(($args{source} // 'db') eq 'user')
-    {   my $site = $::session->site;
-        $to_dt = sub { blessed $_[0] && $_[0]->isa('DateTime') ? $_[0]
-          : $site->local2dt(auto => $_[0])
-          };
-    }
-    else
-    {   $to_dt = sub { blessed $_[0] && $_[0]->isa('DateTime') ? $_[0]
-          : $_[0] =~ / / ? $::db->parse_datetime($_[0])
-          :                $::db->parse_date($_[0])
-          };
-    }
-
+    my $to_dt = ($args{source} // 'db') eq 'user' ? \&to_dt_user : \&to_dt_intern;
     my @dates;
     foreach my $value (@$values)
-    {   my $dt = $to_dt->($value);
+    {   my $dt = blessed $value && $value->isa('DateTime') ? $value
+            : $to_dt->($value =~ s/^\s+//r =~ s/\s+$//r)
+            or error __x"Illegal date format '{value}'", value => $value;
 
         # If the timezone is floating, then assume it is UTC (e.g. from MySQL
         # database which do not have timezones stored). Set it as UTC, as

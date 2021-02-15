@@ -23,6 +23,9 @@ sub db_table { 'Daterange' }
 has from => ( is => 'ro' );
 has to   => ( is => 'ro' );
 
+has from_date => ( is => 'lazy', builder => sub { $::db->parse_date($_[0]->from) } );
+has to_date   => ( is => 'lazy', builder => sub { $::db->parse_date($_[0]->to) } );
+
 sub _create_insert(%)
 {   my ($self, %insert) = @_;
     my $span = delete $insert{value};

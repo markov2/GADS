@@ -2209,20 +2209,21 @@ sub max_serial
 
 =head2 \@rows = $content->rows(%options);
 Returns the rows, each as L<Linkspace::Row> instance.  Unless C<include_deleted>
-is given, the deleted rows are ignored.
+is given, the deleted rows are ignored.  The rows are ordered by serial by default.
 
 B<WARNING:> this will be very expensive for large sheet: use content search
 for the website.
 =cut
 
 sub rows(%)
-{   my ($self, %args) = @_;
-#XXX
+{   my $self = shift;
+    my $row_ids = $self->row_ids(order => 'serial', @_);
+    [ map $self->row($_), @$row_ids ];
 }
 
 =head2 \@row_ids = $content->row_ids(%options);
 Returns the ids which are used for the rows in the sheet.  They are ordered by
-creating date.
+creating date by default.
 =cut
 
 sub row_ids(%)
@@ -2262,13 +2263,14 @@ sub row_create($%)
 
 sub row_by_serial($%)
 {   my ($self, $serial) = (shift, shift);
-    Linkspace::Row->from_serial($serial, @_, content => $self, sheet => $self->sheet);
+    Linkspace::Row->row_by_serial($serial, @_, content => $self, sheet => $self->sheet);
 }
 
 sub row($@)
 {   my ($self, $row_id, %args) = @_;
     my $include_deleted = $args{include_deleted};
-    my $row = Linkspace::Row->from_id($row_id, %args, content => $self, sheet => $self->sheet);
+    my $row = Linkspace::Row->from_id($row_id, %args, content => $self, sheet => $self->sheet)
+        or panic "Cannot find row $row_id in ".$self->sheet->name;
 
     if(! $include_deleted && $row->is_deleted)
     {   warning "Access to deleted row $row_id refused";
@@ -2277,6 +2279,8 @@ sub row($@)
 
     $row;
 }
+
+sub first_row() { $_[0]->row_by_serial(1) }
 
 sub row_update($$%)
 {   my ($self, $row, $update) = (shift, shift);

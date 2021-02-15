@@ -4,15 +4,17 @@
 
 package Linkspace::Filter;
 
-use Encode;
-use JSON qw(decode_json encode_json);
 use Log::Report 'linkspace';
-use MIME::Base64;
-use Scalar::Util qw/blessed/;
-use List::Util   qw/first/;
+
+use Encode;
+use MIME::Base64  qw(encode_base64);
+use JSON          qw(decode_json encode_json);
+use Scalar::Util  qw(blessed);
+use List::Util    qw(first);
+
+use Linkspace::Util qw/uniq_objects/;
 
 use Moo;
-use MooX::Types::MooseLike::Base qw(:all);
 
 =head1 NAME
 
@@ -351,5 +353,45 @@ sub _rules_transform($%)
     $h->{condition}    ||= 'AND';
     $h;
 }
+
+# The fields that we need input by the user for this filtered set of values
+has subvals_input_required => (
+    is      => 'lazy',
+);
+
+sub _build_subvals_input_required
+{   my $self      = shift;
+    my $layout    = $self->layout;
+    my $col_names = $self->column_names_in_subs;
+
+    my @cols;
+    foreach my $col_name (@$col_names)
+    {   my $col = $layout->column($col_name) or next;
+
+        my @disp_col_ids = map $_->display_field_id,
+            $::db->search(DisplayField => { layout_id => $col->id })->all;
+
+        #XXX permission => 'write' ?
+        push @cols, map $layout->column($_),
+            @{$col->depends_on_ids}, @disp_col_ids;
+    }
+
+    [ grep $_->userinput, uniq_objects \@cols ];
+}
+
+has data_filter_fields => (
+    is      => 'lazy',
+);
+
+sub _build_data_filter_fields
+{   my $self   = shift;
+    my $fields = $self->subvals_input_required;
+    my $my_sheet_id = $self->sheet_id;
+    first { $_->sheet_id != $my_sheet_id } @$fields
+        and warning "The filter refers to values of fields that are not in this table";
+    '[' . (join ', ', map '"'.$_->field.'"', @$fields) . ']';
+}
+
+
 
 1;

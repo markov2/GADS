@@ -83,8 +83,8 @@ sub from_revision_id($@)
 }
 
 sub row_by_serial($%)
-{   my ($class, $serial) = (shift, shift);
-    defined $serial ? $class->from_search({serial => $serial}) : undef;
+{   my ($class, $serial, %args) = @_;
+    defined $serial ? $class->from_search({sheet => $args{sheet}, serial => $serial}, %args) : undef;
 }
 
 sub _row_create($%)
@@ -166,17 +166,8 @@ sub _row_purge
 =head1 METHODS: Accessors
 =cut
 
-has content => (
-    is      => 'ro',
-    builder => sub { $_[0]->sheet->content },
-);
-
-has sheet => (
-    is      => 'ro',
-    builder => sub {
-warn "BUILD SHEET ",$_[0]->sheet_id;
- $::session->site->document->sheet($_[0]->sheet_id) },
-);
+has content => ( is => 'ro', builder => sub { $_[0]->sheet->content } );
+has sheet   => ( is => 'ro', builder => sub { $::session->site->document->sheet($_[0]->sheet_id) } );
 
 sub linked_to_row
 {   my $self = shift;
@@ -195,16 +186,6 @@ sub deleted_when
 }
 
 sub is_deleted   { !! $_[0]->deleted }   # deleted is a date
-
-sub nr_rows()
-{   # query to count rows which are not deleted
-    ...
-}
-
-sub first_row()
-{   # Used in test-scripts: current_id does not need to start at 1
-    ...
-}
 
 sub is_draft { 0 }
 
@@ -263,20 +244,12 @@ sub revision_create($%)
     my $guard = $::db->begin_work;
     my $kill  = $self->sheet->forget_history ? $self->all_revisions : [];
     my $rev   = Linkspace::Row::Revision->_revision_create($self, $insert, @_);
-    $self->set_current($rev);
 
+    $self->_set_current($rev);
     $self->revision_delete($_) for @$kill;
     $guard->commit;
 
     $rev;
-}
-
-=head2 my $revision = $row->revision_update($revision, $update, %options);
-=cut
-
-sub revision_update($$%)
-{   my ($self, $rev, $update) = (shift, shift, shift);
-    $rev->_revision_update($update, @_);
 }
 
 =head2 \@revisions = $row->all_revisions;
@@ -286,7 +259,9 @@ Returns all revisions (before the content rewind), newest first.
 sub all_revisions(%)
 {   my $self = shift;
     my $before = $self->content->rewind_formatted;
-    Linkspace::Row::Revision->_find($self, created_before => $before);
+    my $revs = Linkspace::Row::Revision->_find($self, created_before => $before);
+    $self->_set_current($revs->[-1]);
+    $revs;
 }
 
 =head2 $row->revision_purge($revision);
@@ -310,18 +285,8 @@ sub revision_purge($)
 Get the latest revision of the row: the non-draft with the highest id.
 =cut
 
-# Moo breaks here
-sub current()
-{    my $self = shift;
-     $self->{_current} ||= Linkspace::Row::Revision->_revision_latest(row => $self);
-}
-
-=head2 $row->set_current($revision);
-Make the C<$revision> the new latest version.
-=cut
-
-#XXX more work expected
-sub set_current($) { $_[0]->{_current} = $_[1] }
+sub current() { $_[0]->{LR_current} ||= Linkspace::Row::Revision->_revision_latest(row => $_[0]) }
+sub _set_current($) { $_[0]->{LR_current} = $_[1] }
 
 =head2 my $cell = $row->created_by;
 Returns the Person who created the initial revisions of this row.  This is kept

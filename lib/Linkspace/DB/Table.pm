@@ -209,9 +209,9 @@ has _column_admin => (
     is      => 'lazy',
     builder => sub
     {   my $self = shift;
-        $self->can('sheet_id') || $self->can('sheet')
-           ? $self->sheet->layout
-           : $::session->site->document;
+          $self->isa('Linkspace::Sheet') ? $self->layout
+        : $self->can('sheet_id') || $self->can('sheet') ? $self->sheet->layout
+        : $::session->site->document;
     },
 );
 
@@ -505,7 +505,7 @@ sub _record_converter
     my $converter = sub {
         my $in  = shift;
         my $out = {};
-        ($run{$_} or panic "Unusable $_ for $thing")->($in->{$_}, $out) for keys %$in;
+        ($run{$_} or panic "Unusable '$_' for $thing")->($in->{$_}, $out) for keys %$in;
         $out;
     };
 

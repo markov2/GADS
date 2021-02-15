@@ -9,10 +9,9 @@ use JSON          qw/decode_json encode_json/;
 
 use Linkspace::Util  qw/flat/;
 
-use Linkspace::Filter::DisplayField ();
+use Linkspace::Column::DisplayFilter ();
 
 use Moo;
-use MooX::Types::MooseLike::Base qw/:all/;
 extends 'Linkspace::DB::Table';
 
 #use namespace::clean; # Otherwise Enum clashes with MooseLike
@@ -187,9 +186,10 @@ sub _column_create
     $class->_validate($insert);
 
     $insert->{is_internal} //= $class->is_internal_type;
-    $insert->{display_condition} ||= 'AND';
 
-    my $df    = delete $insert->{display_field};
+    my $cond = $insert->{display_condition} ||= 'AND';
+    my $df_rules = delete $insert->{display_filter} || [];
+
     my $perms = delete $insert->{permissions};
     my $extra = delete $insert->{extras};
 
@@ -198,8 +198,8 @@ sub _column_create
     my $self = $class->create($insert, sheet => $insert->{sheet});
 
     $self->_column_extra_update($extra, %args);
+    $self->_display_filter_create($df_rules) if @$df_rules;
 #   $self->_column_perms_update($perms) if $perms;
-    $self->_display_field_update($df)   if $df;
     $self;
 }
 
@@ -209,12 +209,13 @@ sub _column_extra_update($) {}
 sub _column_update($%)
 {   my ($self, $update, %args) = @_;
     $self->_validate($update);
-    $self->_column_extra_update(delete $update->{extras}, %args);
 
-    $self->_display_fields_update(delete $update->{display_field})
-        if exists $update->{display_field};
+    $self->_column_extra_update(delete $update->{extras}, %args);
+    my $df_rules = delete $update->{display_filter};
 
     $self->update($update);
+
+    $self->_display_filter_create($df_rules) if $df_rules;
     $self;
 }
 
@@ -459,9 +460,8 @@ sub collect_form($$$)
     \%changes;
 }
 
-
 #XXX Apparently only of interest to curval
-sub refers_to_sheet($) { 0 }
+sub refers_to_sheet($) { panic }
 
 sub user_can
 {   my ($self, $permission, $user) = @_;
@@ -658,32 +658,24 @@ sub how_to_link_to_record
 }
 
 #---------------
-=head2 METHODS: DisplayField
-The Layout records contain a few DisplayField columns, which have been
+=head2 METHODS: Display Filter
+The Layout records contain a few "display_*" columns, which have been
 replaced by a DisplayField table.  The table contains rules, and ::Column
 weirdly carries the C<display_condition> to be used between those.
 =cut
 
-has display_field => (
+has display_filter => (
     is      => 'rw',
     lazy    => 1,
-    builder => sub { Linkspace::Filter::DisplayField->from_column($_[0]) },
+    builder => sub { Linkspace::Column::DisplayFilter->from_column($_[0]) },
 );
 
 # During creation or update of a column.  May be a HASH (create) or
 # undef (delete).
-sub _display_field_update($)
+sub _display_filter_create($)
 {   my ($self, $rules) = @_;
-    my $old = $self->display_field;
-
-    if(!$rules)
-    {   $old->_display_field_delete;
-        $self->display_field(undef);
-        return;
-    }
-
-    my $df = Linkspace::Filter::DisplayField->from_hash($rules, on_column => $self);
-    $self->display_field($df);
+    my $df = Linkspace::Column::DisplayFilter->_create($self, $rules);
+    $self->display_filter($df);
     $df;
 }
 
@@ -693,11 +685,13 @@ sub dependencies_ids
     $df ? $df->column_ids : $self->depends_on_ids;
 }
 
+# $column->is_displayed_in($revision)
+sub is_displayed_in($) { $_[0]->display_filter->column_is_selected($_[1]) }
 
 ### Only used by Autocur/Curval
-has related_field => (
+has related_column => (
     is      => 'lazy',
-    builder => sub { $_[0]->column($_[0]->related_field_id) },
+    builder => sub { $::site->document->column($_[0]->related_column) },
 );
 
 ### Only used for Code

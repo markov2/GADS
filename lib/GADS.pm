@@ -654,7 +654,7 @@ any ['get', 'post'] => '/table/:id' => require_role superadmin => sub {
         my %data = (
             name           => param 'name',
             name_short     => param 'name_short',
-            sort_layout_id => param 'sort_layout_id',
+            sort_column_id => param 'sort_layout_id',
             sort_type      => param 'sort_type',
             group_ids      => [ body_parameters->get_all('permissions') ],  ### perms?
         );

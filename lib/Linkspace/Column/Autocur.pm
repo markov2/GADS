@@ -8,6 +8,9 @@ use Log::Report 'linkspace';
 use Moo;
 extends 'Linkspace::Column::Curcommon';
 
+#XXX From view/layout.tt:
+#XXX Automatic value of other sheet's references to this one
+
 my @options = (
     override_permissions => 0,
 );
@@ -18,12 +21,12 @@ my @options = (
 
 __PACKAGE__->register_type
 
-sub db_field_extra_export { [ qw/related_column_id/ ] }
-sub form_extras    { [ qw/related_field_id/ ], [ 'curval_field_ids' ] }
+sub db_field_extra_export { [ 'related_column_id' ] }
+sub form_extras      { [ 'related_field_id' ], [ 'curval_field_ids' ] }
 sub option_defaults  { shift->SUPER::option_defaults(@_, @options) }
-sub is_userinput   { 0 }
-sub value_to_write { 0 }
-sub value_field    { 'id' }
+sub is_userinput     { 0 }
+sub value_to_write   { 0 }
+sub value_field      { 'id' }
 
 #XXX related_column names wrt refers_to_sheet
 #XXX curval_columns wrt curval_sheet
@@ -130,11 +133,6 @@ sub multivalue_rs
         result_set => 'HASH',
     });
 
-}
-
-sub export_hash
-{   my $self = shift;
-    $self->SUPER::export_hash(@_, related_field_id => $self->related_field_id);
 }
 
 sub how_to_link_to_record {

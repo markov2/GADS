@@ -55,14 +55,12 @@ datums exist, the C<needs_approval> attribute is set.
 
 sub _revision_create($$%)
 {   my ($class, $row, $insert, %args) = @_;
-    my %insert      = %$insert;
-
-    $args{timestamp} ||= DateTime->now;
-    $args{user}      ||= $::session->user;
+    my %insert     = %$insert;
     my $user_cells = delete $insert{cells} || [];
     my $previous   = delete $args{is_initial} ? undef : $row->current;
 
-    my $cells      = $class->_complete_cells($row, $previous, $user_cells, %args);
+    my $layout     = $row->sheet->layout;
+    my $cells      = $class->_complete_cells($row, $previous, $user_cells, $layout, %args);
     my $grouped_cells = $class->_group_cells($row, $previous, $cells);
 
     if(@{$grouped_cells->{need_approval}})
@@ -82,11 +80,33 @@ sub _revision_create($$%)
     );
 
     $self->_create_cells($grouped_cells);
+
+    # The whole row is ready to be loaded.  But we may have to delete a few values
+    # immediately because they are not visible.  Clean now, to record visual in the
+    # history.  It's a bit of a pity: first create and then remove... but it makes
+    # the code much easier and is probably quite rare.
+
+    foreach my $column (@{$layout->columns_search(userinput => 1)})
+    {   my $cell   = $self->cell($column);
+        my $datums = $cell->datums;
+
+        unless($column->is_displayed_in($self))
+        {   $cell->remove_datums;
+            next;
+        }
+
+        @$datums || $column->is_optional || $row->is_draft
+            or error __x"Column '{col.name}' requires a value.", col => $column;
+
+        @$datums < 2 || $column->is_multivalue
+            or error __x"Column '{col.name}' can only contain one value.", col => $column;
+    }
+
     $self;
 }
 
 sub _complete_cells($$$%)
-{   my ($self, $row, $previous, $pairs, %args) = @_;
+{   my ($self, $row, $previous, $pairs, $layout, %args) = @_;
     my $fields = ref $pairs eq 'HASH' ? $pairs : defined $pairs ? +{ @$pairs } : {};
 
     # We do not need to create datums for the other internals
@@ -95,7 +115,6 @@ sub _complete_cells($$$%)
 
     my %datums;
 
-    my $layout = $row->layout;
     while(my ($name, $values) = each %$fields)
     {   my $column = $layout->column($name) or panic "Unknown column $name";
 
@@ -116,22 +135,14 @@ sub _complete_cells($$$%)
     }
 
     my @cells;
-    my $columns = $row->layout->columns_search;
-    my $allow_incomplete = $row->is_draft;
+    my $columns = $layout->columns_search;
 
     # Actually, these produced errors are more internal errors than user errors:
     # the GUI should keep people from doing the wrong thing.
 
     foreach my $column (@$columns)
     {   my $datums = delete $datums{$column->id} || [];
-        if($column->is_userinput)
-        {   @$datums || $allow_incomplete || $column->is_optional
-                or error __x"Column '{col.name}' requires a value.", col => $column;
-
-            @$datums < 2 || $column->is_multivalue
-                or error __x"Column '{col.name}' can only contain one value.", col => $column;
-        }
-        elsif(@$datums && ! $column->is_internal)
+        if(@$datums && ! $column->is_internal && ! $column->is_userinput)
         {   error __x"Column '{col.name}' has a computed value.", col => $column;
         }
 
@@ -165,9 +176,9 @@ sub _group_cells($%)
           : ! $column->is_userinput     ? $compute
           : $row_is_linked && $column->linked_column_id ? $linked
           : $row_is_draft               ? $writable
-: 1 ? $writable
-          : $column->user_can($write) || $column->user_can($approve)    ? $writable
+: 1 ? $writable  #XXX
           : $previous && $previous->cell($column)->same_values($datums) ? $writable
+          : $column->user_can($write) || $column->user_can($approve)    ? $writable
           :                               $need_approve;
 
         push @$queue, [ $column, $datums ];
@@ -183,7 +194,7 @@ sub _group_cells($%)
 
 sub _create_cells($@)
 {   my ($self, $grouped, %args) = @_;
-    my $cells = $self->_cells;
+    my $cells = $self->{LRR_cells} ||= {};
 
     foreach my $group (qw/internal writable need_approval linked need_compute/)
     {   my $cells = $grouped->{$group} or panic;
@@ -210,7 +221,7 @@ sub _revision_latest(%)
     }
 
     #XXX expensive
-    my $rec = $class->search_records(\%search, { order => { -desc => 'created', limit => 1 } })->[0];
+    my $rec   = $class->search_records(\%search, { order => [ { -desc => 'created' }, { -desc => 'id' } ], limit => 1 })->[0];
     $class->from_record($rec, is_historic => 0, %args);
 }
 
@@ -228,7 +239,7 @@ sub _find($%)
     }
 
     $class->search_objects(
-        \%search, { order_by => { -desc => 'created' }},
+        \%search, { order_by => [ { -asc => 'created' }, { -asc => 'id' } ] },
         row => $row,
     );
 }
@@ -250,11 +261,6 @@ sub path() { $_[0]->row->path . '/rev=' . $_[0]->id }
 
 has row => ( is => 'ro', required => 1 );
 
-has _columns_retrieved_index => (
-    is      => 'lazy',
-    builder => sub { index_by_id $_[0]->columns_retrieved_do },
-);
-
 has created_by => (
     is      => 'lazy',
     builder => sub { $_[0]->site->users->user($_[0]->created_by_id) },
@@ -265,28 +271,26 @@ Returns true when this is the initial revision being build: there is no
 active accepted revision yet.
 =cut
 
-has is_initial => (
-    is      => 'lazy',
-    builder => sub { ! $_[0]->row->current },
-);
+sub is_initial { ! $_[0]->row->current }
 
 =head2 $rev->is_historic;
-Returns true when this revision is not the current revision of the row.
+Returns true when this revision was loaded with an historic view on the content
+of the sheet.  You should not be able to change historic revisions.
 =cut
 
-has is_historic => (
-    is      => 'lazy',
-    builder => sub { $_[0]->row->current->id != $_[0]->id },
-);
+has is_historic => ( is => 'ro', default => 0 );
 
+
+=head2 $rev->is_current;
+Returns true when this revision is the latest revision for this row.  That may
+change over time.
+=cut
+
+sub is_current { $_[0]->row->current->id == $_[0]->id }
 
 #---------------
 =head2 METHODS: Handling Cells
 =cut
-
-has _cells  => ( is => 'lazy', builder => sub { +{} } );
-has _datums => ( is => 'ro', default => sub { +{} } );
-has _dc     => ( is => 'ro', default => sub { +{} } );
 
 my %special_data =
   ( _id         => sub { $_[0]->id }
@@ -299,17 +303,17 @@ my %special_data =
 
 sub cell($)
 {   my ($self, $which) = @_;
-    my ($column, $col_id) = blessed $which ? ( $which, $which->id )
-       : ( ($self->row->column($which) or panic $which), $which);
+    my $column = blessed $which ? $which : $self->row->column($which) or panic $which;
+    my $col_id = $column->id;
 
-    my $cell   = $self->_cells->{$col_id};
+    my $cell   = $self->{LRR_cells}{$col_id};
     return $cell if $cell;
 
     my $cell_class = $column->link_column_id
        ? 'Linkspace::Row::Cell::Linked'
        : 'Linkspace::Row::Cell';
 
-    my $index       = $self->_datums;
+    my $index       = $self->{LRR_datums} ||= {};
     my $datum_class = $column->datum_class;
     my $datums;
 
@@ -318,7 +322,7 @@ sub cell($)
         $datums = [ $datum_class->new(value => $value, column => $column) ] if defined $value;
     }
     else
-    {   unless($self->_dc->{$datum_class}++)
+    {   unless($self->{LRR_dc}{$datum_class}++)
         {   # When the first column of a certain datum_class gets loaded, all other datums
             # of that class will get loaded as well.  This helps performance al lot.
             push @{$index->{$_->column_id}}, $_
@@ -328,7 +332,7 @@ sub cell($)
         $_->column($column) for @$datums;
     }
 
-    $self->_cells->{$col_id} = $cell_class->new(
+    $self->{LRR_cells}{$col_id} = $cell_class->new(
         revision => $self,
         column   => $column,
         datums   => $datums,
@@ -598,8 +602,6 @@ sub _transform_values
     \%cells;
 }
 
-=cut
-
 sub delete_user_drafts($)
 {   my ($self, $sheet) = @_;
     my $user = $::session->user;
@@ -636,12 +638,6 @@ sub delete_user_drafts($)
 #   submission. Fields not contained in here will not be checked for missing
 #   values. Used in conjunction with missing_not_fatal to only report on some
 #   cells
-
-sub _revision_update($$%)
-{   my ($self, $update, $row, %args) = @_;
-}
-
-=pod
 
 my $sheet = $row->sheet;
     my $is_draft = $args{draft};

@@ -10,7 +10,19 @@ package Linkspace::Datum::Tree;
 use Log::Report 'linkspace';
 
 use Moo;
-extends 'Linkspace::Datum';
+extends 'Linkspace::Datum::Enum';
+
+sub _unpack_values($$$%)
+{   my ($class, $column, $old_datums, $values, %args) = @_;
+
+warn "UNPACK VALUES";
+    my @nodes;
+    foreach my $value (@$values)
+    {   warn $value;
+    }
+
+    $values;
+}
 
 sub hash_value($)
 {   my ($self, $column) = @_;
@@ -31,5 +43,9 @@ sub _value_for_code($$$)
 
      +{ value   => $node->name, parents => \%parents };
 }
+
+sub node        { $_[0]->column->node($_[0]->value) }
+sub full_path   { $_[0]->node->path }
+sub match_value { $_[0]->node->path }
 
 1;

@@ -1,12 +1,9 @@
 #!/usr/bin/env perl
 
 use Test::More; # tests => 1;
-use strict;
-use warnings;
 
 use JSON qw(decode_json encode_json);
 use Log::Report;
-#use Data::Dumper;
 
 my $rule1 = +{
    id       => 1,

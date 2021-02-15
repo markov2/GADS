@@ -105,7 +105,7 @@ sub _as_string(%)
 
 sub _values_beginning_with($%)
 {   my ($self, $start, %args) = @_;
-    my @path    = split m!\s*/\s*!, $start, -1;
+    my @path    = split m!\s*\#\s*!, $start, -1;
     my $partial = @path ? pop @path : '';
 
     my $parent  = $self->tree->find(@path) or return [];
@@ -358,17 +358,6 @@ sub export_hash
     $h;
 }
 
-sub import_value
-{   my ($self, $value) = @_;
-
-    $::db->create(Enum => {     #XXX?
-        record_id    => $value->{record_id},
-        layout_id    => $self->id,
-        child_unique => $value->{child_unique},
-        value        => $value->{value},
-    });
-}
-
 #======================
 # A simple, dedicated, tree implementation.
 
@@ -448,7 +437,7 @@ sub find(@)
 sub path()
 {   my $self = shift;
     return '' if $self->is_root;
-    $self->parent->path . $self->name . ($self->is_leaf ? '' : '/');
+    $self->parent->path . $self->name . ($self->is_leaf ? '' : '#');
 }
 
 sub as_string() { join '#', map $_->name, $_[0]->ancestors, $_[0] }
@@ -458,6 +447,8 @@ sub ancestors()
     $parent->is_root ? () : ($parent->ancestors, $parent);
 }
 
-sub datum_as_string($) { $_[0]->node($_[1]->value)->name }
+sub datum_as_string($) {
+warn "V=", $_[1]->value, ' N=', $_[0]->node($_[1]->value);
+ $_[0]->node($_[1]->value)->path }
 
 1;

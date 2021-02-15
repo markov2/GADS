@@ -46,21 +46,6 @@ my @internal_columns = (
 
 sub internal_columns_show_names { [ map $_->[0], @internal_columns ] }
 
-has no_overnight_update => (
-    is      => 'ro',
-    isa     => Bool,
-);
-
-has default_view_limit_extra => (
-    is      => 'ro',
-);
-
-has sheet => (
-    is       => 'ro',
-    required => 1,
-    weakref  => 1,
-);
-
 #------------------
 =head1 METHODS: Constructors
 
@@ -83,6 +68,11 @@ sub insert_initial_columns()
 #-------------
 =head1 METHODS: Generic Accessors
 =cut
+
+has no_overnight_update => ( is => 'ro', isa => Bool );
+has default_view_limit_extra => ( is => 'ro');
+
+has sheet => ( is => 'ro', required => 1, weakref  => 1 );
 
 has has_globe => (
     is      => 'lazy',
@@ -364,7 +354,6 @@ sub column_create($%)
     $index->{$column->id} = $column;
     $index->{$column->name_short} = $column;
     $sheet->document->publish_column($column);
-
     $column;
 }
 
@@ -538,14 +527,14 @@ Remove this column everywhere.
 =cut
 
 sub column_delete($)
-{   my ($self, $column) = @_;
+{   my ($self, $which) = @_;
+    my $column = $self->column($which) or panic;
     my $doc   = $self->sheet->document;
 
 =pod
 
     # First see if any views are conditional on this field
-    my $disps = $column->display_fields;
-
+    my $disps = $column->display_filter;
     if(@$disps)
     {   my @names = map $_->name, @$disps;   #XXX???
         error __x"The following fields are conditional on this field: {dep}.

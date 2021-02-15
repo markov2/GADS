@@ -53,16 +53,5 @@ sub is_valid_value($)
        int => $value, col => $self->name;
 }
 
-sub import_value
-{   my ($self, $value) = @_;
-
-    $::db->create(Intgr => {
-        record_id    => $value->{record_id},
-        layout_id    => $self->id,
-        child_unique => $value->{child_unique},
-        value        => $value->{value},
-    });
-}
-
 1;
 

@@ -11,10 +11,6 @@ extends 'Linkspace::DB::Table';
 
 sub db_table { 'UserLastrecord' }
 
-sub db_rename { +{
-    record_id => 'revision_id'
-}}
-
 __PACKAGE__->db_accessors;
 
 ### 2020-08-25: columns in GADS::Schema::Result::UserLastrecord

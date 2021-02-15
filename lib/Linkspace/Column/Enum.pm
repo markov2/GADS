@@ -360,17 +360,6 @@ sub _import_hash_extra($%)
 
     $self->enumvals(\@to_write);
     $self->ordering($values->{ordering});
-};
-
-sub import_value
-{   my ($self, $value) = @_;
-
-    $::db->create(Enum => {
-        layout_id    => $self->id,
-        record_id    => $value->{record_id},
-        child_unique => $value->{child_unique},
-        value        => $value->{value},
-    });
 }
 
 1;

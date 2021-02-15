@@ -14,6 +14,13 @@ use Linkspace::Util   qw/is_valid_id/;
 use Moo;
 extends 'Linkspace::Column';
 
+
+### 2021-02-11: columns in GADS::Schema::Result::Curval
+# id           value        child_unique layout_id    record_id
+
+### 2021-02-11: columns in GADS::Schema::Result::CurvalField
+# id         child_id   parent_id
+
 ###
 ### META
 ###
@@ -41,14 +48,16 @@ sub _remove_column($)
 sub _column_create($)
 {   my ($class, $insert) = @_;
 
-    $insert->{related_field_id} || $insert->{related_field}
+    $insert->{related_column}
         or error __x"Please select a field that refers to this table";
 
     $class->SUPER::_column_create($insert);
 }
 
-sub _column_update($)
-{   my ($self, $update) = @_;
+sub _column_extra_update($%)
+{   my ($self, $extra, %args) = @_;
+    $self->SUPER::_column_extra_update($extra, %args);
+
     my $curval_fields = delete $update{curval_fields}
                      || delete $update{curval_field_ids};
 
@@ -179,12 +188,9 @@ has curval_fields_all => (
         my $parent = $self->layout_parent;
         [ map $parent->column($_, permission => 'read'), @$all ];
     }
-}
+};
 
-sub sort_columns
-{   my $self = shift;
-    [ map $_->sort_columns, @{$self->curval_fields} ];
-}
+sub sort_columns { [ map $_->sort_columns, @{$_[0]->curval_fields} ] }
 
 has filtered_values => (
     is      => 'lazy',
@@ -484,7 +490,7 @@ sub format_value
 sub export_hash()
 {   my $self = shift;
     $self->SUPER::export_hash(@_,
-        refers_to_instance_id => $self->related_sheet_id,
+        refers_to_sheet_id => $self->related_sheet_id,
         curval_field_ids      => [ map $_->id, $self->curval_columns ],
     );
 }

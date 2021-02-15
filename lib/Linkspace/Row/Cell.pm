@@ -51,8 +51,7 @@ short-cuts are taken which break abstraction for the sake of performance.
 # %args are
 #     column       Linkspace::Column object
 #     revision     Linkspace::Row::Revision object
-#     datum        Linkspace::Datum object
-#     datum_record HASH
+#     datums       Linkspace::Datum objects
 # The datum can be specified as already prepared object, or as HASH raw
 # from the database.
 
@@ -71,16 +70,14 @@ sub is_linked { 0 }
 sub text_all
 {   my $self = shift;
     my $column = $self->column;
-    [ map $column->datum_as_string($_), @{$self->datums} ];
+    [ map $column->datum_as_string($_), @{$self->derefs} ];
 }
 
-sub as_string { join ', ', @{$_[0]->text_all} }
-
-sub as_integer { $_[0]->{datums}[-1]->as_integer($_[0]) }
-
-sub html {  encode_entities $_[0]->as_string }
-
-sub html_form { $_[0]->text_all }
+sub match_values { [ map $_->match_value, @{$_[0]->derefs} ] }
+sub as_string    { join ', ', sort @{$_[0]->text_all} }
+sub as_integer   { $_[0]->{datums}[-1]->as_integer($_[0]) }
+sub html         { encode_entities $_[0]->as_string }
+sub html_form    { $_[0]->text_all }
 
 sub column   { $_[0]->{column} }
 sub revision { $_[0]->{revision} }
@@ -115,7 +112,7 @@ Returns true when there not a single useful value written to this cell. Be warne
 that an empty value (like a blank string) is a useful value.
 =cut
 
-sub is_blank { ! @{$_[0]->{datums}} }
+sub is_blank { ! @{$_[0]->{datums} || []} }
 
 =head2 my $value = $cell->value;
 Returns the only value which in this cell.
@@ -126,11 +123,38 @@ internal columns, otherwise you will get a (planned) panic.
 
 sub value  { my $d = $_[0]->datum; $d ? $d->value : undef }
 
+=head2 $cell->remove_datums;
+Blank the cell: all db records get removed.
+=cut
+
+sub remove_datums()
+{   my $self = shift;
+    my $datums = delete $self->{datums};
+    $_->_datum_delete($self) for @$datums;
+}
+
 =head2 \@values = $cell->values;
 Returns the values in all of the datums.
 =cut
 
 sub values { [ map $_->value, @{$_[0]->datums} ] }
+
+=head2 $cell->same_values(\@datums);
+Returns whether the two cells have exactly the same values.
+=cut
+
+sub same_values
+{   my ($self, $other_datums) = @_;
+    my $my_vals    = $self->values;
+    my @other_vals = map $_->value, @$other_datums;
+
+    return 0 if @$my_vals != @other_vals;
+    return 1 if @other_vals==1 && $my_vals->[0] eq $other_vals[0];
+    
+    my %need = map +($_ => 1), @$my_vals;
+    delete $need{$_} for @other_vals;
+    ! keys %need;
+}
 
 =head2 \%h = $cell->for_code(%options);
 Create a datastructure to pass column information to Calc logic.
@@ -170,13 +194,14 @@ sub datum_type
 sub presentation
 {   my $self   = shift;
     my $datums = $self->datums;
-    my $show   = {
-        type            => $self->datum_type,
-        value           => $self->as_string,
-        filter_value    => $self->filter_value,
-        blank           => $self->is_blank,
-        dependent_shown => $self->dependent_shown,
-    };
+
+    my $show   =
+     +{ type         => $self->datum_type,
+        value        => $self->as_string,
+        filter_value => $self->filter_value,
+        blank        => $self->is_blank,
+        is_displayed => $self->is_displayed,
+      };
 
     $_->presentation($show) for @$datums;
     $show;
@@ -195,17 +220,17 @@ sub value_hash
     if($type eq 'enum' || $type eq 'tree')
     {   my @hs = map $_->value_hash($column), @{$self->datums};
         #XXX Repacking usually a bad idea
-        return +{
-            ids     => [ map $_->{id}, @hs ],
+        return
+         +{ ids     => [ map $_->{id}, @hs ],
             text    => [ map $_->{text}, @hs ],
             deleted => [ map $_->{deleted}, @hs ],
-        };
+          };
     }
 
     panic;
 }
 
-sub deleted_values
+sub deleted_values()
 {   my $self = shift;
     my $column = $self->column;
 
@@ -220,5 +245,11 @@ sub id_hash { +{ map +( $_->value => 1), @{$_[0]->datums} } }
 
 # Tree
 sub ids_as_params { join '&', map $_->value, @{$_[0]->datums} }
+
+# Follows the pointers of Curval, Autocur and Linked.  Returns all datums which
+# are not references anymore.
+sub derefs() { [ map $_->deref, @{$_[0]->datums} ] }
+
+sub is_displayed() { $_[0]->column->is_displayed_in($_[0]->revision) }
 
 1;

@@ -80,7 +80,7 @@ sub is_valid_value($)
 sub datum_as_string($)
 {   my ($self, $datum) = @_;
     my $site  = $self->site;
-    $site->dt2local($datum->from) . ' to ' . $site->dt2local($datum->to);
+    $site->dt2local($datum->from_date) . ' to ' . $site->dt2local($datum->to_date);
 }
 
 sub validate_search
@@ -124,19 +124,6 @@ sub split
         from => $from,
         to   => $to,
     };
-}
-
-sub import_value
-{   my ($self, $value) = @_;
-
-    $::db->create(Daterange => {
-        record_id    => $value->{record_id},
-        layout_id    => $self->id,
-        child_unique => $value->{child_unique},
-        from         => iso2datetime($value->{from}),
-        to           => iso2datetime($value->{to}),
-        value        => $value->{value},
-    });
 }
 
 1;

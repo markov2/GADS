@@ -68,17 +68,6 @@ sub people { $_[0]->site->users->all_users }
 sub resultset_for_values { $_[0]->people }
 sub datum_as_string { my $p = $_[1]->person; $p ? $p->fullname : undef }
 
-sub import_value
-{   my ($self, $value) = @_;
-
-    $::db->create(Person => {
-        record_id    => $value->{record_id},
-        layout_id    => $self->id,
-        child_unique => $value->{child_unique},
-        value        => $value->{value},
-    });
-}
-
 sub is_valid_value($)
 {   my ($self, $value) = @_;
 

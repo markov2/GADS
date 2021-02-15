@@ -7,8 +7,10 @@ use Log::Report 'linkspace';
 
 use Linkspace::Util  qw(to_id);
 
+test_session;
+
 #!!! We cannot load the ::Datums packages here, because Moo will not be able to
-#    inherit methods.  Booh!
+#    inherit methods.  Booh!  Now in ::Row::Cell
 
 use Moo;
 
@@ -34,8 +36,8 @@ the it gets written.
 sub datums_prepare($$$%)
 {   my ($class, $column, $raw_values, $old_datums) = @_;
     my $values = $class->_unpack_values($column, $old_datums, $raw_values);
-    my @values = map $column->is_valid_value($_), @$values;
-    [ map $class->new(column => $column, value => $_), @$values ];
+    my @values = map $column->is_valid_value($_), grep length, @$values;
+    @values ? [ map $class->new(column => $column, value => $_), @values ] : [];
 }
 
 =head2 $datum->write($revision, %args);
@@ -88,9 +90,8 @@ sub datums_for_revision($%)
 =head1 METHODS: Attributes
 =cut
 
-has column_id => ( is => 'rw' );
-has column => ( is => 'rw' );  # only empty during construction
-
+has column_id    => ( is => 'rw' );  # only used during construction
+has column       => ( is => 'rw' );  # only empty during construction
 has value        => ( is => 'ro', required => 1 );
 has child_unique => ( is => 'ro', default => 0 );
 has revision     => ( is => 'rw' );
@@ -99,23 +100,19 @@ has revision     => ( is => 'rw' );
 =head1 METHODS: Other
 =cut
 
-sub as_string  { $_[0]->column->datum_as_string($_[0]) }
-sub as_integer { panic "Not implemented" }
+sub as_string    { $_[0]->column->datum_as_string($_[0]) }
+sub as_integer   { panic "Not implemented" }
 sub compare_as_string($)  { $_[0]->as_string cmp $_[1]->as_string }
 sub compare_as_integer($) { $_[0]->as_integer cmp $_[1]->as_integer }
+sub is_shown     { $_[0]->column->is_displayed_in($_[0]->revision) }
 
 sub html_form    { $_[0]->value // '' }
 sub filter_value { $_[0]->html_form }
+sub match_value  { $_[0]->as_string }
 
 # The value to search for unique values
 sub search_values_unique { $_[0]->html_form }
 sub html_withlinks { $_[0]->html }
-
-sub dependent_shown
-{   my $self    = shift;
-    my $filter  = $self->column->display_field or return 0;
-    $filter->show_field($self->record->fields, $self);
-}
 
 # Used by $cell->for_code
 sub _value_for_code($$) { $_[0]->as_string }
@@ -143,6 +140,14 @@ sub _datum_create($$%)
     $class->from_id($r->id);
 }
 
+sub _datum_delete($)
+{   my ($self, $cell) = @_;
+    $::db->delete($self->db_table,
+      { record_id => $cell->revision->id,
+        layout_id => $cell->column->id,
+      });
+}
+
 sub field_value() { +{ value => $_[0]->value } }
 
 sub field_value_blank() { +{ value => undef } }
@@ -161,5 +166,8 @@ sub remove_values_stored_for($)
     my $search = { record_id => to_id $revision };
     $::db->delete($_ => $search) for @value_tables, @cache_tables;
 }
+
+# Curval and autocur support this.  Returns datums
+sub deref { shift }
 
 1;

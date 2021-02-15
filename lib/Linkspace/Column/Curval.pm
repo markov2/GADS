@@ -5,14 +5,13 @@
 package Linkspace::Column::Curval;
 
 use Log::Report 'linkspace';
-use Linkspace::Util qw/uniq_objects/;
-use Scalar::Util    qw/blessed/;
+
+use Linkspace::Util qw/uniq_objects is_valid_id to_id/;
 
 use Moo;
 extends 'Linkspace::Column::Curcommon';
 
 my @options = (
-    override_permissions => 0,          #XXX still needed?
     value_selector       => 'dropdown',
     show_add             => 0,
     delete_not_used      => 0
@@ -39,11 +38,10 @@ sub form_extras { [ qw/refers_to_sheet_id filter/ ], [ 'curval_field_ids' ] }
 
 sub _validate($)
 {   my ($thing, $update) = @_;
-    $self->SUPER::_validate($update);
+    $thing->SUPER::_validate($update);
 
     if(my $opt = $update->{options})
-    {   $self->{is_multivalue}
-          =  exists $opt->{show_add} && $opt->{value_selector} eq 'noshow';
+    {   $update->{is_multivalue} = exists $opt->{show_add} && $opt->{value_selector} eq 'noshow';
     }
 }
 
@@ -54,116 +52,51 @@ sub _validate($)
 sub value_selector  { $_[0]->_options->{value_selector} // 'dropdown' }
 sub show_add        { $_[0]->_options->{show_add} // 0 }
 sub delete_not_used { $_[0]->_options->{delete_not_used} // 0 }
-_
+
 # Whether this field has subbed in values from other parts of the record in its
 # filter
-has has_subvals => (
-    is      => 'lazy',
-    isa     => Bool,
-    builder => sub { my $c = $_[0]->filter->column_names_in_subs; !!@$c },
-}
+sub has_subvals { $_[0]->filter->has_subvals }
 
 # The fields that we need input by the user for this filtered set of values
-has subvals_input_required => (
-    is      => 'lazy',
-);
-
-sub _build_subvals_input_required
-{   my $self   = shift;
-    my $layout = $self->layout;
-    my $col_names = $self->filter->column_names_in_subs;
-
-    foreach my $col_name (@$col_names)
-    {   my $col = $layout->column($col_name) or next;
-
-        my @disp_col_ids = map $_->display_field_id,
-            $::db->search(DisplayField => { layout_id => $col->id })->all;
-
-        #XXX permission => 'write' ?
-        push @$cols, map $layout->column($_),
-            @{$col->depends_on_ids}, @disp_col_ids;
-    }
-
-    [ grep $_->userinput, uniq_objects \@cols ];
-}
+sub subvals_input_required() { $_[0]->filter->subvals_input_required }
 
 # The string/array that will be used in the edit page to specify the array of
 # fields in a curval filter
-has data_filter_fields => (
-    is      => 'lazy',
-    isa     => Str,
-);
-
-sub _build_data_filter_fields
-{   my $self   = shift;
-    my $fields = $self->subvals_input_required;
-    my $my_sheet_id = $self->sheet_id;
-    first { $_->instance_id != $my_sheet_id } @$fields
-        and warning "The filter refers to values of fields that are not in this table";
-    '[' . (join ', ', map '"'.$_->field.'"', @$fields) . ']';
-}
-
-# Pick a random field from the selected display fields
-# (to work out the parent layout)
-
-sub related_sheet_id()
-{   my $random = $_[0]->curval_fields->[0];
-    $random ? $random->sheet_id : undef;
-}
+sub data_filter_fields() { $_[0]->data_filter_fields }
 
 sub make_join
 {   my ($self, @joins) = @_;
     @joins or return $self->field;
 
-    +{
-        $self->field => {
-            value => {
-                record_single => ['record_later', @joins],
-            }
-        }
-    };
+    +{ $self->field => { value => { record_single => [ 'record_later', @joins ] } } };
 }
 
 sub autocurs()
-{   my $document = shift->document;
+{   my $self = shift;
+    my $document = $self->document;
     [ grep $_->type eq 'autocur', $document->columns_relating_to($self) ];
 }
 
-sub write_special
-{   my ($self, %options) = @_;
+sub _column_extra_update($%)
+{   my ($self, $extra, %args) = @_;
+    $self->SUPER::_column_extra_update($extra, %args);
 
-    my $id   = $options{id};
-    my $rset = $options{rset};
-
-    unless ($options{override})
-    {
-        my $layout_parent = $self->layout_parent
-            or error __"Please select a table to link to";
-        $self->_update_curvals(%options);
-    }
-
-    # Update typeahead option
-    $rset->update({
-        typeahead   => 0, # No longer used, replaced with value_selector
-    });
-
-    # Force any warnings to be shown about the chosen filter fields
-    $self->data_filter_fields unless $options{override};
-
-    return ();
-};
+    $self->_update_curvals(%args); #XXX
+    $self->data_filter_fields;
+    $self;
+}
 
 sub is_valid_value($)
 {   my ($self, $value) = @_;
 
-    $value =~ /^[0-9]+$/)
+    my $row_id = is_valid_id $value
         or error __x"Value for {column} must be an integer", column => $self->name;
 
-    $self->sheet->content->row($id)
-        or error __x"Current {id} is not a valid row-id for {column}",
-        id => $value, column => $self->name;
+    $self->refers_to_sheet->content->row($row_id)
+        or error __x"Row-id {id} is not a valid row-id for {column.name_short}",
+        id => $row_id, column => $self;
 
-    $value;
+    $row_id;
 }
 
 sub fetch_multivalues
@@ -179,9 +112,7 @@ sub fetch_multivalues
         result_class => 'HASH',
     })->all;
 
-    my $user = $self->override_permissions ? undef : $::->session->user;
     my $page = $self->sheet_parent->content->search(
-        user              => $self->override_permissions ? undef : $self->layout->user,
         limit_current_ids => [ map $_->{value}, @values ],
         is_draft          => $options{is_draft},
         columns           => $self->curval_field_ids_retrieve(all_fields => $self->retrieve_all_columns),
@@ -192,10 +123,7 @@ sub fetch_multivalues
     # default sort for each table
     my %retrieved; my $order;
     while(my $row = $page->next_row)
-    {   $retrieved{$row->current_id} = +{
-            record => $tow,
-            order  => ++$order, # store order
-        };
+    {   $retrieved{$row->current_id} = +{ record => $row, order  => ++$order }; # store order
     }
 
     my (@return, @single, $last_record_id);
@@ -221,30 +149,13 @@ sub fetch_multivalues
     @return;
 }
 
-sub multivalue_rs
-{   my ($self, $record_ids) = @_;
-    $::db->search(Curval => {
-        'me.record_id'      => $record_ids,
-        'me.layout_id'      => $self->id,
-    });
-}
-
-sub import_value
-{   my ($self, $value) = @_;
-
-    $::db->create(Curval => {
-        record_id    => $value->{record_id},
-        layout_id    => $self->id,
-        child_unique => $value->{child_unique},
-        value        => $value->{value},
-    });
-}
+=pod
 
 #XXX move (at least partially) to ::Datum
 #XXX move to Curcommon?
 #XXX Unexpected side effects
 sub field_values($$%)
-{   my ($self, $datum, $row, %options) = @_;
+{   my ($self, $datum, $row, %args) = @_;
 
     my @values;
     if($self->show_add)
@@ -261,14 +172,14 @@ sub field_values($$%)
 
     push @values, @{$datum->ids};
 
-    if($self->delete_not_used)
+    if($args{delete_not_used})
     {
         my @ids_deleted;
         foreach my $id_deleted (@{$datum->ids_removed})
         {
             my $is_used;
             foreach my $refers (@{$self->layout_parent->referred_by})
-            {   my $refers_sheet = $::session->site->sheet($refers->sheet_id);
+            {   my $refers_sheet = $refers->sheet_id;
 
                 my $filter = { rule => {
                         column   => $refers,
@@ -278,7 +189,6 @@ sub field_values($$%)
                 }};
 
                 my $refers_page = $refers_sheet->content->search(
-                    user    => undef,
                     filter  => $filter,
                     columns => [],
                 );
@@ -288,7 +198,7 @@ sub field_values($$%)
             }
 
             if(!$is_used)
-            {   $sheet->content->current->row_delete($id_deleted);
+            {   $self->sheet->content->current->row_delete($id_deleted);
                 push @ids_deleted, $id_deleted;
             }
         }
@@ -298,10 +208,11 @@ sub field_values($$%)
     map +{ value => $_ },
         @values ? @values : (undef);
 }
+=cut
 
 sub does_refer_to_sheet($)
 {   my ($self, $which) = @_;
-    my $sheet_id = blessed $which ? $which->id : $which;
+    my $sheet_id = to_id $which;
     grep $_->child->sheet_id != $sheet_id, $self->curval_fields_parents;
 }
 
