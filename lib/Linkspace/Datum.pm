@@ -93,7 +93,7 @@ sub datums_for_revision($%)
 has column_id    => ( is => 'rw' );  # only used during construction
 has column       => ( is => 'rw' );  # only empty during construction
 has value        => ( is => 'ro', required => 1 );
-has child_unique => ( is => 'ro', default => 0 );
+has child_unique => ( is => 'ro', default  => 0 );
 has revision     => ( is => 'rw' );
 
 #--------------------

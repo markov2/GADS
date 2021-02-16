@@ -54,7 +54,6 @@ sub presentation {
         is_multivalue       => $self->is_multivalue,
         helptext            => $self->helptext,
         readonly            => $options{new} ? !$self->user_can('write_new') : !$self->user_can('write_existing'),
-        data                => $options{datum_presentation},
         is_group            => $options{group} && $options{group} == $self->id,
         has_filter          => $has_filter,
         url_filter_remove   => $url_filter_remove,

@@ -16,8 +16,7 @@ use Linkspace::Datum;
 #use Linkspace::Datum::Autocur;
 #use Linkspace::Datum::Calc;
 use Linkspace::Datum::Count;
-#use Linkspace::Datum::Curcommon;
-#use Linkspace::Datum::Curval;
+use Linkspace::Datum::Curval;
 use Linkspace::Datum::Date;
 use Linkspace::Datum::Daterange;
 use Linkspace::Datum::Enum;
@@ -70,10 +69,10 @@ sub is_linked { 0 }
 sub text_all
 {   my $self = shift;
     my $column = $self->column;
-    [ map $column->datum_as_string($_), @{$self->derefs} ];
+    [ map $column->datum_as_string($_), @{$self->datums} ];
 }
 
-sub match_values { [ map $_->match_value, @{$_[0]->derefs} ] }
+sub match_values { [ map $_->match_value, @{$_[0]->datums} ] }
 sub as_string    { join ', ', sort @{$_[0]->text_all} }
 sub as_integer   { $_[0]->{datums}[-1]->as_integer($_[0]) }
 sub html         { encode_entities $_[0]->as_string }
@@ -245,10 +244,6 @@ sub id_hash { +{ map +( $_->value => 1), @{$_[0]->datums} } }
 
 # Tree
 sub ids_as_params { join '&', map $_->value, @{$_[0]->datums} }
-
-# Follows the pointers of Curval, Autocur and Linked.  Returns all datums which
-# are not references anymore.
-sub derefs() { [ map $_->deref, @{$_[0]->datums} ] }
 
 sub is_displayed() { $_[0]->column->is_displayed_in($_[0]->revision) }
 

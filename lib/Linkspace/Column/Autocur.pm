@@ -11,9 +11,9 @@ extends 'Linkspace::Column::Curcommon';
 #XXX From view/layout.tt:
 #XXX Automatic value of other sheet's references to this one
 
-my @options = (
-    override_permissions => 0,
-);
+my @options =
+  ( override_permissions => 0,
+  );
 
 ###
 ### META
@@ -22,7 +22,7 @@ my @options = (
 __PACKAGE__->register_type
 
 sub db_field_extra_export { [ 'related_column_id' ] }
-sub form_extras      { [ 'related_field_id' ], [ 'curval_field_ids' ] }
+sub form_extras      { [ 'related_column' ], [ 'curval_columns' ] }
 sub option_defaults  { shift->SUPER::option_defaults(@_, @options) }
 sub is_userinput     { 0 }
 sub value_to_write   { 0 }
@@ -35,7 +35,7 @@ sub value_field      { 'id' }
 ### Class
 ###
 
-sub _remove_column($) {}  # block second call to base_class
+sub _remove_column($) {}  # block second call to the SUPER
 
 ###
 ### Instance

@@ -8,9 +8,7 @@ foreach my $delete_not_used (0..1)
     my $curval_layout = $curval_sheet->layout;
 
     my $sheet   = make_sheet
-        curval_sheet     => $curval_sheet,
-        curval_offset    => 6,
-        curval_columjs   => [ 'string1' ],
+        curval_colums    => $curval_sheet->column('string1'),
         calc_return_type => 'string',
         calc_code        => qq{function evaluate (L1curval1)
             if L1curval1 == nil then
@@ -29,10 +27,8 @@ foreach my $delete_not_used (0..1)
     # updated on main sheet write
     my $autocur = $curval_sheet->layout->column_create({
         type            => 'autocur',
-        refers_to_sheet => $sheet,
-        related_column  => [ 'curval1 ' ],
-        curval_columns  => [ 'string1' ],
-        curval_sheet    => $sheet,
+        related_column  => $sheet->column('curval1'),
+        curval_column   => $sheet->column('string1'),
     });
 
     $curval_sheet->layout->column_update(calc1 => { code => <<'__CODE' });
@@ -64,7 +60,7 @@ __CODE
     # Add a value to the curval on write
     my $curval_count = $curval_sheet->nr_rows;
 
-    my $curval_string = $curval_sheet->columns->{string1};
+    my $curval_string = $curval_layout->column('string1');
     $row->cell_update(curval1 => [ $curval_string->field_name."=foo1"] );
 
     is $row->cell('calc1'), "foo1", "Main calc correct";
@@ -120,9 +116,9 @@ __CODE
 
     # Edit existing - one edited via query but no changes, other changed as normal
     $curval_count = $schema->resultset('Current')->search({ instance_id => 2 })->count;
-    my ($d1) = map { $_->{id} } grep { $_->{field_values}->{L2string1} eq 'foo1' }
+    my ($d1) = map $_->{id}, grep { $_->{field_values}->{L2string1} eq 'foo1' }
         @{$curval_datum->for_code};
-    my ($d2) = map { $_->{id} } grep { $_->{field_values}->{L2string1} eq 'foo5' }
+    my ($d2) = map $_->{id}, grep { $_->{field_values}->{L2string1} eq 'foo5' }
         @{$curval_datum->for_code};
     $curval_datum->set_value([$curval_string->field."=foo1&current_id=$d1", $curval_string->field."=foo6&current_id=$d2"]);
     $record->write(no_alerts => 1);

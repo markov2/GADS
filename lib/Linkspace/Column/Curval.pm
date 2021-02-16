@@ -6,16 +6,25 @@ package Linkspace::Column::Curval;
 
 use Log::Report 'linkspace';
 
-use Linkspace::Util qw/uniq_objects is_valid_id to_id/;
+use Linkspace::Util qw/is_valid_id to_id/;
 
 use Moo;
 extends 'Linkspace::Column::Curcommon';
 
-my @options = (
-    value_selector       => 'dropdown',
-    show_add             => 0,
-    delete_not_used      => 0
-);
+my @options =
+  ( value_selector  => 'dropdown',
+    show_add        => 0,
+    delete_not_used => 0,
+  );
+
+=head1 DESCRIPTION
+The curval Datum contains a row_id.  The related curval Column knows in which
+sheet we access the row and which columns in that row are to be included.
+
+One curval Cell can contain multiple row references: one per Datum (standard
+multivalue), but each
+
+=cut
 
 ###
 ### META
@@ -23,18 +32,16 @@ my @options = (
 
 __PACKAGE__->register_type;
 
+sub datum_class { 'Linkspace::Datum::Curval' }
 sub db_field_extra_export { [ qw/filter/ ] }
 sub option_defaults { shift->SUPER::option_defaults(@_, @options) }
-sub form_extras { [ qw/refers_to_sheet_id filter/ ], [ 'curval_field_ids' ] }
+sub form_extras { [ qw/refers_to_sheet_id filter/ ], [ 'curval_columns' ] }
 
 ###
 ### Class
 ###
 
 # _remove_column() by base-class
-
-#XXX Create with refers_to_sheet and related_column.
-#XXX curval_field_ids defaults to all non-internal columns in refers_to_sheet
 
 sub _validate($)
 {   my ($thing, $update) = @_;
@@ -57,9 +64,9 @@ sub is_valid_value($)
 {   my ($self, $value) = @_;
 
     my $row_id = is_valid_id $value
-        or error __x"Value for {column} must be an integer", column => $self->name;
+        or error __x"Value for {column} must be an row-id", column => $self->name;
 
-    $self->refers_to_sheet->content->row($row_id)
+    $self->curval_sheet->content->row($row_id)
         or error __x"Row-id {id} is not a valid row-id for {column.name_short}",
         id => $row_id, column => $self;
 
@@ -75,7 +82,7 @@ sub subvals_input_required() { $_[0]->filter->subvals_input_required }
 
 # The string/array that will be used in the edit page to specify the array of
 # fields in a curval filter
-sub data_filter_fields() { $_[0]->data_filter_fields }
+sub data_filter_fields() { $_[0]->filter->data_filter_fields }
 
 sub make_join
 {   my ($self, @joins) = @_;
@@ -88,15 +95,6 @@ sub autocurs()
 {   my $self = shift;
     my $document = $self->document;
     [ grep $_->type eq 'autocur', $document->columns_relating_to($self) ];
-}
-
-sub _column_extra_update($%)
-{   my ($self, $extra, %args) = @_;
-    $self->SUPER::_column_extra_update($extra, %args);
-
-    $self->_update_curvals(%args); #XXX
-    $self->data_filter_fields;
-    $self;
 }
 
 =pod
@@ -208,12 +206,12 @@ sub field_values($$%)
     map +{ value => $_ },
         @values ? @values : (undef);
 }
-=cut
 
 sub does_refer_to_sheet($)
 {   my ($self, $which) = @_;
     my $sheet_id = to_id $which;
     grep $_->child->sheet_id != $sheet_id, $self->curval_fields_parents;
 }
+=cut
 
 1;

@@ -460,9 +460,6 @@ sub collect_form($$$)
     \%changes;
 }
 
-#XXX Apparently only of interest to curval
-sub refers_to_sheet($) { panic }
-
 sub user_can
 {   my ($self, $permission, $user) = @_;
     return 1 if  $self->is_internal  && $permission eq 'read';
@@ -709,7 +706,7 @@ sub widthcols
 }
 
 sub related_sheet_id() {
-    my $column = $_[0]->related_field;
+    my $column = $_[0]->related_column;
     $column ? $column->sheet_id : undef;
 }
 

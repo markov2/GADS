@@ -20,7 +20,7 @@ use Linkspace::Column              ();
 #use Linkspace::Column::Calc        ();
 use Linkspace::Column::Createdby   ();
 use Linkspace::Column::Createddate ();
-#use Linkspace::Column::Curval      ();
+use Linkspace::Column::Curval      ();
 use Linkspace::Column::Date        ();
 use Linkspace::Column::Daterange   ();
 use Linkspace::Column::Deletedby   ();
@@ -330,7 +330,8 @@ sub column($)
 
 sub columns(@)
 {   my ($self, $which) = (shift, shift);
-    [ map $self->column($_, @_), @$which ];
+    my @columns = map $self->column($_, @_), @$which;
+    [ sort { $a->position <=> $b->position } @columns ];
 }
 
 =head2 my $column = $layout->column_create(\%insert, %options)

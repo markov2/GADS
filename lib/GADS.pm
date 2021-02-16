@@ -1040,7 +1040,7 @@ get '/record_body/:id' => require_login sub {
 
     template 'record_body' => {
         is_modal       => 1, # Assume modal if loaded via this route
-        record         => $row->presentation($sheet),
+        record         => $row->current->presentation,
         has_rag_column => $row->has_rag_column,
         all_columns    => $row->columns_view,
     }, { layout => undef };
@@ -1073,7 +1073,7 @@ get qr{/(record|history|purge|purgehistory)/([0-9]+)} => require_login sub {
 
     my $output = template 'record' => {
         page           => 'record',
-        record         => $row->presentation($sheet),
+        record         => $row->current->presentation,
         versions       => $row->all_revisions,
         all_columns    => $row->columns_view,
         has_rag_column => $row->has_rag_column,
@@ -2281,35 +2281,17 @@ prefix '/:layout_name' => sub {
     };
 
     any ['get', 'post'] => '/approval/?:id?' => require_login sub {
-        my $record_id  = is_valid_id(param 'id');
-        my $current_id = is_valid_id(param 'current_id');
-        my $doc = $site->document;
-        my $row;
+        my $revision_id = is_valid_id(param 'id');
+        my $row_id      = is_valid_id(param 'current_id');
 
-        if($record_id)
-        {   # If we're viewing or approving an individual record, first
-            # see if it's a new record or edit of existing. This affects
-            # permissions.
-            $row = $sheet->content->row($record_id, include_approval => 1);
-        }
-
-        my $approval_of_new = $row ? $row->approval_of_new : 0;
+        my $row         = $sheet->content->row($row_id) or panic $row_id;
+        my $revision    = $revision_id ? $row->revision($revision_id) : undef;
+        my $approval_of_new = $revision ? $revision->is_approval_of_new : 0;
 
         if (param 'submit')
-        {
-            my $cur = $sheet->row(current_id => $current_id) ||
-                $sheet->content->row_create(
-                    current_id     => $current_id,
-                    approval_id    => $record_id,
-                    init_no_value  => 0,           #XXX
-                    doing_approval => 1,
-                );
-
-            my $failed;
-            my $columns = $cur->edit_columns(new => $approval_of_new, approval => 1);
+        {   my $columns = $row->edit_columns(new => $approval_of_new, approval => 1);
             foreach my $col (@$columns)
             {   my $newv = param($col->field_name) or next;
-                $col->userinput or next; # Not calculated fields
 
                 $failed++
                     if !process( sub { $cur->field($col)->set_value($newv) });
@@ -2322,17 +2304,17 @@ prefix '/:layout_name' => sub {
         }
 
         my $page;
-        my $params = {
-            page => 'approval',
+        my %params = {
+            page => 'approval', #XXX confusing: $page as template, page as parameter
         };
 
-        if($row)
+        if($revision)
         {   # Get the record of values needing approval
-            $params->{record} = $row;
-            $params->{record_presentation} = $row->presentation($sheet, edit => 1, new => $approval_of_new, approval => 1);
+            $params->{record} = $revision;
+            $params->{record_presentation} = $revision->presentation(edit => 1, new => $approval_of_new, approval => 1);
 
             # Get existing values for comparison
-            $params->{existing} = $sheet->row(current_id => $record->current_id)
+            $params->{existing} = $row->current
                 unless $approval_of_new;
 
             $page  = 'edit';
@@ -2562,8 +2544,8 @@ prefix '/:layout_name' => sub {
 
         template 'edit' => {
             view                => $view,
-            record              => $record,
-            record_presentation => $record->presentation($sheet, edit => 1, new => 1, bulk => $type),
+            record              => $revision,
+            record_presentation => $revision->presentation(edit => 1, new => 1, bulk => $type),
             bulk_type           => $type,
             page                => 'bulk',
             breadcrumbs         => [Crumb($sheet), Crumb($sheet, "/data" => 'records'), Crumb($sheet, "/bulk/$type" => "bulk $type records")],
@@ -2887,7 +2869,7 @@ sub _process_edit
         $row || !$parent || $sheet->user_can('create_child')
             or error __"You do not have permission to create a child record";
 
-        my %row_data = (
+        my %revision_data = (
             parent => $parent,
         );
 
@@ -2909,6 +2891,17 @@ sub _process_edit
             {   next unless defined body_parameters->get($col->field_name);
                 $newv = [ body_parameters->get_all($col->field_name) ];
             }
+#XXX curval edit
+my @row_data;
+    foreach my $query (@{$self->values_as_query})
+    {
+        my $params = parse_query_string($query);
+        grep { $_ !~ /^(?:csrf_token|current_id|field[0-9]+)$/ } keys %$params
+            # Unlikely to be a user error
+            and panic __x"Invalid query string: {query}", query => $query;
+    }
+$params->{current_id}
+
 
 #XXX found this in ::Datum::DateRange
 # First is hidden value from form
@@ -2917,14 +2910,18 @@ sub _process_edit
             $col->userinput && defined $newv # Not calculated fields
                 or next;
 
+            #XXX AB: I can't find anything in official Jquery documentation,
+            # but apparently form.serialize (the source of the query string)
+            # encodes in utf-8. Therefore decode before passing into datums.
+            my @newv = map utf8::decode($_), ref $newv eq 'ARRAY' ? @$newv : $newv;
+
             # No need to do anything if the file's just been uploaded
-            $row_data{$column->name_short} = $newv;
+            $revision_data{$column->name_short} = \@newv;
        }
 
-       try { $row->revision_create(\%row_data);
+       try { $row->revision_create(\%revision_data);
             if($do_validate)
-            {
-                try { $datum->set_value($newv) };
+            {   try { $datum->set_value($newv) };
                 if (my $e = $@->wasFatal)
                 { push @validation_errors, $e->message;
                 }
@@ -2932,7 +2929,7 @@ sub _process_edit
             else
             {   $failed = !process( sub { $datum->set_value($newv) } ) || $failed;
             }
-        }
+        };
 
         # Call this now, to write and blank out any non-displayed values,
         $record->set_blank_dependents;
@@ -3023,15 +3020,14 @@ sub _process_edit
       : Crumb($sheet, '/edit/' => 'new record');
 
     my %params = (
-        record              => $record,
+        record              => $revision,
         modal               => $modal,
         page                => 'edit',
         child               => $child_rec,
-        layout_edit         => $layout,
         clone               => param('from'),
         submission_token    => !$modal && create_submission_token,
         breadcrumbs         => \@breadcrumbs,
-        record_presentation => $record->presentation($sheet, edit => 1, new => !$current_id, child => $child),
+        record_presentation => $revision->presentation(edit => 1, new => !$row_id, child => $child),
     );
 
     my %options;

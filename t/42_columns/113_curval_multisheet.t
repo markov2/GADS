@@ -10,41 +10,40 @@ my $curval_layout = $curval_sheet->layout;
 my $sheet1 = make_sheet
     rows             => [],
     multivalues      => 1,
-    curval_sheet     => $curval_sheet,
-    curval_columns   => [ 'string1', 'enum1' ];
-my $layout1 = $sheet1->layout;
+    curval_columns   => [ $curval_layout->column('string1'), $curval_layout->column('enum1') ];
 
 my $sheet2 = make_sheet
     rows             => [],
-    curval_sheet     => $curval_sheet,
-    curval_columns   => [ 'string1', 'enum1' ];
+    curval_columns   => [ $curval_layout->column('string1'), $curval_layout->column('enum1') ];
+
+my $layout1 = $sheet1->layout;
 my $layout2 = $sheet2->layout;
 
 # Set link field of second sheet daterange to daterange of first sheet
 $layout2->column_update($_ => { link_parent => $layout1->column($_) })
    for qw/daterange1 enum1 curval1/;
 
-my $row1 = $sheet1->content->row_create;
-$row1->revision_create({
-   daterange1 => ['2010-10-10', '2012-10-10'],
-   enum1      => [ 7 ],
-   curval1    => [ 1 ],
+my $row1 = $sheet1->content->row_create({
+   revision =>
+    {  daterange1 => [ '2010-10-10', '2012-10-10' ],
+       enum1      => 'foo1',
+       curval1    => $curval_sheet->row_id_at(1),
+    },
 });
 
-my $row2 = $sheet2->content->row_create;
-$row2->revision_create({
-   daterange1 => [ '2010-10-15', '2013-10-10' ],
-   enum1      => [ 13 ],
-   curval1    => [ 2 ],
+my $row2 = $sheet2->content->row_create({
+   revision =>
+     { daterange1 => [ '2010-10-15', '2013-10-10' ],
+       enum1      => 'foo1',  # other foo1
+       curval1    => $curval_sheet->row_id_at(2),
+     },
 });
 
 # Clear the record object and write a new one, this time with the
 # date blank but linked to the first sheet with a date value
 
-my $row3 = $sheet2->content->row_create;
-$row3->revision_create({
-   linked     => $row1,
-   string1    => 'Foo',
+my $row3 = $sheet2->content->row_create({
+   revision => { linked => $row1, string1 => 'Foo' },
 });
 
 ###!!! all filters are applied to $sheet2
@@ -153,8 +152,8 @@ foreach my $filter (@filters)
         name         => $filter->{name},
         filter       => $rules,
         columns      => \@columns2,
-        sort_columns => [ 'daterange1' ],
-        sort_order   => [ $filter->{sort} ],
+        sort_columns => 'daterange1',
+        sort_order   => $filter->{sort},
     });
     ok defined $view, "Running filter $filter->{name}";
 

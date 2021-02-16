@@ -16,10 +16,6 @@ my $rule_class = 'Linkspace::Column::DisplayFilter::Rule';
 =head1 DESCRIPTION
 Select which fields are to be shown.
 
-Room for improvement: most columns will not have a DisplayFilter.  We now look them up
-for each column anyway.  Seperately.  The definedness of 'filter_condition' can be used
-to flag whether there is a file. Probably requires conversion of existing instances.
-
 =head1 METHODS: Constructors
 
 The display filter is created via C<$layout> methods C<column_create()>

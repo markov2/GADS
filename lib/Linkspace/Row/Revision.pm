@@ -315,11 +315,13 @@ sub cell($)
 
     my $index       = $self->{LRR_datums} ||= {};
     my $datum_class = $column->datum_class;
+    my $share       = {};  # communication between datums within cell
     my $datums;
 
     if(my $special  = $special_data{$column->name_short})
     {   my $value = $special->($self);
-        $datums = [ $datum_class->new(value => $value, column => $column) ] if defined $value;
+        $datums = [ $datum_class->new(value => $value, column => $column, share => {}) ]
+            if defined $value;
     }
     else
     {   unless($self->{LRR_dc}{$datum_class}++)
@@ -1301,6 +1303,81 @@ sub pdf
     );
 
     $pdf;
+}
+
+sub edit_columns
+{   my ($self, %args) = @_;
+
+    my %permissions
+      = $args{approval}
+      ? ( ($args{new} ? 'user_can_approve_new' : 'user_can_approve_existing') => 1)
+      : ( ($args{new} ? 'user_can_write_new'   : 'user_can_write_existing'  ) => 1);
+
+    my @columns = $self->layout->columns_search(sort_by_topics => 1,
+        can_child => $args{child}, userinput => 1, %permissions);
+
+    @columns = grep $_->type ne 'file', @columns
+        if $args{bulk} && $args{bulk} eq 'update';
+
+    \@columns;
+}
+
+sub presentation(%) {
+    my ($self, %args) = @_;
+
+    # For an edit show all relevant fields for edit, otherwise assume record
+    # read and show all view columns
+    my $columns
+        = $args{edit}    ? $self->edit_columns(%args)
+        : $args{columns} ? $args{columns}
+        : $args{purge}   ? [ $self->column('_id') ]
+        :                  $self->columns_view;  # default 'group'
+
+    # Work out the indentation each column should have. A column will be indented
+    # if it has a display condition of an immediately-previous column. This will
+    # be recursive as long as there are additional display-dependent fields.
+    my (%indent, $previous);
+
+    #XXX MO: I don't think this is correct, but the GADS code is broken as well ;-)
+    foreach my $col (@$columns)
+    {   next if exists $indent{$col->id};
+        $indent{$col->id} = 0;
+
+        my $df = $col->display_filter;
+        if($df->is_active)
+        {   foreach my $monitor_id (@{$df->monitor_ids})
+            {   if(my $seen = $indent{$monitor_id})
+                {   $indent{$col->id} = $seen + 1;
+                    last;
+                }
+                elsif($previous && $monitor_id == $previous->id)
+                {   $indent{$col->id} = $indent{$previous->id};
+                    last;
+                }
+            }
+        }
+
+        $previous = $col;
+    }
+
+    my $sheet  = $self->sheet;
+
+    +{
+        parent_id       => $self->parent_id,
+        row_id          => $self->row->id,
+        revision_id     => $self->id,
+        sheet_id        => $sheet->id,
+        columns         => [ map $_->presentation(%args), @$columns ],
+
+#XXX TODO:  column.data = $row->cell($column)->presentation
+        indent          => \%indent,
+        deleted         => $self->deleted,
+        deletedby       => $self->deletedby,
+        createdby       => $self->createdby,
+        user_can_delete => $sheet->user_can('delete'),
+        user_can_edit   => $sheet->user_can('write_existing'),
+        id_count        => $self->id_count,
+     };
 }
 
 1;

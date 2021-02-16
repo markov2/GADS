@@ -34,8 +34,7 @@ sub _sheet_create($%)
 }
 
 # Not autocur
-#my @default_column_types =  qw/string intgr enum tree date daterange file person curval rag/;
-my @default_column_types =  qw/string intgr enum tree date daterange file person/;
+my @default_column_types =  qw/string intgr enum tree date daterange file person curval/;  # rag calc
 my @default_enumvals     = qw/foo1 foo2 foo3/;
 
 my @default_trees    =
@@ -125,8 +124,8 @@ sub _fill_layout($$)
     my $all_optional = exists $args->{all_optional} ? $args->{all_optional} : 1;
 
     my $curval_columns;
-    if($curval_columns = delete $args->{curval_columns})
-    {
+    if(my $c = delete $args->{curval_columns} || delete $args->{curval_column})
+    {   $curval_columns = ref $c eq 'ARRAY' ? $c : [ $c ];
     }
     elsif(my $curval_sheet = delete $args->{curval_sheet})
     {   $curval_columns = [ grep ! $_->is_internal && !$_->type eq 'autocur',
@@ -142,7 +141,6 @@ sub _fill_layout($$)
 
         foreach my $count (1.. ($cc->{$ref} || $cc->{$type} || 1))
         {
-
             my %insert = (
                 type          => $type,
                 name          => 'L' . $sheet_id . $ref . $count,
@@ -159,8 +157,7 @@ sub _fill_layout($$)
             {   $insert{tree}       = \@default_trees;
             }
             elsif($type eq 'curval')
-            {   $insert{curval_columns}  = $curval_columns;
-next;
+            {   $insert{curval_columns} = $curval_columns;
             }
             elsif($type eq 'rag')
             {   $insert{code}        = $rag_code || _default_rag_code($sheet_id);
@@ -213,7 +210,7 @@ sub add_autocur
 {   my ($self, $seqnr, $config) = @_;
     my $layout = $self->layout;
 
-    my $autocur_fields = $config->{curval_columns}
+    my $autocur_columns = $config->{curval_columns}
         || $layout->columns_search({ internal => 0 });
 
     my $permissions = $config->{no_groups} ? undef :
@@ -224,9 +221,8 @@ sub add_autocur
         type            => 'autocur',
         name            => $name,
         name_short      => "L${seqnr}$name",
-        refers_to_sheet => $config->{refers_to_sheet},
-        curval_fields   => $autocur_fields,
-        related_field   => $config->{related_field},
+        curval_columns  => $autocur_columns,
+        related_column  => $config->{related_column},
         permissions     => $permissions,
     });
 }
@@ -341,6 +337,12 @@ sub cell($$)
     my $column = $self->layout->column(shift) or return;
     $row->current->cell($column);
 }
+
+=head2 my $row_id = $sheet->row_at($serial);
+Useful for testing only, especially to create values for the curval columns.
+=cut
+
+sub row_at($) { $_[0]->content->row_by_serial($_[1]) }
 
 1;
 
