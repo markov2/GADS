@@ -168,6 +168,6 @@ sub remove_values_stored_for($)
 }
 
 # Curval and autocur support this.  Returns datums
-sub deref { shift }
+sub derefs { [ shift ] }
 
 1;

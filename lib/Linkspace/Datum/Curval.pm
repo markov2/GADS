@@ -16,11 +16,11 @@ sub _unpack_values($$$%)
     [ map to_id($_), @$values ];
 }
 
-sub deref() {
+sub derefs() {
     my $self = shift;
-    my $curval_columns = $self->column->curval_columns;
-    @$curval_columns==1 or panic "Can only deref curvals which are single value";
-    $self->curval_revision->cell($curval_columns->[0])->derefs;
+    my $rev  = $self->curval_revision;
+    my $cols = $self->column->curval_columns;
+    [ map @{$rev->cell($_)->derefs}, @$cols ];
 }
 
 has curval_revision => (

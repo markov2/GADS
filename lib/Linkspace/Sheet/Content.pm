@@ -1150,8 +1150,10 @@ sub _sort_builder
             type      => $sort->type      || 'asc',
         };
     }
+    return \@sorts if @sorts;
 
-    @sorts ? \@sorts : [ $self->sheet->default_sort ];
+    my ($column, $direction) = $self->sheet->default_sort;
+    return [ { id => $column->id, type => $direction } ];
 }
 
 sub order_by
@@ -2232,6 +2234,23 @@ sub row_ids(%)
     $attrs{limit} = $args{limit} if defined $args{limit};
     [ $::db->search(Current => { instance_id => $_[0]->sheet->id }, \%attrs)
          ->get_column('id')->all ];
+}
+
+=head2 \@revs = $content->sort_revisions(\@revisions);
+Use the 'sort_column' from the sheet to defined the order of multivalue Curvals.
+Is this used anywhere else?
+
+We already have revisions, so it is too late to put the sort-by in a db query.
+=cut
+
+sub sort_revisions($)
+{   my ($self, $revisions) = @_;
+    @$revisions > 1 or return $revisions;
+
+    my ($sort_column, $direction) = $self->sheet->default_sort;
+    my %repr  = map +( $_->cell($sort_column)->sortable => $_ ), @$revisions;
+    my @order = sort { $a cmp $b } keys %repr;
+    [ $direction eq 'asc' ? @repr{@order} : @repr{reverse @order} ];
 }
 
 #--------------------------

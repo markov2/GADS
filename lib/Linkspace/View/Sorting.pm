@@ -15,46 +15,24 @@ sub db_table { 'Sort' }
 
 sub db_fields_unused { [ 'order' ] }
 
+__PACKAGE__->db_accessors;
+
 ### 2020-05-25: columns in GADS::Schema::Result::Sort
 # id         type       layout_id  order      parent_id  view_id
 
 #XXX Legacy: should get rit of these in the DB
 
-my %standard_fields = (
-    -11 => '_id',
-    -12 => '_version_datetime',
-    -13 => '_version_user',
-    -14 => '_deleted_by',
-    -15 => '_created',
-    -16 => '_serial',
+my @sort_types = (
+  { name => 'asc',    description => 'Ascending'  },
+  { name => 'desc',   description => 'Descending' },
+  { name => 'random', description => 'Random'     },
 );
 
-my @sort_types = (
-  { name => 'asc',    description => 'Ascending' },
-  { name => 'desc',   description => 'Descending' },
-  { name => 'random', description => 'Random' },
-);
 my %sort_types = map +($_->{name} => $_->{description}), @sort_types;
 
 #-----------------
 =head1 METHODS: Constructors
 =cut
-
-sub from_record($%)
-{   my ($class, $record) = (shift, shift);
-
-    #XXX Convert from legacy internal IDs. This can be removed at
-    # some point.  XXX convert to database update script.
-
-    my $col_id = $record->layout_id;
-    if($col_id && $col_id < 0)
-    {   my $new_col = $self->column($standard_fields{$col_id}) or panic;
-        $record->update({ layout_id => $new_col->id });
-        $record->layout_id($new_col);
-    }
-
-    $class->SUPER::from_record($record, @_);
-}
 
 sub _sort_create($%)
 {   my ($self, $insert, %args) = @_;
@@ -92,7 +70,4 @@ sub info
       };
 }
 
-
-
 1;
-

@@ -91,13 +91,27 @@ sub make_join
     +{ $self->field => { value => { record_single => [ 'record_later', @joins ] } } };
 }
 
+sub sort_datums($)
+{   my ($self, $datums) = @_;
+    @$datums > 1 or return $datums;
+
+    my $sorted = $self->curval_sheet->content->sort_revisions([ map $_->curval_revision, @$datums ]);
+
+    my $order  = 0;
+    my %order  = map +($_->id => $order++), @$sorted;
+
+    my @datums;
+    $datums[$order{$_->curval_revision->id}] = $_ for @$datums;
+    \@datums;
+}
+
+=pod
+
 sub autocurs()
 {   my $self = shift;
     my $document = $self->document;
     [ grep $_->type eq 'autocur', $document->columns_relating_to($self) ];
 }
-
-=pod
 
 sub fetch_multivalues
 {   my ($self, $record_ids, %options) = @_;

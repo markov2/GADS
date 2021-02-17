@@ -114,7 +114,12 @@ sub _fill_layout($$)
     my %mv;
     if(my $mv = delete $args->{multivalue_columns})
     {   foreach my $type (@$mv)
-        {   Linkspace::Column->type2class($type)->can_multivalue or panic $type;
+        {   my $col_class = Linkspace::Column->type2class($type)
+                or panic "$type is not a column group";
+
+            $col_class->can_multivalue
+                or panic "$col_class cannot be set to multivalue";
+
             $mv{$type} = 1;
         }
     }

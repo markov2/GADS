@@ -4,32 +4,27 @@
 
 package Linkspace::Row::Cell;
 
-use warnings;
-use strict;
+use Log::Report    'linkspace';
+use HTML::Entities qw(encode_entities);
 
-use Log::Report 'linkspace';
-use HTML::Entities    qw(encode_entities);
+use Linkspace::Datum           ();;
+#use Linkspace::Datum::Autocur  (); # Moo does not want these inside Datum.pm
+#use Linkspace::Datum::Calc     ();
+use Linkspace::Datum::Count    ();
+use Linkspace::Datum::Curval   ();
+use Linkspace::Datum::Date     ();
+use Linkspace::Datum::Daterange();
+use Linkspace::Datum::Enum     ();
+use Linkspace::Datum::File     ();
+use Linkspace::Datum::ID       ();
+use Linkspace::Datum::Integer  ();
+use Linkspace::Datum::Person   ();
+use Linkspace::Datum::Rag      ();
+use Linkspace::Datum::Serial   ();
+use Linkspace::Datum::String   ();
+use Linkspace::Datum::Tree     ();
 
-use Linkspace::Datum;
-
-#!!! Moo does not want these in ::Datum
-#use Linkspace::Datum::Autocur;
-#use Linkspace::Datum::Calc;
-use Linkspace::Datum::Count;
-use Linkspace::Datum::Curval;
-use Linkspace::Datum::Date;
-use Linkspace::Datum::Daterange;
-use Linkspace::Datum::Enum;
-use Linkspace::Datum::File;
-use Linkspace::Datum::ID;
-use Linkspace::Datum::Integer;
-use Linkspace::Datum::Person;
-use Linkspace::Datum::Rag;
-use Linkspace::Datum::Serial;
-use Linkspace::Datum::String;
-use Linkspace::Datum::Tree;
-
-#XXX This really needs to be fast: I do not use Moo
+#!!! This really needs to be fast: I do not use Moo for cells
 
 =head1 NAME
 
@@ -69,20 +64,20 @@ sub is_linked { 0 }
 sub text_all
 {   my $self = shift;
     my $column = $self->column;
-    [ map $column->datum_as_string($_), @{$self->datums} ];
+    $self->{text_all} ||= [ map $column->datum_as_string($_), @{$self->datums} ];
 }
 
 sub match_values { [ map $_->match_value, @{$_[0]->datums} ] }
-sub as_string    { join ', ', sort @{$_[0]->text_all} }
+sub as_string    { join ', ', @{$_[0]->text_all} }
 sub as_integer   { $_[0]->{datums}[-1]->as_integer($_[0]) }
 sub html         { encode_entities $_[0]->as_string }
 sub html_form    { $_[0]->text_all }
 
-sub column   { $_[0]->{column} }
-sub revision { $_[0]->{revision} }
-sub row      { $_[0]->{row}    ||= $_[0]->revision->row }
-sub sheet    { $_[0]->{sheet}  ||= $_[0]->revision->sheet }
-sub layout   { $_[0]->{layout} ||= $_[0]->sheet->layout }
+sub column       { $_[0]->{column} }
+sub revision     { $_[0]->{revision} }
+sub row          { $_[0]->{row}    ||= $_[0]->revision->row }
+sub sheet        { $_[0]->{sheet}  ||= $_[0]->revision->sheet }
+sub layout       { $_[0]->{layout} ||= $_[0]->sheet->layout }
 
 #-------------
 =head1 METHODS: Handling datums
@@ -105,6 +100,13 @@ column, it still returns an ARRAY.
 =cut
 
 sub datums() { $_[0]->{datums} || [] }
+
+=head2 \@datums = $cell->derefs;
+Returns all datums.  When the datum is a curval, it returns the value it
+points to (recursively) which can be more than one datum.
+=cut
+
+sub derefs() { [ map @{$_->derefs}, @{$_[0]->datums} ] }
 
 =head2 $cell->is_blank;
 Returns true when there not a single useful value written to this cell. Be warned
@@ -239,11 +241,27 @@ sub deleted_values()
     panic;
 }
 
+=head2 my $repr = $cell->sortable;
+Represent the values in the cell in such a way that it can be sorted via 'cmp'.
+Usually, all datums are used, however that's not possible for all kinds of datums
+(especially date related fields)
+=cut
+
+sub sortable()
+{   my $self   = shift;
+    my $column = $self->column;
+    my $datums = $self->datums;
+
+      $column->is_numeric ? (join ';', map sprintf("%020d", $_->value), @$datums )
+    : $column->return_type eq 'date' ? $datums->[0]->date
+    :                       $self->as_string;
+}
+
 # Most values are ids; this builds an index for them.
-sub id_hash { +{ map +( $_->value => 1), @{$_[0]->datums} } }
+sub id_hash { +{ map +( $_->value => 1), @{$_[0]->datums} } }  #XXX used?
 
 # Tree
-sub ids_as_params { join '&', map $_->value, @{$_[0]->datums} }
+sub ids_as_params { join '&', map $_->value, @{$_[0]->datums} }  #XXX used?
 
 sub is_displayed() { $_[0]->column->is_displayed_in($_[0]->revision) }
 

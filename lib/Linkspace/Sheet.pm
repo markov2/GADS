@@ -15,6 +15,7 @@ use Linkspace::Sheet::Content ();
 #use Linkspace::Sheet::Views   ();
 #use Linkspace::Sheet::Graphs  ();
 #use Linkspace::Sheet::Dashboards  ();
+use Linkspace::Util  qw(is_valid_id);
 
 use Moo;
 extends 'Linkspace::DB::Table';
@@ -94,9 +95,20 @@ sub _sheet_update($)
 
 sub _validate($)
 {   my ($thing, $insert) = @_;
-    my $slid = $insert->{sort_column_id};
-    ! defined $slid || is_valid_id $slid
-        or error __x"Invalid sheet sort_layout_id '{id}'", id => $slid;
+
+    if(ref $thing)
+    {   my $self = $thing;
+        # We can only check the sort-column on update: otherwise we do not have
+        # any administration yet.
+        if(my $sc = is_valid_id(delete $insert->{sort_column_id}) || delete $insert->{sort_column})
+        {   my $sort_column = $insert->{sort_column} = $self->layout->column($sc)
+                or error __x"Cannot find sort column '{ref}'", ref => $sc;
+
+            $sort_column->sheet_id == $self->id
+                or error __x"Sort column '{col.name_short}' is not in sheet '{sheet.name}'",
+                      col => $sort_column, sheet => $self;
+        }
+    }
 
     if(my $st = $insert->{sort_type})
     {   $st eq 'asc' || $st eq 'desc' || $st eq 'none'
@@ -327,18 +339,12 @@ sub column_unuse($)
 #   $self->views->column_unuse($column);
 }
 
-=head2 \%h = $self->default_sort;
-Returns a HASH which contains the default values to sort row displays.
-It returns a HASH with a column C<id> and a direction (C<type>).
+=head2 my ($sort_column, $direction) = $self->default_sort;
 =cut
 
 sub default_sort()
 {   my $self = shift;
-    my $col_id = $self->sort_column_id || $self->layout->column('_id');
-
-     +{ id   => $col_id,
-        type => $self->sort_type || 'asc',
-      };
+    ( $self->layout->column($self->sort_column_id || '_serial'), $self->sort_type || 'asc' );
 }
 
 1;

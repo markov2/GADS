@@ -125,15 +125,9 @@ sub option_defaults{ shift;  +{ @_ } }
 sub option_names   { [ keys %{$_[0]->option_defaults} ] }
 sub retrieve_fields{ [ $_[0]->value_field ] }
 sub return_type    { 'string' }
-sub sort_field     { $_[0]->value_field }
 sub is_userinput   { 1 }
-sub value_field    { 'value' }
 sub value_to_write { 1 }      #XXX only in Autocur, may be removed
 sub variable_join  { 0 }      # joins can be different on the config
-
-# Whether the sort columns when added should be added with a parent, and
-# if so what is the parent.  Default no, undef in case used in arrays.
-sub sort_parent   { undef }
 
 # Attributes which can be set by a user
 
@@ -250,6 +244,12 @@ sub is_numeric { 0 }    # some fields can contain flexible types
 sub name_long  { $_[0]->name . ' (' . $_[0]->sheet->name . ')' }
 sub filter_value_to_text { $_[1] }
 sub value_field_as_index { $_[0]->value_field }
+
+# Whether the sort columns when added should be added with a parent, and
+# if so what is the parent.  Default no, undef in case used in arrays.
+sub sort_parent    { undef }
+sub sort_field     { $_[0]->value_field }
+sub value_field    { 'value' }
 
 # Used when searching for a value's index value as opposed to
 # string value (e.g. enums)
@@ -718,5 +718,14 @@ sub related_sheet_id() {
 sub default_values() { [] }
 
 sub datum_as_string { $_[1]->value }
+
+sub sort_datums($)
+{   my $datums = $_[1];
+defined $datums or panic;
+    @$datums > 1 or return $datums;
+
+    my %unsorted = map +($_->sortable => $_), @$datums;
+    \@unsorted{ sort keys %unsorted };
+}
 
 1;

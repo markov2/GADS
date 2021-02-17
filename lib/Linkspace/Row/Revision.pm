@@ -315,13 +315,11 @@ sub cell($)
 
     my $index       = $self->{LRR_datums} ||= {};
     my $datum_class = $column->datum_class;
-    my $share       = {};  # communication between datums within cell
     my $datums;
 
     if(my $special  = $special_data{$column->name_short})
     {   my $value = $special->($self);
-        $datums = [ $datum_class->new(value => $value, column => $column, share => {}) ]
-            if defined $value;
+        $datums = defined $value ? [ $datum_class->new(value => $value, column => $column) ] : [];
     }
     else
     {   unless($self->{LRR_dc}{$datum_class}++)
@@ -331,14 +329,14 @@ sub cell($)
             push @{$index->{$_->column_id}}, $_
                 for @{$datum_class->datums_for_revision($self)};
         }
-        $datums     = delete $index->{$col_id};
+        $datums     = delete $index->{$col_id} || [];
         $_->column($column) for @$datums;
     }
 
     $self->{LRR_cells}{$col_id} = $cell_class->new(
         revision => $self,
         column   => $column,
-        datums   => $datums,
+        datums   => $column->sort_datums($datums),
     );
 }
 
