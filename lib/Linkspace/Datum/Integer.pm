@@ -39,4 +39,6 @@ sub as_integer { int($_[0]->value // 0) }
 
 sub _value_for_code { int $_[2] }
 
+sub sortable() { sprintf "%020d", $_[0]->value }  # string comparison, so pad with enough zeros
+
 1;

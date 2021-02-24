@@ -2,7 +2,7 @@
 ## See https://www.ctrlo.com/linkspace.html
 ## Licensed under GPLv3 or newer, https://spdx.org/licenses/GPL-3.0-or-later
 
-package Linkspace::Column::Intgr;
+package Linkspace::Column::Integer;
 # Extended by ::Id
 
 use Log::Report 'linkspace';

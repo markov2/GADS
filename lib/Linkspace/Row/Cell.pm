@@ -248,13 +248,8 @@ Usually, all datums are used, however that's not possible for all kinds of datum
 =cut
 
 sub sortable()
-{   my $self   = shift;
-    my $column = $self->column;
-    my $datums = $self->datums;
-
-      $column->is_numeric ? (join ';', map sprintf("%020d", $_->value), @$datums )
-    : $column->return_type eq 'date' ? $datums->[0]->date
-    :                       $self->as_string;
+{   # The datums are already sorted, so we only need to return their values
+    join ';', map $_->sortable, @{$_[0]->datums};
 }
 
 # Most values are ids; this builds an index for them.

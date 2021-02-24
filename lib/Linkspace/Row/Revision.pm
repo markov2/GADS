@@ -829,7 +829,7 @@ my $sheet = $row->sheet;
                ! $datum->is_blank
             && ($self->new_entry || $datum->changed)
             && (!$self->parent_id # either not a child
-                || grep $_->can_child, $column->param_columns # or is a calc value that may be different to parent
+                || grep $_->can_child, @{$column->param_columns} # or is a calc value that may be different to parent
             )
         )
         {

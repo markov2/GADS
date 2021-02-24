@@ -34,7 +34,7 @@ sub _sheet_create($%)
 }
 
 # Not autocur
-my @default_column_types =  qw/string intgr enum tree date daterange file person curval/;  # rag calc
+my @default_column_types =  qw/string integer enum tree date daterange file person curval/;  # rag calc
 my @default_enumvals     = qw/foo1 foo2 foo3/;
 
 my @default_trees    =
@@ -142,14 +142,12 @@ sub _fill_layout($$)
     my $calc_code = delete $args->{calc_code};
 
     foreach my $type (@$column_types)
-    {   my $ref = $type eq 'intgr' ? 'integer' : $type;   # Grrrr
-
-        foreach my $count (1.. ($cc->{$ref} || $cc->{$type} || 1))
+    {   foreach my $count (1.. ($cc->{$type} || $cc->{$type} || 1))
         {
             my %insert = (
                 type          => $type,
-                name          => 'L' . $sheet_id . $ref . $count,
-                name_short    => $ref . $count,
+                name          => 'L' . $sheet_id . $type . $count,
+                name_short    => $type . $count,
                 is_optional   => $all_optional,
                 is_multivalue => $mv{$type},
                 permissions   => $permissions,

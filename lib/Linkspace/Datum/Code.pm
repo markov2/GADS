@@ -132,7 +132,7 @@ sub _build_value
     }
     else
     {   my $return;
-        try { $return = $column->eval($column->code, $self->vars) };
+        try { $return = $column->evaluate($column->code, $self->vars) };
         if ($@ || $return->{error})
         {
             my $error = $@ ? $@->wasFatal->message->toString : $return->{error};

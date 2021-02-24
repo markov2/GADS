@@ -58,4 +58,6 @@ sub _unpack_values($$$%)
 
 sub _value_for_code { $_[0]->_dt_for_code($_[2]) }
 
+sub sortable { $_[0]->date }   # DateTime supports cmp
+
 1;

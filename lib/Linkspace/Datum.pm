@@ -170,4 +170,6 @@ sub remove_values_stored_for($)
 # Curval and autocur support this.  Returns datums
 sub derefs { [ shift ] }
 
+sub sortable { $_[0]->as_string }
+
 1;

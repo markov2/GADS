@@ -1,7 +1,9 @@
 # Check the Calc column type
 
-use Linkspace::Test
-    not_ready => 'to be implemented';
+use Linkspace::Test;
+#   not_ready => 'to be implemented';
+
+use utf8;
 
 my $sheet  = empty_sheet;
 my $layout = $sheet->layout;
@@ -10,8 +12,6 @@ my $column1 = $layout->column_create({
     type          => 'calc',
     name          => 'column1 (long)',
     name_short    => 'column1',
-    is_multivalue => 0,
-    is_optional   => 0,
 });
 ok defined $column1, 'Created column1';
 my $col1_id = $column1->id;
@@ -39,28 +39,29 @@ isnt $column1d, $column1, 'recreated object';
 ok defined $column1d, 'Reload via id, avoiding cache';
 isa_ok $column1d, 'Linkspace::Column::Calc', '...';
 
-#
-# is_valid_value
-#
+### Errors
 
-#
-# optional and multivalue
-#
+ok 1, "Check errors";
 
 my $column2 = $layout->column_create({
     type          => 'calc',
     name          => 'column2 (long)',
     name_short    => 'column2',
-    is_multivalue => 1,
-    is_optional   => 1,
 });
 logline;
 
+try { $layout->column_update($column2 =>
+    { code => 'function evaluate (_id) return "test“test" end' }) };
+like $@->wasFatal, qr/^error: Extended characters are not supported/,
+    "... calc code with invalid character";
 
-try { my $calc = $layout->column_update(calc1 => {
-   code => 'function evaluate (_id) return "test“test" end'
-})  };
-ok $@->wasFatal, "Failed to write calc code with invalid character";
+try { $layout->column_update($column2 =>
+    { code => 'function (_id) end' }) };
+like $@->wasFatal, qr/^error: Invalid code: must contain function evaluate(...)/,
+    "... calc code is not a lua function";
 
+try { $layout->column_update($column2 => { return_type => 'unknown' }) };
+like $@->wasFatal, qr/^error: Unsupported return type 'unknown' for calc column/,
+     "... unknown return type";
 
 done_testing;

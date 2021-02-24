@@ -16,17 +16,14 @@ sub db_table() { 'LayoutDepend' }
 
 sub db_field_rename { +{
     depends_on  => 'depends_on_id',
-} }
+} };
 
 __PACKAGE__->db_accessors;
 
 ### 2020-08-26: columns in GADS::Schema::Result::LayoutDepend
 # id         depends_on layout_id
 
-has column => (
-    is       => 'ro',
-    required => 1,
-);
+has column => (is => 'ro', required => 1);
 
 has _depends_on => (
     is      => 'lazy',
@@ -43,9 +40,11 @@ sub set_dependencies($)
 {   my ($self, $deps) = @_;
     defined $deps or return;
 
+    my @deps = grep ! $_->internal, @$deps;  #XXX why only the user-defined?
+
     my ($add, $del) = $self->set_record_list(
-       { column => $column },
-       [ map +{ depends_on => $_, column => $self }, @$deps ],
+       { column => $self->column },
+       [ map +{ depends_on => $_, column => $self }, @deps ],
        sub { $_[0]->{depends_on} == $_[1]->depends_on_id },
     );
 

@@ -59,7 +59,7 @@ sub convert_value
             }
         }
         elsif($rt eq 'globe')
-        {   if ($self->column->check_country($val))
+        {   if ($self->column->is_country($val))
             {   push @return, $val;
             }
             else

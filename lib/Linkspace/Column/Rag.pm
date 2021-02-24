@@ -63,6 +63,16 @@ sub _remove_column($)
 ### Instance
 ###
 
+sub collect_form($$$)
+{   my ($class, $old, $sheet, $params) = @_;
+    my $changes = $class->SUPER::collect_form($old, $sheet, $params);
+    my $extra = $changes->{extras};
+    $extra->{no_alerts} = delete $extra->{no_alerts_rag};
+    $extra->{code}      = delete $extra->{code_rag};
+    $extra->{no_cache_update} = delete $extra->{no_cache_update_rag};
+    $changes;
+}
+
 has _rag => (
     is      => 'rw',
     lazy    => 1,

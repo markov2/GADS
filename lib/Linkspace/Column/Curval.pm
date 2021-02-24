@@ -95,7 +95,8 @@ sub sort_datums($)
 {   my ($self, $datums) = @_;
     @$datums > 1 or return $datums;
 
-    my $sorted = $self->curval_sheet->content->sort_revisions([ map $_->curval_revision, @$datums ]);
+    my $sorted = $self->curval_sheet->content
+        ->sort_revisions([ map $_->curval_revision, @$datums ]);
 
     my $order  = 0;
     my %order  = map +($_->id => $order++), @$sorted;

@@ -2,17 +2,19 @@
 
 use Linkspace::Test;
 
+my $curval_sheet = make_sheet columns => [ 'integer' ],
+  rows => [ { integer1 => 42 }, { integer1 => 43 } ];
+
+warn $curval_sheet->debug;
+
 my $sheet   = make_sheet rows => [], columns => [];
 my $layout  = $sheet->layout;
-
-my $curval_sheet = make_sheet columns => [ 'intgr' ],
-  rows => [ { intgr1 => 42 }, { intgr1 => 43 } ];
 
 my $column1 = $layout->column_create({
     type           => 'curval',
     name           => 'column1 (long)',
     name_short     => 'column1',
-    related_column => $curval_sheet->layout->column('intgr1'),
+    related_column => $curval_sheet->layout->column('integer1'),
 });
 
 ok defined $column1, 'Created column1';

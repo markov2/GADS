@@ -14,22 +14,31 @@ use lib 'lib', '../lib';
 
 use Linkspace           ();
 use Linkspace::Util     qw(scan_for_plugins);
-use Linkspace::Commands ();
 
-use Getopt::Long        qw(GetOptions);
+use Getopt::Long        qw(GetOptions :config require_order bundling);
 use File::Basename      qw(basename);
 
-my $program = basename $0;
+sub get_plugin($);
+sub list_plugins();
+sub global_help();
 
-if( ! @ARGV || $ARGV[0] eq '--help' || $ARGV[0] eq '-?')
-{   Linkspace::Commands->global_help;
+my $program     = basename $0;
+
+GetOptions
+   'help|h|?'    => \(my $global_help),
+   'config|c=s'  => \(my $config_fn = 'linkspace.yml'),
+   'verbose|v+'  => \(my $verbosity),
+   ;
+
+if($global_help)
+{   global_help;
     exit 0;
 }
 
-my $config_fn = 'linkspace.yml';
-if(@ARGV > 2 && ($ARGV[0] eq '--config' || $ARGV[0] eq '-c'))
-{   $config_fn = $ARGV[1];
-    splice @ARGV, 0, 2;
+unless(@ARGV)
+{   print STDERR "\nERROR: sub-command is required\n";
+    global_help;
+    exit 1;
 }
 
 my $command = shift @ARGV;
@@ -37,22 +46,84 @@ $command !~ /^-/
     or error __x"Unknown global option '{option}'", option => $command;
 
 Linkspace->start(
-    config_fn => $config_fn,
+    config_fn       => $config_fn,
+    log_dispatchers => ((-t) ? [] : undef),
 );
 
-# Errors to log-infra when not used interactive
--t or $::linkspace->start_logging;
+dispatcher mode => $verbosity // 'NORMAL', 'ALL';
 
-my $cmds = Linkspace::Commands->new;
+my $cmd2package = list_plugins;
 
-GetOptions
-    'help|?!'  => \(my $cmd_help),
-    ;
+my $plugin = get_plugin $command
+    or error __x"Command plugin {name} not found", name => $command;
 
+my %subcmds = $plugin->subcommands;
+my $subcmd  = 'run';   # when there are not subcommands
+if(keys %subcmds)
+{   unless(@ARGV)
+    {   print STDERR "\nERROR: The command has sub-commands.\n", $plugin->plugin_help;
+        exit 1;
+    }
 
-if($cmd_help)
-{   $cmds->plugin_help($command);
+    unless(grep /^(--help|-h|-\?)$/, @ARGV)
+    {   my $subcmd_name = shift @ARGV;
+        unless($subcmd = $subcmds{$subcmd_name})
+        {   print STDERR "\nERROR: Unknown sub-command '$subcmd_name'.\n", $plugin->plugin_help;
+            exit 1;
+        }
+    }
+}
+
+my %cmdline_params;
+
+unless(GetOptions \%cmdline_params, $plugin->cmdline_options, 'help|?!')
+{   print STDERR "\nERROR: mistake in sub-command options.\n", $plugin->plugin_help;
+    exit 1;
+}
+    
+$cmdline_params{files} = \@ARGV;
+
+if($cmdline_params{help})
+{   print $plugin->plugin_help;
     exit 0;
 }
 
+
+$plugin->$subcmd(\%cmdline_params);
+
 exit 0;
+
+###
+### HELPERS
+###
+
+sub get_plugin($)
+{   my ($name) = @_;
+    my $pkg = $cmd2package->{$name} or return;
+
+    eval "use $pkg (); 1"
+        or error __x"Command plugin {name} broken: failed loading {pkg}:\n{err}",
+              name => $name, pkg => $pkg, err => $@;
+
+    $pkg;
+}
+
+sub list_plugins()
+{   my $pkgs  = scan_for_plugins 'Command';
+    my %names;
+    foreach my $pkg (keys %$pkgs)
+    {   my $name = $pkg =~ /.*\:\:(.*)/ ? $1 : $pkg;
+        $names{lc $name} = $pkg;
+    }
+    \%names;
+}
+
+sub global_help()
+{   my $program = basename $0;
+    print STDERR "\nUsage: $program [--help|-?] COMMAND [SUBCMD OPTIONS]\n\ncommands:\n";
+
+    $cmd2package ||= list_plugins;
+    print STDERR "   ", (get_plugin $_)->help_line, "\n"
+        for sort keys %$cmd2package;
+}
+

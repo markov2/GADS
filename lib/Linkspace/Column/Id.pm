@@ -8,7 +8,7 @@ use Log::Report 'linkspace';
 use Linkspace::Datum::Integer ();
 
 use Moo;
-extends 'Linkspace::Column::Intgr';
+extends 'Linkspace::Column';
 
 ###
 ### META

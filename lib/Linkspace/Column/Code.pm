@@ -6,19 +6,19 @@
 package Linkspace::Column::Code;
 
 use Log::Report        'linkspace';
-use List::Utils        qw/uniq/;
 
-use Linkspace::Util    qw/index_by_id working_days_diff working_days_add/;
-use linkspace::Column::Code::DependsOn ();
+use Linkspace::Column::Code::DependsOn ();
+use Linkspace::Column::Code::Lua qw(lua_run lua_parse lua_validate);
 
 use Moo;
 extends 'Linkspace::Column';
 
+### 2021-02-22: columns in GADS::Schema::Result::LayoutDepend
+# id         depends_on layout_id
+
 ###
 ### META
 ###
-
-__PACKAGE__->register_type;
 
 sub has_cache      { 1 }
 sub is_userinput   { 0 }
@@ -31,126 +31,85 @@ sub is_userinput   { 0 }
 ### Instance
 ###
 
-has write_cache => ( is => 'rw', default => 1 );
+sub _validate($)
+{   my ($thing, $update) = @_;
+    $thing->SUPER::_validate($update);
+
+    if(my $code = $update->{code})
+    {   lua_validate $code;
+    }
+
+    $update;
+}
+
+has values_dirty => ( is => 'rw', default => 0 );
+
+sub update_dependencies()
+{   my $self = shift;
+    $self->depends_on->set_dependencies($self->param_columns);
+}
 
 has depends_on => (
     is      => 'lazy',
     builder => sub { Linkspace::Column::Code::DependsOn->new(column => $_[0]) },
 );
 
-sub depends_on_column_ids { ... }
-
 # Ignores field in Layout record  #XXX
 sub can_child { $_[0]->depends_on->count }
 
-use Inline 'Lua' => q{
-    function lua_run(string, vars, working_days_diff, working_days_add)
-        local env = {}
-        env["vars"] = vars
+has _parsed_code => ( is => 'lazy', builder => sub { lua_parse $_[0]->code } );
 
-        env["working_days_diff"] = working_days_diff
-        env["working_days_add"] = working_days_add
-
-        env["ipairs"] = ipairs
-        env["math"] = {
-            abs = math.abs,
-            acos = math.acos,
-            asin = math.asin,
-            atan = math.atan,
-            atan2 = math.atan2,
-            ceil = math.ceil,
-            cos = math.cos,
-            cosh = math.cosh,
-            deg = math.deg,
-            exp = math.exp,
-            floor = math.floor,
-            fmod = math.fmod,
-            frexp = math.frexp,
-            huge = math.huge,
-            ldexp = math.ldexp,
-            log = math.log,
-            log10 = math.log10,
-            max = math.max,
-            min = math.min,
-            modf = math.modf,
-            pi = math.pi,
-            pow = math.pow,
-            rad = math.rad,
-            random = math.random,
-            sin = math.sin,
-            sinh = math.sinh,
-            sqrt = math.sqrt,
-            tan = math.tan,
-            tanh = math.tanh
-        }
-        env["next"] = next
-        env["os"] = {
-            clock = os.clock,
-            date = os.date,
-            difftime = os.difftime,
-            time = os.time
-        }
-        env["pairs"] = pairs
-        env["pcall"] = pcall
-        env["select"] = select
-        env["string"] = {
-            byte = string.byte,
-            char = string.char,
-            find = string.find,
-            format = string.format,
-            gmatch = string.gmatch,
-            gsub = string.gsub,
-            len = string.len,
-            lower = string.lower,
-            match = string.match,
-            rep = string.rep,
-            reverse = string.reverse,
-            sub = string.sub,
-            upper = string.upper
-        }
-        env["table"] = {
-            insert = table.insert,
-            maxn = table.maxn,
-            remove = table.remove,
-            sort = table.sort
-        }
-        env["tonumber"] = tonumber
-        env["tostring"] = tostring
-        env["type"] = type
-        env["unpack"] = unpack
-
-        func, err = load(string, nil, 't', env)
-        ret = {}
-        if err then
-            ret["success"] = 0
-            ret["error"] = err
-            return ret
-        end
-        ret["success"] = 1
-        ret["return"] = func()
-        return ret
-    end
-};
-
-sub params
-{   my $self = shift;
-    $self->_params_from_code($self->code);
-}
+sub param_names { $_[0]->_parsed_code->[1] }
 
 sub param_columns
 {   my ($self, %options) = @_;
     my $sheet_id = $self->sheet_id;
 
-    grep $_, map {
+    [ grep defined && length, map {
         my $col = $self->column($_)
             or error __x"Unknown short column name '{name}' in calculation", name => $_;
 
         $col->sheet_id == $sheet_id
-            or error __x"It is only possible to use fields from sheet ({sheet1}). '{name}' is from {sheet2}.",
-                name => $_, sheet1 => $self->sheet->name, sheet2 => $col->sheet->name;
+            or error __x"It is only possible to use fields from sheet ({sheet1.name}); '{name}' is from {sheet2.name}.",
+                name => $_, sheet1 => $self->sheet, sheet2 => $col->sheet;
         $col;
-    } $self->params;
+    } $self->param_names ];
 }
+
+# XXX These functions can raise exceptions - further investigation needed as to
+# whether this causes problems when called from Lua. Initial experience
+# suggests it might do.
+
+sub evaluate
+{   my ($self, $code, $vars) = @_;
+    my $run_code = $self->_parse_code->[0];
+    my $return   = lua_run $run_code, $vars;
+
+    # Make sure we're not returning anything funky (e.g. code refs)
+    my $ret = $return->{return};
+
+    if($self->is_multivalue && ref $ret eq 'ARRAY')
+    {   $ret = [ map "$_", @$ret ];
+    }
+    elsif(defined $ret)
+    {   $ret = "$ret";
+    }
+
+    my $err = $return->{error} && ''.$return->{error};
+    no warnings "uninitialized";
+    trace "Return value from Lua: $ret, error: $err";
+
+    +{
+        return => $ret,      # sometimes ARRAY sometimes scalar
+        error  => $err,
+        code   => $run_code,
+    }
+}
+
+
+=pod
+
+has write_cache => ( is => 'rw', default => 1 );
 
 sub update_cached
 {   my ($self, %args) = @_;
@@ -190,94 +149,6 @@ sub update_cached
     \@changed;
 }
 
-sub _params_from_code
-{   my ($self, $code) = @_;
-    my $params = $self->_parse_code($code)->{params};
-    @$params;
-}
-
-sub _parse_code
-{   my ($self, $code) = @_;
-    !$code || $code =~ /^\s*function\s+evaluate\s*\(([\w\s,]+)\)(.*?)end\s*$/s
-        or error "Invalid code definition: must contain function evaluate(...)";
-
-    +{
-        code   => $2,
-        params => [ $1 ? (split /[,\s]+/, $1) : () ],
-     };
-}
-
-# XXX These functions can raise exceptions - further investigation needed as to
-# whether this causes problems when called from Lua. Initial experience
-# suggests it might do.
-
-sub eval
-{   my ($self, $code, $vars) = @_;
-    my $run_code = $self->_parse_code($code)->{code};
-    my $mapping = '';
-    $mapping .= qq($_ = vars["$_"]\n) foreach keys %$vars;
-    $run_code = $mapping.$run_code;
-    my $return = lua_run($run_code, $vars, \&working_days_diff, \&working_days_add);
-    # Make sure we're not returning anything funky (e.g. code refs)
-    my $ret = $return->{return};
-
-    if($self->is_multivalue && ref $ret eq 'ARRAY')
-    {   $ret = [ map "$_", @$ret ];
-    }
-    elsif(defined $ret)
-    {   $ret = "$ret";
-    }
-    my $err = $return->{error} && ''.$return->{error};
-    no warnings "uninitialized";
-    trace "Return value from Lua: $ret, error: $err";
-    +{
-        return => $ret,
-        error  => $err,
-        code   => $run_code,
-    }
-}
-
-sub write_special
-{   my ($self, %options) = @_;
-
-    my $id   = $options{id};
-    my $rset = $options{rset};
-
-    # rset_code may have been built before the rset property had been
-    # initialised
-    $self->_clear_rset_code;
-    my $new = !$id || !$self->_rset_code->code;
-
-    # It is not uncommon for users to accidentally copy auto-corrected
-    # characters such as "smart quotes". These then result in a rather vague
-    # Lua error about invalid char values. Instead, let's disallow all extended
-    # characters, and give the user a sensible error.
-    $self->code =~ /(.....[^\x00-\x7F]+.....)/
-        and error __x"Extended characters are not supported in calculated fields (found here: {here})",
-            here => $1;
-
-    my %return_options;
-    my $changed = $self->write_code($id, %options); # Returns true if anything relevant changed
-
-    if($options{update_dependents} || $changed)
-    {   $return_options{no_alerts} = 1 if $new;
-        my @depends_on = grep !$_->is_internal,
-            $self->param_columns(is_fatal => $options{override} ? 0 : 1);
-
-        $self->depends_on->set_dependencies(\@depends_on);
-    }
-    else
-    {   $return_options{no_cache_update} = 1;
-    }
-    %return_options;
-}
-
-# We don't really want to do this within a transaction as it can take a
-# significantly long time, so do once the transaction has completed
-sub after_write_special
-{   my ($self, %options) = @_;
-    $self->update_cached(no_alerts => $options{no_alerts})
-        unless $options{no_cache_update};
-}
+=cut
 
 1;

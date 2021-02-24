@@ -173,7 +173,7 @@ sub _validate($)
 
 sub _column_create
 {   my ($base_class, $insert, %args) = @_;
-    my $class = $type2class{$insert->{type}} or panic $insert->{type};
+    my $class = $type2class{$insert->{type}} or panic $insert->{type} || 'missing type';
     $insert->{name} //= $insert->{name_short};
 
     $insert->{options} = $class->option_defaults;  # modified in validate()
@@ -451,10 +451,6 @@ sub collect_form($$$)
     my ($extra_scalars, $extra_arrays) = $class->form_extras;
     $extra{$_} = $params->{$_} for @$extra_scalars;
     $extra{$_} = [ $params->get_all($_) ] for @$extra_arrays;
-    $extra{no_alerts} = delete $extra{no_alerts_rag} || delete $extra{no_alerts_calc};
-    $extra{code}      = delete $extra{code_rag} || delete $extra{code_calc};
-    $extra{no_cache_update}
-       = delete $extra{no_cache_update_rag} || delete $extra{no_cache_update_calc};
     $changes{extras} = \%extra;
 
     \%changes;
@@ -688,9 +684,6 @@ has related_column => (
     builder => sub { $::site->document->column($_[0]->related_column) },
 );
 
-### Only used for Code
-sub depends_on_columns { [] }
-
 # Code overrides can_child()
 # Code values always have their own child values if the record is a child, so
 # that we build based on the true values of the child record.
@@ -721,11 +714,10 @@ sub datum_as_string { $_[1]->value }
 
 sub sort_datums($)
 {   my $datums = $_[1];
-defined $datums or panic;
     @$datums > 1 or return $datums;
 
     my %unsorted = map +($_->sortable => $_), @$datums;
-    \@unsorted{ sort keys %unsorted };
+    [ @unsorted{ sort keys %unsorted } ];
 }
 
 1;

@@ -1,4 +1,4 @@
-# Check the Intgr column type
+# Check the Integer column type
 
 use Linkspace::Test;
 
@@ -6,7 +6,7 @@ $::session = test_session;
 my $sheet = empty_sheet;
 
 my $column1 = $sheet->layout->column_create({
-    type          => 'intgr',
+    type          => 'integer',
     name          => 'column1 (long)',
     name_short    => 'column1',
     is_multivalue => 0,
@@ -16,15 +16,15 @@ ok defined $column1, 'Created column1';
 my $col1_id = $column1->id;
 
 my $path1   = $column1->path;
-is $path1, $sheet->path.'/intgr=column1', '... check path';
+is $path1, $sheet->path.'/integer=column1', '... check path';
 is logline, "info: Layout created $col1_id: $path1", '... creation logged';
 
 is $column1->as_string, <<'__STRING', '... as string';
-intgr            column1
+integer          column1
 __STRING
 
 isa_ok $column1, 'Linkspace::Column', '...';
-isa_ok $column1, 'Linkspace::Column::Intgr', '...';
+isa_ok $column1, 'Linkspace::Column::Integer', '...';
 
 ### by short_name from cache
 my $column1b = $sheet->layout->column('column1');
@@ -40,7 +40,7 @@ is $column1b->id, $col1_id,'... loaded with id';
 my $column1d = Linkspace::Column->from_id($column1->id, sheet => $sheet);
 isnt $column1d, $column1, 'recreated object';
 ok defined $column1d, 'Reload via id, avoiding cache';
-isa_ok $column1d, 'Linkspace::Column::Intgr', '...';
+isa_ok $column1d, 'Linkspace::Column::Integer', '...';
 
 # is_valid_value
 

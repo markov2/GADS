@@ -4,7 +4,7 @@
 use Linkspace::Test
    not_ready => 'waiting for curval';
 
-my $curval_sheet = make_sheet columns => [ qw/string1 enum1/ ];
+my $curval_sheet  = make_sheet columns => [ qw/string enum/ ];
 my $curval_layout = $curval_sheet->layout;
 
 my $sheet1 = make_sheet
@@ -39,9 +39,6 @@ my $row2 = $sheet2->content->row_create({
      },
 });
 
-# Clear the record object and write a new one, this time with the
-# date blank but linked to the first sheet with a date value
-
 my $row3 = $sheet2->content->row_create({
    revision => { linked => $row1, string1 => 'Foo' },
 });
@@ -54,12 +51,8 @@ sub _link($$)
 
 my @filters = (
     {
-        name  => 'Basic - ascending',
-        rules => [{
-            column   => 'daterange1',
-            operator => 'contains',
-            value    => '2011-10-10',
-        }],
+        name   => 'Basic - ascending',
+        rules  => { column => 'daterange1', operator => 'contains', value => '2011-10-10' },
         sort   => 'asc',
         values => [
             'string1: Foo;integer1: ;enum1: foo1;tree1: ;date1: ;daterange1: 2010-10-10 to 2012-10-10;file1: ;person1: ;curval1: Foo, foo1;rag1: b_red;calc1: 2010;',
@@ -68,12 +61,8 @@ my @filters = (
         count => 2,
     },
     {
-        name  => 'Basic - descending',
-        rules => [{
-            column   => 'daterange1',
-            operator => 'contains',
-            value    => '2011-10-10',
-        }],
+        name   => 'Basic - descending',
+        rules  => { column => 'daterange1', operator => 'contains', value    => '2011-10-10' },
         sort   => 'desc',
         values => [
             'string1: ;integer1: ;enum1: foo1;tree1: ;date1: ;daterange1: 2010-10-15 to 2013-10-10;file1: ;person1: ;curval1: Bar, foo2;rag1: b_red;calc1: 2010;',
@@ -82,13 +71,8 @@ my @filters = (
         count => 2,
     },
     {
-        name  => 'Curval search of ID in parent record',
-        rules => [{
-            column   => 'curval1',
-            type     => 'string',
-            operator => 'equal',
-            value    => '1',
-        }],
+        name   => 'Curval search of ID in parent record',
+        rules  => { column => 'curval1', type => 'string', operator => 'equal', value => 1 },
         sort   => 'desc',
         values => [
             'string1: Foo;integer1: ;enum1: foo1;tree1: ;date1: ;daterange1: 2010-10-10 to 2012-10-10;file1: ;person1: ;curval1: Foo, foo1;rag1: b_red;calc1: 2010;',
@@ -96,13 +80,8 @@ my @filters = (
         count => 1,
     },
     {
-        name  => 'Curval search of ID in main record',
-        rules => [{
-            column   => 'curval1',
-            type     => 'string',
-            operator => 'equal',
-            value    => '2',
-        }],
+        name   => 'Curval search of ID in main record',
+        rules  => { column => 'curval1', type => 'string', operator => 'equal', value => 2 },
         sort   => 'desc',
         values => [
             'string1: ;integer1: ;enum1: foo1;tree1: ;date1: ;daterange1: 2010-10-15 to 2013-10-10;file1: ;person1: ;curval1: Bar, foo2;rag1: b_red;calc1: 2010;',
@@ -111,12 +90,7 @@ my @filters = (
     },
     {
         name  => 'Curval search of string sub-field in parent record',
-        rules => [{
-            id       => _link(curval1 => 'string1'),
-            type     => 'string',
-            value    => 'Foo',
-            operator => 'equal',
-        }],
+        rules => { id => _link(curval1 => 'string1'), type => 'string', operator => 'equal', value => 'Foo', },
         sort   => 'desc',
         values => [
             'string1: Foo;integer1: ;enum1: foo1;tree1: ;date1: ;daterange1: 2010-10-10 to 2012-10-10;file1: ;person1: ;curval1: Foo, foo1;rag1: b_red;calc1: 2010;',
@@ -125,12 +99,7 @@ my @filters = (
     },
     {
         name  => 'Curval search of enum sub-field in parent record',
-        rules => [{
-            id       => _link(curval1 => 'enum1'),
-            type     => 'string',
-            value    => 'foo1',
-            operator => 'equal',
-        }],
+        rules => { id => _link(curval1 => 'enum1'), type => 'string', operator => 'equal', value => 'foo1' },
         sort   => 'desc',
         values => [
             'string1: Foo;integer1: ;enum1: foo1;tree1: ;date1: ;daterange1: 2010-10-10 to 2012-10-10;file1: ;person1: ;curval1: Foo, foo1;rag1: b_red;calc1: 2010;',

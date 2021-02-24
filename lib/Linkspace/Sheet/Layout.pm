@@ -17,7 +17,7 @@ use MooX::Types::MooseLike::Base qw/:all/;
 
 use Linkspace::Column              ();
 #use Linkspace::Column::Autocur     ();
-#use Linkspace::Column::Calc        ();
+use Linkspace::Column::Calc        ();
 use Linkspace::Column::Createdby   ();
 use Linkspace::Column::Createddate ();
 use Linkspace::Column::Curval      ();
@@ -27,7 +27,7 @@ use Linkspace::Column::Deletedby   ();
 use Linkspace::Column::Enum        ();
 use Linkspace::Column::File        ();
 use Linkspace::Column::Id          ();
-use Linkspace::Column::Intgr       ();
+use Linkspace::Column::Integer     ();
 use Linkspace::Column::Person      ();
 use Linkspace::Column::Serial      ();
 use Linkspace::Column::String      ();
