@@ -46,18 +46,18 @@ sub datums_prepare($$$%)
 sub _create_insert(@) { shift; +{ @_ } }
 
 sub write($%)
-{    my ($self, $revision, %args) = @_;
-     my $column = $self->column;
+{   my ($self, $revision, %args) = @_;
+    my $column = $self->column;
 
-     my $insert = $self->_create_insert(
-         record_id    => $revision->id,
-         layout_id    => $column->id,
-         child_unique => $args{child_unique} ? 1 : 0,
-         value        => $self->value,
-     );
+    my $insert = $self->_create_insert(
+        record_id    => $revision->id,
+        layout_id    => $column->id,
+        child_unique => $args{child_unique} ? 1 : 0,
+        value        => $self->value,
+    );
 
-     my $r = $::db->create($self->db_table, $insert);
-     (ref $self)->from_id($r->id, revision => $revision, column => $column);
+    my $r = $::db->create($self->db_table, $insert);
+    (ref $self)->from_id($r->id, revision => $revision, column => $column);
 }
 
 sub from_record($%)
@@ -73,11 +73,10 @@ sub from_id($%)
     $rec ? $class->from_record($rec, @_) : undef;
 }
 
-=head2 \@datums = $column->datums_for_revision($revision);
-Load the datums for this column which is on the C<$revision>.
-
-For performance reasons, this will also return datums of other columns in
-the same row which have the same type.  The caller must take them apart.
+=head2 \@datums = $class->datums_for_revision($revision);
+Load all datums for a certain type of columns which belong to this C<$revision>.
+For performance reasons, this loading is combined; the caller must take them
+apart per columns.
 =cut
 
 sub datums_for_revision($%)
@@ -92,7 +91,7 @@ sub datums_for_revision($%)
 
 has column_id    => ( is => 'rw' );  # only used during construction
 has column       => ( is => 'rw' );  # only empty during construction
-has value        => ( is => 'ro', required => 1 );
+has value        => ( is => 'rw' );  # only empty during construction
 has child_unique => ( is => 'ro', default  => 0 );
 has revision     => ( is => 'rw' );
 

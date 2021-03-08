@@ -24,7 +24,7 @@ my @sheet_data = (
 my $sheet         = make_sheet
     curval_columns => [ $curval_sheet->column('string1'), $curval_sheet->column('date1') ],
     calc_return_type => 'date',
-    calc_code     => "function evaluate (L1daterange1) \n return L1daterange1.from.epoch \n end",
+    calc_code     => "function evaluate (daterange1) \n return daterange1.from.epoch \n end",
     rows          => \@sheet_data;
 
 my $layout       = $sheet->layout;
@@ -50,7 +50,7 @@ my $calc_integer = $layout->column_create({
     name        => 'calc_integer',
     name_short  => 'calc_integer',
     return_type => 'integer',
-    code        => "function evaluate (L1string1) \n return 450 \nend",
+    code        => "function evaluate (string1) \n return 450 \nend",
 });
 
 my $calc_numeric = $layout->column_create({
@@ -58,14 +58,14 @@ my $calc_numeric = $layout->column_create({
     name        => 'calc_numeric',
     name_short  => 'calc_numeric',
     return_type => 'numeric',
-    code        => "function evaluate (L1string1) \n return 10.56 \nend",
+    code        => "function evaluate (string1) \n return 10.56 \nend",
 });
 
 my @tests = (
     {
         name       => 'calc field using curval (full value)',
         type       => 'Calc',
-        code       => "function evaluate (L1curval1) \n return L1curval1.value \nend",
+        code       => "function evaluate (curval1) \n return curval1.value \nend",
         before     => 'Foo, 2014-10-10',
         after      => 'Bar, 2009-01-02',
         multivalues => 1,
@@ -73,7 +73,7 @@ my @tests = (
     {
         name       => 'calc field using curval (single curval field, standard)',
         type       => 'Calc',
-        code       => "function evaluate (L1curval1) \n return L1curval1.field_values.L2string1 \nend",
+        code       => "function evaluate (curval1) \n return curval1.field_values.string1 \nend",
         before     => 'Foo',
         after      => 'Bar',
         multivalues => 1,
@@ -81,7 +81,7 @@ my @tests = (
     {
         name       => 'calc field using curval (single curval field, calc)',
         type       => 'Calc',
-        code       => "function evaluate (L1curval1) \n return L1curval1.field_values.L2calc1 \nend",
+        code       => "function evaluate (curval1) \n return curval1.field_values.calc1 \nend",
         before     => '2012',
         after      => '2008',
         multivalues => 1,
@@ -105,11 +105,11 @@ my @tests = (
         name => 'rag from daterange',
         type => 'Rag',
         code   => "
-            function evaluate (L1daterange1)
-                if L1daterange1 == nil then return end
-                if L1daterange1.from.year < 2012 then return 'red' end
-                if L1daterange1.from.year == 2012 then return 'amber' end
-                if L1daterange1.from.year > 2012 then return 'green' end
+            function evaluate (daterange1)
+                if daterange1 == nil then return end
+                if daterange1.from.year < 2012 then return 'red' end
+                if daterange1.from.year == 2012 then return 'amber' end
+                if daterange1.from.year > 2012 then return 'green' end
             end
         ",
         before => 'b_red',
@@ -119,9 +119,9 @@ my @tests = (
         name => 'working days diff',
         type => 'Calc',
         code   => "
-            function evaluate (L1date1)
-                if L1date1 == nil then return nil end
-                return working_days_diff(L1date1.epoch, 1483488000, 'GB', 'EAW')
+            function evaluate (date1)
+                if date1 == nil then return nil end
+                return working_days_diff(date1.epoch, 1483488000, 'GB', 'EAW')
             end
         ", # 1483488000 is 4th Jan 2017
         before => 8,
@@ -131,9 +131,9 @@ my @tests = (
         name => 'working days add',
         type => 'Calc',
         code   => "
-            function evaluate (L1date1)
-                if L1date1 == nil then return nil end
-                return working_days_add(L1date1.epoch, 4, 'GB', 'EAW')
+            function evaluate (date1)
+                if date1 == nil then return nil end
+                return working_days_add(date1.epoch, 4, 'GB', 'EAW')
             end
         ",
         before => 1482883200, # 28th Dec 2016
@@ -142,7 +142,7 @@ my @tests = (
     {
         name           => 'decimal calc',
         type           => 'Calc',
-        code           => "function evaluate (L1daterange1) \n return L1daterange1.from.year / 10 \nend",
+        code           => "function evaluate (daterange1) \n return daterange1.from.year / 10 \nend",
         return_type    => 'numeric',
         decimal_places => 1,
         before         => '200.0',
@@ -151,14 +151,14 @@ my @tests = (
     {
         name           => 'error return failed',
         type           => 'Calc',
-        code           => "function evaluate (L1daterange1) \n return 'Unable to submit' \nend",
+        code           => "function evaluate (daterange1) \n return 'Unable to submit' \nend",
         return_type    => 'error',
         expect_error   => 'Unable to submit',
     },
     {
         name           => 'error return success',
         type           => 'Calc',
-        code           => "function evaluate (L1daterange1) \n return '' \nend",
+        code           => "function evaluate (daterange1) \n return '' \nend",
         return_type    => 'error',
         expect_error   => '', # No error
         before         => '',
@@ -167,7 +167,7 @@ my @tests = (
     {
         name   => 'use date from another calc field',
         type   => 'Calc',
-        code   => qq(function evaluate (L1calc1) \n return L1calc1.year \nend),
+        code   => qq(function evaluate (calc1) \n return calc1.year \nend),
         before => '2000',
         after  => '2014',
     },
@@ -188,7 +188,7 @@ my @tests = (
     {
         name        => 'calc fields that returns 0 (int)',
         type        => 'Calc',
-        code        => "function evaluate (L1curval1) \n return 0 \nend",
+        code        => "function evaluate (curval1) \n return 0 \nend",
         return_type => 'integer',
         before      => '0',
         after       => '0',
@@ -196,7 +196,7 @@ my @tests = (
     {
         name        => 'calc fields that returns 0 (string)',
         type        => 'Calc',
-        code        => "function evaluate (L1curval1) \n return 0 \nend",
+        code        => "function evaluate (curval1) \n return 0 \nend",
         return_type => 'string',
         before      => '0',
         after       => '0',
@@ -204,7 +204,7 @@ my @tests = (
     {
         name        => 'calc fields that returns 0 (date)',
         type        => 'Calc',
-        code        => "function evaluate (L1curval1) \n return 0 \nend",
+        code        => "function evaluate (curval1) \n return 0 \nend",
         return_type => 'date',
         before      => '1970-01-01',
         after       => '1970-01-01',
@@ -247,14 +247,14 @@ my @tests = (
     {
         name   => 'tree node',
         type   => 'Calc',
-        code   => qq(function evaluate (L1tree1) \n return L1tree1.value \nend),
+        code   => qq(function evaluate (tree1) \n return tree1.value \nend),
         before => 'tree1',
         after  => 'tree3',
     },
     {
         name       => 'blank tree node',
         type       => 'Calc',
-        code       => qq(function evaluate (L1tree1) \n return L1tree1.value \nend),
+        code       => qq(function evaluate (tree1) \n return tree1.value \nend),
         tree_value => undef,
         before     => 'tree1',
         after      => '',
@@ -262,14 +262,14 @@ my @tests = (
     {
         name       => 'flatten of hash',
         type       => 'Calc',
-        code       => qq(function evaluate (L1tree1) \n return L1tree1 \nend),
+        code       => qq(function evaluate (tree1) \n return tree1 \nend),
         before     => qr/HASH/,
         after      => qr/HASH/,
     },
     {
         name       => 'flatten of array',
         type       => 'Calc',
-        code       => qq(function evaluate (L1tree1) \n a = {} \n a[1] = L1tree1 \n return a \nend),
+        code       => qq(function evaluate (tree1) \n a = {} \n a[1] = tree1 \n return a \nend),
         before     => qr/HASH/,
         after      => qr/HASH/,
         multivalues => 1,
@@ -279,10 +279,10 @@ my @tests = (
         type   => 'Calc',
         sheet  => $curval_sheet,
         check_rev    => 1,
-        code   => qq(function evaluate (L2autocur1)
+        code   => qq(function evaluate (autocur1)
             return_value = ''
-            for _, v in pairs(L2autocur1) do
-                return_value = return_value .. v.field_values.L1daterange1.from.year
+            for _, v in pairs(autocur1) do
+                return_value = return_value .. v.field_values.daterange1.from.year
             end
             return return_value
         end),
@@ -295,10 +295,10 @@ my @tests = (
         sheet         => $curval_sheet,
         check_rev     => 1,
         curval_update => 0,
-        code          => qq(function evaluate (L2autocur1)
+        code          => qq(function evaluate (autocur1)
             return_value = ''
-            for _, v in pairs(L2autocur1) do
-                return_value = return_value .. v.field_values.L1daterange1.from.year
+            for _, v in pairs(autocur1) do
+                return_value = return_value .. v.field_values.daterange1.from.year
             end
             return return_value
         end),
@@ -309,7 +309,7 @@ my @tests = (
         # In Lua, "10" is not equal to 10
         name   => 'integer passed to Lua as int type not string',
         type   => 'Calc',
-        code   => qq(function evaluate (L1integer1) \n if L1integer1 == 10 then return "Yes" else return L1integer1 end \nend),
+        code   => qq(function evaluate (integer1) \n if integer1 == 10 then return "Yes" else return integer1 end \nend),
         before => 'Yes',
         after  => 'Yes',
     },
@@ -317,7 +317,7 @@ my @tests = (
         # As previous, but curval ID
         name   => 'curval ID passed to Lua as int type not string',
         type   => 'Calc',
-        code   => qq(function evaluate (L1curval1) \n if L1curval1.id == 1 or L1curval1.id == 2 then return "Yes" else return "No" end \nend),
+        code   => qq(function evaluate (curval1) \n if curval1.id == 1 or curval1.id == 2 then return "Yes" else return "No" end \nend),
         before => 'Yes',
         after  => 'Yes',
     },
@@ -439,77 +439,73 @@ foreach my $test (@tests)
 ### Attempt to create additional calc field separately.
 
 # First try with invalid function
-my $calc2_col = try { $layout->column_create({
-    name   => 'calc2',
-    code   => "foobar evaluate (L1curval)",
-}) };
+my $calc2_col = try { $layout->column_create({ name => 'calc2', code => "foobar evaluate (curval)" }) };
 like $@, qr/Invalid code definition/,
    "Failed to write calc field with invalid function";
 
 # Then with invalid short name
-try { $layout->column_create({
-    type   => 'calc',
-    name   => 'calc2',
-    code   => "function evaluate (L1curval) \n return L1curval1.value\nend",
-}) };
+try { $layout->column_create({ type => 'calc', name => 'calc2', code => <<'__CODE' }) };
+    function evaluate (curval)
+       return curval1.value
+    end
+__CODE
 like $@->wasFatal->message , qr/Unknown short column name/,
       "Failed to write calc field with invalid short names";
 
 # Then with short name from other table (invalid)
-try { $layout->column_create({ 
-    type => 'calc',
-    name => 'calc2',
-    code => "function evaluate (L2string1) \n return L2string1\nend",
-}) };
+try { $layout->column_create({ type => 'calc', name => 'calc2', code => <<'__CODE' }) };
+    function evaluate (string1)
+       return string1
+    end
+__CODE
 like $@, qr/It is only possible to use fields from the same table/,
      "Failed to write calc field with short name from other table";
 
 # Create a calc field that has something invalid in the nested code
-try { $layout->column_create({
-    type => 'calc',
-    name => 'calc3',
-    code => "function evaluate (L1curval1) \n adsfadsf return L1curval1.field_values.L2daterange1.from.year \nend",
-}) } hide => 'ALL';
+try { $layout->column_create({ type => 'calc', name => 'calc3', code => <<'__CODE' }) } hide => 'ALL';
+    function evaluate (curval1)
+       adsfadsf return curval1.field_values.daterange1.from.year
+    end
+__CODE
 my ($warning) = grep $_->reason eq 'WARNING', $@->exceptions;
 like $warning, qr/syntax error/, "Warning received for syntax error in calc";
 
 # Invalid Lua code with return value not string
-try { $layout->column_create({
-    type => 'calc',
-    name => 'calc3',
-    return_type => 'integer',
-    code => "function evaluate (L1curval1) \n adsfadsf return L1curval1.field_values.L2daterange1.from.year \nend",
-}) } hide => 'ALL';
+try { $layout->column_create({ type => 'calc', name => 'calc3', return_type => 'integer', code => <<'__CODE' }) } hide => 'ALL';
+    function evaluate (curval1)
+       adsfadsf return curval1.field_values.daterange1.from.year
+    end
+__CODE
+
 ($warning) = grep $_->reason eq 'WARNING', $@->exceptions;
 like $warning, qr/syntax error/, "Warning received for syntax error in calc";
 
 # Test missing bank holidays
-try { $layout->column_create({
-    type => 'calc',
-    name => 'calc3',
-    code => "function evaluate (_id) \n return working_days_diff(2051222400, 2051222400, 'GB', 'EAW') \nend", # Year 2035
-}) } hide => 'ALL';
+try { $layout->column_create({ type => 'calc', name => 'calc3', code => <<'__CODE' }) } hide => 'ALL';
+    function evaluate (_id)
+        return working_days_diff(2051222400, 2051222400, 'GB', 'EAW')
+    end
+__CODE
+# Year 2035
 ($warning) = grep $_->reason eq 'WARNING', $@->exceptions;
 like $warning, qr/No bank holiday information available for year 2035/,
      "Missing bank holiday information warnings for working_days_diff";
 
-try { $layout->column_create({ 
-    type => 'calc',
-    name => 'calc4',
-    code => "function evaluate (_id) \n return working_days_add(2082758400, 1, 'GB', 'EAW') \nend", # Year 2036
-}) } hide => 'ALL';
+try { $layout->column_create({ type => 'calc', name => 'calc4', code => <<'__CODE' }) } hide => 'ALL';
+    function evaluate (_id)
+       return working_days_add(2082758400, 1, 'GB', 'EAW')
+    end
+__CODE
+# Year 2036
 ($warning) = grep { $_->reason eq 'WARNING' } $@->exceptions;
 like $warning, qr/No bank holiday information available for year 2036/,
     "Mising bank holiday information warnings for working_days_add";
 
 # Same for RAG
-try { $layout->column_create({ 
-    type => 'rag',
-    name => 'rag2',
-    code => <<'__CODE' }) } hide => 'ALL';
-        function evaluate (L1daterange1)
-            foobar
-        end
+try { $layout->column_create({ type => 'rag', name => 'rag2', code => <<'__CODE' }) } hide => 'ALL';
+    function evaluate (daterange1)
+        foobar
+    end
 __CODE
 ($warning) = grep $_->reason eq 'WARNING', $@->exceptions;
 like $warning, qr/syntax error/, "Warning received for syntax error in rag";

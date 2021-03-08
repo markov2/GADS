@@ -15,8 +15,6 @@ extends 'Linkspace::Datum';
 
 sub db_table { 'String' }
 
-has value_index => ( is => 'ro' );
-
 sub _unpack_values($$$%)
 {   my ($class, $column, $old_datums, $values, %args) = @_;
     my @strings;
@@ -41,7 +39,10 @@ sub html_withlinks
 # Consistently return undef for empty string, so that the variable can be
 # tested in Lua easily using "if variable", otherwise empty strings are
 # treated as true in Lua.
-sub _value_for_code($$$) { length $_[2] ? $_[2] : undef }
+sub _value_for_code($$$)
+{   my $value = shift->value;
+    length $value ? $value : undef;
+}
 
 sub presentation($$)
 {   my ($self, $cell, $show) = @_;

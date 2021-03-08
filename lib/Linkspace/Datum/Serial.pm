@@ -11,12 +11,7 @@ use Log::Report 'linkspace';
 use Moo;
 extends 'Linkspace::Datum';
 
-has value => (
-    is      => 'lazy',
-    builder => sub { $_[0]->record->serial }
-);
-
-sub as_string  { $_[0]->value }
+sub value      { $_[0]->record->serial }
 sub as_integer { $_[0]->value }
 
 1;

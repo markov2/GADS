@@ -5,7 +5,8 @@
 # Shared by ::Calc and ::Rag
 package Linkspace::Column::Code;
 
-use Log::Report        'linkspace';
+use Log::Report    'linkspace';
+use Data::Dumper   qw/Dumper/;
 
 use Linkspace::Column::Code::DependsOn ();
 use Linkspace::Column::Code::Lua qw(lua_run lua_parse lua_validate);
@@ -31,114 +32,78 @@ sub is_userinput   { 0 }
 ### Instance
 ###
 
-sub _validate($)
-{   my ($thing, $update) = @_;
-    $thing->SUPER::_validate($update);
+sub _validate($$)
+{   my ($thing, $update, $sheet) = @_;
 
     if(my $code = $update->{code})
-    {   lua_validate $code;
+    {   lua_validate $sheet, $code;
     }
 
+    $thing->SUPER::_validate($update, $sheet);
     $update;
 }
-
-has values_dirty => ( is => 'rw', default => 0 );
 
 sub update_dependencies()
 {   my $self = shift;
     $self->depends_on->set_dependencies($self->param_columns);
 }
 
-has depends_on => (
-    is      => 'lazy',
-    builder => sub { Linkspace::Column::Code::DependsOn->new(column => $_[0]) },
-);
+sub depends_on() { $_[0]->{LCC_dep} ||= Linkspace::Column::Code::DependsOn->new(column => $_[0]) };
 
-# Ignores field in Layout record  #XXX
-sub can_child { $_[0]->depends_on->count }
+# Ignores field in Layout record  #XXX ignore when???
+sub can_child    { $_[0]->depends_on->count }
 
-has _parsed_code => ( is => 'lazy', builder => sub { lua_parse $_[0]->code } );
+has _parsed_code => ( is => 'lazy', builder => sub { [ lua_parse $_[0]->code ] } );
 
-sub param_names { $_[0]->_parsed_code->[1] }
+sub param_names   { $_[0]->_parsed_code->[1] }
+sub param_columns { $_[0]->{LCC_cols} ||= $_[0]->layout->columns($_[0]->param_names) }
 
-sub param_columns
-{   my ($self, %options) = @_;
-    my $sheet_id = $self->sheet_id;
+=head2 \@datums = $column->initial_datums($revision);
+When there are no datums for this cell, it may mean that the calculation still has
+to start.  But we are waiting for it, so compute it now.  Actually, this is always
+used to bootstrap computation, one way or another.
+=cut
 
-    [ grep defined && length, map {
-        my $col = $self->column($_)
-            or error __x"Unknown short column name '{name}' in calculation", name => $_;
+sub initial_datums($%)
+{   my ($self, $revision) = @_;
 
-        $col->sheet_id == $sheet_id
-            or error __x"It is only possible to use fields from sheet ({sheet1.name}); '{name}' is from {sheet2.name}.",
-                name => $_, sheet1 => $self->sheet, sheet2 => $col->sheet;
-        $col;
-    } $self->param_names ];
-}
+    my $run_code = $self->_parsed_code->[0]
+        or return;
 
-# XXX These functions can raise exceptions - further investigation needed as to
-# whether this causes problems when called from Lua. Initial experience
-# suggests it might do.
+    my %vars     = map +($_->name_short => $revision->cell($_)->for_code),
+        @{$self->param_columns};
 
-sub evaluate
-{   my ($self, $code, $vars) = @_;
-    my $run_code = $self->_parse_code->[0];
-    my $return   = lua_run $run_code, $vars;
+    my $result   = try { lua_run $run_code, \%vars };
+    my $error    = $@ ? $@->wasFatal->message->toString : $result->{error};
+
+    my $dc       = $self->datum_class;
+    if($error)
+    {   warning __x"Failed to eval code for field '{field}': {error} (code: {code}, params: {params})",
+            field  => $self->name, error => $error,
+            code   => $result->{code} || $self->code,
+            params => Dumper(\%vars);
+
+        return [ $dc->new_error(column => $self, value => 1, error => $error) ];
+    }
 
     # Make sure we're not returning anything funky (e.g. code refs)
-    my $ret = $return->{return};
+    my $raws   = $result->{return};
+    my @raws   = map "$_", ref $raws eq 'ARRAY' ? @$raws : defined $raws ? $raws : ();
+    trace "Return raw from Lua: @raws" if @raws;
 
-    if($self->is_multivalue && ref $ret eq 'ARRAY')
-    {   $ret = [ map "$_", @$ret ];
-    }
-    elsif(defined $ret)
-    {   $ret = "$ret";
+    my @datums;
+    foreach my $raw (@raws)
+    {   my $value = try { $self->is_valid_value($raw) };
+        push @datums, $@
+          ? $dc->new_error($revision, $self, 2, $@->wasFatal->message->toString)
+          : $dc->new_datum($revision, $self, $value);
     }
 
-    my $err = $return->{error} && ''.$return->{error};
-    no warnings "uninitialized";
-    trace "Return value from Lua: $ret, error: $err";
-
-    +{
-        return => $ret,      # sometimes ARRAY sometimes scalar
-        error  => $err,
-        code   => $run_code,
-    }
+    \@datums;
 }
 
 
 =pod
-
-has write_cache => ( is => 'rw', default => 1 );
-
-sub update_cached
-{   my ($self, %args) = @_;
-
-    return unless $self->write_cache;
-
-    # $@ may be the result of a previous Log::Report::Dispatcher::Try block (as
-    # an object) and may evaluate to an empty string. If so, txn_scope_guard
-    # warns as such, so undefine to prevent the warning
-    undef $@;
-
-    $self->clear; # Refresh calc for updated calculation
-    my $layout = $self->layout;
-    my $sheet = $self->sheet;
-
-    my $page = $sheet->content->search(
-        columns              => [ @{$self->depends_on->columns}, $self ],
-        view_limit_extra_id  => undef,
-        curcommon_all_fields => 1, # Code might contain curcommon fields not in normal display
-        include_children     => 1, # Update all child records regardless
-    );
-
-    my @changed;
-    while(my $row = $page->next_row)
-    {   my $cell = $row->cell($self);
-        $datum->re_evaluate(no_errors => 1);
-        $datum->write_value;
-        push @changed, $row->current_id if $datum->changed;
-    }
 
     my $alert = ! exists $args{send_alerts} || $args{send_alerts};
     $sheet->views->trigger_alerts(

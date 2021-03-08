@@ -8,22 +8,9 @@ my $simple_data = [
 # Simple test first
 {
     my $sheet = make_sheet
-        rows             => $simple_data,
-        calc_code        => "function evaluate (L1string1) \n return L1string1 end",
+        calc_code        => "function evaluate (string1) \n return string1 end",
         calc_return_type => 'globe',
-    );
-
-    my $layout  = $sheet->layout;
-
-    my $records_options = {
-        user   => $sheet->user,
-        layout => $layout,
-        schema => $schema,
-    };
-
-    my $globe = GADS::Globe->new(
-        records_options => $records_options,
-    );
+        rows             => $simple_data;
 
     my $trace = $globe->data->[0];
     my $items = _sort_items($trace);

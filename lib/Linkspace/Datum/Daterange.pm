@@ -118,10 +118,10 @@ sub filter_value   { $_[0]->text_all->[0] }
 sub search_values_unique { $_[0]->text_all }
 
 sub _value_for_code
-{   my ($self, $cell, $value) = @_;
-     +{ from  => $self->_dt_for_code($value->start),
-        to    => $self->_dt_for_code($value->end),
-        value => $self->_as_string($cell, $value),
+{   my ($self, $cell) = @_;
+     +{ from  => $self->_dt_for_code($self->from_date),
+        to    => $self->_dt_for_code($self->to_date),
+        value => $cell->as_string,
       };
 }
 

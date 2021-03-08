@@ -43,9 +43,9 @@ sub form_extras { [ qw/refers_to_sheet_id filter/ ], [ 'curval_columns' ] }
 
 # _remove_column() by base-class
 
-sub _validate($)
-{   my ($thing, $update) = @_;
-    $thing->SUPER::_validate($update);
+sub _validate($$)
+{   my ($thing, $update, $sheet) = @_;
+    $thing->SUPER::_validate($update, $sheet);
 
     if(my $opt = $update->{options})
     {   $update->{is_multivalue} = exists $opt->{show_add} && $opt->{value_selector} eq 'noshow';

@@ -16,6 +16,7 @@ extends 'Linkspace::Column';
 
 __PACKAGE__->register_type;
 
+sub datum_class      { 'Linkspace::Datum::ID' }
 sub can_multivalue   { 0 }
 sub is_internal_type { 1 }
 sub is_userinput     { 0 }

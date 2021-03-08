@@ -12,15 +12,8 @@ use Log::Report 'linkspace';
 use Moo;
 extends 'Linkspace::Datum';
 
-has value => (
-    is      => 'lazy',
-    builder => sub { $_[0]->current_id },
-);
-
 sub as_string  { $_[0]->value }
 sub as_integer { $_[0]->value || undef }
-
-sub _value_for_code($$$) { $_[2] }
 
 1;
 

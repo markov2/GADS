@@ -26,7 +26,8 @@ sub value_hash($)
 }
 
 sub _value_for_code
-{   my ($self, $cell, $enum_id) = @_;
+{   my ($self, $cell) = @_;
+    my $enum_id = $self->value;
      +{ id => $enum_id, value => $cell->column->enumval_name($enum_id) };
 }
 

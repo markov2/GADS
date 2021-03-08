@@ -34,7 +34,7 @@ sub _sheet_create($%)
 }
 
 # Not autocur
-my @default_column_types =  qw/string integer enum tree date daterange file person curval/;  # rag calc
+my @default_column_types = qw/string integer enum tree date daterange file person curval calc/;  # rag
 my @default_enumvals     = qw/foo1 foo2 foo3/;
 
 my @default_trees    =
@@ -52,13 +52,13 @@ my %dummy_file_data = (
 );
 
 sub _default_rag_code($) { my $seqnr = shift; <<__RAG }
-function evaluate (L${seqnr}daterange1)
-    if type(L${seqnr}daterange1) == "table" and L${seqnr}daterange1[1] then
-        dr1 = L${seqnr}daterange1[1]
-    elseif type(L${seqnr}daterange1) == "table" and next(L${seqnr}daterange1) == nil then
+function evaluate (daterange1)
+    if type(daterange1) == "table" and daterange1[1] then
+        dr1 = daterange1[1]
+    elseif type(daterange1) == "table" and next(daterange1) == nil then
         dr1 = nil
     else
-        dr1 = L${seqnr}daterange1
+        dr1 = daterange1
     end
     if dr1 == nil then return end
     if dr1.from.year < 2012 then return 'red' end
@@ -68,13 +68,13 @@ end
 __RAG
 
 sub _default_calc_code($) { my $seqnr = shift;  <<__CALC }
-function evaluate (L${seqnr}daterange1)
-    if type(L${seqnr}daterange1) == "table" and L${seqnr}daterange1[1] then
-        dr1 = L${seqnr}daterange1[1]
-    elseif type(L${seqnr}daterange1) == "table" and next(L${seqnr}daterange1) == nil then
+function evaluate (daterange1)
+    if type(daterange1) == "table" and daterange1[1] then
+        dr1 = daterange1[1]
+    elseif type(daterange1) == "table" and next(daterange1) == nil then
         dr1 = nil
     else
-        dr1 = L${seqnr}daterange1
+        dr1 = daterange1
     end
     if dr1 == null then return end
     return dr1.from.year
@@ -169,7 +169,6 @@ next;
             elsif($type eq 'calc')
             {   $insert{return_type} = $calc_rt   || 'integer';
                 $insert{code}        = $calc_code || _default_calc_code($sheet_id);
-next;
             }
 
             $layout->column_create(\%insert);

@@ -56,7 +56,7 @@ sub _unpack_values($$$%)
     \@dates;
 }
 
-sub _value_for_code { $_[0]->_dt_for_code($_[2]) }
+sub _value_for_code { $_[0]->_dt_for_code($_[0]->value) }
 
 sub sortable { $_[0]->date }   # DateTime supports cmp
 

@@ -41,8 +41,8 @@ sub hash_value($)
 }
 
 sub _value_for_code($$$)
-{   my ($self, $column, $node_id) = @_;
-    my $node = $column->node($node_id) or panic;
+{   my ($self, $cell, $node_id) = @_;
+    my $node = $cell->column->node($node_id) or panic;
 
     my (%parents, $count);
     foreach my $parent (reverse $node->ancestors)

@@ -55,8 +55,8 @@ sub _remove_column($)
 }
 
 sub _validate($$)
-{   my ($thing, $update) = @_;
-    $thing->SUPER::_validate($update);
+{   my ($thing, $update, $sheet) = @_;
+    $thing->SUPER::_validate($update, $sheet);
     return $update unless exists $update->{ordering};
 
     my $order = $update->{ordering} // 'position';

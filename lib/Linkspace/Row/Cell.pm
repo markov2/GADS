@@ -9,7 +9,7 @@ use HTML::Entities qw(encode_entities);
 
 use Linkspace::Datum           ();;
 #use Linkspace::Datum::Autocur  (); # Moo does not want these inside Datum.pm
-#use Linkspace::Datum::Calc     ();
+use Linkspace::Datum::Calc     ();
 use Linkspace::Datum::Count    ();
 use Linkspace::Datum::Curval   ();
 use Linkspace::Datum::Date     ();
@@ -168,7 +168,7 @@ sub for_code(%)
 {   my ($self, %args) = @_;
 
     my $datums = $self->datums;
-    my @r = map $_->_value_for_code($self, $_, \%args), @$datums;
+    my @r = map $_->_value_for_code($self, $cell, \%args), @$datums;
 
     if($datums->[0]->isa('Linkspace::Datum::Tree'))
     {   @r or push @r, +{  value => undef, parents => {} };

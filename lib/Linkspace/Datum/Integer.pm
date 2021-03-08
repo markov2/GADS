@@ -16,7 +16,7 @@ sub db_table { 'Intgr' }
 
 my %ops = (
     '*' => sub { $_[0] * $_[1] },
-    '/' => sub { $_[0] / $_[1] },
+    '/' => sub { int($_[0] / $_[1]) },
     '+' => sub { $_[0] + $_[1] },
     '-' => sub { $_[0] - $_[1] },
 );
@@ -35,9 +35,7 @@ sub _unpack_values($$$%)
     $values;
 }
 
-sub as_integer { int($_[0]->value // 0) }
-
-sub _value_for_code { int $_[2] }
+sub as_integer { $_[0]->value }
 
 sub sortable() { sprintf "%020d", $_[0]->value }  # string comparison, so pad with enough zeros
 

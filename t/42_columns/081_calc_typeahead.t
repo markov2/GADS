@@ -1,13 +1,14 @@
 # Extracted from t/009_typeahead.t
 # Test type-ahead for calc fields
 
-use Linkspace::Test
-    not_ready => 'Waiting for Calc';
+use Linkspace::Test;
+#   not_ready => 'Waiting for Calc';
 
-my $sheet   = empty_sheet;
-my $layout  = $sheet->layout;
+my $sheet   = make_sheet columns => [ qw/daterange calc/ ];
+warn $sheet->debug(all => 1);
 
-my $column1 = $layout->column('calc1');
+my $column1 = $sheet->layout->column('calc1');
+ok defined $column1, 'Fond calc column';
 
 my $v1a     = $column1->values_beginning_with('2');
 cmp_ok @$v1a, '==', 0,

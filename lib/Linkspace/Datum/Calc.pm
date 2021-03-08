@@ -4,96 +4,82 @@
 
 package Linkspace::Datum::Calc;
 
-use Data::Dumper qw/Dumper/;
 use Log::Report 'linkspace';
-use Math::Round      qw/round/;
-use Scalar::Util qw(looks_like_number);
-use Linkspace::Util  qw/flat/;
+
+use Data::Dumper    qw/Dumper/;
+use Math::Round     qw/round/;
+use Scalar::Util    qw/looks_like_number/;
+
+use Linkspace::Util qw/flat/;
 
 use Moo;
 extends 'Linkspace::Datum::Code';
 
-sub as_string($)
-{   my ($self, $column) = @_;
-    join ', ', map $column->format_value($_) // '', @{$self->values};
+sub db_table { 'Calcval' }
+
+### 2021-02-22: columns in GADS::Schema::Result::Calcval
+# id            record_id     value_int     value_text
+# layout_id     value_date    value_numeric
+
+# 1 = compile-time error
+# 2 = runtime error
+has is_error => ( is => 'rw', default => 0 );
+
+sub error { $_[0]->is_error ? $_[0]->value_text : undef }
+
+sub from_record($$%)
+{   my ($class, $rec, %args) = @_;
+    my $self = $class->SUPER::from_record($rec, %args);
+
+    my $column = $args{column};
+    my $ef     = $column->error_field;
+    if($self->$ef +0)     # may be float 0.0
+    {   $self->is_error(1);
+    }
+    else
+    {   my $vf = $column->value_field;
+        $self->value($self->$vf);
+    }
+    $self;
 }
 
-sub convert_value
-{   my ($self, $in) = @_;
-
-    my $column = $self->column;
-    my $rt     = $column->return_type;
-
-    my @values = $column->is_multivalue && ref $in->{return} eq 'ARRAY'
-        ? @{$in->{return}} : $in->{return};
-
-    trace __x"Values into convert_value is: {value}", value => \@values;
-
-    if($in->{error}) # Will have already been reported
-    {   @values = ('<evaluation error>');
-    }
-
-    my @return;
-
-    foreach my $val (@values)
-    {
-        if($rt eq 'date')
-        {   if (defined $val && looks_like_number($val))
-            {
-                my $ret = try { DateTime->from_epoch(epoch => $val) };
-                if (my $exception = $@->wasFatal)
-                {   warning "$@";
-                }
-                else
-                {   # Database only stores date part, so ensure local value reflects that
-                    $ret->truncate(to => 'day') if $ret;
-                    push @return, $ret;
-                }
-            }
-        }
-        elsif($rt eq 'numeric' || $column->rt eq 'integer')
-        {   if(defined $val && looks_like_number($val))
-            {   my $ret = $val;
-                $ret = round $ret if defined $ret && $rt eq 'integer';
-                push @return, $ret;
-            }
-        }
-        elsif($rt eq 'globe')
-        {   if ($self->column->is_country($val))
-            {   push @return, $val;
-            }
-            else
-            {   error __x"Failed to produce globe location: unknown country {country}", country => $val;
-            }
-        }
-        elsif ($rt eq 'error')
-        {   error $val if $val;
-        }
-        else
-        {   push @return, $val if defined $val;
-        }
-    }
-
-    trace __x"Returning value from convert_value: {value}", value => \@return;
-
-    @return;
+sub new_error($$%)
+{   my ($class, $revision, $column, $rc, $error) = @_;
+    $class->write($revision, $column, { $column->error_field => $rc, value_text => $error });
 }
+
+sub new_datum($$%)
+{   my ($class, $revision, $column, $value) = @_;
+    $class->write($revision, $column, {
+        $column->error_field => 0,
+        $column->value_field => $value,
+    });
+}
+
+sub write($$$)
+{   my ($class, $revision, $column, $insert) = @_;
+    $insert->{record_id} = $revision->id;
+    $insert->{layout_id} = $column->id;
+
+    my $r = $::db->create($class->db_table, $insert);
+    $class->from_id($r->id, revision => $revision, column => $column);
+}
+
+has value_int     => ( is => 'rw' );
+has value_text    => ( is => 'rw' );
+has value_date    => ( is => 'rw' );
+has value_numeric => ( is => 'rw' );
 
 # Needed for overloading definitions, which should probably be removed at some
 # point as they offer little benefit
 sub as_integer { panic "Not implemented" }
 
-sub write_value
-{   my $self = shift;
-    $self->write_cache('calcval');
-}
-
 # Compare 2 calc values. Could be from database or calculation. May be used
 # with scalar values or arrays
 sub equal($$$)
 {   my ($self, $column, $a, $b) = @_;
-    my @a = sort(flat $a);
-    my @b = sort(flat $b);
+    my @a = sort flat($a);
+    my @b = sort flat($b);
     return 0 if @a != @b;
 
     my $rt = $column->return_type;
@@ -123,10 +109,9 @@ sub equal($$$)
 }
 
 sub _value_for_code
-{   my ($self, $column, $value) = @_;
-        $column->return_type eq 'date'
-      ? $self->_dt_for_code($value)
-      : $column->format_value($value);
+{   my ($self, $cell) = @_;
+    my $column = $cell->column;
+    $column->return_type eq 'date' ? $self->_dt_for_code($self->value) : $column->format_value($self->value);
 }
 
 1;

@@ -124,7 +124,6 @@ sub is_curcommon   { 0 }
 sub option_defaults{ shift;  +{ @_ } }
 sub option_names   { [ keys %{$_[0]->option_defaults} ] }
 sub retrieve_fields{ [ $_[0]->value_field ] }
-sub return_type    { 'string' }
 sub is_userinput   { 1 }
 sub value_to_write { 1 }      #XXX only in Autocur, may be removed
 sub variable_join  { 0 }      # joins can be different on the config
@@ -135,8 +134,8 @@ sub variable_join  { 0 }      # joins can be different on the config
 ### Class
 ###
 
-sub _validate($)
-{   my ($thing, $update) = @_;
+sub _validate($$)
+{   my ($thing, $update, $sheet) = @_;
     my $name = blessed $thing ? $thing->name_short : $update->{name_short};
 
     unless($update->{extras})
@@ -173,25 +172,26 @@ sub _validate($)
 
 sub _column_create
 {   my ($base_class, $insert, %args) = @_;
+    my $sheet = $insert->{sheet};
     my $class = $type2class{$insert->{type}} or panic $insert->{type} || 'missing type';
     $insert->{name} //= $insert->{name_short};
 
     $insert->{options} = $class->option_defaults;  # modified in validate()
-    $class->_validate($insert);
+    $class->_validate($insert, $sheet);
 
     $insert->{is_internal} //= $class->is_internal_type;
 
-    my $cond = $insert->{display_condition} ||= 'AND';
+    my $cond     = $insert->{display_condition} ||= 'AND';
     my $df_rules = delete $insert->{display_filter} || [];
 
-    my $perms = delete $insert->{permissions};
-    my $extra = delete $insert->{extras};
+    my $perms    = delete $insert->{permissions};
+    my $extras   = delete $insert->{extras};
 
     $insert->{is_textbox}    //= 0;
     $insert->{end_node_only} //= 0;
-    my $self = $class->create($insert, sheet => $insert->{sheet});
+    my $self     = $class->create($insert, sheet => $sheet, extras => $extras);
 
-    $self->_column_extra_update($extra, %args);
+    $self->_column_extra_update($extras, %args);
     $self->_display_filter_create($df_rules) if @$df_rules;
 #   $self->_column_perms_update($perms) if $perms;
     $self;
@@ -202,7 +202,7 @@ sub _column_extra_update($) {}
 
 sub _column_update($%)
 {   my ($self, $update, %args) = @_;
-    $self->_validate($update);
+    $self->_validate($update, $self->sheet);
 
     $self->_column_extra_update(delete $update->{extras}, %args);
     my $df_rules = delete $update->{display_filter};
@@ -707,7 +707,12 @@ sub related_sheet_id() {
 ### Datums
 ###
 
-# What will be inserted when a cell is created without values.
+=head2 \@values = $column->default_values;
+Produces values which have to be used for a call when there is no value provided.
+This differs from C<initial_datums()>, which may trigger computation based on values
+found in other columns later in the revision creation process.
+=cut
+
 sub default_values() { [] }
 
 sub datum_as_string { $_[1]->value }
@@ -719,5 +724,13 @@ sub sort_datums($)
     my %unsorted = map +($_->sortable => $_), @$datums;
     [ @unsorted{ sort keys %unsorted } ];
 }
+
+=head2 \@datums = $column->initial_datums($revision, %args);
+What to do when there are no values in a certain cell.  Usually, this is just
+an empty cell.  In case of computed cells however, this will trigger computation
+to fill the values.
+=cut
+
+sub initial_datums($$%) { [] }
 
 1;

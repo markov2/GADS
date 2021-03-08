@@ -39,29 +39,57 @@ isnt $column1d, $column1, 'recreated object';
 ok defined $column1d, 'Reload via id, avoiding cache';
 isa_ok $column1d, 'Linkspace::Column::Calc', '...';
 
-### Errors
+### Check compile-time errors
 
 ok 1, "Check errors";
 
-my $column2 = $layout->column_create({
-    type          => 'calc',
-    name          => 'column2 (long)',
-    name_short    => 'column2',
-});
+my $column2 = $layout->column_create({ type => 'calc', name_short => 'column2' });
 logline;
-
-try { $layout->column_update($column2 =>
-    { code => 'function evaluate (_id) return "test“test" end' }) };
-like $@->wasFatal, qr/^error: Extended characters are not supported/,
-    "... calc code with invalid character";
-
-try { $layout->column_update($column2 =>
-    { code => 'function (_id) end' }) };
-like $@->wasFatal, qr/^error: Invalid code: must contain function evaluate(...)/,
-    "... calc code is not a lua function";
 
 try { $layout->column_update($column2 => { return_type => 'unknown' }) };
 like $@->wasFatal, qr/^error: Unsupported return type 'unknown' for calc column/,
      "... unknown return type";
+
+
+try { $layout->column_update($column2 => { code => 'function (_id) end' }) };
+like $@->wasFatal, qr/^error: Invalid /,
+     "... lua validation enabled";
+
+### Check creation of run-time errors
+
+my $column3 = $layout->column_create({ type => 'calc', name_short => 'column3' });
+logline;
+
+$layout->column_update($column3 => { code => 'function evaluate (_id) [ end' });
+ok 1, "Try run-time error";
+
+my $row = $sheet->content->row_create({ revision => {} });
+ok defined $row, '... created empty row in the sheet';
+like logline, qr!/row=!, '... ... logged creation row';
+like logline, qr!/rev=!, '... ... logged creation revision';
+
+my $rev = $row->current;
+ok defined $rev, '... take revision';
+
+try { $rev->cell('column3')->value };
+like $@->wasFatal, qr/syntax error/, '... code has syntax error';
+
+
+### Check processing on request
+
+my $produce_int = "function evaluate()\n return 42 \nend";
+my $column4 = $layout->column_create({ type => 'calc', name_short => 'column4',
+   return_type => 'integer', code => $produce_int});
+logline;
+ 
+is $column4->return_type, 'integer', 'Try to return integer';
+is $column4->value_field, 'value_int', '... value in value_int';
+is $column4->error_field, 'value_numeric', '... errors in value_numeric';
+is $column4->code, $produce_int, '... code accepted';
+is $rev->cell($column4)->value, 42, '... calculated code';
+
+my $val4 = $::db->get_record(Calcval => { layout_id => $column4->id, record_id => $rev->id });
+ok defined $val4, '... found stored datum';
+isa_ok $val4, 'GADS::Schema::Result::Calcval', '... ';
 
 done_testing;

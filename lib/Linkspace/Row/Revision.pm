@@ -329,7 +329,7 @@ sub cell($)
             push @{$index->{$_->column_id}}, $_
                 for @{$datum_class->datums_for_revision($self)};
         }
-        $datums     = delete $index->{$col_id} || [];
+        $datums     = delete $index->{$col_id} || $column->initial_datums($self);
         $_->column($column) for @$datums;
     }
 
